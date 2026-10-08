@@ -595,7 +595,7 @@ def fig_galilean(R, figdir):
     plt = _plt()
     cs = R["cases"]
     fig, ax = plt.subplots(1, 2, figsize=(9.5, 3.0))
-    names = list(cs)
+    names = sorted(cs, key=lambda n: (cs[n]["bulk"][0], abs(cs[n]["bulk"][2])))
     for k, n in enumerate(names):
         pr = cs[n]["profile"]
         b = cs[n]["bulk"]
@@ -670,7 +670,8 @@ def fig_sound(R, figdir):
         if not Ns:
             continue
         g = lambda key: [abs(cs[f"sound_{d}_N{N}"][key]) for N in Ns]  # noqa
-        ax[0].loglog(Ns, g("l1_end"), "o-", color=C[k], label=f"wave along {d}", ms=4)
+        ax[0].loglog(Ns, g("k1_err_end"), "o-", color=C[k], label=f"k=1 mode, along {d}", ms=4)
+        ax[0].loglog(Ns, g("l1_end"), "s--", color=C[k], label=f"L1, along {d}", ms=3, lw=0.8)
         ax[1].loglog(Ns, g("speed_err"), "o-", color=C[k], ms=4)
         ax[2].loglog(Ns, g("damping_per_period"), "o-", color=C[k], ms=4)
     Nr = np.array([16, 128])
@@ -678,11 +679,11 @@ def fig_sound(R, figdir):
         a.loglog(Nr, y0 * (Nr / 16.0) ** -2, ":", color=INK2, lw=0.8)
         a.text(64, y0 * 4 ** -2 * 1.3, r"$N^{-2}$", color=INK2)
         a.set_xlabel("cells per wavelength")
-    ax[0].set_ylabel("L1(δρ)/A after one period")
+    ax[0].set_ylabel("error / A after one period")
     ax[1].set_ylabel("|phase speed error| / c")
     ax[2].set_ylabel("amplitude loss per period")
     ax[0].legend(fontsize=7)
-    fig.suptitle("Linear sound wave (A = 1e-4)", fontsize=9)
+    fig.suptitle("Linear sound wave (A = 1e-3), one period", fontsize=9)
     fig.tight_layout()
     _save(fig, figdir, "sound")
     plt.close(fig)
