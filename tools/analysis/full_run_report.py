@@ -205,6 +205,8 @@ def main():
                 ax.loglog(k, d[:, 5], "x", ms=3, color=line[0].get_color())
                 ax.loglog(k, lin, "-", lw=1, color=line[0].get_color())
         if plt and figdir:
+            from matplotlib.ticker import NullFormatter
+            ax.xaxis.set_minor_formatter(NullFormatter())
             ax.set_xlabel("k [h/Mpc]")
             ax.set_ylabel("Delta^2(k)")
             ax.legend(fontsize=7)

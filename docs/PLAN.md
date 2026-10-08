@@ -104,3 +104,18 @@ and adaptive calculations.
    efficiently (4 cores, 15 GB RAM, no GPU). This first needs OpenMP in the
    hot loops and a ray-memory budget (`nray_max_factor`). The size gets
    decided from measured timings.
+
+## Phase 1c (done 2026-10-08): the full radhydro loop
+
+* One FFT layer, one `calc_timestep`, one `summarize_gas`, one set of gas
+  domains, in C++ and in the Fortran harnesses (`reference/harness_common`).
+* `apps/radhydro`: the complete `radhydro.f90` loop with run-time N, Ndm,
+  box, zdata, source mode (legacy catalogs or on-the-fly FoF), `legacy_rt`,
+  `legacy_physics`, `nray_max_factor`.
+* `reference/harness_full`: gfortran build of the original program; the
+  on-the-fly mode calls the C++ halo finder through a C interface.
+* Bit-identical Fortran vs C++ on all validation cases
+  (`tests/problems_full`), both source modes, both flag settings.
+* Cost: RT dominates (rays × light-crossing substeps); see
+  `docs/full_run.md` §5 for the measured cost model and the extrapolation
+  that sizes the production run.
