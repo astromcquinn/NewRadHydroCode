@@ -147,7 +147,10 @@ and adaptive calculations.
   framework spike. Single-node OpenMP runs on Hyak cover testing until then.
 * **Cluster:** UW Hyak `klone`, about 15 group nodes, high memory, no queue
   time limits. GPU count still unknown.
-* **Dense gas under AMR:** an efficient star-formation sink (behind a flag),
-  in preference to the no-cooling switch.
+* **Dense gas under AMR:** keep cold dense gas by default; the
+  star-formation sink is an optional flag (revised 2026-10-08). Whether
+  cooling stays on in dense gas is still open.
+* **Plane-parallel RT mode** (rays cast from box faces): requested, see
+  `docs/ROADMAP.md`.
 * **RT accuracy target:** a few percent in astrophysical outputs. Ray-level
   precision is set empirically against acceptance metrics.
