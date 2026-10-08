@@ -62,7 +62,9 @@ constexpr double HeII_K = HeII_eV * eV2K;
 
 namespace cp {  // cosmo_parameters.f90
 
-constexpr double box = 5;  // Mpc/h (integer literal)
+// box = 5 (Mpc/h, integer literal) in the original; a run-time value here
+// (Config::box), this is only the default.
+constexpr double box_default = 5;
 
 constexpr double omegam = static_cast<double>(0.27f);
 constexpr double omegal = 1 - omegam;

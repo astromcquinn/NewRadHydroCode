@@ -8,8 +8,8 @@
 // radhydro.f90's main loop does with hydro and RT switched off:
 //   calc_sim_var; calc_timestep (complete: PM/hydro constraints, ra_max, or
 //   a fixed da_sim); half clock step + calc_sim_var; particle_mesh; half clock
-//   step + calc_sim_var; summarize_dm; summarize_gas (time-step part);
-//   calc_power_spectrum every pk_every steps
+//   step + calc_sim_var; summarize_dm; summarize_gas (the full routine of
+//   the hydro port); calc_power_spectrum every pk_every steps
 // and writes <outdir>/step_%04d/{xv_dm,u_gas,v_gas,phi}.bin + stats.txt
 // (step_0000: the initial state, plus w_gas.bin) and <outdir>/Pk/pk.<ztag>.
 #include <chrono>
@@ -23,6 +23,7 @@
 
 #include "radray/cosmology.hpp"
 #include "radray/fft.hpp"
+#include "radray/hydro.hpp"
 #include "radray/io.hpp"
 #include "radray/pm.hpp"
 
@@ -90,25 +91,30 @@ int main(int argc, char** argv) {
 
     std::filesystem::create_directories(odir + "/Pk");
 
-    const Config cfg = Config::make(P.Ngas);
+    const Config cfg = Config::make(P.Ngas, 64, P.Ndm);
     pm::PMState pm;
     SimClock clk;
     Units units;
-    std::vector<float> u_gas(5 * cfg.Ncell, 0.0f), v_gas(3 * cfg.Ncell, 0.0f),
-        w_gas(4 * cfg.Ncell, 0.0f);
+    Domains dom;
+    GasGrid gas;
+    HydroState hs;
 
     // Initialize (order as in radhydro.f90)
     init_variables(P.z_init, clk);
-    pm::init_pm(pm, pm::PMConfig::make(P.Ngas, P.Ndm, P.mf != 0));
+    init_domain_gas(cfg, dom);
+    init_hydro(cfg, gas, hs);
+    pm::init_pm(pm, pm::PMConfig::make(cfg, P.mf != 0), dom);
     fft::fft_3d('f', P.Ngas, P.Ngas, P.Ngas, pm.density.data());  // init_fft
     calc_sim_var(cfg, clk, units);
 
-    pm::read_init_conditions(pdir, pm, u_gas, w_gas, units);
+    pm::read_init_conditions(pdir, pm, gas.u, gas.w, units);
 
     calc_sim_var(cfg, clk, units);
     pm::summarize_dm(pm, units, out);
-    pm::GasSpeeds gs = pm::summarize_gas_speeds(P.Ngas, u_gas.data(), v_gas.data(),
-                                                 w_gas.data(), units);
+    summarize_gas(cfg, units, clk, gas, hs, nullptr);
+    std::vector<float>& u_gas = gas.u;
+    std::vector<float>& v_gas = hs.v;
+    std::vector<float>& w_gas = gas.w;
 
     auto write_step = [&](bool initial) {
       char name[32];
@@ -137,13 +143,13 @@ int main(int argc, char** argv) {
       d1("da_sim", clk.da_sim);
       d1("dt_sim", clk.dt_sim);
       d1("dt_yr", clk.dt_yr);
-      d1("amax_dm", pm.amax_dm);
-      d1("arms_dm", pm.arms_dm);
-      d1("vmax_dm", pm.vmax_dm);
-      d1("vrms_dm", pm.vrms_dm);
-      d1("cmax_gas", gs.cmax_gas);
-      d1("vmax_gas", gs.vmax_gas);
-      d1("vrms_gas", gs.vrms_gas);
+      d1("amax_dm", clk.amax_dm);
+      d1("arms_dm", clk.arms_dm);
+      d1("vmax_dm", clk.vmax_dm);
+      d1("vrms_dm", clk.vrms_dm);
+      d1("cmax_gas", clk.cmax_gas);
+      d1("vmax_gas", clk.vmax_gas);
+      d1("vrms_gas", clk.vrms_gas);
       const char* ax = "xyz";
       for (int m = 0; m < 3; ++m) {
         d1(std::string("dm_") + ax[m] + "_avg", ds.xavg[m]);
@@ -163,7 +169,8 @@ int main(int argc, char** argv) {
     std::vector<double> pk_dm, pk_gas;
     for (int step = 1; step <= P.nsteps; ++step) {
       calc_sim_var(cfg, clk, units);
-      pm::calc_timestep_full(cfg, pm, gs, clk, units, P.da_sim, out);
+      calc_timestep(cfg, units, P.da_sim > 0 ? TimestepMode::Fixed : TimestepMode::Original,
+                    P.da_sim, clk, out);
 
       // radhydro: forward hydro skipped
       clk.year = clk.year + clk.dt_yr / 2;
@@ -182,10 +189,10 @@ int main(int argc, char** argv) {
       calc_sim_var(cfg, clk, units);
 
       pm::summarize_dm(pm, units, out);
-      gs = pm::summarize_gas_speeds(P.Ngas, u_gas.data(), v_gas.data(), w_gas.data(), units);
+      summarize_gas(cfg, units, clk, gas, hs, nullptr);
 
       if (P.pk_every > 0 && clk.istep % P.pk_every == 0) {
-        pm::calc_power_spectrum(pm, u_gas.data(), pk_dm, pk_gas);
+        pm::calc_power_spectrum(pm, u_gas.data(), cfg.box, pk_dm, pk_gas);
         pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(clk.redshift), pm, pk_dm, pk_gas);
       }
       write_step(false);

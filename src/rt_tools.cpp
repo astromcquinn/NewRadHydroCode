@@ -176,7 +176,7 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
         s.rt_stat.Luv = s.rt_stat.Luv + Luv;
         s.rt_stat.sfr = s.rt_stat.sfr + sfr;
       }
-  const double vbox = f::pow3(box / hubble0);
+  const double vbox = f::pow3(s.cfg.box / hubble0);
   s.rt_save.Luv = s.rt_stat.Luv / vbox;
   s.rt_save.sfr = s.rt_stat.sfr / vbox;
   s.Nsource = static_cast<std::int64_t>(sources.size());

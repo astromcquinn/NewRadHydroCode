@@ -10,6 +10,7 @@
 #include "check.hpp"
 #include "radray/constants.hpp"
 #include "radray/fft.hpp"
+#include "radray/hydro.hpp"
 #include "radray/pm.hpp"
 
 using namespace radray;
@@ -80,9 +81,10 @@ static void test_fft_1d() {
 }
 
 static void test_domains() {
-  const pm::GasDomains d = pm::init_domain_gas(32);
+  Domains d;
+  init_domain_gas(Config::make(32), d);
   CHECK(d.Ndomain == 8);
-  CHECK(d.Nx == 16);
+  CHECK(d.Nx_dom == 16);
   // domain 6 (1-based): i = 2, j = 1, k = 2
   CHECK(d.box[5][0] == 17 && d.box[5][1] == 32);
   CHECK(d.box[5][2] == 1 && d.box[5][3] == 16);
@@ -91,7 +93,11 @@ static void test_domains() {
 
 static void test_link_and_cic() {
   pm::PMState s;
-  pm::init_pm(s, pm::PMConfig::make(8, 4));
+  {
+    Domains d;
+    init_domain_gas(Config::make(8), d);
+    pm::init_pm(s, pm::PMConfig::make(8, 4), d);
+  }
   std::mt19937 rng(3);
   std::uniform_real_distribution<float> U(0, 4);
   for (std::int64_t ip = 1; ip <= s.pc.Npart; ++ip)
@@ -133,7 +139,11 @@ static void test_potential_single_mode() {
   // finite-difference K^2 = (2 sin(k/2))^2, Aphi = -2a/3
   const int N = 16;
   pm::PMState s;
-  pm::init_pm(s, pm::PMConfig::make(N, 8));
+  {
+    Domains d;
+    init_domain_gas(Config::make(N), d);
+    pm::init_pm(s, pm::PMConfig::make(N, 8), d);
+  }
   std::vector<float> u(5 * N * N * N, 0.0f);
   const double eps = 0.1, kk = 2 * pc::pi / N, a = 0.5;
   for (int k = 1; k <= N; ++k)

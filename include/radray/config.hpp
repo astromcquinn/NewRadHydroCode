@@ -15,7 +15,13 @@ struct Config {
   int Ngas = 0;  // gas grid size per dimension
   int Nrt = 0;   // RT grid size per dimension (== Ngas here)
   int Hrt = 0;   // Nrt/2
-  int Ndm = 0;   // Ngas/2 (only used for unit bookkeeping)
+  int Ndm = 0;   // DM particles per dimension (Npart = Ndm^3); default Ngas/2
+  std::int64_t Npart = 0;  // Ndm^3
+
+  // cosmo_parameters.f90: box (comoving Mpc/h). A compile-time parameter in
+  // the original (5); a run-time value here (the Fortran harnesses set it
+  // with -DBOX).
+  double box = 5;
   std::int64_t Ncell = 0;  // Ngas^3
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
@@ -26,6 +32,7 @@ struct Config {
   double x_rt_gas = 1;
 
   double x_gas_box = 0;  // box/ngasr
+  double x_dm_box = 0;   // box/ndmr
   double x_rt_box = 0;   // box/nrtr
 
   // Rays: Nray_max = nray_max_factor*Nrt^3 (64 in the original),
@@ -39,7 +46,8 @@ struct Config {
   // default) reproduces the original Fortran bit-for-bit.
   bool legacy_rt = true;
 
-  static Config make(int N, int nray_max_factor = 64);
+  // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
+  static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };
 
 }  // namespace radray

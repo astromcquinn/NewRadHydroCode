@@ -59,19 +59,23 @@ if(RADRAY_WITH_PM)
   find_library(FFTW3F_LIBRARY fftw3f)
   if(FFTW3F_INCLUDE_DIR AND FFTW3F_LIBRARY)
     set(RADRAY_HAVE_PM ON)
-    add_library(radray_pm src/fft.cpp src/pm.cpp)
-    target_include_directories(radray_pm PRIVATE ${FFTW3F_INCLUDE_DIR})
-    target_link_libraries(radray_pm PUBLIC radray ${FFTW3F_LIBRARY})
-    add_executable(pm_driver apps/pm_driver.cpp)
-    target_link_libraries(pm_driver PRIVATE radray_pm)
-    message(STATUS "PM gravity: enabled (FFTW3f: ${FFTW3F_LIBRARY})")
-    # Hydro solver (hydro_tools.f90 -DMF) and gas domains, see
-    # docs/port_notes_hydro.md; also uses FFTW3f in place of MKL DFTI.
+    # One FFT layer (MKL DFTI semantics on FFTW3f) for the hydro (1-D) and
+    # the PM (3-D), see include/radray/fft.hpp.
+    add_library(radray_fft src/fft.cpp)
+    target_include_directories(radray_fft PRIVATE ${FFTW3F_INCLUDE_DIR})
+    target_link_libraries(radray_fft PUBLIC radray ${FFTW3F_LIBRARY})
+    # Hydro solver (hydro_tools.f90 -DMF), summarize_gas and the gas
+    # domains, see docs/port_notes_hydro.md.
     add_library(radray_hydro src/hydro.cpp src/domain_gas.cpp)
-    target_include_directories(radray_hydro PUBLIC ${FFTW3F_INCLUDE_DIR})
-    target_link_libraries(radray_hydro PUBLIC radray ${FFTW3F_LIBRARY})
+    target_link_libraries(radray_hydro PUBLIC radray_fft)
     add_executable(hydro_driver apps/hydro_driver.cpp)
     target_link_libraries(hydro_driver PRIVATE radray_hydro)
+    # PM gravity (pm_tools.f90); uses the gas domains and summarize_gas.
+    add_library(radray_pm src/pm.cpp)
+    target_link_libraries(radray_pm PUBLIC radray_hydro)
+    add_executable(pm_driver apps/pm_driver.cpp)
+    target_link_libraries(pm_driver PRIVATE radray_pm)
+    message(STATUS "PM gravity and hydro: enabled (FFTW3f: ${FFTW3F_LIBRARY})")
   else()
     message(STATUS "PM gravity: disabled (FFTW3f not found)")
   endif()

@@ -377,7 +377,7 @@ void test_source_models() {
     if (i > 0) CHECK(c.halo[i].sfr <= c.halo[i - 1].sfr);
   }
   for (std::size_t i = c.Nsource; i < c.halo.size(); ++i) CHECK(c.halo[i].L == 0);
-  const double vbox = std::pow(cp::box / cp::hubble0, 3);
+  const double vbox = std::pow(cp::box_default / cp::hubble0, 3);
   CHECK_CLOSE(sfr, global_sfr_density(8, p, nullptr) * vbox, 1e-5);
   // Hernquist & Springel fit: 0.013 at z=0 by construction, peak at z~5
   CHECK_CLOSE(global_sfr_density(0, p, nullptr), 0.013, 1e-3);  // omegar: chi(0)!=1

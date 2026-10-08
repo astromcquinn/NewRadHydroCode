@@ -1,6 +1,8 @@
 #include "radray/cosmology.hpp"
 
 #include <cmath>
+#include <cstdio>
+#include <ostream>
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
@@ -10,13 +12,15 @@ namespace radray {
 using namespace pc;
 using namespace cp;
 
-Config Config::make(int N, int nray_max_factor) {
+Config Config::make(int N, int nray_max_factor, int Ndm, double box_mpch) {
   Config c;
   c.Ncpu = 1;
   c.Ngas = N;
   c.Nrt = N;
   c.Hrt = c.Nrt / 2;
-  c.Ndm = c.Ngas / 2;
+  c.Ndm = Ndm > 0 ? Ndm : c.Ngas / 2;
+  c.Npart = static_cast<std::int64_t>(c.Ndm) * c.Ndm * c.Ndm;
+  c.box = box_mpch;
   c.Ncell = static_cast<std::int64_t>(c.Ngas) * c.Ngas * c.Ngas;
   c.Nrtc = static_cast<std::int64_t>(c.Nrt) * c.Nrt * c.Nrt;
   c.ngasr = c.Ngas;
@@ -27,8 +31,9 @@ Config Config::make(int N, int nray_max_factor) {
   c.N_rt_gas = c.Ngas / c.Nrt;
   c.N_rt_gas_c = c.N_rt_gas * c.N_rt_gas * c.N_rt_gas;
   c.x_rt_gas = c.N_rt_gas;
-  c.x_gas_box = box / c.ngasr;
-  c.x_rt_box = box / c.nrtr;
+  c.x_gas_box = c.box / c.ngasr;
+  c.x_dm_box = c.box / static_cast<double>(c.Ndm);
+  c.x_rt_box = c.box / c.nrtr;
   c.nray_max_factor = nray_max_factor;
   c.Nray_max = nray_max_factor * c.Nrtc;
   c.Nfree_max = c.Nray_max / (4 * c.Ncpu);
@@ -50,7 +55,7 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   u.Tcmb = Tcmb0 / a;
 
   // Grid units
-  u.x_unit = (a * box / h0 / cfg.Ngas) * Mpc2cm;
+  u.x_unit = (a * cfg.box / h0 / cfg.Ngas) * Mpc2cm;
   u.rho_unit = rhoc_cgs * om * f::pow2(h0) / f::pow3(a);
   u.mass_unit = u.rho_unit * f::pow3(u.x_unit);
   u.time_unit = 2 / (3 * H0_cgs * h0 * std::sqrt(om)) * f::pow2(a);
@@ -59,7 +64,11 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   u.acc_unit = u.x_unit / f::pow2(u.time_unit);
   u.eden_unit = u.rho_unit * f::pow2(u.vel_unit);
   u.cs_unit = u.vel_unit;
-  // (mp_unit, Msun_unit: particle units, not used by RT -> omitted)
+  // Particle units: mp_unit = rhoc_cgs*om*(box*Mpc2cm)**3/h0/Npart. In the
+  // original box is a parameter and (box*Mpc2cm)**3 is folded at compile
+  // time; only the halo finder uses these (C++ in both codes).
+  u.mp_unit = rhoc_cgs * om * f::pow3(cfg.box * Mpc2cm) / h0 / static_cast<double>(cfg.Npart);
+  u.Msun_unit = u.mp_unit / Msun_cgs;
 
   // Cell sizes in cgs
   u.len_gas = u.x_unit;
@@ -175,27 +184,99 @@ void init_variables(double z_init, SimClock& clk) {
   }
 }
 
-// radhydro.f90: calc_timestep (RT part; da_sim fixed by the spec)
-int calc_timestep(const Config& cfg, double da_fixed, SimClock& clk) {
+// radhydro.f90: calc_timestep, without the speed conversions and output
+namespace {
+TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed, SimClock& clk) {
+  using namespace stepp;
+  TimestepInfo t;
+  const double z = clk.redshift;
   const double a = clk.scalefactor;
 
-  clk.da_sim = da_fixed;
-  calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-  clk.dt_sec = clk.dt_yr * yr2sec;
+  // Time steps. There are two hydro steps per PM step
+  const bool first = (mode == TimestepMode::Fixed) ||
+                     (mode == TimestepMode::Original && clk.istep == 0);
+  if (first) {
+    if (mode == TimestepMode::Fixed)
+      clk.da_sim = da_fixed;
+    else  // Restrict expansion timestep based on da/a ratio
+      clk.da_sim = a * ra_max / (1 - ra_max);
+    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+    t.dt_vg = 0;
+    t.dt_ap = 0;
+    clk.dt_sec = clk.dt_yr * yr2sec;
+  } else {
+    // dt_ap = +Infinity without particles (amax_dm = 0)
+    t.dt_vg = 2 * dt_gas_factor / clk.cmax_gas;
+    t.dt_ap = dt_pm_factor / std::sqrt(clk.amax_dm);
+    clk.dt_sim = f::gmin(t.dt_vg, t.dt_ap);
+    calc_da_from_dt(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+    clk.da_sim = f::gmin(clk.da_sim, a * ra_max / (1 - ra_max));
+    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+    t.dt_vg = clk.dt_yr * (t.dt_vg / clk.dt_sim);
+    t.dt_ap = clk.dt_yr * (t.dt_ap / clk.dt_sim);
+    clk.dt_sec = clk.dt_yr * yr2sec;
+  }
 
   // RT time step
   const double cscale = 1;
   const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
                       (std::sqrt(a + clk.da_sim) - std::sqrt(a));
-  const double dl_rt = box / hubble0 * Mpc2cm / cfg.Nrt;
-  const int ns_rt = f::nint(dl_c / dl_rt);
+  const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
+  t.ns_rt = f::nint(dl_c / dl_rt);
   clk.nstep_rt = f::nint(dl_c / dl_rt * cscale);
   clk.dt_rt = clk.dt_sim / clk.nstep_rt;
   clk.dtyr_rt = clk.dt_yr * (clk.dt_rt / clk.dt_sim);
   clk.dtsec_rt = clk.dt_sec * (clk.dt_rt / clk.dt_sim);
 
+  // Update timing variables
   clk.istep = clk.istep + 1;
-  return ns_rt;
+  t.a1 = a;
+  t.a2 = a + clk.da_sim;
+  t.z1 = z;
+  t.z2 = 1 / t.a2 - 1;
+  t.y1 = clk.year;
+  t.y2 = clk.year + clk.dt_yr;
+  return t;
+}
+}  // namespace
+
+TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode, double da_fixed,
+                           SimClock& clk, std::ostream* out) {
+  const TimestepInfo t = timestep_core(cfg, mode, da_fixed, clk);
+
+  // Velocity in km/s, acceleration in km/s/Gyr (in place, as the original;
+  // 1E5 and 1E9 are real(4) literals, exact)
+  const double c5 = static_cast<double>(1e5f), c9 = static_cast<double>(1e9f);
+  clk.vmax_gas = clk.vmax_gas * u.vel_unit / c5;
+  clk.vrms_gas = clk.vrms_gas * u.vel_unit / c5;
+  clk.vmax_dm = clk.vmax_dm * u.vel_unit / c5;
+  clk.vrms_dm = clk.vrms_dm * u.vel_unit / c5;
+  clk.amax_dm = clk.amax_dm * u.acc_unit / c5 / sec2yr * c9;
+  clk.arms_dm = clk.arms_dm * u.acc_unit / c5 / sec2yr * c9;
+
+  if (out) {
+    char buf[640];
+    auto r = [](double x) { return static_cast<double>(static_cast<float>(x)); };
+    std::snprintf(buf, sizeof buf,
+                  "\n Step number  : %d\n Redshift     : %15.8g %15.8g %15.8g\n"
+                  " Scale factor : %15.8g %15.8g %15.8g %15.8g\n"
+                  " Year         : %15.8g %15.8g %15.8g %15.8g\n",
+                  clk.istep, r(t.z1), r(t.z2), r(t.z2 - t.z1), r(t.a1), r(t.a2), r(t.a2 - t.a1),
+                  r(clk.da_sim / t.a2), r(t.y1), r(t.y2), r(t.y2 - t.y1), r(clk.dt_yr / t.y2));
+    *out << buf;
+    std::snprintf(buf, sizeof buf,
+                  " Velocity Gas : %15.8g %15.8g %15.8g\n Velocity DM  : %15.8g %15.8g\n"
+                  " Acceleration : %15.8g %15.8g %15.8g\n RT           : %d %d %15.8g\n\n",
+                  r(clk.vrms_gas), r(clk.vmax_gas), r(t.dt_vg), r(clk.vrms_dm), r(clk.vmax_dm),
+                  r(clk.arms_dm), r(clk.amax_dm), r(t.dt_ap), clk.nstep_rt, t.ns_rt,
+                  r(clk.dtyr_rt));
+    *out << buf;
+  }
+  return t;
+}
+
+int calc_timestep(const Config& cfg, double da_fixed, SimClock& clk) {
+  return timestep_core(cfg, TimestepMode::Fixed, da_fixed, clk).ns_rt;
 }
 
 // radhydro.f90: radhydro (clock part only)

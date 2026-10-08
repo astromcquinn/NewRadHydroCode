@@ -19,8 +19,6 @@
 //     MKL_DFTI shim of reference/harness_hydro, so both agree bit for bit.
 #include "radray/hydro.hpp"
 
-#include <fftw3.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -29,6 +27,7 @@
 #include <stdexcept>
 
 #include "radray/constants.hpp"
+#include "radray/fft.hpp"
 #include "radray/fortran.hpp"
 
 namespace radray {
@@ -40,22 +39,10 @@ namespace {
 
 constexpr double g = gamma_ideal;
 
-// gfortran MAX/MIN semantics (two arguments, same kind after promotion).
-inline double gmax(double a, double b) {
-  if (std::isnan(a)) return a;
-  if (std::isnan(b)) return b;
-  return (b > a) ? b : a;
-}
-inline double gmin(double a, double b) {
-  if (std::isnan(a)) return a;
-  if (std::isnan(b)) return b;
-  return (a < b) ? a : b;
-}
-inline float gmaxf(float a, float b) {
-  if (std::isnan(a)) return a;
-  if (std::isnan(b)) return b;
-  return (b > a) ? b : a;
-}
+// gfortran MAX/MIN semantics (two arguments, same kind after promotion)
+inline double gmax(double a, double b) { return f::gmax(a, b); }
+inline double gmin(double a, double b) { return f::gmin(a, b); }
+inline float gmaxf(float a, float b) { return f::gmax(a, b); }
 
 // sum(x(1:3)**2): real(4) array -> float accumulation; real(8) -> double
 inline float sumsq3(const float* x) {
@@ -87,45 +74,7 @@ inline double maxabs3(const double* x) {
 inline int im_of(int i, int N) { return 1 + (i - 2 + N) % N; }
 inline int ip_of(int i, int N) { return 1 + i % N; }
 
-// 1-D single-precision real FFT, in place on n+2 floats (MKL CCS layout =
-// FFTW r2c layout). Mirrors reference/harness_hydro/src/mkl_dfti_shim.f90.
-class Fft1d {
- public:
-  Fft1d(int n, float bscale) : n_(n), bscale_(bscale) {
-    buf_ = fftwf_alloc_real(static_cast<std::size_t>(n + 2));
-    if (!buf_) throw std::bad_alloc();
-    auto* c = reinterpret_cast<fftwf_complex*>(buf_);
-    pf_ = fftwf_plan_dft_r2c_1d(n, buf_, c, FFTW_ESTIMATE);
-    pb_ = fftwf_plan_dft_c2r_1d(n, c, buf_, FFTW_ESTIMATE);
-    if (!pf_ || !pb_) throw std::runtime_error("FFTW planning failed");
-  }
-  ~Fft1d() {
-    fftwf_destroy_plan(pf_);
-    fftwf_destroy_plan(pb_);
-    fftwf_free(buf_);
-  }
-  Fft1d(const Fft1d&) = delete;
-  Fft1d& operator=(const Fft1d&) = delete;
-
-  // DftiComputeForward: x(1:n) -> x(1:n+2)
-  void forward(float* x) {
-    std::memcpy(buf_, x, sizeof(float) * n_);
-    fftwf_execute_dft_r2c(pf_, buf_, reinterpret_cast<fftwf_complex*>(buf_));
-    std::memcpy(x, buf_, sizeof(float) * (n_ + 2));
-  }
-  // DftiComputeBackward: x(1:n+2) -> x(1:n) = c2r(x) * bscale
-  void backward(float* x) {
-    std::memcpy(buf_, x, sizeof(float) * (n_ + 2));
-    fftwf_execute_dft_c2r(pb_, reinterpret_cast<fftwf_complex*>(buf_), buf_);
-    for (int i = 0; i < n_; ++i) x[i] = buf_[i] * bscale_;
-  }
-
- private:
-  int n_;
-  float bscale_;
-  float* buf_ = nullptr;
-  fftwf_plan pf_ = nullptr, pb_ = nullptr;
-};
+using fft::Fft1d;  // MKL DFTI 1-D descriptor equivalent (fft.hpp)
 
 // Parameters of one hydro_step and scratch space for one pencil.
 struct Sweep {
@@ -854,7 +803,7 @@ void hydro_step(const Config& cfg, const Units& un, const SimClock& clk,
   const float bscale = 1.0f / static_cast<float>(N);
 
   // Calc freezing speed limit
-  hs.c_limit = gmax(2 * hs.cmax_gas, static_cast<double>(2e8f) / un.vel_unit);
+  hs.c_limit = gmax(2 * clk.cmax_gas, static_cast<double>(2e8f) / un.vel_unit);
 
   Fft1d fft(N, bscale);
   Sweep S;
@@ -975,7 +924,7 @@ inline double alpha_B(double x) {
 }
 }  // namespace
 
-GasSummary summarize_gas(const Config& cfg, const Units& un, const SimClock& clk,
+GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
                          GasGrid& gas, HydroState& hs, std::ostream* out) {
   const double ob = omegab, om = omegam;
   const double fb = ob / om;
@@ -1098,10 +1047,10 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, const SimClock& clk
   }
 
   // Update global variables
-  hs.cmax_gas = cmax;
-  hs.vmax_gas = gmax(gmax(x4[1], x4[2]) /* maxval(x4(2:3)): vz omitted */,
+  clk.cmax_gas = cmax;
+  clk.vmax_gas = gmax(gmax(x4[1], x4[2]) /* maxval(x4(2:3)): vz omitted */,
                      gmax(gmax(std::fabs(x3[1]), std::fabs(x3[2])), std::fabs(x3[3])));
-  hs.vrms_gas = std::sqrt(vrms / Ncell);
+  clk.vrms_gas = std::sqrt(vrms / Ncell);
 
   const double v5 = static_cast<double>(1e5f);
   GasSummary S;
@@ -1164,56 +1113,6 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, const SimClock& clk
     }
   }
   return S;
-}
-
-// --------------------------------------------------------------------------
-// radhydro.f90: calc_timestep (hydro part)
-// --------------------------------------------------------------------------
-double calc_timestep_hydro(const Units& un, TimestepMode mode, double da_fixed,
-                           double amax_dm, SimClock& clk, HydroState& hs, std::ostream* out) {
-  using namespace hydrop;
-  const double z = clk.redshift;
-  const double a = clk.scalefactor;
-  double dt_vg, dt_ap;
-  if (mode == TimestepMode::Fixed) {
-    clk.da_sim = da_fixed;
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    dt_vg = 0;
-    dt_ap = 0;
-    clk.dt_sec = clk.dt_yr * yr2sec;
-  } else {
-    dt_vg = 2 * dt_gas_factor / hs.cmax_gas;
-    dt_ap = dt_pm_factor / std::sqrt(amax_dm);  // +Inf with no particles
-    clk.dt_sim = gmin(dt_vg, dt_ap);
-    calc_da_from_dt(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    clk.da_sim = gmin(clk.da_sim, a * ra_max / (1 - ra_max));
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    dt_vg = clk.dt_yr * (dt_vg / clk.dt_sim);
-    dt_ap = clk.dt_yr * (dt_ap / clk.dt_sim);
-    clk.dt_sec = clk.dt_yr * yr2sec;
-  }
-
-  clk.istep = clk.istep + 1;
-  const double a1 = a, a2 = a + clk.da_sim;
-  const double z1 = z, z2 = 1 / a2 - 1;
-  const double y1 = clk.year, y2 = clk.year + clk.dt_yr;
-
-  // Velocity in km/s
-  hs.vmax_gas = hs.vmax_gas * un.vel_unit / static_cast<double>(1e5f);
-  hs.vrms_gas = hs.vrms_gas * un.vel_unit / static_cast<double>(1e5f);
-
-  if (out) {
-    char buf[1024];
-    std::snprintf(buf, sizeof buf,
-                  "\n Step number  : %d\n Redshift     : %g %g %g\n"
-                  " Scale factor : %g %g %g %g\n Year         : %g %g %g %g\n"
-                  " Velocity Gas : %g %g %g\n dt_sim       : %.17g\n",
-                  clk.istep, z1, z2, z2 - z1, a1, a2, a2 - a1, clk.da_sim / a2, y1, y2, y2 - y1,
-                  clk.dt_yr / y2, hs.vrms_gas, hs.vmax_gas, dt_vg, clk.dt_sim);
-    *out << buf;
-  }
-  (void)dt_ap;
-  return dt_vg;
 }
 
 // --------------------------------------------------------------------------

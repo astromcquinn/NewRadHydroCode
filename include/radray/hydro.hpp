@@ -28,9 +28,9 @@ namespace radray {
 
 // radhydro_global.f90 time-stepping parameters
 namespace hydrop {
-constexpr double ra_max = static_cast<double>(0.1f);  // real(8) from real(4) literal
-constexpr double dt_gas_factor = 0.5;
-constexpr double dt_pm_factor = 0.5;
+using stepp::ra_max;         // cosmology.hpp
+using stepp::dt_gas_factor;
+using stepp::dt_pm_factor;
 // hydro_tools.f90 module parameters
 constexpr double rmf = 8;                // MF velocity smoothing scale [cells]
 constexpr double cfl = dt_gas_factor;    // Courant factor of the sweeps
@@ -52,7 +52,6 @@ struct HydroCounters {
 struct HydroState {
   int N = 0;
   std::vector<float> v;  // v_gas(3,N^3)
-  double cmax_gas = 0, vmax_gas = 0, vrms_gas = 0;  // set by summarize_gas
   double c_limit = 0;                               // set by hydro_step
   double dt_hy = 0;                                 // set by hydro_step
   std::array<double, 2> vmax_last{};  // hydro_step's local vmax (log only)
@@ -81,7 +80,7 @@ void hydro_step(const Config& cfg, const Units& un, const SimClock& clk,
 void transpose_ij(GasGrid& gas, HydroState& hs);
 void transpose_ik(GasGrid& gas, HydroState& hs);
 
-// hydro_tools.f90: summarize_gas. Sets hs.cmax_gas, vmax_gas, vrms_gas and
+// hydro_tools.f90: summarize_gas. Sets clk.cmax_gas, vmax_gas, vrms_gas and
 // (side effects of the original) clamps u_gas(1) >= Dgas_min, w_gas >= 0.
 struct GasSummary {
   // the unit-100 record "(50es13.5)": redshift, fHI v/m, fHeI v/m,
@@ -91,24 +90,14 @@ struct GasSummary {
   // (each: volume-weighted, "mass-weighted", min, max as printed)
   std::array<std::array<double, 4>, 11> table{};
 };
-GasSummary summarize_gas(const Config& cfg, const Units& un, const SimClock& clk,
+GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
                          GasGrid& gas, HydroState& hs, std::ostream* out = nullptr);
 
 // Fortran "(50es13.5)" formatting of a record (gfortran style).
 std::string format_es(double x, int w, int d);
 std::string format_gas_record(const std::vector<double>& rec);
 
-// radhydro.f90: calc_timestep, hydro part.
-//   Fixed   : da_sim = da_fixed, dt from calc_dt_from_da (istep == 0 form)
-//   Courant : the istep > 0 branch, dt_sim = min(2*dt_gas_factor/cmax_gas,
-//             dt_pm_factor/sqrt(amax_dm)), da from calc_da_from_dt, limited
-//             by ra_max, dt from calc_dt_from_da.
-// Increments istep and converts vmax_gas, vrms_gas to km/s (as the
-// original does, for printing). Returns dt_vg in years (log).
-enum class TimestepMode { Fixed, Courant };
-double calc_timestep_hydro(const Units& un, TimestepMode mode, double da_fixed,
-                           double amax_dm, SimClock& clk, HydroState& hs,
-                           std::ostream* out = nullptr);
+// radhydro.f90: calc_timestep is calc_timestep in cosmology.hpp (all drivers).
 
 // radhydro.f90: radhydro without particle_mesh and radiative transfer:
 // transposes + 3 forward sweeps, half clock step (calc_sim_var), 3 reverse

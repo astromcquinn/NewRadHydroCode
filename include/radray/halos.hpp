@@ -66,6 +66,7 @@ FofGroups fof_partition_bruteforce(const float* pos, std::int64_t npart, int str
 // cosmological quantities needed for virial definitions.
 struct HaloUnits {
   double L = 0;           // box length in particle position units (Ndm)
+  double box = 0;         // box length in comoving Mpc/h
   double pos_to_mpch = 0; // particle position unit -> comoving Mpc/h
   double vel_to_kms = 0;  // particle velocity unit -> peculiar km/s
   double mpart_msun = 0;  // particle mass in Msun (Msun_unit)
@@ -82,9 +83,9 @@ struct HaloUnits {
 // Npart = Ndm^3 (it carries ALL the matter, Omega_m, not Omega_m-Omega_b).
 HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u);
 
-// Particle mass in Msun for Npart particles in the compiled-in box
+// Particle mass in Msun for Npart particles in a box of `box` Mpc/h
 // (cosmo_tools.f90 calc_sim_var: Msun_unit = mp_unit/Msun_cgs).
-double particle_mass_msun(std::int64_t npart_total);
+double particle_mass_msun(std::int64_t npart_total, double box);
 
 // Bryan & Norman (1998) virial overdensity relative to the CRITICAL
 // density, flat universe: x = Omega_m(z)-1, Delta_c = 18pi^2 + 82x - 39x^2.

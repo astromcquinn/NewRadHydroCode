@@ -319,7 +319,7 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
     double Msum = 0;
     for (std::size_t i = 0; i < n; ++i)
       if (active[i]) Msum += halos[i].M;
-    const double vbox = std::pow(box / hubble0, 3);  // comoving Mpc^3
+    const double vbox = std::pow(hu.box / hubble0, 3);  // comoving Mpc^3
     const double sfr_tot = global_sfr_density(z, p, table) * vbox;
     const double mstar_tot = global_stellar_density(z, p, table) * vbox;
     for (std::size_t i = 0; i < n; ++i) {

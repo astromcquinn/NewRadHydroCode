@@ -168,9 +168,9 @@ void write_step_output(const std::string& dir, const SimClock& clk, const Units&
   d1("dt_yr", clk.dt_yr);
   d1("dt_hy", hs.dt_hy);
   d1("c_limit", hs.c_limit);
-  d1("cmax_gas", hs.cmax_gas);
-  d1("vmax_gas", hs.vmax_gas);
-  d1("vrms_gas", hs.vrms_gas);
+  d1("cmax_gas", clk.cmax_gas);
+  d1("vmax_gas", clk.vmax_gas);
+  d1("vrms_gas", clk.vrms_gas);
   d1("vel_unit", un.vel_unit);
   d1("temp1_unit", un.temp1_unit);
   d1("mass", mass);
@@ -254,7 +254,8 @@ int main(int argc, char** argv) {
     for (int step = 1; step <= P.nsteps; ++step) {
       const auto t1 = std::chrono::steady_clock::now();
       calc_sim_var(cfg, clk, un);
-      calc_timestep_hydro(un, P.mode, P.da_sim, /*amax_dm=*/0.0, clk, hs, out);
+      // amax_dm = 0 (no particles): dt_ap = +Infinity
+      calc_timestep(cfg, un, P.mode, P.da_sim, clk, out);
       radhydro_hydro_step(cfg, clk, un, gas, hs);
       const GasSummary sum = summarize_gas(cfg, un, clk, gas, hs, out);
       const double dt =

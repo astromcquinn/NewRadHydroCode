@@ -22,12 +22,6 @@ using namespace cp;
 
 namespace {
 
-// radhydro_global.f90 time-stepping parameters (real(8) parameters
-// initialised from real(4) literals)
-constexpr double ra_max = static_cast<double>(0.1f);
-constexpr double dt_gas_factor = 0.5;
-constexpr double dt_pm_factor = 0.5;
-
 // pm_tools.f90: cic_mass_assignment, local parameter
 //   mass = (1-omegab/omegam)*N_dm_gas_c
 inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.N_dm_gas_c; }
@@ -117,36 +111,10 @@ PMConfig PMConfig::make(int Ngas, int Ndm, bool mf) {
   return c;
 }
 
-// domain_tools.f90: init_domain_gas (indices only; see GasDomains)
-GasDomains init_domain_gas(int Ngas, int Ncpu) {
-  GasDomains d;
-  // n = nint(Ncpu**(1./3)): real(4) power
-  const int n = f::nint(std::pow(static_cast<float>(Ncpu), 1.0f / 3.0f));
-  int n1 = 0;
-  for (int i = n; i <= Ngas; ++i) {
-    if (Ngas % (2 * i) == 0) {
-      n1 = 2 * i;
-      break;
-    }
-  }
-  if (n1 == 0) throw std::runtime_error("init_domain_gas: no domain subdivision (odd Ngas)");
-  d.Nx = Ngas / n1;
-  d.Ndomain = n1 * n1 * n1;
-  d.box.resize(d.Ndomain);
-  for (int m = 1; m <= d.Ndomain; ++m) {
-    const int i = 1 + (m - 1) % n1;
-    const int j = 1 + ((m - 1) / n1) % n1;
-    const int k = 1 + ((m - 1) / n1 / n1);
-    d.box[m - 1] = {1 + (i - 1) * d.Nx, i * d.Nx, 1 + (j - 1) * d.Nx, j * d.Nx,
-                    1 + (k - 1) * d.Nx, k * d.Nx};
-  }
-  return d;
-}
-
 // pm_tools.f90: init_pm
-void init_pm(PMState& s, const PMConfig& pc) {
+void init_pm(PMState& s, const PMConfig& pc, const Domains& dom) {
   s.pc = pc;
-  s.dom = init_domain_gas(pc.Ngas);
+  s.dom = dom;
   const std::int64_t N = pc.Ngas;
   // npt = Npart/Ncpu + min(1,mod(Npart,Ncpu)) with Ncpu = 1
   s.dm_cpu[0] = 1;
@@ -156,7 +124,6 @@ void init_pm(PMState& s, const PMConfig& pc) {
   s.hoc.assign(N * N * N, 0);
   s.hoc_cpu.assign(N * N, 0);
   s.density.assign((N + 2) * N * N, 0.0f);
-  s.amax_dm = s.arms_dm = s.vmax_dm = s.vrms_dm = 0;
 }
 
 // pm_tools.f90: calc_drift
@@ -279,7 +246,8 @@ void calc_gravity_field(PMState& s, double scalefactor) {
 }
 
 // pm_tools.f90: calc_kick (accelerate_dm for all slabs, then accelerate_gas)
-void calc_kick(PMState& s, float* u_gas, float* v_gas, double dt_sim, const Units& u) {
+void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u) {
+  const double dt_sim = clk.dt_sim;
   const int N = s.pc.Ngas;
   const double xdg = s.pc.x_dm_gas;
   double amax = 0, arms = 0, vmax = 0, vrms = 0;
@@ -353,25 +321,25 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, double dt_sim, const Unit
 
   // Update global variables in PM grid units
   const double npart = static_cast<double>(s.pc.Npart);
-  s.amax_dm = amax;
-  s.arms_dm = std::sqrt(arms / npart);
-  s.vmax_dm = vmax;
-  s.vrms_dm = std::sqrt(vrms / npart);
+  clk.amax_dm = amax;
+  clk.arms_dm = std::sqrt(arms / npart);
+  clk.vmax_dm = vmax;
+  clk.vrms_dm = std::sqrt(vrms / npart);
 }
 
 // pm_tools.f90: particle_mesh
-void particle_mesh(PMState& s, float* u_gas, float* v_gas, const SimClock& clk,
-                   const Units& u) {
+void particle_mesh(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u) {
   calc_drift(s, clk.dt_sim);
   link_dm(s);
   calc_density_field(s, u_gas);
   calc_gravity_field(s, clk.scalefactor);
-  calc_kick(s, u_gas, v_gas, clk.dt_sim, u);
+  calc_kick(s, u_gas, v_gas, clk, u);
   calc_drift(s, clk.dt_sim);
 }
 
 // cosmo_tools.f90: calc_pk_3d
-void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconvolve) {
+void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconvolve,
+                double box) {
   std::vector<double> pk(5 * static_cast<std::size_t>(nc), 0.0);
   auto P = [&](int c, int k) -> double& { return pk[(k - 1) * 5 + (c - 1)]; };
   const int hc = nc / 2;
@@ -425,8 +393,8 @@ void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconv
 }
 
 // pm_tools.f90: calc_power_spectrum (computation; file name/IO in the caller)
-void calc_power_spectrum(PMState& s, const float* u_gas, std::vector<double>& pk_dm,
-                         std::vector<double>& pk_gas) {
+void calc_power_spectrum(PMState& s, const float* u_gas, double box,
+                         std::vector<double>& pk_dm, std::vector<double>& pk_gas) {
   const int N = s.pc.Ngas;
   const double fb = omegab / omegam;
   const double fd = 1 - fb;
@@ -442,7 +410,7 @@ void calc_power_spectrum(PMState& s, const float* u_gas, std::vector<double>& pk
         d = static_cast<float>(static_cast<double>(d) / fd - 1);
       }
   fft::fft_3d('f', N, N, N, s.density.data());
-  calc_pk_3d(N, s.density.data(), pk_dm, true);
+  calc_pk_3d(N, s.density.data(), pk_dm, true, box);
 
   for (int k = 1; k <= N; ++k)
     for (int j = 1; j <= N; ++j) {
@@ -452,7 +420,7 @@ void calc_power_spectrum(PMState& s, const float* u_gas, std::vector<double>& pk
       for (int i = N + 1; i <= N + 2; ++i) s.density[s.dcell(i, j, k)] = 0;
     }
   fft::fft_3d('f', N, N, N, s.density.data());
-  calc_pk_3d(N, s.density.data(), pk_gas, false);
+  calc_pk_3d(N, s.density.data(), pk_gas, false, box);
 }
 
 void write_power_spectrum(const std::string& path, const PMState& s,
@@ -522,53 +490,6 @@ DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out) {
   return r;
 }
 
-// hydro_tools.f90: summarize_gas, time-step part (see header)
-GasSpeeds summarize_gas_speeds(int Ngas, float* u_gas, const float* v_gas, float* w_gas,
-                               const Units& un) {
-  const double g = gamma_ideal;
-  double x3[3] = {0, 0, 0};  // x3(2:4) = 0 initially
-  double x4[3] = {0, 0, 0};
-  double cmax = 0, vrms = 0;
-  const std::int64_t ncell = static_cast<std::int64_t>(Ngas) * Ngas * Ngas;
-  for (std::int64_t c = 0; c < ncell; ++c) {  // k, j, i order = linear order
-    float* u = &u_gas[c * 5];
-    float* w = &w_gas[c * 4];
-    const float* v = &v_gas[c * 3];
-
-    u[0] = static_cast<float>(f::max(static_cast<double>(u[0]), un.Dgas_min));
-    const double rho = u[0];
-    double vel[3];
-    for (int m = 0; m < 3; ++m)
-      vel[m] = static_cast<double>(u[1 + m]) / rho + static_cast<double>(v[m]);
-    const float s2 = ((0.0f + u[1] * u[1]) + u[2] * u[2]) + u[3] * u[3];
-    double eth = static_cast<double>(u[4]) - static_cast<double>(s2) / rho / 2;
-    eth = f::max(eth, 0.0);
-    const double cs = std::sqrt(g * (g - 1) * eth / rho);
-
-    for (int m = 0; m < 4; ++m) w[m] = f::max(w[m], 0.0f);
-
-    for (int m = 0; m < 3; ++m) {
-      x3[m] = f::min(x3[m], vel[m]);
-      x4[m] = f::max(x4[m], vel[m]);
-    }
-    vrms = vrms + ((0.0 + vel[0] * vel[0]) + vel[1] * vel[1] + vel[2] * vel[2]);
-    if (rho > un.Dgas_frz) {
-      const double c1 = f::max(f::max(std::fabs(vel[0]), std::fabs(vel[1])), std::fabs(vel[2]));
-      double d[3];
-      for (int m = 0; m < 3; ++m) d[m] = std::fabs(vel[m] - static_cast<double>(v[m]));
-      const double c2 = f::max(f::max(d[0], d[1]), d[2]) + cs;
-      cmax = f::max(f::max(cmax, c1), c2);
-    }
-  }
-  GasSpeeds r;
-  r.cmax_gas = cmax;
-  // vmax_gas = max(maxval(x4(2:3)),maxval(abs(x3(2:4))))  -- x4(2:3) only
-  r.vmax_gas = f::max(f::max(x4[0], x4[1]),
-                      f::max(f::max(std::fabs(x3[0]), std::fabs(x3[1])), std::fabs(x3[2])));
-  r.vrms_gas = std::sqrt(vrms / static_cast<double>(ncell));
-  return r;
-}
-
 namespace {
 void read_f32(const std::string& path, float* dst, std::size_t n) {
   std::ifstream f(path, std::ios::binary);
@@ -596,82 +517,6 @@ void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>
     w_gas[c * 4 + 2] = 0;
     w_gas[c * 4 + 3] = 0;
   }
-}
-
-// radhydro.f90: calc_timestep
-int calc_timestep_full(const Config& cfg, PMState& s, GasSpeeds& g, SimClock& clk,
-                       const Units& u, double da_fixed, std::ostream* out) {
-  const double z = clk.redshift;
-  const double a = clk.scalefactor;
-  double dt_vg, dt_ap;
-
-  if (da_fixed > 0) {
-    clk.da_sim = da_fixed;
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    dt_vg = 0;
-    dt_ap = 0;
-    clk.dt_sec = clk.dt_yr * yr2sec;
-  } else if (clk.istep == 0) {
-    clk.da_sim = a * ra_max / (1 - ra_max);
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    dt_vg = 0;
-    dt_ap = 0;
-    clk.dt_sec = clk.dt_yr * yr2sec;
-  } else {
-    dt_vg = 2 * dt_gas_factor / g.cmax_gas;
-    dt_ap = dt_pm_factor / std::sqrt(s.amax_dm);
-    clk.dt_sim = f::min(dt_vg, dt_ap);
-    calc_da_from_dt(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    clk.da_sim = f::min(clk.da_sim, a * ra_max / (1 - ra_max));
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    dt_vg = clk.dt_yr * (dt_vg / clk.dt_sim);
-    dt_ap = clk.dt_yr * (dt_ap / clk.dt_sim);
-    clk.dt_sec = clk.dt_yr * yr2sec;
-  }
-
-  // RT time step
-  const double cscale = 1;
-  const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
-                      (std::sqrt(a + clk.da_sim) - std::sqrt(a));
-  const double dl_rt = box / hubble0 * Mpc2cm / cfg.Nrt;
-  const int ns_rt = f::nint(dl_c / dl_rt);
-  clk.nstep_rt = f::nint(dl_c / dl_rt * cscale);
-  clk.dt_rt = clk.dt_sim / clk.nstep_rt;
-  clk.dtyr_rt = clk.dt_yr * (clk.dt_rt / clk.dt_sim);
-  clk.dtsec_rt = clk.dt_sec * (clk.dt_rt / clk.dt_sim);
-
-  clk.istep = clk.istep + 1;
-  const double a1 = a, a2 = a + clk.da_sim;
-  const double z1 = z, z2 = 1 / a2 - 1;
-  const double y1 = clk.year, y2 = clk.year + clk.dt_yr;
-
-  // Velocity in km/s, acceleration in km/s/Gyr (in place, as the original)
-  const double c5 = static_cast<double>(1e5f), c9 = static_cast<double>(1e9f);
-  g.vmax_gas = g.vmax_gas * u.vel_unit / c5;
-  g.vrms_gas = g.vrms_gas * u.vel_unit / c5;
-  s.vmax_dm = s.vmax_dm * u.vel_unit / c5;
-  s.vrms_dm = s.vrms_dm * u.vel_unit / c5;
-  s.amax_dm = s.amax_dm * u.acc_unit / c5 / sec2yr * c9;
-  s.arms_dm = s.arms_dm * u.acc_unit / c5 / sec2yr * c9;
-
-  if (out) {
-    char buf[512];
-    auto r = [](double x) { return static_cast<double>(static_cast<float>(x)); };
-    std::snprintf(buf, sizeof buf,
-                  "\n Step number  : %d\n Redshift     : %15.8g %15.8g %15.8g\n"
-                  " Scale factor : %15.8g %15.8g %15.8g %15.8g\n"
-                  " Year         : %15.8g %15.8g %15.8g %15.8g\n",
-                  clk.istep, r(z1), r(z2), r(z2 - z1), r(a1), r(a2), r(a2 - a1),
-                  r(clk.da_sim / a2), r(y1), r(y2), r(y2 - y1), r(clk.dt_yr / y2));
-    *out << buf;
-    std::snprintf(buf, sizeof buf,
-                  " Velocity Gas : %15.8g %15.8g %15.8g\n Velocity DM  : %15.8g %15.8g\n"
-                  " Acceleration : %15.8g %15.8g %15.8g\n RT           : %d %d %15.8g\n\n",
-                  r(g.vrms_gas), r(g.vmax_gas), r(dt_vg), r(s.vrms_dm), r(s.vmax_dm),
-                  r(s.arms_dm), r(s.amax_dm), r(dt_ap), clk.nstep_rt, ns_rt, r(clk.dtyr_rt));
-    *out << buf;
-  }
-  return ns_rt;
 }
 
 // cosmo_tools.f90: calc_sim_var, redshift file tag

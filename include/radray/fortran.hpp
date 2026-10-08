@@ -57,6 +57,22 @@ inline T max(T a, T b) { return (b > a) ? b : a; }
 template <class T>
 inline T min(T a, T b) { return (b < a) ? b : a; }
 
+// gfortran 13 MAX/MIN exactly (-O0 and -O2): NaN in either argument
+// propagates; on ties MAX returns its first and MIN its second argument
+// (so gmax(-0.,0.) = -0., gmin(-0.,0.) = +0.). See port_notes_hydro.md 3.
+template <class T>
+inline T gmax(T a, T b) {
+  if (std::isnan(a)) return a;
+  if (std::isnan(b)) return b;
+  return (b > a) ? b : a;
+}
+template <class T>
+inline T gmin(T a, T b) {
+  if (std::isnan(a)) return a;
+  if (std::isnan(b)) return b;
+  return (a < b) ? a : b;
+}
+
 // Integer powers as expanded by gfortran (powi addition chains).
 template <class T>
 inline T pow2(T x) { return x * x; }

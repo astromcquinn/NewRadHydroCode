@@ -1,6 +1,7 @@
 // On-the-fly FoF halo finder (see include/radray/halos.hpp and
 // docs/halos_and_sources.md).
 #include "radray/halos.hpp"
+#include "radray/fortran.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -231,11 +232,12 @@ FofGroups fof_partition_bruteforce(const float* pos, i64 npart, int stride, doub
 // Units and virial quantities
 // ---------------------------------------------------------------------------
 
-double particle_mass_msun(i64 npart_total) {
+double particle_mass_msun(i64 npart_total, double box) {
   using namespace pc;
   using namespace cp;
   // cosmo_tools.f90: mp_unit = rhoc_cgs*om*(box*Mpc2cm)**3/h0/Npart
-  const double mp_unit = rhoc_cgs * omegam * std::pow(box * Mpc2cm, 3) / hubble0 /
+  // (same expression as Units::mp_unit in calc_sim_var)
+  const double mp_unit = rhoc_cgs * omegam * f::pow3(box * Mpc2cm) / hubble0 /
                          static_cast<double>(npart_total);
   return mp_unit / Msun_cgs;
 }
@@ -244,10 +246,12 @@ HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u
   HaloUnits h;
   const i64 Npart = static_cast<i64>(cfg.Ndm) * cfg.Ndm * cfg.Ndm;
   h.L = cfg.Ndm;
-  h.pos_to_mpch = cp::box / cfg.Ndm;                   // x_dm_box
+  h.box = cfg.box;
+  h.pos_to_mpch = cfg.x_dm_box;                       // box/ndmr
   const double x_dm_gas = static_cast<double>(cfg.Ngas / cfg.Ndm);
   h.vel_to_kms = x_dm_gas * u.vel_unit / 1e5;         // pm_tools.f90 summarize_dm
-  h.mpart_msun = particle_mass_msun(Npart);
+  h.mpart_msun = u.Msun_unit;                         // calc_sim_var
+  (void)Npart;
   h.redshift = clk.redshift;
   h.hubble0 = cp::hubble0;
   h.rho_crit = u.rho_crit;
