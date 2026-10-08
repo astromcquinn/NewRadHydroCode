@@ -44,6 +44,8 @@ if(RADRAY_HALOS_OPENMP)
 else()
   target_compile_options(radray_halos PRIVATE -Wno-unknown-pragmas)
 endif()
+add_executable(find_halos apps/find_halos.cpp)
+target_link_libraries(find_halos PRIVATE radray_halos)
 
 add_executable(rt_driver apps/rt_driver.cpp)
 target_link_libraries(rt_driver PRIVATE radray)
