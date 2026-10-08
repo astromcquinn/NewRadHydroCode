@@ -49,7 +49,7 @@ and adaptive calculations.
 
 * **RT fixes behind a flag.** `legacy_rt = 1` reproduces the original
   bit-for-bit, in both the Fortran harness and the C++ code. `legacy_rt = 0`
-  turns on these bookkeeping fixes (see `docs/port_notes.md` §5):
+  turns on these bookkeeping fixes (see `docs/port_notes.md` §5, §5a):
   * B1: freed rays are zeroed, so they no longer count toward the thresholds;
   * B2: `ngam_ray` is recomputed every substep, with no stale values;
   * B3: `rt_grid%dx` is reset every substep;
@@ -57,9 +57,10 @@ and adaptive calculations.
   * B8: casts and advances may use up to 4 segments.
 
   The Fortran harness and the C++ code must agree bit-for-bit in both modes.
-  The B12 physics oddities are untouched for now, pending a decision. B5–B7
-  and B9 are fixed unconditionally, since they are memory-safety and overflow
-  bugs.
+  The B12 physics oddities are untouched for now, pending a decision. B5–B7 are
+  fixed unconditionally, since they are memory-safety bugs. B9, the int32
+  overflow that only matters for N ≥ 323, is fixed only when `legacy_rt = 0`,
+  so legacy mode stays exactly the original.
 * **N-body + hydro port.** `pm_tools.f90` (PM gravity for dark matter and gas),
   `fft_tools.f90` and `hydro_tools.f90` (with `-DMF`, as the original
   Makefile sets). Both the Fortran harness and the C++ code use FFTW3
