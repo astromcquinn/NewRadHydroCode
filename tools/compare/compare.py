@@ -43,6 +43,7 @@ KNOWN_FIELDS: Dict[str, object] = {
     "ngam": "F", "nu": "F", "fgam": "F", "tau": "F",
     "gamma": 3, "lambda": 3, "dx": 3,
     "u_gas": 5, "w_gas": 4,
+    "v_gas": 3,   # hydro (MF grid velocity), hydro-only outputs
 }
 FIELD_ORDER = list(KNOWN_FIELDS)
 EXTENSIONS = ("", ".bin", ".dat", ".raw", ".f32")
@@ -102,8 +103,18 @@ def infer_N(stepdir: str) -> int:
             if n ** 3 * 4 == nbytes:
                 return n
             raise StructureError(f"{p}: size {nbytes} is not 4*N^3")
-    raise StructureError(f"cannot infer N in {stepdir}: no scalar field found "
-                         f"(use --N)")
+    # hydro-only outputs have no scalar field: use the gas fields
+    for name in ("u_gas", "w_gas", "v_gas"):
+        p = find_field_file(stepdir, name)
+        if p:
+            nc = KNOWN_FIELDS[name]
+            nbytes = os.path.getsize(p)
+            n = round((nbytes / (4 * nc)) ** (1.0 / 3.0))
+            if n ** 3 * 4 * nc == nbytes:
+                return n
+            raise StructureError(f"{p}: size {nbytes} is not 4*{nc}*N^3")
+    raise StructureError(f"cannot infer N in {stepdir}: no scalar or gas field "
+                         f"found (use --N)")
 
 
 def infer_nfreq(stepdir: str, N: int) -> Optional[int]:
@@ -252,16 +263,29 @@ def compare_stats(sa: Dict[str, str], sb: Dict[str, str], step: int,
             out.append(StatResult(step, k, va, vb, None, None, False))
             continue
         try:
-            fa, fb = parse_num(va), parse_num(vb)
+            la = [parse_num(x) for x in va.split()]
+            lb = [parse_num(x) for x in vb.split()]
         except ValueError:
             out.append(StatResult(step, k, va, vb, None, None, va == vb))
             continue
-        d = fb - fa
-        rel = abs(d) / max(abs(fa), abs(fb), 1e-300) if d != 0 else 0.0
-        if k in STATS_INT_KEYS:
-            ok = abs(d) <= int_tol * max(abs(fa), 1.0) if int_tol > 0 else d == 0
-        else:
-            ok = rel <= float_rtol or (math.isnan(fa) and math.isnan(fb))
+        if len(la) != len(lb) or not la:
+            out.append(StatResult(step, k, va, vb, None, None, False))
+            continue
+        # multi-valued keys (e.g. "momentum = px py pz"): worst component
+        ok, d, rel = True, 0.0, 0.0
+        for fa, fb in zip(la, lb):
+            dc = fb - fa
+            rc = abs(dc) / max(abs(fa), abs(fb), 1e-300) if dc != 0 else 0.0
+            both_nan = math.isnan(fa) and math.isnan(fb)
+            if both_nan:
+                dc, rc = 0.0, 0.0
+            if k in STATS_INT_KEYS:
+                okc = abs(dc) <= int_tol * max(abs(fa), 1.0) if int_tol > 0 else dc == 0
+            else:
+                okc = rc <= float_rtol or both_nan
+            ok = ok and okc
+            if not (abs(rc) <= abs(rel)):
+                d, rel = dc, rc
         out.append(StatResult(step, k, va, vb, d, rel, ok))
     return out
 
@@ -273,6 +297,8 @@ def compare_stats(sa: Dict[str, str], sb: Dict[str, str], step: int,
 HISTORY_KEYS = ("xHII_V", "xHII_M", "xHeII_V", "xHeII_M", "xHeIII_V",
                 "xHeIII_M", "T_V", "T_M", "ngam_grid", "ngam_rays_total",
                 "nray_active")
+# hydro-only outputs (stats.txt of the hydro drivers)
+HYDRO_HISTORY_KEYS = ("mass", "energy", "cmax_gas", "vrms_gas")
 
 
 def history_row(stepdir: str, N: int, nfreq: Optional[int]) -> Dict[str, float]:
@@ -302,7 +328,7 @@ def history_row(stepdir: str, N: int, nfreq: Optional[int]) -> Dict[str, float]:
     if ngam is not None:
         h["ngam_grid"] = float(ngam.sum())
     st = read_stats(os.path.join(stepdir, STATS_FILE))
-    for k in ("ngam_rays_total", "nray_active", "redshift"):
+    for k in ("ngam_rays_total", "nray_active", "redshift") + HYDRO_HISTORY_KEYS:
         if k in st:
             try:
                 h[k] = parse_num(st[k])
@@ -562,7 +588,8 @@ def run(args) -> int:
 
     # ---- histories
     print("\n=== global histories (ref | new | rel diff) ===")
-    keys = [k for k in HISTORY_KEYS if any(k in hist_ref[s] or k in hist_new[s] for s in steps)]
+    keys = [k for k in HISTORY_KEYS + HYDRO_HISTORY_KEYS
+            if any(k in hist_ref[s] or k in hist_new[s] for s in steps)]
     for k in keys:
         print(f"  {k}")
         for s in steps:

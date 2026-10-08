@@ -285,5 +285,52 @@ class CompareTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(pd, "history.png")))
 
 
+def write_hydro_run(root, dmom=0.0, dfield=False):
+    """Hydro-only layout: u_gas, w_gas, v_gas and multi-valued stats."""
+    rng = np.random.default_rng(99)
+    for s in range(0, NSTEPS + 1):
+        d = os.path.join(root, f"step_{s:04d}")
+        os.makedirs(d)
+        for name, nc in (("u_gas", 5), ("w_gas", 4), ("v_gas", 3)):
+            a = rng.random((nc, N, N, N)).astype(np.float32)
+            if dfield and name == "v_gas" and s == NSTEPS:
+                a[2, 1, 2, 3] = np.nextafter(a[2, 1, 2, 3], np.float32(2))
+            a.astype("<f4").ravel(order="F").tofile(os.path.join(d, name + ".bin"))
+        with open(os.path.join(d, "stats.txt"), "w") as fh:
+            fh.write(f"istep = {s}\nmass =  3.0720000950098038E+003\n")
+            fh.write(f"momentum =  1.5E+002 {-2.0 + dmom * s!r} 3.25D0\n")
+
+
+class HydroLayoutTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="cmp_hydro_")
+        self.ref = os.path.join(self.tmp, "ref")
+        write_hydro_run(self.ref)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_hydro_identical(self):
+        new = os.path.join(self.tmp, "new")
+        write_hydro_run(new)
+        rc, out = run_compare(self.ref, new, "--rtol", "0", "--atol-frac", "0")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"N = {N}", out)
+        self.assertIn("mass", out)
+
+    def test_hydro_multivalued_stat_and_ulp(self):
+        new = os.path.join(self.tmp, "new")
+        write_hydro_run(new, dmom=1e-12)
+        rc, out = run_compare(self.ref, new, "--rtol", "0", "--atol-frac", "0", "-q")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("stat momentum", out)
+        new2 = os.path.join(self.tmp, "new2")
+        write_hydro_run(new2, dfield=True)
+        rc, out = run_compare(self.ref, new2, "--rtol", "0", "--atol-frac", "0", "-q")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("v_gas", out)
+        self.assertIn("(c=3,2,3,4)", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
