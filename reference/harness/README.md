@@ -213,6 +213,11 @@ timing lines in the logs.
 * **Runtime.** Each problem takes 1.3 to 4.3 s at `-O2` on one core, and 2.6
   to 7.7 s for the debug build. About 0.3 s of each run is the
   initialisation of the 2M-entry ray arrays.
+* **Other grid sizes.** N=16 (lognormal_16src, 10 steps, `nstep_rt = 6`)
+  runs cleanly. So does N=64 (uniform_1src, 3 steps, about 6 s per step,
+  1.2 GB for 16.7M ray slots). At N=64 the I-front radius after step 1 is
+  3.44 cells, about 1.72 cells in N=32 units, consistent with the 1.66 cells
+  at N=32.
 
 ## Parameter values found in the reference code
 
