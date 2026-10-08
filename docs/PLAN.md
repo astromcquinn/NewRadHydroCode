@@ -151,7 +151,10 @@ and adaptive calculations.
 * **High z:** at z > 9.5 only the normalisation is fitted, to the luminous
   galaxies observed.
 * **Beyond the data:** L(M) is held fixed above the highest LF redshift.
-* **Mass function:** Tinker et al. 2008.
+* **Mass function:** match to the simulated FoF mass function (decided
+  2026-10-09; this replaces Tinker), so the box's LF matches the
+  observations.
+* **f_esc:** start the production run with f_esc = 0.5 (2026-10-09).
 * **Dust:** no correction.
 * **ξ_ion:** a JWST-era value, log ξ_ion = 25.38, with a single f_esc
   calibrated to τ_es.

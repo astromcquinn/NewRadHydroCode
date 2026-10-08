@@ -71,6 +71,20 @@ interpolation gives 0.4997, and the run at 0.5 gives τ = 0.0540. The
 midpoint is z = 7.0. The box is 98.5% ionized by mass at z ≈ 5.3, but not
 completely; that is a late end, partly reflecting the biases below.
 
+### After switching to the simulated mass function (2026-10-09)
+
+With L(M) matched to the simulated FoF halos (`docs/abundance_matching.md`
+§3b), the box's bright halos are fainter than with Tinker.
+
+| f_esc | τ_es | z(x_V = 0.1) | z(x_V = 0.5) | x_HII,M at the end (z ≈ 5.3) |
+|---|---|---|---|---|
+| **0.5** | **0.0511** | 8.78 | 6.65 | 0.912 |
+
+**The production run starts with f_esc = 0.5** (user decision). Its τ is
+within the Planck 1σ range, 0.3σ below the central value. The box is not
+fully ionized by z ≈ 5.3, so the end of reionization is late. Raising
+f_esc toward 0.7–0.8 would centre τ and end reionization earlier.
+
 ### Biases of this calibration (to be read with the number)
 
 * **Reduced speed of light, 0.01c.** Light crosses only about 16 Mpc/h
@@ -139,8 +153,9 @@ python3 tools/movie/make_movie.py RUN [--fps 15] [--slice-axis z] [--thick 1] [-
 
 **Test movies made here:**
 * `runs/movie64/fesc_1/run/movie/reion.mp4`: N = 64, f_esc = 1, 104 frames.
-* the N = 128, f_esc = 0.5 calibration run: `docs/figures/reion_test_128.mp4`
-  (147 frames, Δz = 0.05, 1.6 MB). A still is below.
+* the N = 128, f_esc = 0.5 run with the simulated-HMF matching (the
+  production configuration at N = 128): `docs/figures/reion_test_128.mp4`.
+  It has Δz = 0.05 and is about 1.6 MB. A still is below.
 
   ![frame](figures/reion_test_128_frame.png)
 
@@ -205,8 +220,9 @@ On klone, from the repository root, after `git pull` on `production-run`:
 export HYAK_MODULES="gcc fftw"        # placeholder, see build_hyak.sh
 salloc -A astro -p cpu-g2 -c 16 --mem 32G -t 1:00:00 tools/hyak/build_hyak.sh
 
-# 1. sources: fit L_UV(M, z) (seconds)
-build/am_fit --lf data/uv_lf/lf_params.txt --out runs/am
+# 1. sources: fit L_UV(M, z) against the simulated halos (seconds)
+build/am_fit --lf data/uv_lf/lf_params.txt --hmf st \
+    --sim-hmf data/hmf/fof_128_10mpc.txt --out runs/am
 
 # 2. production problem: N = 128 first, then 256 if the scaling test is good
 N=128
@@ -226,8 +242,10 @@ sbatch --export=ALL,PROB=runs/reion$N,CK=runs/reion$N/run/restart/checkpoint.bin
 #    runs/reion$N/run/movie/reion.mp4
 ```
 
-For N = 256, change `N`, and use `--mem=96G` and 64 cores. Recalibrate
-f_esc first:
+For N = 256, change `N`, and use `--mem=96G` and 64 cores. First refit
+the simulated mass function from a no-source 256³ run
+(`docs/hmf_validation.md`; minutes on a node), then refit L(M) with it,
+then recalibrate f_esc:
 
 ```
 python3 tools/production/calibrate_fesc.py runs/cal256 --N 256 \

@@ -213,6 +213,44 @@ void test_highz_norm() {
   CHECK(std::fabs(hp.model.am.log_luv(10.3, 12) - m.log_luv(10.3, 12)) < 1e-8);
 }
 
+void test_sim_hmf() {
+  SimHMF sh;
+  sh.enabled = true;
+  sh.mpart_msun = 5e7;
+  sh.r_inf = 2.0;
+  sh.p = 0.7;
+  sh.Nc0 = 200;
+  sh.q = 2.5;
+  // zero below nmin particles, r_inf/2 at N = N_c, -> r_inf at large N
+  CHECK(sh.factor(19 * 5e7, 6) == 0);
+  CHECK_CLOSE(sh.factor(200 * 5e7, 6), 1.0, 1e-12);
+  CHECK_CLOSE(sh.factor(200 * 5e7 * std::pow(10.0 / 7.0, 2.5), 9), 1.0, 1e-12);
+  CHECK(sh.factor(1e16, 6) > 1.99);
+  // Matching against the corrected HMF: n(>M) is the integral of ST x factor
+  AMOptions a, b;
+  a.hmf = b.hmf = MassFunction::Kind::ShethTormen;
+  b.sim_hmf = sh;
+  a.logM_min = b.logM_min = 9.5;
+  a.logM_max = b.logM_max = 10.5;
+  a.dlogM = b.dlogM = 0.5;
+  const LFEntry e = schechter(7);
+  const auto pa = abundance_match(e, a), pb = abundance_match(e, b);
+  CHECK(pa.size() == pb.size());
+  for (std::size_t i = 0; i < pa.size(); ++i) {
+    // n(>M) of the corrected HMF, by direct integration of ST x factor
+    MassFunction mf(a.cosmo);
+    const double h = a.cosmo.hubble0;
+    double n = 0;
+    const double d = 0.002;
+    for (double lm = pb[i].logM; lm < 16.5; lm += d) {
+      const double m1 = lm + 0.5 * d;
+      n += mf.dndlnM(std::pow(10.0, m1) * h, e.z, a.hmf) * h * h * h *
+           sh.factor(std::pow(10.0, m1), e.z) * d * std::log(10.0);
+    }
+    CHECK_CLOSE(pb[i].n_halo, n, 2e-2);
+  }
+}
+
 HaloUnits units_at(double z) {
   const Config cfg = Config::make(64);
   SimClock clk;
@@ -287,6 +325,7 @@ int main() {
   test_fit_recovery();
   test_tinker();
   test_highz_norm();
+  test_sim_hmf();
   test_source_model();
   TEST_MAIN_END();
 }

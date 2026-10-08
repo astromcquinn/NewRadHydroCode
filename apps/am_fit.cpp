@@ -7,6 +7,14 @@
 // Options:
 //   --hmf st|tinker        analytic halo mass function (default tinker)
 //   --tinker-zmax Z        freeze the Tinker z-evolution above Z
+//   --sim-hmf FILE         match to the simulated FoF halos: the analytic HMF
+//                          (--hmf; use st with fit_fof_hmf.py) times the
+//                          fitted correction in FILE (data/hmf/*.txt); the
+//                          matched masses start at nmin particles
+//   --sim-hmf FILE         match to the simulated FoF halos: the analytic HMF
+//                          (--hmf, use st with fit_fof_hmf.py) times the
+//                          fitted correction of FILE (data/hmf/*.txt); the
+//                          matched masses start at nmin particles
 //   --dust 0|1             Meurer IRX-beta dust correction (default 0)
 //   --beta0 B --dbeta D    beta_UV(M) = B + D (M + 19.5)
 //   --extend-faint M       the shape fit also uses matched points down to
@@ -44,7 +52,7 @@ namespace {
 void usage() {
   std::cerr << "usage: am_fit --lf FILE --out DIR [--hmf st|tinker] [--dust 0|1] "
                "[--beta0 B] [--dbeta D] [--extend-faint M] [--logM-min X] [--logM-max X] "
-               "[--free l0,l1,...] [--set am_x=v] [--zlo Z] [--zhi Z] [--tinker-zmax Z] "
+               "[--free l0,l1,...] [--set am_x=v] [--zlo Z] [--zhi Z] [--tinker-zmax Z] [--sim-hmf FILE] "
                "[--only-confirmed]\n";
 }
 
@@ -83,6 +91,7 @@ int main(int argc, char** argv) {
         else if (v == "ps") opt.hmf = MassFunction::Kind::PressSchechter;
         else throw std::runtime_error("--hmf st|tinker|ps");
       } else if (a == "--tinker-zmax") opt.tinker_zmax_evol = std::stod(next());
+      else if (a == "--sim-hmf") opt.sim_hmf = SimHMF::read(next());
       else if (a == "--dust") opt.dust.enabled = std::stoi(next()) != 0;
       else if (a == "--beta0") opt.dust.beta0 = std::stod(next());
       else if (a == "--dbeta") opt.dust.dbeta_dM = std::stod(next());
@@ -111,6 +120,9 @@ int main(int argc, char** argv) {
         throw std::runtime_error("unknown option " + a);
       }
     }
+    if (opt.sim_hmf.enabled)
+      opt.logM_min = std::max(opt.logM_min,
+                              std::log10(opt.sim_hmf.nmin * opt.sim_hmf.mpart_msun) + 1e-9);
     if (lf_path.empty()) {
       usage();
       return 2;
@@ -164,6 +176,7 @@ int main(int argc, char** argv) {
       o << "# sfr_model = abundance parameters from am_fit (" << lf_path << ")\n"
         << "# hmf = "
         << (opt.hmf == MassFunction::Kind::Tinker08 ? "tinker" : opt.hmf == MassFunction::Kind::ShethTormen ? "st" : "ps")
+        << (opt.sim_hmf.enabled ? " x simulated-FoF correction" : "")
         << ", dust = " << (opt.dust.enabled ? 1 : 0) << ", rms = " << fr.rms_dex
         << " dex over " << fr.npoints << " points"
         << (n_unconf > 0 && !only_confirmed ? ", INCLUDES UNCONFIRMED LF ENTRIES" : "")

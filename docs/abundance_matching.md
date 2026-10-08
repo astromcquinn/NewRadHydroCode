@@ -18,8 +18,23 @@ existing models are bit-identical to before.
    data constrain and a weight. φ* is in the observers' Mpc⁻³ mag⁻¹ (h = 0.7).
 2. **Matching** (`abundance_match`, `include/radray/abundance_matching.hpp`):
    at each LF redshift, M_UV(M_halo) from n_halo(>M) = n_gal(<M_UV).
-   * n_halo comes from the analytic Tinker et al. 2008 (Δ = 200m; default,
-     user choice) or Sheth–Tormen mass function, in the simulation cosmology
+   * **Production: n_halo is the simulated FoF mass function** (user
+     decision, 2026-10-09). The box's own UV LF then matches the observed
+     one by construction, down to the resolution limit.
+     * `tools/analysis/fit_fof_hmf.py` fits the FoF catalogs of a
+       no-source run (`docs/hmf_validation.md`) as Sheth–Tormen times
+       R(N, z) = r∞ / (1 + (N/N_c)^−p), with N_c = N_c0((1+z)/7)^q.
+       Below 20 particles R = 0.
+     * The fit uses a Poisson likelihood over all catalogs, including the
+       empty one at z = 12.6.
+     * For 128³ / 10 Mpc/h it gives r∞ = 2.27, p = 0.64, N_c0 = 237,
+       q = 2.53 (`data/hmf/fof_128_10mpc.txt`). It reproduces the halo
+       totals of every catalog to within Poisson noise.
+     * Use `am_fit --hmf st --sim-hmf data/hmf/fof_128_10mpc.txt`. The
+       correction is resolution-specific: refit it from a no-source run
+       at each N.
+   * Otherwise n_halo comes from the analytic Tinker et al. 2008
+     (Δ = 200m) or Sheth–Tormen mass function, in the simulation cosmology
      (cosmo_parameters.f90: Ωm = 0.27, h = 0.7, σ8 = 0.8, n = 0.96), BBKS
      transfer function.
    * The small cosmology difference from the observers' (Ωm = 0.3, h = 0.7) is
@@ -137,6 +152,30 @@ The fit uses:
   mass function will show which is closer. `--tinker-zmax` freezes the
   evolution if needed.
 
+## 3b. Matching to the simulated halos (production)
+
+```
+python3 tools/analysis/fit_fof_hmf.py runs/hmf128/run/halos --box 10 --N 128 --out data/hmf/fof_128_10mpc.txt
+build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --sim-hmf data/hmf/fof_128_10mpc.txt --out runs/am_sim
+python3 tools/analysis/box_lf.py runs/hmf128/run/halos runs/am_sim/am_params.txt data/uv_lf/lf_params.txt --box 10 --N 128
+```
+
+![fit, simulated HMF](figures/am_fit_simhmf.png)
+![box LF, simulated HMF](figures/box_lf_128_simhmf.png)
+
+**Fit quality.** The rms is 0.07 dex in log L. The z > 9.5 normalisation
+is +0.34, +0.64 and +0.88 dex at z = 10, 11 and 12.5.
+
+**The box's LF against the observed LFs** (the FoF catalogs of the
+no-source run with this L(M)):
+* It is now 0.8–1.3× the observed LF over the observed range at z ≈ 6–7
+  and 9. With Tinker it was 1.3–2× brighter than −16.
+* The faintest bins, near 20 particles, are incomplete by construction.
+* At z ≈ 8 the box is about 0.5× the Bouwens+21 z = 7.9 row at −15 to −16.
+  The smooth L(M, z) cannot follow that row's steeper faint end
+  (α = −2.23, against −2.06 at z = 6.8 and −2.00 for Donnan at z = 9).
+  This row is to be replaced by JWST-era LFs.
+
 ## 4. Decisions
 
 **Decided (user, 2026-10-08):**
@@ -144,7 +183,8 @@ The fit uses:
   lower-redshift LFs (z ≤ 9). At z > 9.5 only the normalisation is fitted,
   to the luminous galaxies JWST observes.
 * **Faint end:** extrapolate it when matching (`--extend-faint -12`).
-* **Mass function:** Tinker.
+* **Mass function:** match to the **simulated FoF halos** (2026-10-09; it
+  replaces the earlier choice of Tinker). The result is in §3b.
 * **Dust:** no correction.
 * **ξ_ion:** a JWST-era value, log ξ_ion = 25.38 (§5).
 * **Beyond the data:** L(M) is held fixed above the highest LF redshift.

@@ -74,8 +74,25 @@ struct DustModel {
   double A_uv(double M_obs) const;
 };
 
+// The simulated FoF mass function as a smooth correction to an analytic one
+// (user decision 2026-10-09: match to the simulated halos), fitted by
+// tools/analysis/fit_fof_hmf.py:
+//   dn/dlnM(sim) = dn/dlnM(base) * r_inf / (1 + (N/N_c)^-p),
+//   N = M / mpart_msun, N_c = Nc0 ((1+z)/7)^q,
+// and zero below nmin particles (no halos there in the catalogs).
+struct SimHMF {
+  bool enabled = false;
+  double mpart_msun = 0;
+  double r_inf = 1, p = 1, Nc0 = 1, q = 0;
+  double nmin = 20;
+  double factor(double M_msun, double z) const;
+  // key = value file (fit_fof_hmf.py output)
+  static SimHMF read(const std::string& path);
+};
+
 struct AMOptions {
-  MassFunction::Kind hmf = MassFunction::Kind::Tinker08;  // user choice
+  MassFunction::Kind hmf = MassFunction::Kind::Tinker08;  // analytic HMF (base of sim_hmf)
+  SimHMF sim_hmf;  // when enabled: match to the simulated halos (base: hmf)
   MassFunctionCosmology cosmo;   // simulation cosmology (cosmo_parameters)
   double tinker_zmax_evol = 1e30;
   DustModel dust;

@@ -140,6 +140,12 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   32–64 cores (about 20 GB); 512³ about 8–16 h (about 160 GB). Thread
   scaling on Genoa is still to be measured.
 
+**Update (user decisions, 2026-10-09):**
+- L(M) is now matched to the simulated FoF mass function
+  (`data/hmf/fof_128_10mpc.txt`, `am_fit --hmf st --sim-hmf ...`).
+- The production run starts at f_esc = 0.5, which gives τ_es = 0.0511.
+  The midpoint is at z = 6.65, and x_M = 0.91 at z ≈ 5.3.
+
 **Not run yet:** the production run itself (the commands are in the doc),
 and the scaling test on Hyak.
 
@@ -160,11 +166,7 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 1. **User decisions pending for the production run**
    (`docs/reionization_production.md`):
    - the z ≈ 6–8 LF papers;
-   - abundance matching against the simulated FoF mass function instead
-     of Tinker, so the box LF matches the observations by construction;
-   - f_esc from τ alone (0.5), or also from the end of reionization
-     (0.6–0.8);
-   - the production N on Hyak (128 or 256);
+      - the production N on Hyak (128 or 256);
    - a 0.1c reference run.
 2. **Production run on Hyak** with `tools/hyak/reion_production.slurm`,
    then the movie (`make_movie.py`). First run the scaling test.

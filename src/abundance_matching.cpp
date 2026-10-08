@@ -59,7 +59,8 @@ struct CumulativeLF {
 // Cumulative halo density n(>M) on a log grid (Msun), Mpc^-3
 struct CumulativeHMF {
   std::vector<double> logM, logn;
-  CumulativeHMF(const MassFunction& mf, double z, MassFunction::Kind k, double lo, double h) {
+  CumulativeHMF(const MassFunction& mf, double z, MassFunction::Kind k, double lo, double h,
+                const SimHMF* sim = nullptr) {
     const double hi = 16.5, d = 0.02;
     const int n = static_cast<int>(std::ceil((hi - lo) / d));
     logM.resize(n + 1);
@@ -68,6 +69,7 @@ struct CumulativeHMF {
     for (int i = 0; i <= n; ++i) {
       logM[i] = lo + i * d;
       f[i] = mf.dndlnM(std::pow(10.0, logM[i]) * h, z, k);  // (Mpc/h)^-3
+      if (sim && sim->enabled) f[i] *= sim->factor(std::pow(10.0, logM[i]), z);
     }
     double s = 0;
     logn[n] = -300;
@@ -142,6 +144,41 @@ std::vector<LFEntry> read_lf_table(const std::string& path) {
   return out;
 }
 
+double SimHMF::factor(double M, double z) const {
+  if (!enabled) return 1;
+  const double N = M / mpart_msun;
+  if (N < nmin) return 0;
+  const double Nc = Nc0 * std::pow((1 + z) / 7.0, q);
+  return r_inf / (1 + std::pow(N / Nc, -p));
+}
+
+SimHMF SimHMF::read(const std::string& path) {
+  std::ifstream in(path);
+  if (!in) throw std::runtime_error("cannot open " + path);
+  SimHMF s;
+  s.enabled = true;
+  std::string line;
+  while (std::getline(in, line)) {
+    const auto c = line.find('#');
+    if (c != std::string::npos) line.resize(c);
+    const auto eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    std::istringstream ks(line.substr(0, eq));
+    std::string k;
+    ks >> k;
+    const double v = std::stod(line.substr(eq + 1));
+    if (k == "mpart_msun") s.mpart_msun = v;
+    else if (k == "fof_r_inf") s.r_inf = v;
+    else if (k == "fof_p") s.p = v;
+    else if (k == "fof_Nc0") s.Nc0 = v;
+    else if (k == "fof_q") s.q = v;
+    else if (k == "nmin") s.nmin = v;
+    else throw std::runtime_error(path + ": unknown key " + k);
+  }
+  if (!(s.mpart_msun > 0)) throw std::runtime_error(path + ": mpart_msun missing");
+  return s;
+}
+
 double DustModel::A_uv(double M_obs) const {
   if (!enabled) return 0;
   const double beta = beta0 + dbeta_dM * (M_obs + 19.5);
@@ -158,7 +195,7 @@ std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt) {
   MassFunction mf(opt.cosmo);
   mf.tinker_zmax_evol = opt.tinker_zmax_evol;
   const double h = opt.cosmo.hubble0;
-  const CumulativeHMF hmf(mf, e.z, opt.hmf, opt.logM_min - 0.1, h);
+  const CumulativeHMF hmf(mf, e.z, opt.hmf, opt.logM_min - 0.1, h, &opt.sim_hmf);
   const CumulativeLF clf(e);
   const double faint = opt.extend_faint_to != 0 ? std::max(e.M_faint, opt.extend_faint_to)
                                                 : e.M_faint;
@@ -369,7 +406,7 @@ std::vector<double> model_lf(const LuvModel& m, double z, const std::vector<doub
   MassFunction mf(opt.cosmo);
   mf.tinker_zmax_evol = opt.tinker_zmax_evol;
   const double h = opt.cosmo.hubble0;
-  const CumulativeHMF hmf(mf, z, opt.hmf, 6.0, h);
+  const CumulativeHMF hmf(mf, z, opt.hmf, 6.0, h, &opt.sim_hmf);
   // Halo mass whose intrinsic L matches an observed magnitude (L monotone
   // in M for a, b > 0): bisection in log M.
   auto logM_of = [&](double M_obs) {
