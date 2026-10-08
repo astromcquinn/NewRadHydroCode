@@ -17,3 +17,12 @@ foreach(app rt_serial hydro_serial)
     target_link_libraries(${app} PRIVATE OpenMP::OpenMP_CXX)
   endif()
 endforeach()
+
+# Round-off sensitivity variant: coarser fixed-point deposits (2^-36).
+add_executable(rt_serial_fx36 rt_serial.cpp)
+target_link_libraries(rt_serial_fx36 PRIVATE spike_common)
+target_compile_definitions(rt_serial_fx36 PRIVATE RRK_FX_BITS=36)
+target_compile_options(rt_serial_fx36 PRIVATE -ffp-contract=off -fno-fast-math)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(rt_serial_fx36 PRIVATE OpenMP::OpenMP_CXX)
+endif()

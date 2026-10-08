@@ -43,8 +43,13 @@ static_assert(sizeof(RayP) == 80, "RayP must be 80 bytes without padding");
 // Fixed-point scales of the deposit accumulators (powers of two, so the
 // products v*S are exact). Resolution 5.7e-14 for ngam and dx*ngam
 // (photons per H atom), 1.5e-11 for ngam*nu (nu in eV, <= 100).
-constexpr double kScaleNgam = 17592186044416.0;  // 2^44
-constexpr double kScaleNu = 68719476736.0;       // 2^36
+// RRK_FX_BITS (default 44) can be lowered to test the sensitivity of the
+// results to round-off (spike/validate_rt.sh).
+#ifndef RRK_FX_BITS
+#define RRK_FX_BITS 44
+#endif
+constexpr double kScaleNgam = static_cast<double>(1ULL << RRK_FX_BITS);
+constexpr double kScaleNu = static_cast<double>(1ULL << (RRK_FX_BITS - 8));
 constexpr double kScaleTot = 1099511627776.0;    // 2^40 (diagnostic sums)
 RR_HD double dep_scale(int m) { return (m >= 5 && m < 10) ? kScaleNu : kScaleNgam; }
 RR_HD long long to_fx(double v, double S) {
