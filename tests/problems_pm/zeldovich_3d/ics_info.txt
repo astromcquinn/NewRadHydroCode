@@ -1,0 +1,19 @@
+# written by tools/ics/make_ics.py
+command = make_ics.py /home/user/NewRadHydroCode/.claude/worktrees/agent-a72366df8f11410ce/tests/problems_pm/zeldovich_3d --kind zeldovich --Ngas 32 --Ndm 16 --z-init 300 --seed 1 --gas zeldovich --growth full
+outdir = /home/user/NewRadHydroCode/.claude/worktrees/agent-a72366df8f11410ce/tests/problems_pm/zeldovich_3d
+kind = zeldovich
+Ngas = 32
+Ndm = 16
+z_init = 300.0
+seed = 1
+gas = zeldovich
+growth = full
+axis = x
+a_cross = 0.05
+Ndm = 16
+a_init = 0.0033222591362126247
+sigma_delta_dm_cell = 0.01805842614273059
+D_init = 0.004646248628012296
+f_init = 0.9404499526364458
+vfac = 0.03781503612244554
+max_disp_dm_cells = 0.04887117230236888
