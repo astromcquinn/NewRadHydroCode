@@ -126,7 +126,7 @@ void init_rt(Simulation& s) {
   s.rt.allocate(s.cfg.Nrt);
   s.rt_save = RTStat{};
   s.rt_stat = s.rt_save;
-  calc_atomic_rates(s.rates);
+  calc_atomic_rates(s.rates, s.cfg.legacy_physics);
 }
 
 void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init) {
@@ -859,12 +859,27 @@ void radiative_physics(Simulation& s, int krt) {
 
         // Cooling
         const double Tcmb = u.Tcmb;
-        double cool_rate = AR.coef_cool(4, iT) * ne * nHII + AR.coef_cool(5, iT) * ne * nHeII +
-                           AR.coef_cool(6, iT) * ne * nHeIII + AR.coef_cool(7, iT) * ne * nHI +
-                           AR.coef_cool(8, iT) * ne * nHeI + AR.coef_cool(9, iT) * ne * nHeII +
-                           AR.coef_cool(10, iT) * ne * nHI + AR.coef_cool(11, iT) * ne * nHeI +
-                           AR.coef_cool(12, iT) * ne * nHeII + AR.coef_cool(13, iT) * ne * nff +
-                           AR.coef_cool(14, iT) * ne * (tmp - Tcmb) * f::pow4(Tcmb);
+        double cool_rate;
+        if (s.cfg.legacy_physics) {
+          cool_rate = AR.coef_cool(4, iT) * ne * nHII + AR.coef_cool(5, iT) * ne * nHeII +
+                      AR.coef_cool(6, iT) * ne * nHeIII + AR.coef_cool(7, iT) * ne * nHI +
+                      AR.coef_cool(8, iT) * ne * nHeI + AR.coef_cool(9, iT) * ne * nHeII +
+                      AR.coef_cool(10, iT) * ne * nHI + AR.coef_cool(11, iT) * ne * nHeI +
+                      AR.coef_cool(12, iT) * ne * nHeII + AR.coef_cool(13, iT) * ne * nff +
+                      AR.coef_cool(14, iT) * ne * (tmp - Tcmb) * f::pow4(Tcmb);
+        } else {
+          // P2/P3 (legacy_physics = 0): HeI collisional excitation (Cen 1992)
+          // scales as ne^2*nHeII; slot 15 is HeII dielectronic recombination
+          // cooling (Hui & Gnedin 1997), times ne*nHeII. Same term order as
+          // the Fortran, left to right.
+          cool_rate = AR.coef_cool(4, iT) * ne * nHII + AR.coef_cool(5, iT) * ne * nHeII +
+                      AR.coef_cool(6, iT) * ne * nHeIII + AR.coef_cool(7, iT) * ne * nHI +
+                      AR.coef_cool(8, iT) * ne * nHeI + AR.coef_cool(9, iT) * ne * nHeII +
+                      AR.coef_cool(10, iT) * ne * nHI + AR.coef_cool(11, iT) * ne * ne * nHeII +
+                      AR.coef_cool(12, iT) * ne * nHeII + AR.coef_cool(13, iT) * ne * nff +
+                      AR.coef_cool(14, iT) * ne * (tmp - Tcmb) * f::pow4(Tcmb) +
+                      AR.coef_cool(15, iT) * ne * nHeII;
+        }
 
         // Prevent overcooling/overheating
         {

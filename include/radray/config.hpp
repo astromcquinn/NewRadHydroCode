@@ -46,6 +46,12 @@ struct Config {
   // default) reproduces the original Fortran bit-for-bit.
   bool legacy_rt = true;
 
+  // Runtime switch for the atomic-physics fixes P1-P6 (docs/port_notes.md
+  // section 5b). true (params.txt legacy_physics = 1, the default) keeps the
+  // original rates and cooling sum bit-for-bit. The rate tables depend on it:
+  // call calc_atomic_rates(rates, legacy_physics) after changing it.
+  bool legacy_physics = true;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

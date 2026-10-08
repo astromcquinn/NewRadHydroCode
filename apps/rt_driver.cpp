@@ -2,7 +2,8 @@
 //
 // usage: rt_driver <problem_dir> <outdir> [--nsteps n] [--set key=value ...]
 //
-// --set overrides (or adds) one params.txt entry, e.g. --set legacy_rt=0.
+// --set overrides (or adds) one params.txt entry, e.g. --set legacy_rt=0 or
+// --set legacy_physics=0.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -67,6 +68,9 @@ int main(int argc, char** argv) {
     Simulation& s = *sim;
     init_simulation(s, P.N, P.nray_max_factor, P.z_init);
     s.cfg.legacy_rt = (P.legacy_rt == 1);
+    s.cfg.legacy_physics = (P.legacy_physics == 1);
+    // The rate tables were built by init_rt with the default (legacy) physics.
+    if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
     s.raylog = &raylog;
     s.out = &std::cout;
 
@@ -80,6 +84,7 @@ int main(int argc, char** argv) {
               << " da_sim     : " << P.da_sim << "\n"
               << " nsteps     : " << P.nsteps << "\n"
               << " legacy_rt  : " << P.legacy_rt << "\n"
+              << " legacy_phys: " << P.legacy_physics << "\n"
               << " sources    : " << sources.size() << "\n";
 
     calc_sim_var(s.cfg, s.clk, s.units);

@@ -9,7 +9,8 @@ This document covers phase 1, the faithful port. It records:
 
 **Validation result:** the C++ port agrees **bit for bit** with the gfortran
 harness (`reference/harness`, one thread) on all five problems in
-`tests/problems`, in both `legacy_rt` modes (§5a).
+`tests/problems`, in all four combinations of the `legacy_rt` (§5a) and
+`legacy_physics` (§5b) switches.
 
 * 700/700 field files (all steps) are byte-identical.
 * `stats.txt` and `rt_stats.txt` agree exactly for all 10 steps, including
@@ -19,6 +20,9 @@ harness (`reference/harness`, one thread) on all five problems in
 The CTests `ref_*` check this continuously against
 `reference/harness/outputs`. The CTests `ref_legacy0_*` check it against
 `reference/harness/outputs_legacy_rt0`, with the fixes of §5a switched on.
+The CTests `ref_fixed_*` check the recommended configuration,
+`legacy_rt = 0` + `legacy_physics = 0`, against
+`reference/harness/outputs_legacy_rt0_phys0`.
 
 ## 1. Routine map
 
@@ -263,13 +267,16 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
   `mod(int(x),N)`. Preserved by storing float32 and computing in double.
 * **B11. `dr` is redundant but stored.** `dr` and `rmax-r` round
   differently in float. It is kept as a field.
-* **B12. Physics oddities.** These are preserved; they matter for later
-  physics validation, not for the port:
+* **B12. Physics oddities.** These are preserved with
+  `legacy_physics = 1` (the default); they matter for later physics
+  validation, not for the port. The first three, plus three more found
+  while fixing them (P4–P6), are **fixed with `legacy_physics = 0`** (§5b):
   * the case-B recombination *cooling* coefficients (`coef_cool(4:6)`) use
-    the case-A formulas;
-  * HeI collisional excitation cooling (`coef_cool(11)`) is zero;
-  * `coef_cool(15)` is never set;
-  * recombination radiation is disabled (`if (.false.)`);
+    the case-A formulas (P1);
+  * HeI collisional excitation cooling (`coef_cool(11)`) is zero (P2);
+  * `coef_cool(15)` is never set (P3);
+  * recombination radiation is disabled (`if (.false.)`). It stays
+    disabled in both modes;
   * both branches of the `nside_merge` choice give 2;
   * `photo_cell`'s final gas update does not clamp `us(1)` to `Dgas_min`.
 * **B13. ifort versus gfortran.** The original was built with
@@ -351,6 +358,209 @@ switching the fixes on one at a time in a scratch build.
   to 0.3%. `ngam_rays_total` is 0.2% to 1.2% lower. `nray_active` is
   unchanged in the uniform problems, +1.8% in lognormal_16src and +13% in
   lognormal_16src_smallbuf.
+
+## 5b. The `legacy_physics` switch (atomic-physics fixes)
+
+`legacy_physics` is a `params.txt` key, default 1, independent of
+`legacy_rt`. Both drivers accept `--set legacy_physics=0`. In Fortran it is
+the module variable `legacy_physics` in `radhydro_global` (harness patch 9);
+the driver sets it before `init_rt` calls `calc_atomic_rates`. In C++ it is
+`Config::legacy_physics`, passed to `calc_atomic_rates(rates,
+legacy_physics)`; `rt_driver` rebuilds the tables after reading the flag.
+The recommended configuration is `legacy_rt = 0` + `legacy_physics = 0`.
+
+With `legacy_physics = 1` no original statement is changed or reordered:
+the new code sits in `if (.not. legacy_physics)` blocks after the original
+assignments, and the original cooling sum is kept verbatim in its own
+branch. Every stored reference is unchanged.
+
+### Where the rates come from
+
+The comment in `calc_atomic_rates` cites "Hui & Gnedin (1996)", which is Hui
+& Gnedin 1997, MNRAS 292, 27 (HG97), Appendix A. I checked the code against
+an independent transcription of that appendix (`hui_gnedin_97.py` in the
+`rabacus` package):
+
+* `alpha_rec(1,3,4,5)`, `gamma_col(1:3)` and `coef_cool(1,3)` are HG97
+  fits with λ_X = 2 T_X/T (`x = 2*xHI` etc.).
+* `coef_cool(10,12)` (HI and HeII collisional excitation) are Cen (1992,
+  ApJS 78, 341) / Black (1981). `exp(-0.375*x)` reproduces 118348 K and
+  473638 K.
+* `coef_cool(13)` is Cen/Black bremsstrahlung with a constant Gaunt factor
+  of 1.3.
+* `coef_cool(14)` is exact Compton cooling, 4 a σ_T k/(m_e c), checked
+  numerically.
+* `alpha_rec(2)` is the exception: HeII case A recombination, and
+  `coef_cool(2)` = kT times it. The code has `2.78D-14 x**0.681` where HG97
+  have `3.0D-14 λ**0.654`. The two agree to about 4% at 10⁴–10⁵ K. This is
+  probably the "personal communication with Nick" of the comment, and it is
+  left as it is.
+
+The fixes use HG97 for every process HG97 covers. For the one process HG97
+does not give, HeI collisional excitation, they use Cen (1992). λ_X uses the
+code's own threshold temperatures `HI_K`, `HeI_K` and `HeII_K` (13.6, 24.59
+and 54.42 eV), as the existing fits do. These differ from HG97's 157807,
+285335 and 631515 K by at most 1.4e-4 relative.
+
+### The fixes
+
+| id | what | `legacy_physics = 0` | source |
+|---|---|---|---|
+| P1 | case B recombination cooling `coef_cool(4:6)` repeated the case A fits | HII: `3.435e-30 T λ_HI^1.970/(1+(λ_HI/2.250)^0.376)^3.720`; HeII: `1.26e-14 kT λ_HeI^0.750` (= kT α_HeII^B, radiative part); HeIII: 8 × the HII fit at λ_HeII | HG97 App. A |
+| P2 | HeI collisional excitation `coef_cool(11)` was 0 | `9.10e-27 T^-0.1687 exp(-13179/T)/(1+sqrt(T/1e5))` [erg cm⁶ s⁻¹], times **ne² nHeII** in the cooling sum | Cen (1992), cooling-rate table (He 2³S); same as Enzo/Grackle `ceHeI` |
+| P3 | `coef_cool(15)` was allocated but never set or used | HeII dielectronic recombination cooling `0.75 k T_HeII α_d`, times ne nHeII, added to the sum | HG97 App. A (= Cen 1992 `1.24e-13 T^-1.5 exp(-470000/T)(1+0.3 exp(-94000/T))`) |
+| P4 | HeIII case B recombination `alpha_rec(6)` = `2*3.753D-14…` | `2*2.753D-14…`, the hydrogenic scaling of `alpha_rec(4)`; enters the ionisation balance | HG97 App. A; 3.753 is a typo |
+| P5 | collisional ionisation cooling `coef_cool(7:9)` = **kT** × Γ_X | k T_X × Γ_X: the ionisation potential removed per ionisation | HG97 App. A; Cen 1992 (1.27e-21/5.85e-11 erg = 13.6 eV) |
+| P6 | no dielectronic recombination in the HeII → HeI rate | α_d = `1.90e-3 T^-1.5 exp(-0.75 λ_HeII/2)(1+0.3 exp(-0.15 λ_HeII/2))` added to `alpha_rec(2)` and `alpha_rec(5)` | Aldrovandi & Pequignot (1973) via HG97 App. A |
+
+Reasoning for the less obvious choices:
+
+* **P2.** None of HG97, Katz et al. (1996) and Cen (1992) gives a two-body
+  fit for excitation of HeI from the ground state. Cosmological codes use
+  the Cen (1992) rate as "HeI collisional excitation" (Enzo/Grackle call it
+  `ceHeI`). It describes excitation of the metastable 2³S level, which is
+  populated by HeII recombination, so it scales as ne² nHeII. Used as
+  `coef_cool(11)*ne*nHeI` it would be dimensionally wrong. The cooling sum
+  therefore uses `coef_cool(11)*ne*ne*nHeII`, in that order, left to right,
+  in both codes. Relative to HeII collisional excitation at 3×10⁴ K it is
+  about 8×10⁻³ (ne/cm⁻³), so it is negligible at IGM densities.
+  Two-body excitation of HeI from the ground state (thresholds 19.8 and
+  21.2 eV) is still missing, as it is in all these rate sets.
+* **P3.** Slot 15 has no comment, and `photo_cell` never reads it. The
+  comment block in `calc_atomic_rates` lists an older 10-slot layout, and
+  the comment in `photo_cell` lists 14 slots, so the array was evidently
+  sized for one more process. Of the standard two-body processes in Cen
+  (1992), Katz et al. (1996) and HG97, the only one missing from slots
+  1–14 is HeII dielectronic recombination cooling, which matters at
+  10⁵–10⁶ K. That is the most defensible reading.
+* **P6.** P3 removes the energy of dielectronic recombinations, so the
+  recombinations themselves must be in the ionisation balance, as in HG97
+  and Katz et al. (1996). Above about 7×10⁴ K, dielectronic recombination
+  dominates HeII → HeI. α_d is added to both the case A and the case B
+  rate, so their difference (the disabled recombination radiation) does
+  not change.
+* **P4 and P5** are clear errors, so they are fixed under the same flag. P5
+  multiplied the ionisation rate by the electron's thermal energy kT
+  instead of the ionisation potential k T_X. That underestimates the
+  cooling by T_X/T below T_X: a factor 16 for HI at 10⁴ K, and 8 at
+  2×10⁴ K. Above T_X it overestimates the cooling.
+
+All new literals are double precision. Both codes evaluate the new
+expressions in the same order, and both call the same glibc `pow` and `exp`.
+
+`tests/test_rates.cpp` (CTest `rates`) tabulates every changed coefficient
+at 10⁴–10⁸ K and compares it with an independent evaluation of the
+published fit:
+* With the code's threshold temperatures, the two agree to 1e-12, or to
+  1e-6 where the table keeps the original's real(4) exponent literals.
+* With HG97's own threshold temperatures they agree to ≤ 0.2%.
+* The dielectronic terms agree with Cen's form to ≤ 4% at T ≥ 10⁵ K.
+
+The test also checks that the legacy tables and all untouched slots do not
+change.
+
+`docs/figures/cooling_rates.png` is made by `tools/plot_cooling.py` from
+the output of `test_rates --csv`. Panel (a) shows the H+He cooling function
+in collisional ionisation equilibrium (CIE), by process, in both modes.
+Panel (b) shows the ratio new/legacy of each changed coefficient.
+
+![cooling rates](figures/cooling_rates.png)
+
+| CIE Λ/nH² [erg cm³ s⁻¹], nH = 1 | 1.6e4 K | 3.2e4 K | 1e5 K | 3.2e5 K | 1e6 K | 1e7 K |
+|---|---|---|---|---|---|---|
+| total, legacy | 6.63e-23 | 1.59e-23 | 2.45e-23 | 5.69e-24 | 5.77e-24 | 1.02e-23 |
+| total, fixed | 6.78e-23 | 1.75e-23 | 2.03e-23 | 3.81e-24 | 3.64e-24 | 9.08e-24 |
+| recombination, legacy → fixed | 2.4e-25 → 1.1e-25 | 6.6e-25 → 2.8e-25 | 2.2e-24 → 8.8e-25 | 2.4e-24 → 7.7e-25 | 2.1e-24 → 5.4e-25 | 9.0e-25 → 1.7e-25 |
+| coll. ionisation, legacy → fixed | 1.8e-25 → 1.8e-24 | 4.7e-25 → 2.5e-24 | 8.6e-25 → 2.7e-24 | 8.7e-25 → 8.4e-25 | 7.5e-25 → 2.4e-25 | 4.2e-25 → 1.4e-26 |
+
+The total changes most between 10⁵ and 10⁶ K, where it falls by up to 37%.
+There, recombination cooling was overestimated by a factor 3–5 (P1, the
+case A/B mixup). At 1–3×10⁴ K hydrogen-line cooling dominates, so the total
+changes by at most 10%.
+
+### Validation
+
+The C++ and the harness are bit-identical in all four combinations
+(`legacy_rt`, `legacy_physics`) ∈ {0,1}² on all five problems. This covers
+all 700 field files, and `stats.txt` and `rt_stats.txt` of all 10 steps.
+It is checked by both `compare.py --rtol 0 --atol-frac 0` and
+`tests/compare_reference.py`. It holds for the -O2 builds, for the
+`-fcheck=all` harness, which runs clean, and for the ASan/UBSan C++ build,
+which is also clean. With `legacy_physics = 1`, the harness outputs equal
+`reference/harness/outputs` and `outputs_legacy_rt0` exactly.
+
+### Physics impact
+
+The runs are N=32, 10 steps, measured from the field files. The table
+compares `legacy_physics = 0` with `1`, both with `legacy_rt = 0`. With
+`legacy_rt = 1` the changes agree with these to within 0.3 percentage
+points.
+
+| | uniform_1src | uniform_8src | lognormal_16src |
+|---|---|---|---|
+| ⟨xHII⟩_V, step 10 | −0.02% | −0.02% | +0.47% |
+| ⟨xHII⟩_M, step 10 | −0.02% | −0.02% | +0.24% |
+| ⟨xHeII⟩_V, step 10 | −0.07% | −0.06% | +0.35% |
+| ⟨xHeIII⟩_V, step 1 / 10 | +0.3% / +0.9% | +0.35% / +0.9% | +2.5% / +21% |
+| mass-weighted T of ionised cells (xHII > 0.5), step 10 | 20910 → 20820 K (−0.46%) | 20750 → 20660 K (−0.42%) | 17640 → 17950 K (+1.8%) |
+| median T of ionised cells, step 10 | −0.55% | −0.39% | −0.34% |
+| Tmax, step 10 | +0.03% | +0.12% | 34620 → 34170 K (−1.3%) |
+| cumulative HeIII recombinations `nrec(3)`, step 10 | −26% | −26% | −13% |
+
+* **I-front speed is unchanged.** In uniform_1src the set of cells with
+  xHII > 0.5 is identical at every step (R_I = 3.739 cells at step 10 in
+  both modes), and the volume-weighted xHII moves by at most 0.02%. The
+  front is photon-limited: recombination and cooling times are long
+  compared with the 2.6×10¹⁴ s run. In lognormal_16src the ionised
+  fraction at step 10 is 0.5% higher. Fewer HeIII recombinations leave
+  more photons for hydrogen, and the ionised gas is slightly hotter.
+* **HeIII.** P4 lowers the HeIII recombination rate by 27%. The HeIII
+  fraction rises by up to 21% in the dense lognormal gas, where it is
+  recombination-limited, and by 0.9% in the uniform problems.
+* **Temperatures.** Two effects compete:
+  * P1 roughly halves the recombination cooling of ionised gas (×0.45
+    for HII at 2×10⁴ K), which heats it.
+  * P5 multiplies the collisional-ionisation cooling of the partly
+    neutral gas at the front by T_HI/T ≈ 8, which cools it.
+
+  In the uniform problems the front dominates, and the ionised gas cools
+  by about 0.5% (100 K). In lognormal_16src the dense, recombining
+  ionised gas dominates, and its mass-weighted temperature rises by 1.8%
+  (300 K), while the hottest cells, at the fronts, cool by 1.3%.
+* **P2, P3 and P6 have no effect here.** No cell exceeds about
+  3.5×10⁴ K, where α_d ≈ 1e-16 cm³/s, and the 2³S term is small at these
+  densities. They will matter for shock-heated gas at 10⁵–10⁶ K once
+  hydro is coupled.
+
+This attribution comes from the size of each coefficient change at the
+temperatures present. The fixes were not switched on one at a time.
+
+### Other suspected physics issues (not changed)
+
+These are listed for a later decision. Each is either not clearly wrong or
+its fix is a modelling choice:
+
+* `alpha_rec(2)` and `coef_cool(2)` (HeII case A) use `2.78e-14 x^0.681`,
+  not HG97's `3.0e-14 λ^0.654`. They differ by about 4% (see above), and
+  they only enter the disabled recombination-radiation block.
+* The bremsstrahlung Gaunt factor is a constant 1.3. Cen (1992) and Katz
+  et al. (1996) use g_ff = 1.1 + 0.34 exp(−(5.5 − log T)²/3), which ranges
+  from 1.1 to 1.44. The difference is at most 20% of free-free cooling,
+  which dominates only above about 10⁶ K.
+* There is no term for excitation of HeI from the ground state (see P2).
+* Rates are looked up at the nearest table temperature (`nint`,
+  Δlog T = 0.01, so up to 1.2% in T), with no interpolation.
+* The thermal update `eth/(1+log(1-net_rate*dt/eth))` is a stable
+  approximation to implicit cooling. It is not exact, but it is not a bug.
+* Some terms are ad hoc subgrid choices, not rate errors:
+  * cooling and SN heating are suppressed above 200 × the mean density;
+  * the photon consumption factor applies above `rho_source`;
+  * SN heating itself.
+* The rates are looked up at `tmp` from before the ionisation update, and
+  ne is iterated at most 5 times, to 1e-3. These are numerical choices.
+* The original fits use single-precision exponent literals (`x**1.503` is
+  `pow(x, 1.50300002…)`). This shifts the rates by about 1e-7 relative,
+  which is harmless, so they are kept.
 
 ## 6. Open issues / limitations
 

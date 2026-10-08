@@ -25,8 +25,9 @@ struct AtomicRates {
   double gamma_col(int n, int iT) const { return gamma_col_[(n - 1) + 3 * (iT - 1)]; }
 };
 
-// rt_rates.f90: calc_atomic_rates
-void calc_atomic_rates(AtomicRates& r);
+// rt_rates.f90: calc_atomic_rates. legacy_physics = false applies the
+// physics fixes P1-P6 (docs/port_notes.md section 5b) to the tables.
+void calc_atomic_rates(AtomicRates& r, bool legacy_physics = true);
 
 // rt_rates.f90: photoion_sigma(nu) -> sigma(3,Nfreq) in cm^2.
 // Returned as sigma[species 0..2][freq 0..4].
