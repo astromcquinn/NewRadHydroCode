@@ -29,6 +29,24 @@ add_library(radray
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
+# On-the-fly halo finder, source model, legacy halo catalogs
+# (docs/halos_and_sources.md). OpenMP is optional; results are identical
+# for any thread count.
+option(RADRAY_HALOS_OPENMP "Build the halo finder with OpenMP" OFF)
+add_library(radray_halos
+  src/halos.cpp
+  src/halo_sources.cpp
+  src/mass_function.cpp)
+target_link_libraries(radray_halos PUBLIC radray)
+if(RADRAY_HALOS_OPENMP)
+  find_package(OpenMP REQUIRED)
+  target_link_libraries(radray_halos PUBLIC OpenMP::OpenMP_CXX)
+else()
+  target_compile_options(radray_halos PRIVATE -Wno-unknown-pragmas)
+endif()
+add_executable(find_halos apps/find_halos.cpp)
+target_link_libraries(find_halos PRIVATE radray_halos)
+
 add_executable(rt_driver apps/rt_driver.cpp)
 target_link_libraries(rt_driver PRIVATE radray)
 
