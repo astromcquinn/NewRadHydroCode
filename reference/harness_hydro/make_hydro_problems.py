@@ -166,7 +166,7 @@ def gaussian_field(N, rng, slope):
     return f / f.std(), (kx, ky, kz, kk, amp)
 
 
-def random3d(N=32, seed=20121008):
+def random3d(N=32, seed=20121008, bulk=(10.0, -8.0, 6.0), vfast=(70.0, -55.0)):
     rng = np.random.default_rng(seed)
     # log-normal density, sigma_ln = 1.5
     g, _ = gaussian_field(N, rng, -2.0)
@@ -181,9 +181,8 @@ def random3d(N=32, seed=20121008):
     for c, kc in enumerate((kx, ky, kz)):
         vel[c] = np.fft.ifftn(1j * kc * 2 * np.pi / N * phik).real
     vel *= 2.5 / vel.std()
-    vel[0] += 0.3
-    vel[1] -= 0.2
-    vel[2] += 0.1
+    for c in range(3):
+        vel[c] += bulk[c]
     # temperature: T = 300 K (rho/<rho>)^(2/3) (adiabat), e/rho in code units
     temp1_unit_z10 = 1.767159e6
     T = 300.0 * delta ** (2.0 / 3.0)
@@ -197,8 +196,8 @@ def random3d(N=32, seed=20121008):
     # low-density (below Dgas_frz = 0.01 Dgas_avg) fast hot cells -> c_limit
     ii = np.unravel_index(fast, (N, N, N), order="F")
     rho[ii] = 0.005 * DGAS_AVG
-    vel[0][ii] = 60.0
-    vel[1][ii] = -45.0
+    vel[0][ii] = vfast[0]
+    vel[1][ii] = vfast[1]
     eth[ii] = rho[ii] * 1e8 / temp1_unit_z10
     # random ionisation state and metals
     fHI = rng.uniform(0.0, 1.0, (N, N, N))
@@ -220,10 +219,10 @@ def random3d(N=32, seed=20121008):
     readme = f"""
 3-D random problem (N={N}, seed {seed}): log-normal density (sigma_ln = 1.5,
 delta from {delta.min():.3g} to {delta.max():.3g}), compressive velocity
-(potential flow, rms 2.5 per component, + bulk (0.3,-0.2,0.1)),
+(potential flow, rms 2.5 per component, + bulk {bulk}),
 T = 300 K (rho/<rho>)^(2/3) (Mach ~ 20-40), 6 cells at rho = Dgas_min/2
 (smooth_cells), 6 low-density (0.005 Dgas_avg < Dgas_frz) cells moving at
-(60,-45,0) with T ~ 1e8 K (above c_limit -> freezing branches), random
+{vfast} (x,y) with T ~ 1e8 K (above c_limit -> freezing branches), random
 fHI, fHeI, fHeII and metallicity, v_gas = Gaussian-smoothed (4 cells)
 velocity. Fixed da (large: several sub-cycles per sweep in early steps).
 """
@@ -244,8 +243,15 @@ def main():
     write_problem(root, "sound_x",
                   {"z_init": 10, "nsteps": 24, "timestep": "fixed", "da_sim": 0.004},
                   rho, vel, eth, readme=readme, force=force)
+    # large bulk velocity: the moving frame follows it, so advect sub-cycles
     rho, vel, eth, vg, w, readme = random3d()
     write_problem(root, "random3d",
+                  {"z_init": 10, "nsteps": 10, "timestep": "fixed", "da_sim": 0.002},
+                  rho, vel, eth, vg=vg, w=w, readme=readme, force=force)
+    # small bulk velocity, very fast low-density cells: c_limit / freeze /
+    # smooth_cells branches
+    rho, vel, eth, vg, w, readme = random3d(bulk=(0.3, -0.2, 0.1), vfast=(100.0, -80.0))
+    write_problem(root, "random3d_freeze",
                   {"z_init": 10, "nsteps": 10, "timestep": "fixed", "da_sim": 0.002},
                   rho, vel, eth, vg=vg, w=w, readme=readme, force=force)
 

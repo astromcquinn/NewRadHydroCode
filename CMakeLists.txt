@@ -32,5 +32,15 @@ target_include_directories(radray PUBLIC include)
 add_executable(rt_driver apps/rt_driver.cpp)
 target_link_libraries(rt_driver PRIVATE radray)
 
+# Hydro solver (hydro_tools.f90 -DMF) and gas domains: needs FFTW3 single
+# precision (replaces MKL DFTI, see docs/port_notes_hydro.md).
+find_path(FFTW3_INCLUDE_DIR fftw3.h REQUIRED)
+find_library(FFTW3F_LIBRARY fftw3f REQUIRED)
+add_library(radray_hydro src/hydro.cpp src/domain_gas.cpp)
+target_include_directories(radray_hydro PUBLIC ${FFTW3_INCLUDE_DIR})
+target_link_libraries(radray_hydro PUBLIC radray ${FFTW3F_LIBRARY})
+add_executable(hydro_driver apps/hydro_driver.cpp)
+target_link_libraries(hydro_driver PRIVATE radray_hydro)
+
 enable_testing()
 add_subdirectory(tests)

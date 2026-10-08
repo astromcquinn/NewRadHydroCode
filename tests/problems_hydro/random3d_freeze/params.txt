@@ -1,0 +1,6 @@
+# hydro test problem 'random3d_freeze' (reference/harness_hydro/make_hydro_problems.py)
+N = 32
+z_init = 10
+nsteps = 10
+timestep = fixed
+da_sim = 0.002

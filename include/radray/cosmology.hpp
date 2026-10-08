@@ -39,6 +39,7 @@ struct Units {
   double Dgas_avg = 0, Dgas_min = 0, Dgas_max = 0, Dgas_frz = 0;
   double vgas_min = 0, vgas_max = 0;
   double Tgas_min = 0, Tgas_max = 0;
+  double Tmf_min = 0, Tmf_max = 0;  // MF temperature limits (hydro smooth)
   double temp_min = 0, temp_max = 0;
 
   double len_rt = 0, vol_rt = 0;
