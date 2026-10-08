@@ -65,6 +65,11 @@ struct Config {
   // but not to the legacy order. Requires legacy_rt = false.
   bool det_parallel = false;
 
+  // Maximum expansion per hydro step, da/a <= ra_max/(1-ra_max). The
+  // original's real(4) 0.1 (da/a = 1/9) unless set (apps/radhydro allows a
+  // different value only with legacy_rt = 0).
+  double ra_max = static_cast<double>(0.1f);
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

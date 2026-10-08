@@ -84,7 +84,7 @@ if(RADRAY_WITH_PM)
     add_executable(hydro_driver apps/hydro_driver.cpp)
     target_link_libraries(hydro_driver PRIVATE radray_hydro)
     # PM gravity (pm_tools.f90); uses the gas domains and summarize_gas.
-    add_library(radray_pm src/pm.cpp)
+    add_library(radray_pm src/pm.cpp src/checkpoint.cpp)
     target_link_libraries(radray_pm PUBLIC radray_hydro)
     add_executable(pm_driver apps/pm_driver.cpp)
     target_link_libraries(pm_driver PRIVATE radray_pm)

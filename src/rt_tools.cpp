@@ -305,6 +305,7 @@ void radiative_transfer(Simulation& s) {
     clk.redshift = 1 / clk.scalefactor - 1;
     calc_sim_var(s.cfg, clk, s.units);
     // (make_data_2d / write_data_3: IO only, not ported)
+    if (s.substep_hook) s.substep_hook(s);
   }
   // Leave istep_rt = nstep_rt+1 like the Fortran DO variable
   post_rt(s);

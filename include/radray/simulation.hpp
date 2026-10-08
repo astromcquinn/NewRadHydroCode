@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <ostream>
 #include <vector>
 
@@ -65,6 +66,10 @@ struct Simulation {
   DetDomains ddom;
   RTTimers timers;
   std::int64_t Nsource = 0;
+
+  // Called after every RT substep (after the clock update), e.g. for movie
+  // frames; must not change the state.
+  std::function<void(Simulation&)> substep_hook;
 
   // ray.log (Fortran unit 201) and stdout-like summary; may be null.
   std::ostream* raylog = nullptr;

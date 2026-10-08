@@ -407,6 +407,51 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
 endif()
 
 # ---------------------------------------------------------------------------
+# Thread-count independence (docs/parallel.md) and restart
+if(Python3_Interpreter_FOUND)
+  # deterministic_parallel ray tracing, N = 32 (4^3 domains of 8^3 cells)
+  foreach(p lognormal_16src uniform_8src_smallbuf)
+    add_test(NAME thread_rt_det_${p}
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_det_${p} $<TARGET_FILE:rt_driver>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems/${p} --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set nsteps=6)
+    set_tests_properties(thread_rt_det_${p} PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  endforeach()
+  # legacy order (rt_step_2 and the RT grid loops in parallel), vs threads
+  add_test(NAME thread_rt_legacy_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_legacy $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=4)
+  set_tests_properties(thread_rt_legacy_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
+                       ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  if(RADRAY_HAVE_PM)
+    # hydro, PM, summaries, FoF (N = 32, 22 steps before RT)
+    add_test(NAME thread_full_legacy_hydro_pm
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_hydro_pm $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly --quiet
+                     --set zdata1=12 --set fields_every=1)
+    set_tests_properties(thread_full_legacy_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # bit-identical restart: legacy, and deterministic_parallel + movie frames
+    add_test(NAME restart_smoke_legacy
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/legacy 13)
+    add_test(NAME restart_smoke_det_movie
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
+                     --set movie_z0=25)
+    set_tests_properties(restart_smoke_legacy restart_smoke_det_movie PROPERTIES TIMEOUT 600
+                         LABELS restart)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # OpenMP: every test runs with 2 threads unless it sets OMP_NUM_THREADS
 # itself (ctest -j runs several tests at once; results do not depend on the
 # thread count, see docs/parallel.md and the thread_* tests).

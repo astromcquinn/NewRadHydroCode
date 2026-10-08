@@ -199,7 +199,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     if (mode == TimestepMode::Fixed)
       clk.da_sim = da_fixed;
     else  // Restrict expansion timestep based on da/a ratio
-      clk.da_sim = a * ra_max / (1 - ra_max);
+      clk.da_sim = a * cfg.ra_max / (1 - cfg.ra_max);
     calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     t.dt_vg = 0;
     t.dt_ap = 0;
@@ -210,7 +210,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     t.dt_ap = dt_pm_factor / std::sqrt(clk.amax_dm);
     clk.dt_sim = f::gmin(t.dt_vg, t.dt_ap);
     calc_da_from_dt(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    clk.da_sim = f::gmin(clk.da_sim, a * ra_max / (1 - ra_max));
+    clk.da_sim = f::gmin(clk.da_sim, a * cfg.ra_max / (1 - cfg.ra_max));
     calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     t.dt_vg = clk.dt_yr * (t.dt_vg / clk.dt_sim);
     t.dt_ap = clk.dt_yr * (t.dt_ap / clk.dt_sim);
