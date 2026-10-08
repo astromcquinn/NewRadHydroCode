@@ -69,6 +69,8 @@ def main():
         "movie_fields = fHI,temp",
         "restart_every = 1",
         "fields_at_data1 = 1",
+        "fields = fHI,fHeI,fHeII,temp,rhog,gamma",
+        "data_files = norays",
     ]
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")

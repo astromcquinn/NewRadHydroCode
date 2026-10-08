@@ -101,6 +101,12 @@ struct RunParams {
   double movie_dz = 0;
   double movie_z0 = -1;
   std::string movie_fields = "fHI,temp";
+  // Output volume: the step_* field files to write (comma list; empty: all
+  // 16), and the write_data_1/2 files: all (F1 fix, default), norays
+  // (without Ray/, which holds every ray: 96 B each) or dm (only xv_dm, as
+  // the original with one thread)
+  std::string fields;
+  std::string data_files = "all";
   // Sources
   HaloSourceParams halo;
   std::string ics;          // directory of xv_dm.init/u_gas.init
@@ -144,6 +150,13 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.movie_z0 = to_double(val);
   else if (key == "movie_fields")
     P.movie_fields = val;
+  else if (key == "fields")
+    P.fields = val;
+  else if (key == "data_files") {
+    if (val != "all" && val != "norays" && val != "dm")
+      throw std::runtime_error("data_files must be all, norays or dm");
+    P.data_files = val;
+  }
   else if (key == "deterministic_parallel") {
     P.deterministic_parallel = std::stoi(val);
     if (P.deterministic_parallel != 0 && P.deterministic_parallel != 1)
@@ -215,9 +228,11 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
 // identity); D3D/zreion is not written (calc_gas_3 is not ported). The Ray
 // files are created empty when Nray = 0, as in the original.
 void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
-                      const std::vector<float>& xv, const std::vector<float>& vgas, bool data1) {
-  std::filesystem::create_directories(odir + "/Gas");
+                      const std::vector<float>& xv, const std::vector<float>& vgas, bool data1,
+                      const std::string& which) {
   write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
+  if (which == "dm") return;
+  std::filesystem::create_directories(odir + "/Gas");
   write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
   write_f32(odir + "/Gas/v_gas." + tag, vgas.data(), vgas.size());
   write_f32(odir + "/Gas/w_gas." + tag, s.gas.w.data(), s.gas.w.size());
@@ -249,6 +264,7 @@ void write_data_files(const std::string& odir, const std::string& tag, const Sim
     }
     write_f32(odir + "/RT/rt_grid." + tag, buf.data(), buf.size());
   }
+  if (which == "norays") return;
   // the original opens (creates) the Ray files and writes them if Nray > 0
   std::filesystem::create_directories(odir + "/Ray");
   {
@@ -531,6 +547,9 @@ int main(int argc, char** argv) {
     auto write_fields = [&](const std::string& d) {
       const RTGrid& G = s.rt;
       auto W = [&](const char* name, const std::vector<float>& v) {
+        if (!P.fields.empty() && ("," + P.fields + ",").find(std::string(",") + name + ",") ==
+                                     std::string::npos)
+          return;
         write_f32(d + "/" + name + ".bin", v.data(), v.size());
       };
       W("fHI", G.fHI);
@@ -708,7 +727,7 @@ int main(int argc, char** argv) {
       const std::string d = step_dir();
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
       if (data2_out) {  // write_data_2 (F1 fix: all files)
-        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false);
+        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
         idata2 = idata2 + 1;
         data2_out = false;
       }
@@ -719,7 +738,7 @@ int main(int argc, char** argv) {
                                  pk_gas);
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
         // write_data_1 (F1 fix: all files)
-        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true);
+        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
