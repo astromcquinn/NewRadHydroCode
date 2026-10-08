@@ -66,3 +66,16 @@ and adaptive calculations.
   single precision in place of MKL DFTI, so they can match bit-for-bit.
   Each part gets its own Fortran reference driver and its own validation
   problems, and then the full `radhydro` loop is integrated (Phase 1c).
+* **Physics fixes behind a flag** (decided 2026-10-08). `legacy_physics = 1`
+  keeps the original physics. `legacy_physics = 0` fixes:
+  * the case-B recombination cooling coefficients, which currently use the
+    case-A formulas;
+  * the missing HeI collisional-excitation cooling;
+  * the unset `coef_cool(15)`.
+
+  Recombination radiation stays off for now. Both Fortran and C++ get the
+  flag. This is scheduled after the `legacy_rt` work, because both touch the
+  RT rate code.
+* **On-the-fly halo finder** (decided 2026-10-08): FoF on the DM particles, a
+  source model reconstructed from Trac & Cen 2007 and Trac, Cen & Loeb 2008,
+  and a reader for the original catalog format to keep legacy mode working.
