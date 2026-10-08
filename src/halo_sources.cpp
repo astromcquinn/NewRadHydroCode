@@ -93,38 +93,15 @@ std::vector<SfrHistoryRow> read_sfr_history(const std::string& path) {
 
 namespace {
 
-// Fortran Fw.d of a non-negative value with d decimals, right-justified in
-// width w, rounding exact decimal ties away from zero (gfortran default).
+// Fortran Fw.d of a non-negative value, right-justified in width w. gfortran
+// rounds the exact binary value to nearest with ties to even, exactly like
+// glibc printf (checked against gfortran in tests/test_halo_catalog.cpp).
 std::string fortran_f(double x, int w, int d) {
-  // Exact decimal expansion (glibc prints exact digits)
   char buf[512];
-  std::snprintf(buf, sizeof buf, "%.60f", x);
-  std::string s(buf);
-  const auto dot = s.find('.');
-  std::string ip = s.substr(0, dot);
-  std::string fp = s.substr(dot + 1);
-  std::string keep = ip + fp.substr(0, d);
-  const char next = fp[d];
-  // Round half away from zero: any digit >= 5 at position d+1 rounds up
-  // (glibc's %.60f rounding at digit 60 never matters for z < 100).
-  const bool up = next >= '5';
-  if (up) {
-    int i = static_cast<int>(keep.size()) - 1;
-    while (i >= 0) {
-      if (keep[i] == '9') {
-        keep[i] = '0';
-        --i;
-      } else {
-        ++keep[i];
-        break;
-      }
-    }
-    if (i < 0) keep.insert(keep.begin(), '1');
-  }
-  std::string ipart = keep.substr(0, keep.size() - d);
-  std::string out = ipart + "." + keep.substr(keep.size() - d);
-  // Leading zero is optional: dropped only if the field is too narrow
-  if (static_cast<int>(out.size()) > w && ipart == "0") out = out.substr(1);
+  std::snprintf(buf, sizeof buf, "%.*f", d, x);
+  std::string out(buf);
+  // The leading zero of 0.xxxx is optional: dropped if the field is narrow
+  if (static_cast<int>(out.size()) > w && out[0] == '0') out = out.substr(1);
   if (static_cast<int>(out.size()) > w) return std::string(w, '*');
   return std::string(w - out.size(), ' ') + out;
 }

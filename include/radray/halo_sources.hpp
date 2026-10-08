@@ -56,8 +56,8 @@ struct SfrHistoryRow {
 std::vector<SfrHistoryRow> read_sfr_history(const std::string& path);
 
 // io_tools.f90 read_halo redshift tag: z<10 -> 'z=0',f6.4; z<100 ->
-// 'z=',f7.4 (Fortran F editing, ties rounded away from zero as gfortran
-// does). The original leaves the tag unset for z>=100; we throw.
+// 'z=',f7.4 (Fortran F editing; gfortran rounds ties to even, as
+// printf does). The original leaves the tag unset for z>=100; we throw.
 std::string redshift_tag(double z);
 
 // The sfr.txt scan of read_halo: z1/z2 = first row with z <= redshift and

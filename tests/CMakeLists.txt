@@ -14,6 +14,29 @@ add_executable(test_rays test_rays.cpp)
 target_link_libraries(test_rays PRIVATE radray)
 add_test(NAME rays COMMAND test_rays)
 
+# Halo finder and sources (docs/halos_and_sources.md)
+add_executable(test_halos test_halos.cpp)
+target_link_libraries(test_halos PRIVATE radray_halos)
+add_test(NAME halos COMMAND test_halos)
+
+add_executable(test_halo_catalog test_halo_catalog.cpp)
+target_link_libraries(test_halo_catalog PRIVATE radray_halos)
+find_program(RADRAY_GFORTRAN gfortran)
+if(RADRAY_GFORTRAN)
+  # Reference program with the original source_type layout and read_halo
+  add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
+    COMMAND ${RADRAY_GFORTRAN} -O0 -o ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
+            ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90)
+  add_custom_target(halo_catalog_ref ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
+  set(HALO_REF ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
+else()
+  set(HALO_REF "")  # the test then skips the Fortran comparisons
+endif()
+add_test(NAME halo_catalog
+         COMMAND test_halo_catalog "${HALO_REF}" ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_run)
+
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(NAME healpix_vs_healpy
