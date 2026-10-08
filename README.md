@@ -110,10 +110,19 @@ Each N = 32 problem takes about 0.5–2 s (10 hydro steps × 12 RT substeps).
 | `ref_<problem>` | byte comparison with the stored harness outputs `reference/harness/outputs` |
 | `ref_legacy0_<problem>`, `ref_fixed_<problem>` | the same for `legacy_rt=0` (`outputs_legacy_rt0`) and for `legacy_rt=0 legacy_physics=0` (`outputs_legacy_rt0_phys0`) |
 
-Hydro, PM and full-loop tests carry the labels `hydro`, `pm` and `full`.
-The four N = 32 full-loop reference tests (`full_ref_legacy_*`,
-`full_ref_onthefly_*`) take about 5 minutes each and carry the label `long`
-(`ctest -LE long` skips them).
+Hydro, PM and full-loop tests carry the labels `hydro`, `pm` and `full`;
+`threads` (bit-identical outputs for 1, 2 and 4 OpenMP threads), `restart`
+(bit-identical restart) and `physics` (`ifront_rsla`, the reduced speed of
+light). The four N = 32 full-loop reference tests (`full_ref_legacy_*`,
+`full_ref_onthefly_*`, about 5 minutes each) and the ray-pool guard test
+carry the label `nightly` and are disabled by default:
+
+```
+cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly
+```
+
+Every test runs with `OMP_NUM_THREADS=2` unless it sets the thread count
+itself.
 
 ## Full radiation-hydrodynamics run
 
@@ -124,7 +133,12 @@ python3 tools/compare/compare.py out/f_onthefly out/onthefly --rtol 0 --atol-fra
 ```
 
 Parameters, outputs, validation and the cost model are in
-[docs/full_run.md](docs/full_run.md).
+[docs/full_run.md](docs/full_run.md). OpenMP (`OMP_NUM_THREADS`, results
+independent of the thread count) is described in
+[docs/parallel.md](docs/parallel.md); the reduced speed of light
+(`c_reduced`), the deterministic parallel ray tracing, restarts, movie
+frames and the production-run cost in
+[docs/production_run.md](docs/production_run.md).
 
 How the Fortran maps onto the C++, the ambiguous constructs and the bugs
 found in the original are described in
