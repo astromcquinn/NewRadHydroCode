@@ -14,6 +14,13 @@ exactly this, so their outputs can be compared file-by-file.
 * `legacy_rt` (default 1): 1 runs the original RT bookkeeping. 0 switches on
   the fixes for bugs B1–B4, B8 and B9 (`docs/port_notes.md` §5a). Both modes
   are part of the validation.
+* `legacy_physics` (default 1): 1 runs the original atomic physics. 0
+  switches on the fixes P1–P6 (`docs/port_notes.md` §5b): case B
+  recombination cooling, HeI (2³S) collisional excitation, HeII dielectronic
+  recombination and its cooling (`coef_cool(15)`), the HeIII case B rate
+  and collisional-ionisation cooling. It is independent of `legacy_rt`, and
+  all four combinations are part of the validation. The recommended
+  configuration is `legacy_rt = 0`, `legacy_physics = 0`.
 * Ray parameters as in `ray_tracing_tools.f90` (`nside_init=4`,
   `lside_max=13`, `ray_per_cell=1`).
 * `RAYFAST` undefined (the default code path). `METAL`, `FREQ1` undefined.
@@ -35,7 +42,7 @@ exactly this, so their outputs can be compared file-by-file.
   indices; these are assigned to `rt_grid%Luv`/`%sfr` exactly as
   `halo_tools.f90: add_halo_to_rt` would (metal injection skipped).
 * `params.txt`: `key = value` lines (`N`, `z_init`, `da_sim`, `nsteps`,
-  optional `nray_max_factor` and `legacy_rt`). Both drivers accept
+  optional `nray_max_factor`, `legacy_rt` and `legacy_physics`). Both drivers accept
   `--set key=value` on the command line, which overrides or adds an entry:
   `rt_driver <prob> <out> --set legacy_rt=0`, or
   `rt_harness.x <prob> <out> [nsteps] --set legacy_rt=0`. The problem
@@ -55,8 +62,11 @@ Problems:
 The canonical inputs are the files committed in `tests/problems/` (generated
 by `reference/harness/make_test_problem.py`, seed 20121). Reference outputs
 are in `reference/harness/outputs/` (`legacy_rt = 1`) and
-`reference/harness/outputs_legacy_rt0/` (`legacy_rt = 0`, stored the same
-way).
+`reference/harness/outputs_legacy_rt0/` (`legacy_rt = 0`) and
+`reference/harness/outputs_legacy_rt0_phys0/` (`legacy_rt = 0`,
+`legacy_physics = 0`), all stored the same way. The other two combinations
+are not stored, but they are checked the same way when the harness is run
+(`RT_SET="legacy_physics=0" run_all.sh`).
 
 ## Outputs (`<outdir>/step_%04d/`, after each hydro step)
 
@@ -77,7 +87,10 @@ absolute and relative differences per step and the ray-stat differences.
 Target: ray stats identical; float fields agree to ~1e-5 relative (round-off
 level) on all problems. Any larger discrepancy must be explained.
 
-Achieved, and required from now on: bit-identical results in both modes
-(`compare.py --rtol 0`, `tests/compare_reference.py`), checked by the
-CTests `ref_<problem>` and `ref_legacy0_<problem>`. With `legacy_rt = 1` the
-outputs must also stay identical to `reference/harness/outputs`.
+Achieved, and required from now on: bit-identical results in all four
+(`legacy_rt`, `legacy_physics`) combinations (`compare.py --rtol 0`,
+`tests/compare_reference.py`). The CTests `ref_<problem>`,
+`ref_legacy0_<problem>` and `ref_fixed_<problem>` check the three stored
+configurations. With `legacy_physics = 1` the outputs must stay identical to
+`reference/harness/outputs` (`legacy_rt = 1`) and
+`reference/harness/outputs_legacy_rt0` (`legacy_rt = 0`).

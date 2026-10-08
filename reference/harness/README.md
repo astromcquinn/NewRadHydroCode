@@ -19,6 +19,8 @@ reference/harness/
   tests/analyze_outputs.py                sanity checks (I-front, photon budget)
   outputs/             stored reference outputs (subset, see below), legacy_rt = 1
   outputs_legacy_rt0/  the same with legacy_rt = 0 (RT bookkeeping fixes on)
+  outputs_legacy_rt0_phys0/  legacy_rt = 0 and legacy_physics = 0 (also the
+                       atomic-physics fixes; the recommended configuration)
 ```
 
 ## Build
@@ -47,6 +49,7 @@ with a "rebuild with make N=.. NRF=.." message if not.
 ./run_problem.sh <problem_dir> <outdir> [nsteps] [exe] [--set key=value ...]
 ./run_all.sh [outroot=reference/harness/runs] [opt|debug]
 RT_SET=legacy_rt=0 ./run_all.sh <outroot>      # RT bookkeeping fixes on
+RT_SET="legacy_rt=0 legacy_physics=0" ./run_all.sh <outroot>   # + physics fixes
 ```
 
 The executable takes the same `--set key=value` arguments:
@@ -74,6 +77,11 @@ These follow the spec. The files in `tests/problems/<name>/` are:
   * `legacy_rt = 1` (the default) is the original code.
   * `legacy_rt = 0` turns on the fixes for bugs B1–B4, B8 and B9
     (PATCHES.md 8, `docs/port_notes.md` §5a).
+  * `legacy_physics` (default 1, the original physics) is independent of
+    `legacy_rt`. `legacy_physics = 0` turns on the atomic-physics fixes
+    P1–P6 (PATCHES.md 9, `docs/port_notes.md` §5b): case B recombination
+    cooling, HeI collisional excitation, HeII dielectronic recombination,
+    the HeIII case B rate and collisional-ionisation cooling.
 * `gas.bin`: float32 `(9,N,N,N)` holding `u_gas(1:5)` and `w_gas(1:4)`.
 * `sources.txt`: one source per line as `i j k Luv sfr`.
 
@@ -162,8 +170,10 @@ much to keep in git. `outputs/<problem>/` therefore keeps:
   bit-identical to `uniform_8src` (see below).
 
 `outputs_legacy_rt0/` holds the same subset from
-`RT_SET=legacy_rt=0 ./run_all.sh`. Again, `uniform_8src_smallbuf` has no
-binaries; with the fixes its fields are still identical to `uniform_8src`.
+`RT_SET=legacy_rt=0 ./run_all.sh`. `outputs_legacy_rt0_phys0/` holds it from
+`RT_SET="legacy_rt=0 legacy_physics=0" ./run_all.sh`. Again,
+`uniform_8src_smallbuf` has no binaries in either; with the fixes its fields
+are still identical to `uniform_8src`.
 
 To regenerate everything (about 15 s), run `./run_all.sh outputs-full`.
 Output is deterministic: repeated runs are bit-identical, apart from the
@@ -219,6 +229,12 @@ timing lines in the logs.
   with no runtime errors, after patch 5 in PATCHES.md. `FPE=overflow` also
   passes. The `-fcheck=all` build is also clean with `legacy_rt = 0`, and in
   both modes its outputs are bit-identical to the `-O2` build.
+* **`legacy_physics = 0`.** The `-fcheck=all` build is clean in all four
+  (`legacy_rt`, `legacy_physics`) combinations, and its outputs are
+  bit-identical to the `-O2` build. With `legacy_physics = 1` the outputs
+  equal `outputs/` and `outputs_legacy_rt0/` exactly. For the physics
+  impact (HeIII +21% in lognormal_16src, ionised-gas temperatures −0.5% to
+  +1.8%, I-front unchanged), see `docs/port_notes.md` §5b.
 * **`legacy_rt = 0`.** Merging in lognormal_16src_smallbuf now starts at
   step 7 instead of step 5, with 41775 merges in total instead of 50900. The
   uniform problems and the factor-64 problems still never merge. For the

@@ -76,7 +76,13 @@ and adaptive calculations.
 
   Recombination radiation stays off for now. Both Fortran and C++ get the
   flag. This is scheduled after the `legacy_rt` work, because both touch the
-  RT rate code.
+  RT rate code. **Done** (`docs/port_notes.md` §5b, harness patch 9). The
+  flag also fixes three more errors found in the rate code: the HeIII
+  case B coefficient typo, collisional-ionisation cooling using kT
+  instead of the ionisation potential, and the missing HeII dielectronic
+  recombination. `coef_cool(15)` is now the dielectronic recombination
+  cooling. The recommended configuration is `legacy_rt = 0`,
+  `legacy_physics = 0`.
 * **On-the-fly halo finder** (decided 2026-10-08): FoF on the DM particles, a
   source model reconstructed from Trac & Cen 2007 and Trac, Cen & Loeb 2008,
   and a reader for the original catalog format to keep legacy mode working.
