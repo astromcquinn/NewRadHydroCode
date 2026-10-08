@@ -240,15 +240,19 @@ model, c_reduced = 0.01, nray_max_factor = 16, legacy_rt = legacy_physics
   of that step, z = 10.05). x_HII,V = 0.02, 0.61, 0.99994 at z = 8.9, 7.1,
   5.5. Rays: 2.73M at the end (0.65 Nray_max), pool guard active in 7
   substeps. Peak RSS 400 MB.
-* **N = 128**, z = 100 → 7.30 (24 steps; the run then stopped at a full
-  disk while writing a checkpoint, see section 7): hydro + PM + FoF +
-  summaries ≈ 12 s per step; RT steps 20–24 took 29, 68, 323, 447, 455 s
-  for 22–24 substeps each, with 0.26M, 2.1M, 11.1M, 14.5M, 17.1M rays at
-  their ends (0.51 Nray_max at z = 7.3) and x_HII,V = 0.04, 0.21, 0.42,
-  0.63, 0.83. First source at z = 11.3 (RT from z = 12.6). RSS 557 MB
-  before the rays, 2.08 GB with 14.5M rays.
-* The Courant/PM limit binds only at N = 128 below z ≈ 9 (da/a = 0.10
-  instead of 1/9); otherwise every step is the ra_max step.
+* **N = 128**, z = 100 → 5.27, 29 hydro steps, **77 min in total** on
+  the shared machine (≈ 2 cores effectively): RT 69.5 min (212 substeps
+  from z = 12.6; the first FoF source forms at z = 11.3), hydro + PM + FoF
+  + summaries ≈ 12 s per step, IO 1–2 min. The run stopped once at a full
+  disk while writing a checkpoint (section 7) and was restarted from the
+  step-23 checkpoint (`--restart`). RT steps 20–29: 29, 68, 323, 447, 455
+  (before the restart), 551, 468, 488, 368, 405 s; rays at their ends
+  0.26M, 2.1M, 11.1M, 14.5M, 17.1M, 19.2M, 20.7M, 21.3M, 21.8M, 22.0M
+  (0.66 Nray_max), x_HII,V = 0.04, 0.21, 0.42, 0.63, 0.83, …, 0.9915 at
+  z = 6.2, 0.99993 at z = 5.3. Pool guard active in 12 substeps. RSS 557 MB
+  before the rays, **2.76 GB peak**.
+* The Courant/PM limit binds at N = 128 below z ≈ 9 (da/a = 0.10, then
+  0.06–0.07 near z = 6); at N = 64 every step is the ra_max step.
 
 ### Cost per component, one thread
 
@@ -290,8 +294,11 @@ worst case at 0.9: then N = 128 needs 3.2 GB and N = 192 10.8 GB).
 
 The hydro part (27–30 steps) is 2 min (N = 128) to 7 min (N = 192) of
 these. Checks against the runs: N = 64 predicts 68 substeps to z = 5.5
-(the run did 67) and 4 min of RT on one thread; the N = 128 serial steps 23
-and 24 (615 s, 847 s) match the per-ray cost. The uncertainty is mostly
+(the run did 67) and 4 min of RT on one thread; N = 128 predicts 179
+substeps to z = 5.5 (the run did 199 to z = 5.56, 212 to 5.27: the
+Courant-limited steps round up more often) and 1.6 h on one thread; the
+complete N = 128 run took 77 min on about two free cores, consistent with
+the 28-min projection for four. The uncertainty is mostly
 the ray population (±30%) and the source model: with the global SFR
 model the box is ionised by z ≈ 6.5 (N = 64) and the ray count saturates;
 an abundance-matched model with fainter, more numerous sources will change
