@@ -119,3 +119,23 @@ and adaptive calculations.
 * Cost: RT dominates (rays × light-crossing substeps); see
   `docs/full_run.md` §5 for the measured cost model and the extrapolation
   that sizes the production run.
+
+### Production-run decisions (2026-10-08)
+
+* **Box:** 20 Mpc/h for the reionisation movie run.
+  * RT validation problems so far use 5 Mpc/h.
+  * Full-loop tests and the demo use 4 Mpc/h.
+* **Reduced speed of light:** `c_reduced` parameter, mapped onto the
+  original's `cscale`.
+  * The user suggested 0.01c.
+  * First run a short 64³ convergence check of 0.01c, 0.03c and 0.1c,
+    because light at 0.01c only crosses about one box length between z = 12
+    and 6.
+* **Ray buffer:** `nray_max_factor = 16`, giving about 5–10 live rays per
+  cell (live rays saturate at 0.3–0.6 × Nray_max).
+* **Resolution:** Ngas = Ndm.
+  * 128³ is the default.
+  * 192³ fits in memory if the timings allow.
+* **Sources:** abundance-match resolved halos to the observed UV
+  luminosity functions, plus sub-grid sources for unresolved faint
+  galaxies (down to M_UV ≈ −13).
