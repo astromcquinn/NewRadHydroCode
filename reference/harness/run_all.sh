@@ -7,6 +7,9 @@
 # builds the matching executable (make N=.. NRF=.. [MODE=debug]) and runs it
 # into <outroot>/<p> (default reference/harness/runs/).  The D2D/ slice dumps
 # written by write_data_3 are removed afterwards.
+#
+# RT_SET="key=value ..." passes --set key=value to every run, e.g.
+#   RT_SET=legacy_rt=0 ./run_all.sh outputs-fixed
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
@@ -15,6 +18,9 @@ mode="${2:-opt}"
 problems="${PROBLEMS:-uniform_1src uniform_8src lognormal_16src uniform_8src_smallbuf lognormal_16src_smallbuf}"
 
 python3 "$here/make_test_problem.py"   # writes tests/problems/* only if missing
+
+setargs=()
+for kv in ${RT_SET:-}; do setargs+=(--set "$kv"); done
 
 param() {  # param <file> <key> <default>
     local v
@@ -31,7 +37,7 @@ for p in $problems; do
     out="$outroot/$p"
     rm -rf "$out"
     start=$(date +%s.%N)
-    "$here/run_problem.sh" "$prob" "$out" "" "$exe"
+    "$here/run_problem.sh" "$prob" "$out" "" "$exe" ${setargs[@]+"${setargs[@]}"}
     end=$(date +%s.%N)
     rm -rf "$out/D2D"
     printf '%s: %.1f s (%s)\n' "$p" "$(echo "$end - $start" | bc)" "$exe"
