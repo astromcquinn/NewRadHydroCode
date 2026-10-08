@@ -568,10 +568,12 @@ void ray_cast_1(Simulation& s, std::int64_t ir, int /*irt*/, int /*jrt*/,
       ngam[n] = ry.ngam[n];
     }
   }
-  const std::array<double, 3> dl = ray_segment(x, dx, s.units.seg_min);
+  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3)
+  const int nseg = s.cfg.legacy_rt ? 3 : 4;
+  const std::array<double, 4> dl = ray_segment(x, dx, s.units.seg_min, nseg);
 
   double l = 0;
-  for (int n = 0; n < 3; ++n) {
+  for (int n = 0; n < nseg; ++n) {
     l = l + dl[n];
     if (dl[n] >= s.units.seg_min) {
       double x1[3];
@@ -584,7 +586,7 @@ void ray_cast_1(Simulation& s, std::int64_t ir, int /*irt*/, int /*jrt*/,
 
       // fdl = dl(n)/sum(dl(n:))
       double sdl = 0;
-      for (int m = n; m < 3; ++m) sdl += dl[m];
+      for (int m = n; m < nseg; ++m) sdl += dl[m];
       const double fdl = dl[n] / sdl;
 
       const float* tau = G.tau_p(c);
@@ -632,7 +634,9 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
     }
     for (int n = 0; n < kNfreq; ++n) ngam[n] = ry.ngam[n];
   }
-  const std::array<double, 3> dl = ray_segment(x, dx, u.seg_min);
+  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3)
+  const int nseg = s.cfg.legacy_rt ? 3 : 4;
+  const std::array<double, 4> dl = ray_segment(x, dx, u.seg_min, nseg);
 
   // Save original
   const double r0 = r, dr0 = dr;
@@ -647,7 +651,7 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
   double l = 0;
   for (int n = 0; n < kNfreq; ++n) ngam[n] = 0;
 
-  for (int n = 0; n < 3; ++n) {
+  for (int n = 0; n < nseg; ++n) {
     l = l + dl[n];
     if (dl[n] >= u.seg_min && f::sum8<kNfreq>(ng2) > ngam_cut) {
       double x1[3];
@@ -659,7 +663,7 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
       const std::int64_t c = G.cell(i, j, k);
 
       double sdl = 0;
-      for (int m = n; m < 3; ++m) sdl += dl[m];
+      for (int m = n; m < nseg; ++m) sdl += dl[m];
       const double fdl = dl[n] / sdl;
 
       const float* tau = G.tau_p(c);
@@ -715,14 +719,15 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
 }
 
 // ray_tracing_tools.f90: ray_segment
-std::array<double, 3> ray_segment(const double x0[3], const double dx[3],
-                                  double seg_min) {
-  std::array<double, 3> seg{};
+std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
+                                  double seg_min, int nseg) {
+  if (nseg < 1 || nseg > 4) throw std::invalid_argument("ray_segment: nseg must be 1..4");
+  std::array<double, 4> seg{};
   double l = 0;
   double x[3] = {x0[0], x0[1], x0[2]};
   const double eps = static_cast<double>(1e-6f);  // 1E-6 is real(4)
 
-  for (int n = 0; n < 3; ++n) {
+  for (int n = 0; n < nseg; ++n) {
     double dl = 1 - l;
     if (dl > seg_min) {
       for (int i = 0; i < 3; ++i) {
@@ -809,6 +814,10 @@ void ray_remove(Simulation& s, std::int64_t ir, int irt, int jrt, int krt,
     st.nfree = st.nfree + 1;
     st.ifree[st.nfree] = ir;
     st.ndel1 = st.ndel1 + 1;
+
+    // B1 fix: without legacy_rt, clear the freed slot (as
+    // ray_buffer_deallocate does), so calc_ray_1 (nside > 0) ignores it.
+    if (!s.cfg.legacy_rt) R.at(ir) = Ray{};
   }
 }
 

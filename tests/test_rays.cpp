@@ -47,6 +47,25 @@ static void test_segment() {
     if (tot < 1 - 1e-9) ++n_trunc;  // 4th crossing dropped (original behaviour)
   }
   CHECK(n_trunc > 0);  // the 3-segment limit does truncate occasionally
+
+  // legacy_rt = 0 (B8 fix): 4 segments always cover the full unit step, and
+  // the first 3 are those of the legacy computation.
+  std::mt19937_64 rng4(7);
+  int n_four = 0;
+  for (int n = 0; n < 200000; ++n) {
+    double x[3] = {U(rng4), U(rng4), U(rng4)}, dx[3] = {G(rng4), G(rng4), G(rng4)};
+    const double nr = std::sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+    for (double& d : dx) d /= nr;
+    const auto s3 = ray_segment(x, dx, seg_min);
+    const auto s4 = ray_segment(x, dx, seg_min, 4);
+    CHECK(s3[3] == 0.0);
+    CHECK(s3[0] == s4[0] && s3[1] == s4[1] && s3[2] == s4[2]);
+    CHECK(s4[3] >= 0);
+    const double tot = s4[0] + s4[1] + s4[2] + s4[3];
+    CHECK(std::fabs(tot - 1) < 1e-9);
+    if (s4[3] >= seg_min) ++n_four;
+  }
+  CHECK(n_four > 0);  // a 4th segment does occur
 }
 
 static void test_nside_radius() {

@@ -16,10 +16,15 @@ struct ProblemParams {
   double da_sim = 1e-4;
   int nsteps = 10;
   int nray_max_factor = 64;
+  int legacy_rt = 1;  // 1: original RT bookkeeping; 0: fixes B1-B4, B8, B9
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.
 ProblemParams read_params(const std::string& path);
+
+// Sets one params.txt entry (also used for the driver's --set key=value).
+// Unknown keys are ignored, as in the Fortran harness.
+void set_param(ProblemParams& p, const std::string& key, std::string val);
 
 // gas.bin: float32 (9,N,N,N) -> u_gas(1:5), w_gas(1:4)
 void read_gas(const std::string& path, GasGrid& gas);

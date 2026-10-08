@@ -27,6 +27,11 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems
                    ${CMAKE_CURRENT_BINARY_DIR}/e2e_runs)
   set_tests_properties(end_to_end PROPERTIES TIMEOUT 3600 LABELS e2e)
+  add_test(NAME end_to_end_legacy0
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems
+                   ${CMAKE_CURRENT_BINARY_DIR}/e2e_runs_legacy0 --set legacy_rt=0)
+  set_tests_properties(end_to_end_legacy0 PROPERTIES TIMEOUT 3600 LABELS e2e)
 
   # Strict comparison with the stored Fortran harness outputs
   # (reference/harness/outputs: stats for all steps, fields for step 10).
@@ -44,6 +49,22 @@ if(Python3_Interpreter_FOUND)
                  -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
       set_tests_properties(ref_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
+    endif()
+    # Same problem with the RT bookkeeping fixes on (legacy_rt = 0), against
+    # reference/harness/outputs_legacy_rt0 (same subset as above).
+    set(refdir0 ${PROJECT_SOURCE_DIR}/reference/harness/outputs_legacy_rt0/${p})
+    if(EXISTS ${refdir0})
+      add_test(NAME ref_legacy0_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ref_runs_legacy0/${p}
+                 -DREF=${refdir0}
+                 -DSET=legacy_rt=0
+                 -DPYTHON=${Python3_EXECUTABLE}
+                 -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
+      set_tests_properties(ref_legacy0_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
 endif()

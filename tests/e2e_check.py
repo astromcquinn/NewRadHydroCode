@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """End-to-end sanity checks of rt_driver on the validation problems.
 
-usage: e2e_check.py <rt_driver> <problems_dir> <run_dir> [problem ...]
+usage: e2e_check.py <rt_driver> <problems_dir> <run_dir> [problem ...] [--set key=value ...]
+
+--set is passed to rt_driver (e.g. --set legacy_rt=0).
 
 For each problem: runs rt_driver, then checks
   * every step directory has all spec fields with the right sizes, no NaN/Inf
@@ -66,10 +68,10 @@ def dt_sec(a, da):
     return dy
 
 
-def check_problem(driver, pdir, rdir, name):
+def check_problem(driver, pdir, rdir, name, extra=()):
     errs = []
     t0 = time.time()
-    out = subprocess.run([driver, pdir, rdir], capture_output=True, text=True)
+    out = subprocess.run([driver, pdir, rdir, *extra], capture_output=True, text=True)
     elapsed = time.time() - t0
     if out.returncode != 0:
         return [f"rt_driver failed: {out.stderr.strip()}"], elapsed, []
@@ -168,13 +170,20 @@ def check_problem(driver, pdir, rdir, name):
 
 
 def main():
-    driver, pdir, rdir = sys.argv[1:4]
-    names = sys.argv[4:] or ["uniform_1src", "uniform_8src", "lognormal_16src",
+    args, extra = [], []
+    it = iter(sys.argv[1:])
+    for a in it:
+        if a == "--set":
+            extra += ["--set", next(it)]
+        else:
+            args.append(a)
+    driver, pdir, rdir = args[:3]
+    names = args[3:] or ["uniform_1src", "uniform_8src", "lognormal_16src",
                              "uniform_8src_smallbuf", "lognormal_16src_smallbuf"]
     nfail = 0
     for name in names:
         errs, elapsed, rows = check_problem(driver, os.path.join(pdir, name),
-                                            os.path.join(rdir, name), name)
+                                            os.path.join(rdir, name), name, extra)
         print(f"== {name}: run time {elapsed:.2f} s")
         print(" step  redshift   nrt  ion_cells  R_if  budget  nray  ncst1  nspl1  nmrg1  ndel1  ngam_rays    Tmax")
         for r in rows:

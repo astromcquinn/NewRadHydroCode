@@ -458,7 +458,10 @@ void rt_step_1(Simulation& s) {
   }
 
   // calc_rt_1: reset radiation fields, update optical depth of (partially)
-  // ionised cells. Note: rt_grid%dx is NOT reset here (original behaviour).
+  // ionised cells. Note: with legacy_rt, rt_grid%dx is NOT reset here
+  // (original behaviour, B3) and tau is only updated where fHI or fHeI < 0.99
+  // (B4).
+  const bool legacy = s.cfg.legacy_rt;
   const SigmaTable sig = photoion_sigma(freq_init);
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
@@ -473,8 +476,12 @@ void rt_step_1(Simulation& s) {
           G.gamma[c * 3 + d] = 0;
           G.lambda[c * 3 + d] = 0;
         }
-        // real(4) comparisons with real(4) literal 0.99
-        if (G.fHI[c] < 0.99f || G.fHeI[c] < 0.99f) {
+        // B3 fix: also reset the photon-weighted direction field
+        if (!legacy)
+          for (int d = 0; d < 3; ++d) G.dx[c * 3 + d] = 0;
+        // real(4) comparisons with real(4) literal 0.99.
+        // B4 fix: without legacy_rt, update tau in every cell.
+        if (G.fHI[c] < 0.99f || G.fHeI[c] < 0.99f || !legacy) {
           const double rhog = static_cast<double>(G.rhog[c]) * u.rhob_avg;
           const double nH = rhog * XHy / mH_cgs;
           const double nHe = rhog * YHe / mHe_cgs;
@@ -505,14 +512,19 @@ void rt_step_1(Simulation& s) {
     }
   }
 
-  // Calculate ngam_ray (thresholds keep stale values when not reached)
+  // Calculate ngam_ray. With legacy_rt, thresholds that are not reached keep
+  // their stale values (B2); otherwise they are recomputed from scratch.
   if (ngam_avg == 0) {
     R.ngam_ray.fill(0.0);
   } else {
     ngam_avg = ngam_avg / R.Nray;
-    // int(Nray_max/64.) : real(4) division
-    const std::int64_t per = f::int4(static_cast<double>(
-        static_cast<float>(R.Nray_max) / 64.0f));
+    if (!legacy) R.ngam_ray.fill(0.0);  // B2 fix
+    // legacy: int(Nray_max/64.) is a real(4) division (int64 product here;
+    // the Fortran's int32 product overflows only for N >= ~323).
+    // B9 fix: exact 64-bit integer Nray_max/64.
+    const std::int64_t per =
+        legacy ? f::int4(static_cast<double>(static_cast<float>(R.Nray_max) / 64.0f))
+               : R.Nray_max / 64;
     for (int j = 1; j <= 64; ++j) {
       std::int64_t nr = 0;
       for (int i = N_pdf; i >= 1; --i) {

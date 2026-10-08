@@ -11,6 +11,9 @@ exactly this, so their outputs can be compared file-by-file.
 * `Nray_max = nray_max_factor*N^3`, default factor 64 as in the original (it
   enters the `ngam_ray` thresholds and the ray-buffer logic — keep both).
   `params.txt` may set `nray_max_factor`.
+* `legacy_rt` (default 1): 1 runs the original RT bookkeeping. 0 switches on
+  the fixes for bugs B1–B4, B8 and B9 (`docs/port_notes.md` §5a). Both modes
+  are part of the validation.
 * Ray parameters as in `ray_tracing_tools.f90` (`nside_init=4`,
   `lside_max=13`, `ray_per_cell=1`).
 * `RAYFAST` undefined (the default code path). `METAL`, `FREQ1` undefined.
@@ -32,7 +35,11 @@ exactly this, so their outputs can be compared file-by-file.
   indices; these are assigned to `rt_grid%Luv`/`%sfr` exactly as
   `halo_tools.f90: add_halo_to_rt` would (metal injection skipped).
 * `params.txt`: `key = value` lines (`N`, `z_init`, `da_sim`, `nsteps`,
-  optional `nray_max_factor`).
+  optional `nray_max_factor` and `legacy_rt`). Both drivers accept
+  `--set key=value` on the command line, which overrides or adds an entry:
+  `rt_driver <prob> <out> --set legacy_rt=0`, or
+  `rt_harness.x <prob> <out> [nsteps] --set legacy_rt=0`. The problem
+  directories themselves are not duplicated per mode.
 
 Problems:
 1. `uniform_1src`: uniform gas at mean baryon density, neutral, T = temp_min,
@@ -46,8 +53,10 @@ Problems:
    step 5 on — the merge-path test.
 
 The canonical inputs are the files committed in `tests/problems/` (generated
-by `reference/harness/make_test_problem.py`, seed 20121); reference outputs
-are in `reference/harness/outputs/`.
+by `reference/harness/make_test_problem.py`, seed 20121). Reference outputs
+are in `reference/harness/outputs/` (`legacy_rt = 1`) and
+`reference/harness/outputs_legacy_rt0/` (`legacy_rt = 0`, stored the same
+way).
 
 ## Outputs (`<outdir>/step_%04d/`, after each hydro step)
 
@@ -67,3 +76,8 @@ nray_active, ncst1, nmrg1, nspl1, ndel1, ngam_rays_total` (sum of
 absolute and relative differences per step and the ray-stat differences.
 Target: ray stats identical; float fields agree to ~1e-5 relative (round-off
 level) on all problems. Any larger discrepancy must be explained.
+
+Achieved, and required from now on: bit-identical results in both modes
+(`compare.py --rtol 0`, `tests/compare_reference.py`), checked by the
+CTests `ref_<problem>` and `ref_legacy0_<problem>`. With `legacy_rt = 1` the
+outputs must also stay identical to `reference/harness/outputs`.
