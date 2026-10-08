@@ -28,6 +28,8 @@ struct SimClock {
   double dt_rt = 0, dtyr_rt = 0, dtsec_rt = 0;
   double dt_yr = 0, dt_sec = 0;
   double redshift = 0, scalefactor = 0, year = 0;
+  // light-travel cells owed to / by the next hydro step (rt_substep_carry)
+  double rt_carry = 0;
 
   // radhydro_global.f90 "Sim" speed variables. Set by summarize_gas (gas)
   // and pm_tools.f90 calc_kick (DM) in grid units; calc_timestep reads

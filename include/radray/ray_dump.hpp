@@ -30,7 +30,7 @@ struct RayDumpRecord {
   float x[3], dx[3];
   float nu[5], ngam[5];
   // Provenance (RayProv)
-  std::int32_t src;     // emitting source cell (0-based), -1 if mixed
+  std::int32_t src;     // emitting source cell (0-based), -1 if mixed, -2 unknown
   std::int32_t birth;   // global RT substep at emission (of the oldest ancestor)
   std::uint16_t nmerge; // number of merges in the ancestry (saturating)
   std::uint8_t nclamp;  // splits that clamped r (moved the effective origin)

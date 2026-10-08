@@ -73,7 +73,7 @@ void ray_dump_enable(Simulation& s, const RayDumpConfig& cfg) {
   s.raydump_state = std::make_shared<RayDump>();
   s.raydump_state->cfg = cfg;
   s.rays.track_prov = true;
-  s.rays.prov.assign(s.rays.ray.size(), RayProv{});
+  s.rays.prov.reset(s.rays.Nray_max + 1);
 }
 
 void ray_dump_after_substep(Simulation& s) {
@@ -122,9 +122,11 @@ void ray_dump_write(const Simulation& s, const std::string& stem) {
       std::memcpy(q.dx, ry.dx, sizeof q.dx);
       std::memcpy(q.nu, ry.nu, sizeof q.nu);
       std::memcpy(q.ngam, ry.ngam, sizeof q.ngam);
-      if (have_prov && ir < static_cast<std::int64_t>(R.prov.size())) {
+      if (have_prov && ir < R.prov.cap) {
         const RayProv& p = R.prov[ir];
-        q.src = p.src;
+        // birth >= 1 for every ray created while tracking; 0 means the ray
+        // predates it (e.g. read from a restart checkpoint): unknown origin
+        q.src = p.birth > 0 ? p.src : -2;
         q.birth = p.birth;
         q.nmerge = p.nmerge;
         q.nclamp = p.nclamp;

@@ -47,7 +47,7 @@ RTH  = ../harness/src
 COM  = ../harness_common
 
 DEFS = -DMF -DNGRID=$(N) -DNDM=$(NDM) -DNCPU=1 -DNRAY_MAX_FACTOR=$(NRF) -DBOX=$(BOX) \
-       -DNHALO_MAX=$(NHALO_MAX)
+       -DNHALO_MAX=$(NHALO_MAX) -DHARNESS_FULL_F1
 ifeq ($(ONTHEFLY),1)
   DEFS    += -DONTHEFLY
   CXXDEPS  = $(RADRAY_BUILD)/libradray_halos.a $(RADRAY_BUILD)/libradray.a

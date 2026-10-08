@@ -12,7 +12,8 @@ I-front within half a cell, T within a few percent; `docs/ROADMAP.md`).
 **Short answer**
 
 1. A fixed-width **structural encoding** ("R-struct", §4) stores a ray in
-   **~30 B instead of 80 B** (96 B with the chain links). Its errors are far
+   **~30 B instead of 80 B** of ray data (88 B per slot with the int32
+   chain links of the current code; 96 B in the original). Its errors are far
    below anything the RT cares about. Decoding it costs about one HEALPix
    `pix2vec` (~100 ns).
 2. **rANS entropy coding** of the same fields (§5) reaches **5–9 B per ray
@@ -57,6 +58,12 @@ ray_quant_dither = 1        # 1 stochastic (unbiased), 0 round to nearest
 ray_quant_struct = 1        # research only: R-struct round trip every substep
 ray_quant_offbits = 16      # with ray_quant_struct: offset bits per axis
 ```
+
+The dump also works with `deterministic_parallel = 1` (main's parallel ray
+tracing). Provenance lives in a calloc'd per-slot buffer like the rays, so
+threads write disjoint slots. Results with the dump on equal those without,
+and 4 threads equal 1 thread (checked on `lognormal_16src`). Rays read from
+a restart checkpoint have no provenance and are dumped with `src = -2`.
 
 Checks: `ctest -L raycomp`. These run `lognormal_16src_smallbuf` (merging
 on) with the dump on and compare with the stored Fortran outputs, legacy and
@@ -192,7 +199,7 @@ Observations:
 | spectral shape | 5 × 13 | round(128·log2(ngam_i/Σngam)), or zero | 0.13 % of the ray total per group; Σ exact |
 | nu | 5 × 8 | linear in the band | 0.04 eV |
 
-**Size: 232 + 16·f_merged bits = 29–31 B per ray** (80 B raw, 96 B with the
+**Size: 232 + 16·f_merged bits = 29–31 B per ray** (80 B of ray data; 88 B per slot in the current code, 96 B in the original, with the
 chain links). The R32 layout of the design doc has the same content, packed
 into 32 B. The direct `nside` + `ipix` id saves 4 bits, and the flag lets
 never-merged rays skip the direction offset.
@@ -423,7 +430,7 @@ configuration before adopting them.
 
 | format | bytes/ray, before overlap | after overlap | decode | accuracy cost |
 |---|---|---|---|---|
-| original `ray_type` (no links / with links) | 80 / 96 | 80 / 96 | — | — |
+| `Ray` data / per slot with links (current code; original 96) | 80 / 88 | 80 / 88 | — | — |
 | R-struct, fixed width (§4) | 29 | 31 | ~100 ns (`pix2vec`) | none measurable |
 | rANS, lossless w.r.t. R-struct | 7–12 | 17 | 230–310 ns | none measurable |
 | rANS, 6-bit dithered total + 10-bit offsets | 5–9 | 12.7 | 230–310 ns | none measurable (§6) |
@@ -445,7 +452,7 @@ configuration before adopting them.
 
    Decoding costs ~100 ns per ray, dominated by `pix2vec`. Evaluate an
    octahedral direction encoding (~5 ns) if that matters. This is about a
-   2.7–3× memory saving over the current 80 B (3.3× including the links),
+   2.7–3× memory saving over the 80 B of ray data (about 3× per 88 B slot),
    at no measurable accuracy cost.
 2. **Make dithering mandatory** for every lossy field (photons, shape,
    position). Use a deterministic hash of (substep, ray, field) so results

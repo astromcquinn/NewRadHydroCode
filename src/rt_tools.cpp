@@ -3,7 +3,9 @@
 #include "radray/rt.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <iomanip>
 #include <ostream>
 #include <stdexcept>
@@ -13,6 +15,7 @@
 #include "radray/fortran.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/ray_quant.hpp"
+#include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
 
 namespace radray {
@@ -107,6 +110,75 @@ void end_domain_rt(Domains& dom, int idom) {
   for (auto& d : dom.domain) sum += d[0];
   if (sum == 2L * dom.Ndomain)
     for (auto& d : dom.domain) d[0] = 0;
+}
+
+// deterministic_parallel domains (simulation.hpp: DetDomains)
+void init_det_domains(const Config& cfg, DetDomains& dd) {
+  const int N = cfg.Nrt;
+  dd = DetDomains{};
+  for (int d = 8; d <= N / 2; ++d)
+    if (N % d == 0 && (N / d) % 2 == 0) {
+      dd.d = d;
+      break;
+    }
+  if (dd.d == 0)
+    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= 8 (Nrt >= 16)");
+  dd.n1 = N / dd.d;
+  for (int k = 0; k < dd.n1; ++k)
+    for (int j = 0; j < dd.n1; ++j)
+      for (int i = 0; i < dd.n1; ++i) {
+        const int col = (i % 2) + 2 * (j % 2) + 4 * (k % 2);
+        dd.colour[col].push_back({1 + i * dd.d, (i + 1) * dd.d, 1 + j * dd.d, (j + 1) * dd.d,
+                                  1 + k * dd.d, (k + 1) * dd.d});
+      }
+}
+
+namespace {
+
+// deterministic_parallel: sweep one ray-tracing pass over all domains,
+// colour by colour; the domains of a colour are independent and run
+// concurrently. The result is that of the serial colour-major sweep.
+template <class F>
+void det_sweep(Simulation& s, F&& sweep_domain) {
+  for (int col = 0; col < 8; ++col) {
+    const auto& boxes = s.ddom.colour[col];
+    const int nb = static_cast<int>(boxes.size());
+    std::string err;
+#pragma omp parallel for schedule(dynamic, 1) if (nb > 1)
+    for (int b = 0; b < nb; ++b) {
+      try {
+        sweep_domain(boxes[b]);
+      } catch (const std::exception& e) {
+#pragma omp critical(radray_det_err)
+        err = e.what();
+      }
+    }
+    if (!err.empty()) throw std::runtime_error(err);
+  }
+}
+
+// deterministic_parallel: fold the per-thread ray counters into ray_stat(1)
+// (integer sums and maxima: order independent) and update the live count.
+void det_fold(RayState& R) {
+  RayStat& st = R.stat;
+  for (ThreadRays& t : R.tl) {
+    st.ncst1 += t.ncst1;
+    st.ncst2 = f::max(st.ncst2, t.ncst2);
+    st.nmrg1 += t.nmrg1;
+    st.nmrg2 = f::max(st.nmrg2, t.nmrg2);
+    st.nspl1 += t.nspl1;
+    st.nspl2 = f::max(st.nspl2, t.nspl2);
+    st.ndel1 += t.ndel1;
+    R.Nray += t.ncreated - t.ndel1;
+    t.ncst1 = t.ncst2 = t.nmrg1 = t.nmrg2 = t.nspl1 = t.nspl2 = t.ndel1 = t.ncreated = 0;
+  }
+}
+
+}  // namespace
+
+double wall_seconds() {
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +312,7 @@ void radiative_transfer(Simulation& s) {
     clk.redshift = 1 / clk.scalefactor - 1;
     calc_sim_var(s.cfg, clk, s.units);
     // (make_data_2d / write_data_3: IO only, not ported)
+    if (s.substep_hook) s.substep_hook(s);
   }
   // Leave istep_rt = nstep_rt+1 like the Fortran DO variable
   post_rt(s);
@@ -313,6 +386,12 @@ void average_gas(const Simulation& s, int irt, int jrt, int krt, double us[5],
 
 // rt_tools.f90: prep_rt (calc_rt_i + ray buffer)
 void prep_rt(Simulation& s) {
+  const double tw0 = wall_seconds();
+  struct Acc {
+    double& t;
+    double t0;
+    ~Acc() { t += wall_seconds() - t0; }
+  } acc{s.timers.prep, tw0};
   s.rt_save.dtau = 0;
   s.rt_save.gamma = {};
   s.rt_save.lambda = {};
@@ -322,6 +401,7 @@ void prep_rt(Simulation& s) {
 
   RTGrid& G = s.rt;
   const int Nrt = s.cfg.Nrt;
+#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
       for (int irt = 1; irt <= Nrt; ++irt) {
@@ -330,6 +410,18 @@ void prep_rt(Simulation& s) {
         const GasState g = gas_state_from_avg(us, ws, s.units, false);
         store_gas_state(G, G.cell(irt, jrt, krt), g, s.units);
       }
+
+  if (s.cfg.det_parallel) {
+    // deterministic_parallel: per-thread free lists instead of the Fortran
+    // buffers (Nrbuf, ray_buffer_*); Nray is the live count.
+    if (s.cfg.legacy_rt) throw std::runtime_error("deterministic_parallel requires legacy_rt = 0");
+    if (s.ddom.d == 0) init_det_domains(s.cfg, s.ddom);
+    const int nt = par::max_threads();
+    if (static_cast<int>(s.rays.tl.size()) < nt) s.rays.tl.resize(nt);
+    s.rays.save.nfree = 0;
+    s.rays.stat.nfree = 0;
+    return;
+  }
 
   // Nrbuf = min(max(int((0.98*Nray_max-Nray)/Ncpu,kind=8),0),Nfree_max/4)
   // 0.98*Nray_max is real(4) arithmetic.
@@ -347,7 +439,14 @@ void prep_rt(Simulation& s) {
 
 // rt_tools.f90: post_rt
 void post_rt(Simulation& s) {
-  ray_buffer_deallocate(s);
+  struct Acc {
+    double& t;
+    double t0;
+    ~Acc() { t += wall_seconds() - t0; }
+  } acc{s.timers.post, wall_seconds()};
+  // deterministic_parallel: there are no Fortran buffers to return, and
+  // freed slots are already zero.
+  if (!s.cfg.det_parallel) ray_buffer_deallocate(s);
   ray_redshifting(s);
 
   RTGrid& G = s.rt;
@@ -363,6 +462,7 @@ void post_rt(Simulation& s) {
   std::int64_t nrad_pdf[21] = {0};
 
   // calc_rt_f
+#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
       for (int irt = 1; irt <= Nrt; ++irt) {
@@ -388,9 +488,20 @@ void post_rt(Simulation& s) {
       i = f::floor4(ngam);
     return i + 10;
   };
+  // integer histograms: per-thread partial counts, summed (order independent)
+#pragma omp parallel if (par::worth(s.cfg.Nrtc))
+  {
+  std::int64_t nray_pdf_t[24] = {0}, ngam_pdf_t[21] = {0}, nrad_pdf_t[21] = {0};
+  auto& nray_pdf_l = nray_pdf_t;
+  auto& ngam_pdf_l = ngam_pdf_t;
+  auto& nrad_pdf_l = nrad_pdf_t;
+#pragma omp for schedule(static)
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
       for (int irt = 1; irt <= Nrt; ++irt) {
+        auto& ngam_pdf = ngam_pdf_l;
+        auto& nrad_pdf = nrad_pdf_l;
+        auto& nray_pdf = nray_pdf_l;
         const std::int64_t c = G.cell(irt, jrt, krt);
         ngam_pdf[bin(static_cast<double>(f::sum4<kNfreq>(G.ngam_p(c))))]++;
         std::int64_t nr = 0;
@@ -421,6 +532,13 @@ void post_rt(Simulation& s) {
         else b = 23;
         nray_pdf[b]++;
       }
+#pragma omp critical(radray_calc_ray_f)
+  {
+    for (int b = 0; b < 24; ++b) nray_pdf[b] += nray_pdf_t[b];
+    for (int b = 0; b < 21; ++b) ngam_pdf[b] += ngam_pdf_t[b];
+    for (int b = 0; b < 21; ++b) nrad_pdf[b] += nrad_pdf_t[b];
+  }
+  }
 
   if (std::ostream* L = s.raylog) {
     *L << " PDF(nr)\n";
@@ -438,6 +556,13 @@ void post_rt(Simulation& s) {
 
 // rt_tools.f90: rt_step_1
 void rt_step_1(Simulation& s) {
+  double tw = wall_seconds();
+  auto lap = [&](double& t) {
+    const double now = wall_seconds();
+    t += now - tw;
+    tw = now;
+  };
+  s.timers.substeps += 1;
   RTGrid& G = s.rt;
   RayState& R = s.rays;
   const Units& u = s.units;
@@ -463,6 +588,7 @@ void rt_step_1(Simulation& s) {
     RayStat& r = R.stat;
     r.ncst1 = r.ncst2 = r.nmrg1 = r.nmrg2 = r.nspl1 = r.nspl2 = r.ndel1 = 0;
   }
+  const bool det = s.cfg.det_parallel;
 
   // calc_rt_1: reset radiation fields, update optical depth of (partially)
   // ionised cells. Note: with legacy_rt, rt_grid%dx is NOT reset here
@@ -470,6 +596,7 @@ void rt_step_1(Simulation& s) {
   // (B4).
   const bool legacy = s.cfg.legacy_rt;
   const SigmaTable sig = photoion_sigma(freq_init);
+#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
       for (int irt = 1; irt <= Nrt; ++irt) {
@@ -503,20 +630,56 @@ void rt_step_1(Simulation& s) {
         }
       }
 
+  lap(s.timers.calc_rt1);
   // calc_ray_1: histogram of photon counts over ALL storage slots with
   // nside > 0 (includes freed rays that have not been zeroed yet).
   double ngam_avg = 0;
   std::vector<std::int64_t> ngam_pdf(N_pdf + 1, 0);  // 1-based
+  // F3 guard (legacy_rt = 0): the same histogram for the rays that may split
+  // this substep (dr < 0, nside < nside_max)
+  std::vector<std::int64_t> spl_pdf(N_pdf + 1, 0);
   const std::int64_t top = R.hwm();
-  for (std::int64_t ir = 1; ir <= top; ++ir) {
-    const Ray& ry = R.at(ir);
-    if (ry.nside > 0) {
-      const double ntot = static_cast<double>(f::sum4<kNfreq>(ry.ngam));
-      int n = 1 + f::int4((std::log10(ntot) - lgn_min) / lgn_del);
-      n = f::min(f::max(n, 1), N_pdf);
-      ngam_avg = ngam_avg + ntot;
-      ngam_pdf[n] = ngam_pdf[n] + 1;
+  if (!det) {
+    for (std::int64_t ir = 1; ir <= top; ++ir) {
+      const Ray& ry = R.at(ir);
+      if (ry.nside > 0) {
+        const double ntot = static_cast<double>(f::sum4<kNfreq>(ry.ngam));
+        int n = 1 + f::int4((std::log10(ntot) - lgn_min) / lgn_del);
+        n = f::min(f::max(n, 1), N_pdf);
+        ngam_avg = ngam_avg + ntot;
+        ngam_pdf[n] = ngam_pdf[n] + 1;
+        if (ry.dr < 0 && ry.nside < rayp::nside_max) spl_pdf[n] = spl_pdf[n] + 1;
+      }
     }
+  } else {
+    // deterministic_parallel: the slots of the live rays depend on thread
+    // timing, so the histogram is summed per thread (integers) and ngam_avg
+    // (ray.log only) in exact 2^-40 fixed point, both order independent.
+    __int128 fix = 0;
+#pragma omp parallel if (par::worth(top))
+    {
+      std::vector<std::int64_t> pdf_t(N_pdf + 1, 0), spl_t(N_pdf + 1, 0);
+      __int128 fix_t = 0;
+#pragma omp for schedule(static)
+      for (std::int64_t ir = 1; ir <= top; ++ir) {
+        const Ray& ry = R.at(ir);
+        if (ry.nside > 0) {
+          const double ntot = static_cast<double>(f::sum4<kNfreq>(ry.ngam));
+          int n = 1 + f::int4((std::log10(ntot) - lgn_min) / lgn_del);
+          n = f::min(f::max(n, 1), N_pdf);
+          fix_t += static_cast<__int128>(std::ldexp(ntot, 40));
+          pdf_t[n] = pdf_t[n] + 1;
+          if (ry.dr < 0 && ry.nside < rayp::nside_max) spl_t[n] = spl_t[n] + 1;
+        }
+      }
+#pragma omp critical(radray_calc_ray_1)
+      {
+        for (int n = 1; n <= N_pdf; ++n) ngam_pdf[n] += pdf_t[n];
+        for (int n = 1; n <= N_pdf; ++n) spl_pdf[n] += spl_t[n];
+        fix += fix_t;
+      }
+    }
+    ngam_avg = std::ldexp(static_cast<double>(fix), -40);
   }
 
   // Calculate ngam_ray. With legacy_rt, thresholds that are not reached keep
@@ -547,29 +710,175 @@ void rt_step_1(Simulation& s) {
     }
   }
 
-  if (s.clk.istep_rt > 1) ray_buffer_supplement(s);
-
-  // Ray casting, domain by domain (order 1..Ndomain with one thread)
-  for (int n = 1; n <= s.dom.Ndomain; ++n) {
-    const int i = set_domain_rt(s.dom);
-    ray_tracing_1(s, s.dom.box[i]);
-    end_domain_rt(s.dom, i);
+  // F3 (legacy_rt = 0 only; RT harness PATCHES.md 13): keep the ray pool from
+  // overflowing. Rays are only created by splits (3 per split) and sources
+  // (nray_init per source cell). From the live count L, the number of source
+  // cells and the histogram of the rays that may split, limit the splits of
+  // this substep so that even if every candidate splits at most 0.9 Nray_max
+  // rays are live after it (the rest of the pool covers the free buffer,
+  // <= Nray_max/16): ngam_ray(32) (the split threshold) is raised to the
+  // lower edge of the brightest bins whose candidates fit in a third of the
+  // remaining budget. If even the sources do not fit, splitting stops and
+  // every ray except fresh source rays is merged (ngam_ray(16) =
+  // ngam_ray(32) = 1e30). Integer arithmetic on the histogram only:
+  // deterministic, the same in the Fortran harness, and inactive unless the
+  // pool could overflow in this substep.
+  if (!legacy) {
+    std::int64_t L = 0;
+    for (int n = 1; n <= N_pdf; ++n) L += ngam_pdf[n];
+    std::int64_t nsrc = 0;
+    for (std::int64_t c = 0; c < G.ncell; ++c)
+      if (static_cast<double>(G.sfr[c]) > u.sfr_min) ++nsrc;
+    const std::int64_t budget = (9 * R.Nray_max) / 10 - L - rayp::nray_init * nsrc;
+    if (budget <= 0) {
+      R.ngam_ray[16 - 1] = 1e30;
+      R.ngam_ray[32 - 1] = 1e30;
+      R.npool_forced += 1;
+    } else {
+      const std::int64_t smax = budget / 3;
+      std::int64_t nr = 0;
+      int i = N_pdf;
+      for (; i >= 1; --i) {
+        if (nr + spl_pdf[i] > smax) break;
+        nr = nr + spl_pdf[i];
+      }
+      if (i >= 1) {
+        const double thr = std::pow(1e1, i * lgn_del + lgn_min);
+        if (thr > R.ngam_ray[32 - 1]) {
+          R.ngam_ray[32 - 1] = thr;
+          R.npool_limited += 1;
+        }
+      }
+    }
+    if (s.raylog && (R.npool_forced > 0 || R.npool_limited > 0))
+      *s.raylog << " Pool guard : " << L << " " << nsrc << " " << budget << " "
+                << R.npool_limited << " " << R.npool_forced << "\n";
   }
 
+  lap(s.timers.calc_ray1);
+  if (det) {
+    // deterministic_parallel: colour-major sweep over the 8^3 domains
+    det_sweep(s, [&](const std::array<int, 6>& box) { ray_tracing_1(s, box); });
+    det_fold(R);
+  } else {
+    if (s.clk.istep_rt > 1) ray_buffer_supplement(s);
+
+    // Ray casting, domain by domain (order 1..Ndomain with one thread)
+    for (int n = 1; n <= s.dom.Ndomain; ++n) {
+      const int i = set_domain_rt(s.dom);
+      ray_tracing_1(s, s.dom.box[i]);
+      end_domain_rt(s.dom, i);
+    }
+  }
+
+  lap(s.timers.trace1);
   // Synchronise htoc_ray(1:2) = htoc_ray(3:4)
+#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (std::int64_t c = 0; c < G.ncell; ++c) {
     G.htoc[c * 4 + 0] = G.htoc[c * 4 + 2];
     G.htoc[c * 4 + 1] = G.htoc[c * 4 + 3];
   }
+  lap(s.timers.sync);
 }
 
 // ---------------------------------------------------------------------------
 // rt_step_2 / radiative_physics
 // ---------------------------------------------------------------------------
 
-// rt_tools.f90: rt_step_2
+namespace {
+
+// Accumulation of the rt_stat sums of radiative_physics. Direct mode adds
+// each addend to rt_stat at once (the original); record mode stores the
+// (accumulator, addend) sequence of one k-plane, which rt_step_2 replays in
+// plane order after a parallel batch. Every accumulator then receives the
+// same addends in the same order, so the double sums are bit-identical to
+// the serial loop for any thread count.
+struct RPSink {
+  enum { kNgam = 0, kNion = 3, kNcol = 6, kNrec = 9, kNrab = 12, kGamma = 15, kLambda = 18,
+         kDtau = 21, kNacc = 22 };
+  double* direct[kNacc] = {};  // non-null: direct mode
+  std::vector<std::uint8_t> id;
+  std::vector<double> val;
+  std::int64_t ngfill = 0, nsfill = 0;
+
+  void bind(RTStat& t) {
+    for (int sp = 0; sp < 3; ++sp) {
+      direct[kNgam + sp] = &t.ngam[sp];
+      direct[kNion + sp] = &t.nion[sp];
+      direct[kNcol + sp] = &t.ncol[sp];
+      direct[kNrec + sp] = &t.nrec[sp];
+      direct[kNrab + sp] = &t.nrab[sp];
+      direct[kGamma + sp] = &t.gamma[sp];
+      direct[kLambda + sp] = &t.lambda[sp];
+    }
+    direct[kDtau] = &t.dtau;
+  }
+  void add(int a, double v) {
+    if (direct[0]) {
+      *direct[a] = *direct[a] + v;
+    } else {
+      id.push_back(static_cast<std::uint8_t>(a));
+      val.push_back(v);
+    }
+  }
+  void replay(RTStat& t) {
+    RPSink d;
+    d.bind(t);
+    for (std::size_t n = 0; n < id.size(); ++n) *d.direct[id[n]] = *d.direct[id[n]] + val[n];
+    t.ngfill += ngfill;
+    t.nsfill += nsfill;
+    id.clear();
+    val.clear();
+    ngfill = nsfill = 0;
+  }
+};
+
+}  // namespace
+
+void radiative_physics_plane(Simulation& s, int krt, RPSink& sink);
+
+// rt_tools.f90: radiative_physics for one k-plane, accumulating directly
+// into rt_stat(1)
+void radiative_physics(Simulation& s, int krt) {
+  RPSink sink;
+  sink.bind(s.rt_stat);
+  radiative_physics_plane(s, krt, sink);
+  s.rt_stat.ngfill += sink.ngfill;
+  s.rt_stat.nsfill += sink.nsfill;
+}
+
+// rt_tools.f90: rt_step_2. The k-planes are independent (each touches only
+// its own RT and gas cells); with more than one thread they run in batches
+// whose rt_stat addends are replayed in plane order (RPSink).
 void rt_step_2(Simulation& s) {
-  for (int k = 1; k <= s.cfg.Nrt; ++k) radiative_physics(s, k);
+  struct Acc {
+    double& t;
+    double t0;
+    ~Acc() { t += wall_seconds() - t0; }
+  } acc{s.timers.physics, wall_seconds()};
+  const int N = s.cfg.Nrt;
+  const int nt = par::max_threads();
+  if (nt <= 1 || !par::worth(s.cfg.Nrtc)) {
+    for (int k = 1; k <= N; ++k) radiative_physics(s, k);
+    return;
+  }
+  const int batch = std::min(N, 4 * nt);
+  std::vector<RPSink> sinks(batch);
+  for (int k0 = 1; k0 <= N; k0 += batch) {
+    const int nb = std::min(batch, N - k0 + 1);
+    std::string err;
+#pragma omp parallel for schedule(dynamic, 1)
+    for (int b = 0; b < nb; ++b) {
+      try {
+        radiative_physics_plane(s, k0 + b, sinks[b]);
+      } catch (const std::exception& e) {
+#pragma omp critical(radray_rp_err)
+        if (err.empty()) err = e.what();
+      }
+    }
+    if (!err.empty()) throw std::runtime_error(err);
+    for (int b = 0; b < nb; ++b) sinks[b].replay(s.rt_stat);
+  }
 }
 
 namespace {
@@ -577,15 +886,15 @@ namespace {
 // rt_tools.f90: radiative_physics / make_index_gas_rt.
 // Returns the Eulerian cells of the RT cell ordered by distance from the
 // source (density peak) or from the upstream side of the radiation.
-std::vector<std::array<int, 3>> make_index_gas_rt(const Simulation& s, int irt,
-                                                  int jrt, int krt) {
+void make_index_gas_rt(const Simulation& s, int irt, int jrt, int krt,
+                       std::vector<std::array<int, 3>>& out) {
   const int Nr = s.cfg.N_rt_gas;
   const RTGrid& G = s.rt;
   const std::int64_t c = G.cell(irt, jrt, krt);
-  std::vector<std::array<int, 3>> out;
+  out.clear();
   if (Nr == 1) {
     out.push_back({irt, jrt, krt});
-    return out;
+    return;
   }
   // General case (N_rt_gas > 1); not exercised by the validation problems.
   float x0[3] = {0, 0, 0};
@@ -627,24 +936,23 @@ std::vector<std::array<int, 3>> make_index_gas_rt(const Simulation& s, int irt,
   for (int l : idx)
     out.push_back({(irt - 1) * Nr + ijk[l][0], (jrt - 1) * Nr + ijk[l][1],
                    (krt - 1) * Nr + ijk[l][2]});
-  return out;
 }
 
 }  // namespace
 
 // rt_tools.f90: radiative_physics (with photo_source, photo_cell)
-void radiative_physics(Simulation& s, int krt) {
+void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   RTGrid& G = s.rt;
   const Units& u = s.units;
   const SimClock& clk = s.clk;
   const AtomicRates& AR = s.rates;
-  RTStat& rts = s.rt_stat;
   const int Nrt = s.cfg.Nrt;
   const double g = gamma_ideal;
   const double nu0[3] = {HI_eV, HeI_eV, HeII_eV};
   const double dtsec_rt = clk.dtsec_rt;
   const double Ncell = s.cfg.ncellr;
   const double Nc = s.cfg.N_rt_gas_c;
+  std::vector<std::array<int, 3>> index_gas_rt;
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {
     for (int irt = 1; irt <= Nrt; ++irt) {
@@ -683,9 +991,9 @@ void radiative_physics(Simulation& s, int krt) {
 
       if (!(ngam_tot > u.ngam_min || G.fHI[c] < 0.99f)) continue;
 
-      if (ngam_tot > u.ngam_min) rts.ngfill = rts.ngfill + 1;
+      if (ngam_tot > u.ngam_min) sink.ngfill += 1;
 
-      const std::vector<std::array<int, 3>> index_gas_rt = make_index_gas_rt(s, irt, jrt, krt);
+      make_index_gas_rt(s, irt, jrt, krt, index_gas_rt);
 
       // photo_source
       if (static_cast<double>(G.sfr[c]) > u.sfr_min) {
@@ -693,13 +1001,13 @@ void radiative_physics(Simulation& s, int krt) {
           const double nu = freq_init[inu];
           double ngam = fResc * pop2_init[inu] * (static_cast<double>(G.Luv[c]) * dtsec_rt);
           ngam = ngam / u.vol_rt / u.nH_avg;
-          if (nu > HI_eV) rts.ngam[0] = rts.ngam[0] + ngam / s.cfg.nrtcr;
+          if (nu > HI_eV) sink.add(RPSink::kNgam + 0, ngam / s.cfg.nrtcr);
           if (nu > HeI_eV)
-            rts.ngam[1] = rts.ngam[1] + ngam / s.cfg.nrtcr * (u.nH_avg / u.nHe_avg);
+            sink.add(RPSink::kNgam + 1, ngam / s.cfg.nrtcr * (u.nH_avg / u.nHe_avg));
           if (nu > HeII_eV)
-            rts.ngam[2] = rts.ngam[2] + ngam / s.cfg.nrtcr * (u.nH_avg / u.nHe_avg);
+            sink.add(RPSink::kNgam + 2, ngam / s.cfg.nrtcr * (u.nH_avg / u.nHe_avg));
         }
-        rts.nsfill = rts.nsfill + 1;
+        sink.nsfill += 1;
       }
 
       // ---- photo_cell ----
@@ -934,14 +1242,16 @@ void radiative_physics(Simulation& s, int krt) {
         // Update RT statistics
         const double navg[3] = {u.nH_avg, u.nHe_avg, u.nHe_avg};
         for (int sp = 0; sp < 3; ++sp) {
-          rts.nion[sp] = rts.nion[sp] + nion[sp] / navg[sp] / Ncell;
-          rts.ncol[sp] = rts.ncol[sp] + ncol[sp] / navg[sp] / Ncell;
-          rts.nrec[sp] = rts.nrec[sp] + nrec[sp] / navg[sp] / Ncell;
-          rts.nrab[sp] = rts.nrab[sp] + nrab[sp] / navg[sp] / Ncell;
-          rts.gamma[sp] = rts.gamma[sp] + gam_pht[sp] / Ncell;
-          rts.lambda[sp] = rts.lambda[sp] + lam_pht[sp] / Ncell;
+          sink.add(RPSink::kNion + sp, nion[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kNcol + sp, ncol[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kNrec + sp, nrec[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kNrab + sp, nrab[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kGamma + sp, gam_pht[sp] / Ncell);
+          sink.add(RPSink::kLambda + sp, lam_pht[sp] / Ncell);
         }
-        rts.dtau = rts.dtau + sT_cgs * ne * (c_cgs * dtsec_rt) / Ncell;
+        // Thomson optical depth: physical c (and physical dt), also with
+        // c_reduced < 1
+        sink.add(RPSink::kDtau, sT_cgs * ne * (c_cgs * dtsec_rt) / Ncell);
       }
 
       // Remaining photons -> fgam (numerator)
@@ -976,11 +1286,25 @@ void radiative_physics(Simulation& s, int krt) {
 // rt_tools.f90: rt_step_3
 void rt_step_3(Simulation& s) {
   RTGrid& G = s.rt;
-  for (int n = 1; n <= s.dom.Ndomain; ++n) {
-    const int i = set_domain_rt(s.dom);
-    ray_tracing_3(s, s.dom.box[i]);
-    end_domain_rt(s.dom, i);
+  const double tw0 = wall_seconds();
+  if (s.cfg.det_parallel) {
+    det_sweep(s, [&](const std::array<int, 6>& box) { ray_tracing_3(s, box); });
+    det_fold(s.rays);
+  } else {
+    for (int n = 1; n <= s.dom.Ndomain; ++n) {
+      const int i = set_domain_rt(s.dom);
+      ray_tracing_3(s, s.dom.box[i]);
+      end_domain_rt(s.dom, i);
+    }
   }
+  const double tw1 = wall_seconds();
+  s.timers.trace3 += tw1 - tw0;
+  struct Acc {
+    double& t;
+    double t0;
+    ~Acc() { t += wall_seconds() - t0; }
+  } acc{s.timers.sync, tw1};
+#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (std::int64_t c = 0; c < G.ncell; ++c) {
     G.htoc[c * 4 + 0] = G.htoc[c * 4 + 2];
     G.htoc[c * 4 + 1] = G.htoc[c * 4 + 3];
@@ -1052,6 +1376,17 @@ void summarize_rt(Simulation& s) {
   *O << " tau     : " << static_cast<float>(v.tau) << " " << static_cast<float>(v.dtau) << "\n";
 }
 
+std::string format_rt_timers(const RTTimers& t) {
+  char buf[400];
+  std::snprintf(buf, sizeof buf,
+                "RT timers [s]: substeps %lld prep %.3f calc_rt_1 %.3f calc_ray_1 %.3f "
+                "ray_tracing_1 %.3f radiative_physics %.3f ray_tracing_3 %.3f sync %.3f "
+                "post_rt %.3f",
+                static_cast<long long>(t.substeps), t.prep, t.calc_rt1, t.calc_ray1, t.trace1,
+                t.physics, t.trace3, t.sync, t.post);
+  return buf;
+}
+
 std::int64_t count_live_rays(const Simulation& s) {
   std::int64_t n = 0;
   for (std::int64_t ir = 1; ir <= s.rays.hwm(); ++ir)
@@ -1063,10 +1398,27 @@ double ngam_rays_total(const Simulation& s) {
   // Live rays = those linked in the cell chains. Summed in storage order
   // over slots with nside > 0; valid after post_rt (dead slots zeroed).
   double t = 0;
+  if (s.cfg.det_parallel) {
+    // deterministic_parallel: storage slots depend on thread timing; sum in
+    // the canonical order instead (cells k,j,i, each chain head to tail)
+    for (std::int64_t c = 0; c < s.rt.ncell; ++c)
+      for (std::int64_t ir = s.rt.htoc_ray(3, c); ir > 0; ir = s.rays.at(ir).next) {
+        const Ray& r = s.rays.at(ir);
+        double sr = 0;
+        for (int n = 0; n < kNfreq; ++n) sr += static_cast<double>(r.ngam[n]);
+        t = t + sr;
+      }
+    return t;
+  }
   for (std::int64_t ir = 1; ir <= s.rays.hwm(); ++ir) {
     const Ray& r = s.rays.at(ir);
-    if (r.nside > 0)
-      for (int n = 0; n < kNfreq; ++n) t += static_cast<double>(r.ngam[n]);
+    if (r.nside > 0) {
+      // ngam_tot + sum(real(ray(ir)%ngam,8)) of the harnesses: the ray's sum
+      // first, then added (not five separate additions)
+      double sr = 0;
+      for (int n = 0; n < kNfreq; ++n) sr += static_cast<double>(r.ngam[n]);
+      t = t + sr;
+    }
   }
   return t;
 }

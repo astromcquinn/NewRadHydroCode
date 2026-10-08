@@ -28,6 +28,9 @@ struct ProblemParams {
   int ray_quant_dither = 1;
   int ray_quant_struct = 0;
   int ray_quant_offbits = 16;
+  double c_reduced = 1.0;  // reduced speed of light (calc_timestep cscale)
+  int deterministic_parallel = 0;  // 1: parallel ray tracing (docs/parallel.md)
+  int threads = 0;                 // OpenMP threads (0: OpenMP default)
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.

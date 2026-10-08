@@ -214,6 +214,35 @@ Suggested threads and opening prompts:
 Threads 1, 2 and 3 can run at the same time. Thread 4 can also start soon,
 since it only produces prototypes and a decision.
 
+## Plane-parallel RT mode (requested 2026-10-08)
+
+The user's papers (arXiv:2002.02467 and arXiv:2504.21082) cast rays from
+the boundaries of RT domains. **The specification taken from those papers
+is in `docs/plane_parallel.md`.** It covers RT domains, 1–6 directions,
+the ν^−1.5 spectrum, the Γ_HI normalisation, z_re turn-on, the adaptive
+reduced c, the T_min preheating floor, separate baryon/DM transfer
+functions, and DC modes.
+
+- **Sources:** rays enter from chosen faces, such as −x or ±x. Each face cell
+  launches a ray every RT substep carrying incident flux × face area × dt_rt.
+  The spectrum is a parameter (power law, blackbody, or tabulated, split into
+  the 5 groups), and its amplitude can depend on time.
+- **No HEALPix:** no splitting or merging, since parallel rays don't diverge,
+  so it is cheap per ray. The existing casting, absorption and photo-heating
+  are reused.
+- **Boundaries:** rays exit through the far face and do not wrap. Gas stays
+  periodic.
+- **Combining:** select plane-parallel sources, halo sources, or both, with a
+  parameter. Default behaviour and legacy validation are unchanged.
+- **Diagnostics:** I-front position and speed, and a flag for when the front
+  is limited by `c_reduced`.
+- **Tests:** a plane-parallel I-front in uniform gas against the analytic
+  position and speed; attenuation through a slab against e^(−τ); photon
+  conservation (in = absorbed + escaped + in flight).
+- **When:** its own thread, after the first thread's follow-up PR (OpenMP,
+  c_reduced) is merged, because it touches the RT code. It works on the
+  current uniform grid, and later on AMR.
+
 ## Answers from the user (2026-10-08)
 
 - **No prior experience** with AMReX, Parthenon or Kokkos. This favours the
@@ -226,12 +255,13 @@ since it only produces prototypes and a decision.
     (e.g. `hyakalloc`, if available) or with Hyak support.
   - No time limits means long single-node OpenMP runs are practical before
     MPI. 15 nodes is a natural first MPI target.
-- **Dense gas under AMR:** use an efficient star-formation sink, a fixed
-  efficiency per free-fall time above a density threshold. It is faster than
-  keeping cold dense gas, because it removes the gas that limits the time
-  step and the RT optical depth. It goes behind a flag: the original's
-  no-cooling-above-200× stays available. Later it could also supply the
-  ionising sources directly, as an alternative to the halo-based model.
+- **Dense gas under AMR (revised the same day):** keep dense gas by default.
+  The user wants to model cold, dense gas, for example self-shielded
+  minihalos in plane-parallel I-front runs, so it must not be removed. The
+  efficient star-formation sink becomes an optional flag, for speed in runs
+  that don't need dense gas. Still open: whether cooling stays on in dense
+  gas, so it can get cold, with the original's no-cooling-above-200× kept as
+  a flag.
 - **RT accuracy:**
   - Target errors of a few percent in astrophysical outputs.
   - Turn that into ray-level precision empirically. Define acceptance

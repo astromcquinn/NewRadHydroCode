@@ -106,7 +106,7 @@ def fig_bytes(codec, outdir, plt):
                 x, y = zip(*pts)
                 ax.plot(x, y, "-o", color=C[k], ms=4, label=lab)
         ax.axhline(80, color=INK2, lw=1, ls="--")
-        ax.text(0.02, 80, " original: 80 B (+16 B links)", va="bottom", fontsize=7, color=INK2,
+        ax.text(0.02, 80, " ray data: 80 B (88 B per slot with links)", va="bottom", fontsize=7, color=INK2,
                 transform=ax.get_yaxis_transform())
         ax.set_xscale("log")
         ax.set_title(g, fontsize=9, color=INK)
