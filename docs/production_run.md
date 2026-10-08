@@ -309,6 +309,38 @@ N = 192 ≈ 6–9 GB, 10–60 s each on this disk) and movie frames (section 4).
 
 ## 6. Speedups
 
+### On an idle Hyak node (2026-10-08; full tables in `docs/cluster.md` §6)
+
+One hydro step restarted from a production checkpoint on a whole `cpu-g2`
+node (AMD EPYC 9654, 2 × 96 cores), `OMP_PLACES=cores OMP_PROC_BIND=close`,
+`tools/hyak/scaling_test.slurm`. **All outputs byte-identical** for 1, 8, 24,
+48, 96 and 192 threads at both sizes.
+
+| component | 128³, 96 thr | 128³, 192 thr | 256³, 96 thr | 256³, 192 thr |
+|---|---|---|---|---|
+| ray_tracing_1 | 52.8 | 57.3 | 78.3 | 116 |
+| ray_tracing_3 | 53.0 | 57.7 | 78.8 | 114 |
+| calc_ray_1 (histogram) | 50.0 | 19.5 | 67.7 | 92.0 |
+| radiative_physics | 34.8 | 44.8 | 34.1 | 39.6 |
+| post_rt (redshifting, PDFs) | 81.2 | 141 | 74.4 | 131 |
+| hydro | 35.7 | 37.8 | 49.0 | 79.8 |
+| PM (serial FFTW) | 11.0 | 10.1 | 12.6 | 11.7 |
+| summaries | 3.9 | 4.3 | 4.2 | 4.2 |
+| FoF + sources | 6.0 | 5.6 | 7.4 | 7.3 |
+| **RT total** | **50.3** | **53.7** | **67.8** | **94.1** |
+| step (with its output) | 39.2 | 39.4 | 45.7 | 52.2 |
+| step time [s] (1 thread: 406 s at 128³, 2507 s at 256³) | 10.4 | 10.3 | 54.8 | 48.0 |
+
+(128³: step 25, z = 7.30 → 6.70, 19 substeps, 17–19M rays; 256³: step 31,
+z = 8.09 → 7.82, 15 substeps, 136–140M rays.) The colour-swept ray tracing
+flattens at 128³ between 96 and 192 threads (512 domains per colour) and keeps
+scaling at 256³ (4096 per colour), as expected. Per thread, one ray-substep
+(`ray_tracing_1` + `ray_tracing_3` + `calc_ray_1` + `post_rt`) costs
+1.0–1.05 µs on one Genoa core, and `radiative_physics` 1.05–1.2 µs per cell per substep,
+against 2.0 and 1.7 µs on the old VM. The 4-thread entries below are therefore superseded.
+
+### On the shared 4-core VM (first thread)
+
 Measured by restarting the same checkpoint for one hydro step with 1, 2 and
 4 threads (`tools/production/speedup.sh`) and from the first steps of the
 runs (`speedup_hydro.sh`). The outputs of the 1-, 2- and 4-thread runs are
@@ -336,8 +368,8 @@ to 512 (N = 128) independent domains per colour and two barriers per
 colour. Hydro, PM and `radiative_physics` reach 1.6–1.7 on two threads
 (memory-bound sweeps; batched ordered replay). On four free cores we
 expect ≈ 3.5 for the RT and ≈ 3 for hydro/PM (the projection used in the
-timing table); the 4-thread numbers above are limited by the other job
-and should be re-measured on an idle machine with the two scripts.
+timing table); the 4-thread numbers above are limited by the other job.
+The idle-node measurement on Hyak is at the top of this section.
 
 ## 7. Recommendations for the production run
 
