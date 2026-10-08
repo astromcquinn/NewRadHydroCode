@@ -34,6 +34,11 @@ struct Config {
   std::int64_t Nray_max = 0;
   std::int64_t Nfree_max = 0;
 
+  // Runtime switch for the RT bookkeeping fixes B1-B4, B8, B9
+  // (docs/port_notes.md section 5). true (params.txt legacy_rt = 1, the
+  // default) reproduces the original Fortran bit-for-bit.
+  bool legacy_rt = true;
+
   static Config make(int N, int nray_max_factor = 64);
 };
 

@@ -1,6 +1,8 @@
 // RT-only driver implementing docs/validation_spec.md.
 //
-// usage: rt_driver <problem_dir> <outdir> [--nsteps n]
+// usage: rt_driver <problem_dir> <outdir> [--nsteps n] [--set key=value ...]
+//
+// --set overrides (or adds) one params.txt entry, e.g. --set legacy_rt=0.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -15,7 +17,9 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "radray/cosmology.hpp"
 #include "radray/io.hpp"
@@ -25,20 +29,35 @@
 int main(int argc, char** argv) {
   using namespace radray;
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--nsteps n]\n", argv[0]);
+    std::fprintf(stderr,
+                 "usage: %s <problem_dir> <outdir> [--nsteps n] [--set key=value ...]\n",
+                 argv[0]);
     return 2;
   }
   const std::string pdir = argv[1];
   const std::string odir = argv[2];
   int nsteps_override = -1;
+  std::vector<std::string> sets;
   for (int a = 3; a < argc; ++a) {
     const std::string s = argv[a];
-    if (s == "--nsteps" && a + 1 < argc) nsteps_override = std::atoi(argv[++a]);
+    if (s == "--nsteps" && a + 1 < argc) {
+      nsteps_override = std::atoi(argv[++a]);
+    } else if (s == "--set" && a + 1 < argc) {
+      sets.emplace_back(argv[++a]);
+    } else {
+      std::fprintf(stderr, "rt_driver: unknown argument '%s'\n", s.c_str());
+      return 2;
+    }
   }
 
   try {
     const auto t0 = std::chrono::steady_clock::now();
     ProblemParams P = read_params(pdir + "/params.txt");
+    for (const std::string& kv : sets) {
+      const auto eq = kv.find('=');
+      if (eq == std::string::npos) throw std::runtime_error("--set needs key=value: " + kv);
+      set_param(P, kv.substr(0, eq), kv.substr(eq + 1));
+    }
     if (nsteps_override >= 0) P.nsteps = nsteps_override;
 
     std::filesystem::create_directories(odir);
@@ -47,6 +66,7 @@ int main(int argc, char** argv) {
     auto sim = std::make_unique<Simulation>();
     Simulation& s = *sim;
     init_simulation(s, P.N, P.nray_max_factor, P.z_init);
+    s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.raylog = &raylog;
     s.out = &std::cout;
 
@@ -59,6 +79,7 @@ int main(int argc, char** argv) {
               << " z_init     : " << P.z_init << "\n"
               << " da_sim     : " << P.da_sim << "\n"
               << " nsteps     : " << P.nsteps << "\n"
+              << " legacy_rt  : " << P.legacy_rt << "\n"
               << " sources    : " << sources.size() << "\n";
 
     calc_sim_var(s.cfg, s.clk, s.units);

@@ -32,10 +32,12 @@ void ray_cast_merge(Simulation& s, int nrc, const std::int64_t* irc, int irt,
 void ray_cast_1(Simulation& s, std::int64_t ir, int irt, int jrt, int krt);
 void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt);
 
-// ray_tracing_tools.f90: ray_segment -- lengths of the (up to 3) cell
-// crossings of a unit-length step from x0 along dx.
-std::array<double, 3> ray_segment(const double x0[3], const double dx[3],
-                                  double seg_min);
+// ray_tracing_tools.f90: ray_segment -- lengths of the cell crossings of a
+// unit-length step from x0 along dx. The original computes nseg = 3
+// segments, which can truncate the step (B8); nseg = 4 (legacy_rt = 0)
+// always covers it. Elements beyond nseg are 0.
+std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
+                                  double seg_min, int nseg = 3);
 
 // ray_tracing_tools.f90: ray_create / ray_remove / ray_insert_head/tail
 void ray_create(Simulation& s, int nr, std::int64_t* indx);

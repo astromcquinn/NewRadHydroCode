@@ -25,6 +25,28 @@ bool little_endian() {
 }
 }  // namespace
 
+void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
+  const std::string key = trim(key_in);
+  val = trim(val);
+  for (auto& ch : val)
+    if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
+  if (key == "N")
+    p.N = std::stoi(val);
+  else if (key == "z_init")
+    p.z_init = std::stod(val);
+  else if (key == "da_sim")
+    p.da_sim = std::stod(val);
+  else if (key == "nsteps")
+    p.nsteps = std::stoi(val);
+  else if (key == "nray_max_factor")
+    p.nray_max_factor = std::stoi(val);
+  else if (key == "legacy_rt") {
+    p.legacy_rt = std::stoi(val);
+    if (p.legacy_rt != 0 && p.legacy_rt != 1)
+      throw std::runtime_error("legacy_rt must be 0 or 1");
+  }
+}
+
 ProblemParams read_params(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open " + path);
@@ -35,20 +57,7 @@ ProblemParams read_params(const std::string& path) {
     if (h != std::string::npos) line = line.substr(0, h);
     const auto eq = line.find('=');
     if (eq == std::string::npos) continue;
-    const std::string key = trim(line.substr(0, eq));
-    std::string val = trim(line.substr(eq + 1));
-    for (auto& ch : val)
-      if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
-    if (key == "N")
-      p.N = std::stoi(val);
-    else if (key == "z_init")
-      p.z_init = std::stod(val);
-    else if (key == "da_sim")
-      p.da_sim = std::stod(val);
-    else if (key == "nsteps")
-      p.nsteps = std::stoi(val);
-    else if (key == "nray_max_factor")
-      p.nray_max_factor = std::stoi(val);
+    set_param(p, line.substr(0, eq), line.substr(eq + 1));
   }
   return p;
 }
