@@ -44,3 +44,25 @@ and adaptive calculations.
    hierarchy index + quantised offsets + packed photon groups), error-driven
    split/merge criteria, adaptive RT substepping.
 4. **Coupling** to hydro/gravity (port or couple to an external code).
+
+## Phase 1b (decided 2026-10-08)
+
+* **RT fixes behind a flag.** `legacy_rt = 1` reproduces the original
+  bit-for-bit, in both the Fortran harness and the C++ code. `legacy_rt = 0`
+  turns on these bookkeeping fixes (see `docs/port_notes.md` §5):
+  * B1: freed rays are zeroed, so they no longer count toward the thresholds;
+  * B2: `ngam_ray` is recomputed every substep, with no stale values;
+  * B3: `rt_grid%dx` is reset every substep;
+  * B4: `tau` is updated in all cells;
+  * B8: casts and advances may use up to 4 segments.
+
+  The Fortran harness and the C++ code must agree bit-for-bit in both modes.
+  The B12 physics oddities are untouched for now, pending a decision. B5–B7
+  and B9 are fixed unconditionally, since they are memory-safety and overflow
+  bugs.
+* **N-body + hydro port.** `pm_tools.f90` (PM gravity for dark matter and gas),
+  `fft_tools.f90` and `hydro_tools.f90` (with `-DMF`, as the original
+  Makefile sets). Both the Fortran harness and the C++ code use FFTW3
+  single precision in place of MKL DFTI, so they can match bit-for-bit.
+  Each part gets its own Fortran reference driver and its own validation
+  problems, and then the full `radhydro` loop is integrated (Phase 1c).
