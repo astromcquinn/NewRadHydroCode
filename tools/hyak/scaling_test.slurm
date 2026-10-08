@@ -21,7 +21,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
-#SBATCH --mem=0
+#SBATCH --mem=256G
 #SBATCH --exclusive
 #SBATCH --output=%x-%j.out
 set -u

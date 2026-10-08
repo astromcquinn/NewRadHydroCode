@@ -7,7 +7,7 @@
 #   sbatch --export=ALL,PROB=/gscratch/astro/$USER/runs/reion128 \
 #          --cpus-per-task=32 --mem=64G tools/hyak/reion_production.slurm
 # A whole node (docs/cluster.md for the thread count):
-#   sbatch --exclusive --cpus-per-task=192 --mem=0 --export=ALL,PROB=... \
+#   sbatch --exclusive --cpus-per-task=192 --mem=256G --export=ALL,PROB=... \
 #          tools/hyak/reion_production.slurm
 #
 # The job resumes from $RUN/restart/checkpoint.bin when it exists (a requeued
@@ -16,6 +16,11 @@
 # resumes from the newest checkpoint_NNNN.bin. With --requeue it is safe on
 # preemptible partitions (ckpt) too. When the run has reached the last zdata1
 # redshift it writes $RUN/DONE and later submissions exit at once.
+#
+# The partition's default time limit is 1 hour: keep --time. Jobs must also
+# end before a maintenance reservation (scontrol show reservation), so the
+# limit is 4 days; resubmit (or chain with --dependency=afterany:<job>) to
+# continue from the last checkpoint.
 #
 # Environment: PROB (required), RUN (default $PROB/run), EXE (default
 # build/radhydro), THREADS (default: the job's cpus), LAUNCH (a prefix such
@@ -28,6 +33,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
+#SBATCH --time=4-00:00:00
 #SBATCH --requeue
 #SBATCH --open-mode=append
 #SBATCH --output=%x-%j.out
@@ -58,8 +64,9 @@ echo "$(date) radhydro exit $rc"
 grep -E "Maximum resident|Elapsed \(wall" "$RUN.log" | tail -2
 if [ $rc -eq 0 ]; then
   touch "$RUN/DONE"
-  # Ionisation history from the movie log (cheap)
-  if [ -s "$RUN/movie/frames.txt" ]; then
+  # Stills and the ionisation history (tools/movies/stills.py needs the
+  # movie fields fHI, temp and rhog)
+  if ls "$RUN"/movie/frame_*_rhog.bin >/dev/null 2>&1; then
     python3 tools/movies/stills.py "$RUN" "$RUN/stills" || true
   fi
 fi
