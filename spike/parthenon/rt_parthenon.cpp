@@ -55,9 +55,16 @@ constexpr unsigned long long kDx = rng(7, 10), kGamLam = rng(10, 16), kNu = rng(
 constexpr unsigned long long kFgam = rng(kFg, kFg + 5), kTauM = rng(kTau, kTau + 5);
 constexpr unsigned long long kUW = rng(kTau + 5, kNcd);  // u_gas, w_gas
 
-template <class A>
+// Cell storage. Default: everything in Parthenon variables (component
+// slowest, double). With -DRT_CELLS_AOS (target rt_parthenon_aos) the whole
+// CellData record lives in a per-block float AoS Kokkos view `aos` and only
+// tau/fgam are mirrored into the Parthenon variables for the ghost exchange
+// -- a measurement of what the Parthenon variable layout costs.
+using AosV = Kokkos::View<float****, Kokkos::LayoutRight>;  // (k,j,i,45) interior
+template <class A, class F>
 struct CellVarsT {
   A rtc, tau, fgam;
+  F aos;
   int is, js, ks;  // first interior index
   KOKKOS_FORCEINLINE_FUNCTION Real& at(int q, int K, int J, int I) const {
     if (q < kFg) return rtc(q, K, J, I);
@@ -69,23 +76,36 @@ struct CellVarsT {
   KOKKOS_FORCEINLINE_FUNCTION CellData load(int i, int j, int k) const {
     CellData c{};
     float* f = reinterpret_cast<float*>(&c);
+#ifdef RT_CELLS_AOS
+    for (int q = 0; q < kNcd; ++q)
+      if ((M >> q) & 1ULL) f[q] = aos(k, j, i, q);
+#else
     const int I = i + is, J = j + js, K = k + ks;
     for (int q = 0; q < kNcd; ++q)
       if ((M >> q) & 1ULL) f[q] = static_cast<float>(at(q, K, J, I));
+#endif
     return c;
   }
   template <unsigned long long M = kAll>
   KOKKOS_FORCEINLINE_FUNCTION void store(int i, int j, int k, const CellData& c) const {
     const float* f = reinterpret_cast<const float*>(&c);
     const int I = i + is, J = j + js, K = k + ks;
+#ifdef RT_CELLS_AOS
+    for (int q = 0; q < kNcd; ++q)
+      if ((M >> q) & 1ULL) aos(k, j, i, q) = f[q];
+    constexpr unsigned long long MG = M & rng(kFg, kTau + 5);  // tau, fgam: also for the halo
+    for (int q = kFg; q < kTau + 5; ++q)
+      if ((MG >> q) & 1ULL) at(q, K, J, I) = f[q];
+#else
     for (int q = 0; q < kNcd; ++q)
       if ((M >> q) & 1ULL) at(q, K, J, I) = f[q];
+#endif
   }
 };
-using CellVars = CellVarsT<PVar>;
-template <class A>
-CellVarsT<A> make_cv(A rtc, A tau, A fgam, int is, int js, int ks) {
-  return CellVarsT<A>{rtc, tau, fgam, is, js, ks};
+using CellVars = CellVarsT<PVar, AosV>;
+template <class A, class F>
+CellVarsT<A, F> make_cv(A rtc, A tau, A fgam, F aos, int is, int js, int ks) {
+  return CellVarsT<A, F>{rtc, tau, fgam, aos, is, js, ks};
 }
 
 // Ray payload <-> swarm variables
@@ -427,7 +447,12 @@ int main(int argc, char** argv) {
         B.nz = B.g.n[2];
         B.ncell = B.nx * B.ny * B.nz;
         auto rc = B.pmb->meshblock_data.Get();
-        B.cv = CellVars{rc->Get("rtc").data, rc->Get("tau").data, rc->Get("fgam").data, B.g.is, B.g.js, B.g.ks};
+#ifdef RT_CELLS_AOS
+        AosV aos("rt_cells_aos", B.nz, B.ny, B.nx, kNcd);
+#else
+        AosV aos;
+#endif
+        B.cv = CellVars{rc->Get("rtc").data, rc->Get("tau").data, rc->Get("fgam").data, aos, B.g.is, B.g.js, B.g.ks};
         B.acc = Acc4("rt_acc", B.nz + 2 * G, B.ny + 2 * G, B.nx + 2 * G, NDEP);
         B.tf = TF4("rt_tf", B.nz + 2 * G, B.ny + 2 * G, B.nx + 2 * G, 10);
         B.start = V1<long long>("start", B.ncell + 1);
@@ -447,7 +472,8 @@ int main(int argc, char** argv) {
         auto hrtc = B.cv.rtc.GetHostMirror();
         auto htau = B.cv.tau.GetHostMirror();
         auto hfg = B.cv.fgam.GetHostMirror();
-        auto hv = make_cv(hrtc, htau, hfg, B.g.is, B.g.js, B.g.ks);
+        auto haos = Kokkos::create_mirror_view(B.cv.aos);
+        auto hv = make_cv(hrtc, htau, hfg, haos, B.g.is, B.g.js, B.g.ks);
         for (int k = 0; k < B.nz; ++k)
           for (int j = 0; j < B.ny; ++j)
             for (int i = 0; i < B.nx; ++i) {
@@ -460,6 +486,7 @@ int main(int argc, char** argv) {
         B.cv.rtc.DeepCopy(hrtc);
         B.cv.tau.DeepCopy(htau);
         B.cv.fgam.DeepCopy(hfg);
+        Kokkos::deep_copy(B.cv.aos, haos);
       }
     }
 
@@ -858,7 +885,9 @@ int main(int argc, char** argv) {
         std::vector<char> rec;
         for (auto& B : blks) {
           auto hv = make_cv(B.cv.rtc.GetHostMirrorAndCopy(), B.cv.tau.GetHostMirrorAndCopy(),
-                            B.cv.fgam.GetHostMirrorAndCopy(), B.g.is, B.g.js, B.g.ks);
+                            B.cv.fgam.GetHostMirrorAndCopy(),
+                            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), B.cv.aos), B.g.is, B.g.js,
+                            B.g.ks);
           for (int k = 0; k < B.nz; ++k)
             for (int j = 0; j < B.ny; ++j)
               for (int i = 0; i < B.nx; ++i) {

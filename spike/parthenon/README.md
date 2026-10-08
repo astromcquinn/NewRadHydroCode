@@ -41,8 +41,9 @@ upper bounds):
 |---|---|---|
 | Parthenon + Kokkos library only, inside this project, `-j2` | 5 min 23 s | 9 min 27 s user |
 | Parthenon + Kokkos + all examples, standalone, `-j4` (`/home/user/ext/build-parthenon`) | 7 min 27 s | 24 min 19 s user |
-| `rt_parthenon.cpp` (one TU) | ~@RTTU@ s | |
-| `hydro_parthenon.cpp` | ~@HYTU@ s | |
+| `rt_parthenon` (compile + link) | 40 s | |
+| `hydro_parthenon` (compile + link) | 31 s | |
+| compile-only Kokkos **CUDA** build of both TUs (nvcc 12.0, sm_80, configure 24 s) | 144 s + 115 s | |
 
 ## Run
 
@@ -160,7 +161,26 @@ OMP_NUM_THREADS=$t mpirun -np $np hydro_parthenon -i spike/parthenon/hydro.in --
 cmp ref.bin U.bin
 ```
 
-@VALIDATION@
+Results (all on the final code, `/tmp/.../final.txt` of this session):
+
+| program | problem / flags | ranks | meshblock | OMP threads | result |
+|---|---|---|---|---|---|
+| rt_parthenon | uniform_8src, `legacy_rt=0` | 1, 2, 4, 8 | 16^3, 8^3 | 1, 2 | **16/16 PASS** |
+| rt_parthenon | uniform_8src, `legacy_rt=0` | 1 | 32^3 (one block, its own periodic neighbour) | 1, 2 | **2/2 PASS** |
+| rt_parthenon | lognormal_16src_smallbuf, `legacy_rt=0` | 1, 2, 4, 8 | 16^3, 8^3 | 1, 2 | **16/16 PASS** |
+| rt_parthenon | lognormal_16src_smallbuf, `legacy_rt=0 legacy_physics=0` | 1, 4, 8 | 16^3, 8^3 | 1, 2 | **12/12 PASS** |
+| hydro_parthenon | blast, n=32, 10 steps | 1, 2, 4 | 16^3, 8^3 | 1, 2 | **12/12 PASS** (`cmp`) |
+| hydro_parthenon | sod, n=32, 10 steps | 1, 2, 4 | 16^3, 8^3 | 1, 2 | **12/12 PASS** |
+| hydro_parthenon | blast, n=64, 20 steps | 1, 2, 4 | 16^3, 8^3 | 1, 2 | **12/12 PASS** |
+| hydro_parthenon | blast, n=32, one 32^3 block | 1 | 32^3 | 1, 2 | **2/2 PASS** |
+
+"PASS" for RT is `compare.py ... --rtol 0 --atol-frac 0` reporting
+`RESULT: PASS` over all 10 steps (14 fields and all integer/real stats per
+step), i.e. bitwise equality with rt_serial. The 8-rank runs with 8^3 blocks
+have 8 blocks per rank; the 8-rank 16^3 runs have exactly one block per
+rank. The `Kokkos::abort` guards (ray outside its home block after
+migration, cast reads/deposits outside the 4-cell ghost zone, ray moved
+beyond the ghost zone) never fired.
 
 ## Timings
 

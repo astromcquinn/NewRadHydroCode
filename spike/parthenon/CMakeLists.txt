@@ -48,3 +48,10 @@ foreach(app rt_parthenon hydro_parthenon)
   target_link_libraries(${app} PRIVATE parthenon spike_common MPI::MPI_CXX)
   target_compile_options(${app} PRIVATE -ffp-contract=off -fno-fast-math)
 endforeach()
+
+# Variant: CellData in a per-block float AoS view instead of Parthenon
+# variables (tau/fgam still Parthenon variables for the ghost exchange).
+add_executable(rt_parthenon_aos rt_parthenon.cpp)
+target_compile_definitions(rt_parthenon_aos PRIVATE RT_CELLS_AOS)
+target_link_libraries(rt_parthenon_aos PRIVATE parthenon spike_common MPI::MPI_CXX)
+target_compile_options(rt_parthenon_aos PRIVATE -ffp-contract=off -fno-fast-math)
