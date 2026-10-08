@@ -109,37 +109,22 @@ def q_log2(v, step_bits):
 
 
 def predicted_geometry(a, d, N):
-    """For rays with a known source: the image of the source cell centre
-    whose distance best matches r, the predicted pixel from the cell centre,
-    and the index of the true pixel among the predicted pixel and its 8
-    neighbours (9 = not found)."""
+    """For rays with a known source and r < N/2 - 1 (which cannot have
+    wrapped around the periodic box, so the min image is the true
+    displacement): the source-cell distance, and the index of the true pixel
+    among the pixel predicted from the cell centre and its 8 neighbours
+    (9 = not found). Rays farther out get -1 (no prediction), as in
+    ray_codec.cpp."""
     src = a["src"].astype(np.int64)
-    ok = src >= 0
-    xs = d["src_x"]
-    cc = d["ijk"] + 0.5
     r = d["r"]
-    base = cc - xs
-    base = (base + N / 2) % N - N / 2
-    # candidate images within |n| <= nimg box lengths
-    nimg = int(np.ceil(np.nanmax(np.where(ok, r, 0)) / N)) + 1
-    best = base.copy()
-    bestgap = np.abs(np.sqrt((base ** 2).sum(1)) - r)
-    rng = range(-nimg, nimg + 1)
-    for i in rng:
-        for j in rng:
-            for k in rng:
-                if i == j == k == 0:
-                    continue
-                v = base + N * np.array([i, j, k], dtype=np.float64)
-                g = np.abs(np.sqrt((v ** 2).sum(1)) - r)
-                better = g < bestgap
-                best[better] = v[better]
-                bestgap[better] = g[better]
-    dist = np.sqrt((best ** 2).sum(1))
+    ok = (src >= 0) & (r < 0.5 * N - 1)
+    cc = d["ijk"] + 0.5
+    v = cc - d["src_x"]
+    v = (v + N / 2) % N - N / 2
+    dist = np.sqrt((v ** 2).sum(1))
     nside = a["nside"].astype(np.int64)
     ipix = a["ipix"].astype(np.int64)
-    pred = np.zeros(len(a), dtype=np.int64)
-    vv = best.copy()
+    vv = v.copy()
     vv[dist == 0] = [0, 0, 1]
     pred = hp.vec2pix(nside, vv[:, 0], vv[:, 1], vv[:, 2], nest=True)
     sym = np.full(len(a), 9, dtype=np.int64)
@@ -149,7 +134,7 @@ def predicted_geometry(a, d, N):
         hit = (nb[m] == ipix) & (sym == 9)
         sym[hit] = m + 1
     sym[~ok] = -1
-    return dist, sym, bestgap
+    return dist, sym, ok
 
 
 # ---------------------------------------------------------------------------
@@ -242,9 +227,10 @@ def analyse(stem):
     put("nu(joint)", 40, nuq, {"merged": [flag], "birth": [birth]})
 
     # never-merged, exact origin: origin-based conditional entropies
-    if exact.sum() > 10:
-        dist, sym, gap = predicted_geometry(a, d, N)
-        e = exact
+    if (exact & (d["r"] < 0.5 * N - 1)).sum() > 10:
+        dist, sym, pok = predicted_geometry(a, d, N)
+        out["frac_exact_predictable"] = float(pok[exact].mean())
+        e = exact & pok
         put("src|cell (never)", 30, [src], {"cell": [cell]}, sel=e)
         dr8 = np.round((d["r"] - dist) * 8).astype(np.int64)
         dr1k = np.round((d["r"] - dist) * 1024).astype(np.int64)

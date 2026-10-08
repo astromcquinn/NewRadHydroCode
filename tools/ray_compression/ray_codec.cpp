@@ -36,6 +36,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <unordered_map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -577,20 +578,30 @@ struct Models {
   Family nexp{64, 12, 12};        // float exponent - base(lside) + 32, 63 = escape
   Family s0{256, 1, 12};          // first shape value / 8 (0 = zero, 255 = escape)
   Family sd{256, 8, 12};          // shape step / 4, ctx (group-1, prev zero)
+  Family shdict{256, 2, 12};      // shape tuple dictionary index, 255 = escape; ctx O / G
   Family nudict{256, 1, 12};      // nu tuple dictionary index, 255 = escape
   Family nuraw{256, 5, 12};
-  std::map<std::uint64_t, int> nu_index;  // packed nq tuple -> dictionary index
+  std::unordered_map<std::uint64_t, int> sh_index;  // packed shape tuple -> dictionary index
+  std::vector<std::array<int, 5>> sh_tuple;
+  std::unordered_map<std::uint64_t, int> nu_index;  // packed nq tuple -> dictionary index
   std::vector<std::uint64_t> nu_tuple;
   int exp_base[12] = {127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127};
   std::vector<Family*> all() {
     return {&count, &cls, &srcsame, &srchint, &rdelta, &lsideO, &pixO, &lsideG, &rG, &pixG,
-            &coneG, &dth, &dph, &nexp, &s0, &sd, &nudict, &nuraw};
+            &coneG, &dth, &dph, &nexp, &s0, &sd, &shdict, &nudict, &nuraw};
   }
   void fit() {
     for (Family* f : all()) f->fit();
   }
 };
 
+// 5 shape values in [-4095, 0] or kShapeZero -> 13 bits each
+inline std::uint64_t pack_shape(const int* sv) {
+  std::uint64_t v = 0;
+  for (int n = 0; n < 5; ++n)
+    v |= static_cast<std::uint64_t>(sv[n] == kShapeZero ? 4096 : -sv[n]) << (13 * n);
+  return v;
+}
 inline std::uint64_t pack_nu(const std::uint8_t nq[5]) {
   std::uint64_t v = 0;
   for (int n = 0; n < 5; ++n) v |= static_cast<std::uint64_t>(nq[n]) << (8 * n);
@@ -770,8 +781,18 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
     const std::uint32_t man = io.raw((q.ntot_bits & 0x7fffff) >> drop, g_mbits, gNtot) << drop;
     q.ntot_bits = (static_cast<std::uint32_t>(ee) << 23) | man;
   }
-  // shape: s0, then steps between adjacent groups
-  {
+  // shape: dictionary of frequent tuples (fitted on the training snapshot)
+  int shidx = 255;
+  if (!IO::decoding) {
+    auto it = M.sh_index.find(pack_shape(q.s));
+    if (it != M.sh_index.end()) shidx = it->second;
+  }
+  shidx = io.sym(M.shdict, q.cls == kOrigin ? 0 : 1, shidx, gShape);
+  if (shidx != 255) {
+    if (IO::decoding)
+      for (int n = 0; n < 5; ++n) q.s[n] = M.sh_tuple[shidx][n];
+  } else {
+    // otherwise s0, then steps between adjacent groups
     // absolute value v = -s in [0, 4095] or zero: 0 = zero, 1..254 = v/8 + 1
     // (+3 raw bits), 255 = escape (12 raw bits)
     auto code_abs = [&](Family& f, int ctx, int v) {
@@ -873,6 +894,21 @@ void train(Models& M, const Snapshot& s, const QuantOpts& o) {
   std::vector<QRay> qs(s.rec.size());
   for (std::size_t i = 0; i < s.rec.size(); ++i) qs[i] = quantise(s.rec[i], g, o);
   for (const QRay& q : qs) nu_counts[pack_nu(q.nq)] += 1;
+  {
+    std::map<std::array<int, 5>, double> sc;
+    for (const QRay& q : qs) {
+      std::array<int, 5> t;
+      for (int n = 0; n < 5; ++n) t[n] = q.s[n];
+      sc[t] += 1;
+    }
+    std::vector<std::pair<double, std::array<int, 5>>> v;
+    for (auto& kv : sc) v.push_back({kv.second, kv.first});
+    std::sort(v.begin(), v.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
+    for (std::size_t i = 0; i < v.size() && i < 255; ++i) {
+      M.sh_index[pack_shape(v[i].second.data())] = static_cast<int>(i);
+      M.sh_tuple.push_back(v[i].second);
+    }
+  }
   {
     std::vector<std::array<int, 256>> h(12);
     for (auto& a : h) a.fill(0);

@@ -154,7 +154,7 @@ def fig_precision(prec, outdir, plt):
                ("T_mass", "T (mass) max rel. err.", 0.03),
                ("front_shift", "I-front shift (cells)", 0.5),
                ("photons_ionisations", "photoionisations rel. err.", 0.01)]
-    fig, axes = plt.subplots(1, len(metrics), figsize=(11, 2.9))
+    fig, axes = plt.subplots(1, len(metrics), figsize=(11, 3.6))
     bits = [1, 2, 3, 4, 6, 8, 10]
     for ax, (key, lab, tgt) in zip(axes, metrics):
         for k, p in enumerate(probs):
@@ -164,15 +164,18 @@ def fig_precision(prec, outdir, plt):
             ax.plot([3, 6], np.maximum(vr, 1e-6), "s", ms=6, mfc="none", color=C[k],
                     label=p + " (round to nearest)")
             ref = m[p].get("nrmf32", {}).get(key, np.nan)
-            ax.axhline(max(ref, 1e-6), color=C[k], lw=1, ls=":")
+            if ref > 0:
+                ax.axhline(ref, color=C[k], lw=1, ls=":")
         ax.axhline(tgt, color=INK, lw=1, ls="--")
         ax.set_yscale("log")
         ax.set_xlabel("photon mantissa bits")
         ax.set_title(lab, fontsize=9)
-    axes[0].legend(fontsize=6.5, loc="lower left")
-    fig.text(0.5, 0.005, "dashed: target (docs/ROADMAP.md); dotted: baseline vs nray_max_factor 32 "
-             "(the algorithm's own resolution sensitivity)", ha="center", fontsize=7, color=INK2)
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, ncol=3, fontsize=7, loc="lower center", bbox_to_anchor=(0.5, 0.0))
+    fig.text(0.5, 0.115, "dashed: target (docs/ROADMAP.md); dotted: baseline vs nray_max_factor 32 "
+             "(the algorithm's own resolution sensitivity; zero for the uniform problems)",
+             ha="center", fontsize=7, color=INK2)
+    fig.tight_layout(rect=(0, 0.15, 1, 1))
     fig.savefig(Path(outdir) / "raycomp_precision.png")
     plt.close(fig)
 
@@ -180,23 +183,29 @@ def fig_precision(prec, outdir, plt):
 def fig_history(prec, outdir, plt):
     h = prec["hist"]
     probs = list(h.keys())
-    fig, axes = plt.subplots(1, len(probs), figsize=(3.5 * len(probs), 2.8))
+    fig, axes = plt.subplots(1, len(probs), figsize=(3.5 * len(probs), 3.1))
     for ax, p in zip(np.atleast_1d(axes), probs):
-        for k, v in enumerate(["d2", "d4", "d6", "struct", "nrmf32"]):
+        for k, v in enumerate(["d1", "d4", "struct_o10", "r6", "r3", "nrmf32"]):
+            lab = {"d1": "1 bit, dithered", "d4": "4 bits, dithered", "struct_o10": "structural, 10-bit offsets",
+                   "r6": "6 bits, round to nearest", "r3": "3 bits, round to nearest",
+                   "nrmf32": "nray_max_factor 32 (reference)"}[v]
             if v not in h[p]:
                 continue
             z = np.array(h[p][v]["z"])
             xb = np.array(h[p][v]["xm_b"])
             x = np.array(h[p][v]["xm"])
             ok = xb > 1e-3
-            ax.plot(z[ok], x[ok] / xb[ok] - 1, color=C[k], lw=1.5, label=v)
+            ax.plot(z[ok], x[ok] / xb[ok] - 1, color=C[k], lw=1.5, label=lab)
         ax.axhspan(-0.01, 0.01, color=GRID, alpha=0.6, lw=0)
+        ax.set_ylim(-0.1, 0.1)
+        ax.set_yscale("symlog", linthresh=1e-3)
         ax.invert_xaxis()
         ax.set_xlabel("z")
         ax.set_title(p, fontsize=9)
     np.atleast_1d(axes)[0].set_ylabel("x_HII,mass / baseline - 1")
-    np.atleast_1d(axes)[0].legend(fontsize=7)
-    fig.tight_layout()
+    h, l = np.atleast_1d(axes)[0].get_legend_handles_labels()
+    fig.legend(h, l, ncol=6, fontsize=7, loc="lower center")
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     fig.savefig(Path(outdir) / "raycomp_xhii_history.png")
     plt.close(fig)
 
@@ -223,7 +232,8 @@ def fig_determinism(ent, outdir, plt, snapshot_stems):
     for ax in axes:
         ax.set_ylabel("rays")
         ax.set_yscale("log")
-    axes[0].legend(fontsize=7)
+    h, l = axes[0].get_legend_handles_labels()
+    axes[2].legend(h, l, fontsize=7, loc="upper left")
     fig.tight_layout()
     fig.savefig(Path(outdir) / "raycomp_determinism.png")
     plt.close(fig)
