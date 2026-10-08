@@ -90,7 +90,8 @@ follow-up PR.
    | Ngas = Ndm | 128³, or 192³ if the timing table allows |
    | Flags | legacy_rt = legacy_physics = 0 |
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
-   - Owned: about 1000 `cpu-g2` cores with 7.8 TB of memory, a 64-core,
+   - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
+     and 1.5 TB per node) with 7.8 TB of memory, a 64-core,
      1 TB `cpu-g2-mem2x` slice, and 40 `compute-bigmem` cores.
    - No owned GPUs: GPUs only via preemptible `ckpt` partitions. No time
      limits. See `docs/ROADMAP.md` (answers section).
