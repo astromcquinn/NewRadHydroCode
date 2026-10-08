@@ -6,7 +6,7 @@ ranks and OpenMP threads. It must reproduce `spike/serial` **bit for bit**.
 
 | executable | reproduces | AMReX pieces |
 |---|---|---|
-| `hydro_amrex` | `spike/serial/hydro_serial` (unsplit MUSCL-Hancock + HLLC, `hydro_mh.hpp`) | `Geometry` (periodic), `MultiFab` U (5 comps, 2 ghosts), Q (20 comps, 1 ghost), 3 face-centred flux `MultiFab`s; `FillBoundary`; `MFIter` tiling + OpenMP; `ParallelFor`; `ReduceOps<ReduceOpMax>` + `ParallelDescriptor::ReduceRealMax`; `ParallelCopy` to rank 0 for output |
+| `hydro_amrex` | `spike/serial/hydro_serial` (unsplit MUSCL-Hancock + HLLC, `hydro_mh.hpp`) | `Geometry` (periodic), `MultiFab` U (5 comps, 2 ghosts), predictor states Q in `FabArray<BaseFab<QCell>>` (20 doubles per cell, 1 ghost; `-DHYDRO_Q_SOA`: 20-comp `MultiFab`), 3 face-centred flux `MultiFab`s; `FillBoundary`; `MFIter` tiling + OpenMP; `ParallelFor`; `ReduceOps<ReduceOpMax>` + `ParallelDescriptor::ReduceRealMax`; `ParallelCopy` to rank 0 for output |
 | `rt_amrex` | `spike/serial/rt_serial` (sorted-ray-array RT substep, `ray_kernels.hpp`, `rt_cell.hpp`, `rrhost::RTRun`) | `FabArray<BaseFab<rrk::CellData>>` (cells), `FabArray<BaseFab<float>>` (tau/fgam, 4 ghosts, `FillBoundary`), `FabArray<BaseFab<Long>>` (13 int64 deposit accumulators, 4 ghosts, `HostDevice::Atomic::Add` + `SumBoundary`), `ParticleContainerPureSoA<21,2>` (rays) + `DenseBins` (cell sort) + local `Redistribute` (migration), `Scan::ExclusiveSum`, `ParallelForOMP`, `Reduce::Sum`, `ParallelDescriptor::ReduceLongSum` |
 
 ## Build
@@ -42,12 +42,12 @@ cmake -S spike/serial -B build-spike-serial && cmake --build build-spike-serial 
 ```
 
 * `-DSPIKE_FETCH_AMREX=ON` (with no `AMReX_DIR`) instead downloads and builds AMReX
-  26.10 with the options above via `FetchContent`. That path was not tested here
-  because the sandbox has no GitHub access.
+  26.10 with the options above via `FetchContent`. That path was not tested,
+  since the installed AMReX was used.
 * Our targets get `-O2 -ffp-contract=off -fno-fast-math` (same as `spike/serial`).
   They also link `AMReX::Flags_INLINE` (`-finline-limit=43210`); see gotchas.
 * `-DRT_CELL_SOA` (add to `CMAKE_CXX_FLAGS`) switches the RT cell storage to a
-  45-component float SoA `FabArray`, which is the GPU-friendly layout.
+  45-component float SoA `FabArray`, which is the GPU-friendly layout. `-DHYDRO_Q_SOA` does the same for the hydro predictor states.
 * A clean build of the prototype takes 21 s at -j2, including `radray_core`.
   Compiling `rt_amrex.cpp` takes 16.5 s, `hydro_amrex.cpp` 7.0 s, and
   `rt_serial.cpp` 2.8 s for comparison. `rt_amrex.cpp` preprocesses to 208 k lines;
