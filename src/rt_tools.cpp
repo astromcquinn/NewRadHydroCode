@@ -882,7 +882,7 @@ void radiative_physics(Simulation& s, int krt) {
                       rs.cool[9] * ne * nHI + rs.cool[10] * ne * ne * nHeII +
                       rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +
                       rs.cool[13] * ne * (tmp - Tcmb) * f::pow4(Tcmb) +
-                      rs.cool[14] * ne * nHeII;
+                      rs.cool[14] * ne * nHeII + rs.cool[15] * ne * nHeI;
         }
 
         // Prevent overcooling/overheating

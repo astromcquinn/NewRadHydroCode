@@ -262,6 +262,16 @@ RateSet atomic_rates_at(double T, bool legacy_physics) {
             1.90e-3 / pow(T, 1.5) * exp(-0.375 * x) * (1 + 0.3 * exp(-0.075 * x));
         R.cool[14] = 0.75 * (k_cgs * HeII_K) * adi;
       }
+
+      // P10: HeI ground-state (1^1S) collisional excitation cooling,
+      // Glover & Jappsen (2007, ApJ 666, 1, Table 7; fit to Bray et al.
+      // 2000): 1.1e-19 T^0.082 exp(-230000/T) [erg cm^3/s], times ne*nHeI.
+      // New slot coef_cool(16); the original has no such term.
+      if (230000 / T > 100) {
+        R.cool[15] = 0;
+      } else {
+        R.cool[15] = 1.1e-19 * pow(T, 0.082) * exp(-230000 / T);
+      }
     }
   }
   return R;
@@ -273,7 +283,7 @@ void calc_atomic_rates(AtomicRates& R, bool legacy_physics) {
     const RateSet r = atomic_rates_at(T, legacy_physics);
     for (int n = 1; n <= 6; ++n) R.alpha_rec(n, i) = r.alpha[n - 1];
     for (int n = 1; n <= 3; ++n) R.gamma_col(n, i) = r.gcol[n - 1];
-    for (int n = 1; n <= 15; ++n) R.coef_cool(n, i) = r.cool[n - 1];
+    for (int n = 1; n <= 16; ++n) R.coef_cool(n, i) = r.cool[n - 1];
   }
 }
 
@@ -281,7 +291,7 @@ RateSet rates_node(const AtomicRates& R, int iT) {
   RateSet r;
   for (int n = 1; n <= 6; ++n) r.alpha[n - 1] = R.alpha_rec(n, iT);
   for (int n = 1; n <= 3; ++n) r.gcol[n - 1] = R.gamma_col(n, iT);
-  for (int n = 1; n <= 15; ++n) r.cool[n - 1] = R.coef_cool(n, iT);
+  for (int n = 1; n <= 16; ++n) r.cool[n - 1] = R.coef_cool(n, iT);
   return r;
 }
 
@@ -302,7 +312,7 @@ RateSet rates_interp(const AtomicRates& R, int i, double w) {
   RateSet r;
   for (int n = 1; n <= 6; ++n) r.alpha[n - 1] = rate_lerp(R.alpha_rec(n, i), R.alpha_rec(n, i + 1), w);
   for (int n = 1; n <= 3; ++n) r.gcol[n - 1] = rate_lerp(R.gamma_col(n, i), R.gamma_col(n, i + 1), w);
-  for (int n = 1; n <= 15; ++n)
+  for (int n = 1; n <= 16; ++n)
     r.cool[n - 1] = rate_lerp(R.coef_cool(n, i), R.coef_cool(n, i + 1), w);
   return r;
 }

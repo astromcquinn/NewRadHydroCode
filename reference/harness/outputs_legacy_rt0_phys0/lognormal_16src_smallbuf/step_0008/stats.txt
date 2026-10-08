@@ -7,4 +7,4 @@ ncst1 = 16007
 nmrg1 = 819
 nspl1 = 4024
 ndel1 = 5735
-ngam_rays_total =  4.8507540425684624E+001
+ngam_rays_total =  4.8507523700672323E+001

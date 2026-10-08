@@ -12,15 +12,15 @@ namespace radray {
 // Tabulated rates on the temperature grid T_i = 10**((i-1)*lgT_del+lgT_min),
 // i = 1..Ntemp. Accessors take Fortran (1-based) indices.
 struct AtomicRates {
-  // coef_cool(15,Ntemp), alpha_rec(6,Ntemp), gamma_col(3,Ntemp)
-  std::vector<double> coef_cool_ = std::vector<double>(15 * cp::Ntemp, 0.0);
+  // coef_cool(16,Ntemp) (slot 16: P10, legacy_physics = 0 only), alpha_rec(6,Ntemp), gamma_col(3,Ntemp)
+  std::vector<double> coef_cool_ = std::vector<double>(16 * cp::Ntemp, 0.0);
   std::vector<double> alpha_rec_ = std::vector<double>(6 * cp::Ntemp, 0.0);
   std::vector<double> gamma_col_ = std::vector<double>(3 * cp::Ntemp, 0.0);
 
-  double& coef_cool(int n, int iT) { return coef_cool_[(n - 1) + 15 * (iT - 1)]; }
+  double& coef_cool(int n, int iT) { return coef_cool_[(n - 1) + 16 * (iT - 1)]; }
   double& alpha_rec(int n, int iT) { return alpha_rec_[(n - 1) + 6 * (iT - 1)]; }
   double& gamma_col(int n, int iT) { return gamma_col_[(n - 1) + 3 * (iT - 1)]; }
-  double coef_cool(int n, int iT) const { return coef_cool_[(n - 1) + 15 * (iT - 1)]; }
+  double coef_cool(int n, int iT) const { return coef_cool_[(n - 1) + 16 * (iT - 1)]; }
   double alpha_rec(int n, int iT) const { return alpha_rec_[(n - 1) + 6 * (iT - 1)]; }
   double gamma_col(int n, int iT) const { return gamma_col_[(n - 1) + 3 * (iT - 1)]; }
 };
@@ -30,7 +30,7 @@ struct AtomicRates {
 struct RateSet {
   std::array<double, 6> alpha{};
   std::array<double, 3> gcol{};
-  std::array<double, 15> cool{};
+  std::array<double, 16> cool{};
 };
 
 // rt_rates.f90: calc_atomic_rates. legacy_physics = false applies the
