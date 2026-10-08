@@ -12,3 +12,23 @@ def check_tubes(ctx, out, tier):
 
 def check_galilean(ctx, out, tier):
     pass
+
+
+def check_sedov(ctx, out, tier):
+    pass
+
+
+def check_sound(ctx, out, tier):
+    pass
+
+
+def check_pancake(ctx, out, tier):
+    pass
+
+
+def check_cosmobox(ctx, out, tier):
+    pass
+
+
+def check_kh(ctx, out, tier):
+    pass

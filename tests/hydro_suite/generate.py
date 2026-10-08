@@ -80,12 +80,18 @@ def tube_initial_1d(kind, xi):
     return r, r * u, p / (hc.GAMMA - 1) + 0.5 * r * u * u
 
 
-def gen_tube(outdir, kind="sod", direction="x", N=32, bulk=DEFAULT_BULK, z_init=1000.0,
+def gen_tube(outdir, kind="sod", direction="x", N=32, bulk=None, z_init=1000.0,
              nout=1, t_frac=1.0):
     """Shock tube along `direction`. The dimensionless problem lives on the
     normal coordinate xi = s/N mod 1 (s = m.x), i.e. on a period Ln = N/|m|
     cells; code time t = t_dimless * Ln / U."""
     m, n, Ln, s, off = tube_geometry(direction, N)
+    if bulk is None:
+        # the default bulk velocity rotates with an axis-aligned tube, so that
+        # x, y and z tubes are the same problem up to the sweep order
+        bulk = np.roll(DEFAULT_BULK, "xyz".index(direction)) if direction in ("x", "y", "z") \
+            else DEFAULT_BULK
+    bulk = [float(b) for b in bulk]
     (rL, uL, pL), (rR, uR, pR), U = tube_states(kind)
     t_end = TUBES[kind]["t_end"] * t_frac * Ln / U
     # cell averages of the conserved variables (dimensionless) over the cell
@@ -151,7 +157,7 @@ def gen_sedov(outdir, N=64, t_end=10.0, nout=4, R_end_frac=0.35, bulk_frac=(0.11
 
 # ------------------------------------------------------------------ sound
 def gen_sound(outdir, N=32, A=1e-4, periods=1.0, nout=4, bulk=(0.2, 0.3, -0.25), c0=2.0,
-              direction="x", z_init=1000.0):
+              direction="x", z_init=1e4):
     """Travelling sound wave, one wavelength per box along `direction`
     (x or xy), exact eigenvector, cell-averaged. Phase speed c0 + vb.n."""
     m, n, Ln, s, off = tube_geometry(direction, N)
@@ -180,12 +186,12 @@ def gen_sound(outdir, N=32, A=1e-4, periods=1.0, nout=4, bulk=(0.2, 0.3, -0.25),
 
 
 # ------------------------------------------------------------------ KH
-def gen_kh(outdir, N=64, dv=1.0, a_shear=None, A=1e-3, mode=1, bulk=(0.13, 0.0, 0.11),
-           c0=2.0, t_end=None, nout=16, z_init=1000.0):
+def gen_kh(outdir, N=64, dv=1.0, a_shear=None, A=1e-3, mode=1, bulk=(0.13, 0.07, 0.11),
+           c0=2.0, t_end=None, nout=16, z_init=1e5):
     """Kelvin-Helmholtz: two shear layers vx = +-dv/2 (tanh profile of width
     a_shear cells) at y = N/4 and 3N/4, equal density and pressure, Mach
     dv/c0, seeded by a vy perturbation with x-wavenumber `mode`/N.
-    Bulk (0.13, 0, 0.11): vy has the KH flow itself, vx the shear (H1)."""
+    Bulk (0.13, 0.07, 0.11) (H1)."""
     if a_shear is None:
         a_shear = N / 32.0
     rho0 = hc.DGAS_AVG
