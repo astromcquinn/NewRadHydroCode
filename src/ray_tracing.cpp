@@ -11,6 +11,7 @@
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
+#include "radray/parallel.hpp"
 
 namespace radray {
 
@@ -20,34 +21,92 @@ using namespace rayp;
 // RayState (storage)
 // ---------------------------------------------------------------------------
 
+void RayBuffer::reset(std::int64_t n) {
+  std::free(p);
+  p = nullptr;
+  cap = n;
+  // calloc: lazily mapped zero pages; all-zero bits == Ray{}
+  p = static_cast<Ray*>(std::calloc(static_cast<std::size_t>(n), sizeof(Ray)));
+  if (!p) throw std::runtime_error("cannot reserve ray storage (" + std::to_string(n) + " rays)");
+}
+
 void RayState::init(std::int64_t nray_max, std::int64_t nfree_max) {
+  if (nray_max >= (std::int64_t(1) << 31) - 1)
+    throw std::runtime_error("Nray_max >= 2^31: ray links are int32 (see rays.hpp)");
   Nray_max = nray_max;
   Nfree_max = nfree_max;
   Nray = 0;
   Nrbuf = 0;
-  ray.clear();
+  ray.reset(Nray_max + 1);
+  hwm_ = 0;
   ray_index_.clear();
-  ray.reserve(static_cast<std::size_t>(Nray_max) + 1);
+  ray_index_.shrink_to_fit();
   ray_index_.reserve(static_cast<std::size_t>(Nray_max) + 1);
-  ray.resize(1);         // slot 0: dummy
   ray_index_.resize(1);  // position 0 unused
   ray_index_[0] = 0;
   stat = RayStat{};
-  stat.ifree.assign(static_cast<std::size_t>(Nfree_max) + 1, 0);
   save = RayStat{};
   ngam_ray.fill(0.0);
+  pool_free.clear();
+  next_fresh = 1;
+  tl.clear();
 }
 
 void RayState::ensure(std::int64_t i) {
   if (i < 1 || i > Nray_max)
-    throw std::runtime_error("ray storage index out of range: " + std::to_string(i));
+    throw std::runtime_error("ray storage index out of range: " + std::to_string(i) +
+                             " (ray pool overflow, Nray_max = " + std::to_string(Nray_max) + ")");
+  // ifree is sized on first use (Nfree_max = Nray_max/4 entries)
+  if (stat.ifree.empty()) stat.ifree.assign(static_cast<std::size_t>(Nfree_max) + 1, 0);
   const std::int64_t old = static_cast<std::int64_t>(ray_index_.size());
   if (i >= old) {
     ray_index_.resize(static_cast<std::size_t>(i) + 1);
-    for (std::int64_t p = old; p <= i; ++p) ray_index_[p] = p;
+    for (std::int64_t p = old; p <= i; ++p) ray_index_[p] = static_cast<std::int32_t>(p);
   }
-  if (i >= static_cast<std::int64_t>(ray.size()))
-    ray.resize(static_cast<std::size_t>(i) + 1);
+  if (i > hwm_) hwm_ = i;
+}
+
+// deterministic_parallel: take nr free slots for thread t. Slots come from
+// the thread's list, refilled in chunks from the shared pool (freed slots
+// first, then never-used ones). Which slots a ray gets depends on thread
+// timing, but no result depends on storage indices with legacy_rt = 0
+// (docs/parallel.md).
+void RayState::det_take(ThreadRays& t, int nr, std::int64_t* indx) {
+  constexpr std::int64_t kChunk = 4096;
+  if (static_cast<std::int64_t>(t.free.size()) < nr) {
+    std::lock_guard<std::mutex> lk(pool_mtx);
+    while (static_cast<std::int64_t>(t.free.size()) < kChunk && !pool_free.empty()) {
+      t.free.push_back(pool_free.back());
+      pool_free.pop_back();
+    }
+    const std::int64_t want = kChunk - static_cast<std::int64_t>(t.free.size());
+    const std::int64_t avail = Nray_max + 1 - next_fresh;
+    const std::int64_t n = want < avail ? want : avail;
+    for (std::int64_t m = 0; m < n; ++m) t.free.push_back(static_cast<std::int32_t>(next_fresh + m));
+    next_fresh += n > 0 ? n : 0;
+    if (next_fresh - 1 > hwm_) hwm_ = next_fresh - 1;
+    if (static_cast<std::int64_t>(t.free.size()) < nr)
+      throw std::runtime_error("ray pool overflow (Nray_max = " + std::to_string(Nray_max) +
+                               "); raise nray_max_factor");
+  }
+  for (int m = 0; m < nr; ++m) {
+    indx[m] = t.free.back();
+    t.free.pop_back();
+  }
+  t.ncreated += nr;
+}
+
+void RayState::det_give(ThreadRays& t, std::int64_t ir) {
+  constexpr std::size_t kSpill = 16384, kKeep = 8192;
+  t.free.push_back(static_cast<std::int32_t>(ir));
+  t.ndel1 += 1;
+  if (t.free.size() > kSpill) {
+    std::lock_guard<std::mutex> lk(pool_mtx);
+    while (t.free.size() > kKeep) {
+      pool_free.push_back(t.free.back());
+      t.free.pop_back();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -758,6 +817,10 @@ std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
 // ray_tracing_tools.f90: ray_create
 void ray_create(Simulation& s, int nr, std::int64_t* indx) {
   RayState& R = s.rays;
+  if (s.cfg.det_parallel) {
+    R.det_take(R.tl[par::thread_id()], nr, indx);
+    return;
+  }
   RayStat& st = R.stat;
 
   if (st.nfree < nr) {
@@ -799,7 +862,11 @@ void ray_remove(Simulation& s, std::int64_t ir, int irt, int jrt, int krt,
   if (ir == G.htoc_ray(3, c)) G.htoc_ray(3, c) = id;
   if (ir == G.htoc_ray(4, c)) G.htoc_ray(4, c) = iu;
 
-  if (flag) {
+  if (flag && s.cfg.det_parallel) {
+    // freed slots are always cleared (legacy_rt = 0 is required)
+    R.at(ir) = Ray{};
+    R.det_give(R.tl[par::thread_id()], ir);
+  } else if (flag) {
     // Free buffer full: return a quarter of Nrbuf to ray_index
     if (st.nfree == R.Nfree_max) {
       const std::int64_t n = R.Nrbuf / 4;
@@ -1057,6 +1124,7 @@ void ray_redshifting(Simulation& s) {
 void ray_buffer_allocate(Simulation& s) {
   RayState& R = s.rays;
   RayStat& st = R.stat;
+  if (st.ifree.empty()) st.ifree.assign(static_cast<std::size_t>(R.Nfree_max) + 1, 0);
   const std::int64_t i1 = R.Nray + 1;  // + (icpu-1)*nrbuf, icpu = 1
   st.nfree = R.Nrbuf;
   for (std::int64_t m = 0; m < R.Nrbuf; ++m) st.ifree[1 + m] = R.ray_index(i1 + m);

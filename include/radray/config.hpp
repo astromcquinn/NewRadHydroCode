@@ -57,6 +57,14 @@ struct Config {
   // 1 (default) is the original.
   double c_reduced = 1.0;
 
+  // Deterministic parallel ray tracing (docs/parallel.md). false (default):
+  // the original sweep order (8 domains, one thread) and the Fortran ray
+  // pool, bit-identical to the Fortran harness. true: ray_tracing_1/3 run
+  // over 8^3-cell domains in colour-major order, in parallel within a
+  // colour, with per-thread free lists; bit-identical for any thread count,
+  // but not to the legacy order. Requires legacy_rt = false.
+  bool det_parallel = false;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };
