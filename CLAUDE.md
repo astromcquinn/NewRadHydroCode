@@ -74,6 +74,7 @@ At the start of a session, read:
 | `tools/compare` | field/stat comparison (with self-tests) |
 | `tools/ics` | Zel'dovich ICs |
 | `tools/analysis` | figures |
+| `tools/ray_compression` | ray dumps → entropy, codec prototype, precision runs (`docs/ray_compression.md`) |
 | `docs/` | plan, status, port notes per component, design doc, figures |
 
 ## Build and test

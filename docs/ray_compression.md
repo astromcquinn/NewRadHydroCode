@@ -15,12 +15,12 @@ I-front within half a cell, T within a few percent; `docs/ROADMAP.md`).
    **~30 B instead of 80 B** (96 B with the chain links). Its errors are far
    below anything the RT cares about. Decoding it costs about one HEALPix
    `pix2vec` (~100 ns).
-2. **rANS entropy coding** of the same fields (§5) reaches **8.7–13 B per ray**,
-   depending on the phase of reionisation, with a 6-bit photon total and
-   10-bit in-cell offsets. It costs **~250–300 ns to decode and ~350–400 ns
-   to encode per ray**. That is ~30 % of the RT cost per ray-substep on this
-   machine (~2 µs), so it is not cheap enough to apply to every ray every
-   substep on CPU.
+2. **rANS entropy coding** of the same fields (§5) reaches **5–9 B per ray
+   before overlap and 12.7 B after**, with a 6-bit dithered photon total and
+   10-bit in-cell offsets. It costs **230–310 ns to decode and 290–450 ns
+   to encode per ray**. That is 25–35 % of the RT cost per ray-substep on
+   this machine (~2 µs), so it is not cheap enough to apply to every ray
+   every substep on CPU.
 3. **Photon precision is not the constraint, provided quantisation is
    dithered.** Stochastic (unbiased) rounding of every photon group down to
    **1–2 mantissa bits** keeps x_HII, T, τ_es, the I-front and the photon
@@ -242,7 +242,42 @@ build/ray_codec TRAIN_STEM TEST_STEM [--mbits m] [--offbits b] [--no-origin] [--
   polynomial sincos/atan2). These agree with the Fortran-faithful ones to
   1e-15 and to 0 of 2·10⁶ test pixels.
 
-RESULTS_TABLE
+Results (bytes per ray incl. block headers; models from the previous
+snapshot; timings at the 6-bit/10-bit setting, machine otherwise idle):
+
+| run | substep | rays | x_HII | origin-coded | R-struct | rANS lossless | 10-bit total | 6-bit total | 6-bit + 10-bit offsets | no origin class | encode ns | decode ns (of which reconstruct) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 64³ | 100 | 83k | 0.03 | 100 % | 29.0 | 7.4 | 5.8 | 5.3 | 5.3 | 13.9 | 449 | 312 (96) |
+| 64³ | 500 | 470k | 0.24 | 53 % | 29.9 | 11.4 | 9.7 | 9.2 | 8.2 | 14.8 | 406 | 298 (101) |
+| 64³ | 1000 | 615k | 0.54 | 28 % | 30.4 | 13.4 | 11.8 | 11.3 | 9.7 | 15.2 | 377 | 288 (106) |
+| 64³ | 1500 | 727k | 0.81 | 10 % | 30.8 | 15.5 | 13.8 | 13.3 | 11.3 | 16.1 | 349 | 277 (97) |
+| 64³ | 2000 | 832k | 0.996 | 4 % | 30.9 | 17.0 | 15.4 | 14.9 | 12.7 | 17.3 | 331 | 266 (100) |
+| 64³ | 3000 | 635k | 1.0 | 1 % | 31.0 | 17.0 | 15.4 | 14.9 | 12.7 | 17.1 | 290 | 233 (98) |
+| 16 src | 240 | 83k | 0.16 | 100 % | 29.0 | 7.6 | 6.0 | 5.5 | 5.5 | 14.2 | 404 | 278 (107) |
+| 16 src | 480 | 203k | 0.41 | 78 % | 29.4 | 8.9 | 7.3 | 6.8 | 6.3 | 14.0 | 357 | 264 (93) |
+| 16 src | 720 | 255k | 0.65 | 43 % | 30.1 | 12.1 | 10.5 | 10.0 | 8.7 | 15.0 | 354 | 277 (100) |
+| 16 src | 1200 | 337k | 0.95 | 11 % | 30.8 | 16.0 | 14.4 | 13.9 | 11.8 | 16.7 | 351 | 258 (103) |
+| 16 src | 1440 | 352k | 0.99 | 7 % | 30.9 | 17.0 | 15.4 | 14.9 | 12.8 | 17.5 | 354 | 256 (102) |
+| 1 src | 1440 | 6.8k | 0.09 | 100 % | 29.0 | 13.4 (oracle 5.0) | 11.8 | 11.3 | 11.3 (oracle 2.9) | 20.4 | 527 | 339 (79) |
+
+All 150 codec runs (every snapshot × 5 settings) decode back to exactly the
+encoded R-struct values.
+
+* **Origin coding** halves the size while most rays are unmerged (5–8 B vs
+  14 B). It is irrelevant after overlap, where 93–99 % of rays are merged.
+* **Merged rays cost ~13 B** at the recommended precision. Offsets (30 bits
+  at 10 bits per axis), ipix (~20) and the direction offset (~14) dominate,
+  and all three are nearly incompressible. Photons cost ~19 bits (total ~8,
+  shape ~11 with the dictionary).
+* **Model staleness:** with ≥ 10⁵ rays the previous-snapshot model costs
+  ≤ 0.1 B more than a model fitted on the snapshot itself (64³ s1000: 9.7
+  vs 9.6 B; s3000: 12.7 vs 12.6 B). For the 1-source run (training snapshot
+  of 3k rays, 720 substeps earlier) it costs 2.6× more, because the shape
+  dictionary and the exponent modes go stale. Production coders should
+  refit every few hundred substeps; refitting is one counting pass.
+* **Speed:** decode 230–310 ns and encode 290–450 ns per ray. The RT costs
+  ~2.0 µs per ray-substep here, so coding every ray every substep would add
+  25–35 %.
 
 ![bytes per ray](figures/raycomp_bytes.png)
 
@@ -251,7 +286,7 @@ RESULTS_TABLE
 Where the time goes (decode, x = 0.54 snapshot of the 64³ run):
 
 * reconstruction (`pix2vec` + shapes + positions): ~100 ns;
-* `vec2pix` for the ipix prediction of origin/sourced rays: ~40 ns;
+* `vec2pix` for the ipix prediction of origin/sourced rays: ~40–50 ns;
 * ~15 rANS symbols + raw bits: ~120–150 ns.
 
 The single most expensive item, `pix2vec`, is shared with R-struct, because
@@ -264,9 +299,11 @@ fields that dominate the coded size (offsets, ipix low bits, direction
 offsets, mantissas) are close to uniform at their stated precision. The
 fields with structure (shape, nu, r, nside, ipix of never-merged rays) are
 already captured by histograms, dictionaries and the exact origin
-predictions. The best a model can do is the out-of-sample cross-entropy of
-§3.2, and the codec is within ~1–2 B of that sum. An NN would add far more
-than the ~100 ns per ray that is the entire decode budget.
+predictions. Merged rays, which dominate after overlap, cost ~100 bits, of
+which ~65 are offsets, ipix low bits and direction offsets that §3.2 shows
+are uniform at their precision. That leaves little for a better model to
+remove, while an NN would add far more than the ~100 ns per ray that is the
+whole decode budget.
 
 ## 6. Lossy precision (step 6)
 
@@ -360,7 +397,12 @@ configuration before adopting them.
 
 ## 7. Bytes per ray, summary
 
-BYTES_SUMMARY
+| format | bytes/ray, before overlap | after overlap | decode | accuracy cost |
+|---|---|---|---|---|
+| original `ray_type` (no links / with links) | 80 / 96 | 80 / 96 | — | — |
+| R-struct, fixed width (§4) | 29 | 31 | ~100 ns (`pix2vec`) | none measurable |
+| rANS, lossless w.r.t. R-struct | 7–12 | 17 | 230–310 ns | none measurable |
+| rANS, 6-bit dithered total + 10-bit offsets | 5–9 | 12.7 | 230–310 ns | none measurable (§6) |
 
 ## 8. Recommendation
 
@@ -386,7 +428,7 @@ BYTES_SUMMARY
    do not depend on the thread count (as in `ray_quant.cpp`).
 3. **Use rANS only where bytes matter more than ~300–400 ns per ray:**
    checkpoints, MPI ray migration, and cold or bulk storage. There it gives
-   another 2.3–3.5× over R-struct (8.7–13 B per ray). Keep never-merged rays
+   another 2.4–5× over R-struct (5–13 B per ray). Keep never-merged rays
    origin-coded, use dictionaries for shapes and nu, and train models on the
    previous snapshot.
 4. **Not worth pursuing:** a neural-network model (no structure left that a

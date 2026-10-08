@@ -99,7 +99,8 @@ def fig_bytes(codec, outdir, plt):
                 ("R-struct (fixed width)", "bytes_structural", "lossless"),
                 ("rANS, float32 total", "bytes_entropy", "lossless"),
                 ("rANS, 10-bit total", "bytes_entropy", "m10"),
-                ("rANS, 6-bit total", "bytes_entropy", "m6")]):
+                ("rANS, 6-bit total", "bytes_entropy", "m6"),
+                ("rANS, 6-bit total + 10-bit offsets", "bytes_entropy", "m6_o10")]):
             pts = sorted([(r["xHII_vol"], r[key]) for r in rs if r["variant"] == var])
             if pts:
                 x, y = zip(*pts)
@@ -119,29 +120,32 @@ def fig_bytes(codec, outdir, plt):
 
 
 def fig_bits_by_group(codec, outdir, plt):
-    # one representative (latest) lossless snapshot per run group
-    reps = {}
-    for r in codec:
-        if r["variant"] != "lossless":
-            continue
-        g = run_group(r)
-        if g not in reps or r["substep"] > reps[g]["substep"] or r["run"] == "snap_ln_long" and reps[g]["run"] != "snap_ln_long":
-            reps[g] = r
-    names = list(next(iter(reps.values()))["bits_by_group"].keys())
-    fig, ax = plt.subplots(figsize=(6.5, 2.6))
+    # representative snapshots at the 6-bit total / 10-bit offset precision
+    pick = [("full64", 1000, "64³ run, mid reionisation"), ("full64", 3000, "64³ run, after overlap"),
+            ("snap_lognormal_16src", 720, "16 sources, x_HII 0.65"), ("snap_ln_long", 1440, "16 sources, after overlap")]
+    reps = []
+    for run, sub, lab in pick:
+        for r in codec:
+            if r["run"] == run and r["substep"] == sub and r["variant"] == "m6_o10":
+                reps.append((lab, r))
+    names = list(reps[0][1]["bits_by_group"].keys())
+    fig, ax = plt.subplots(figsize=(6.5, 2.9))
     y = np.arange(len(reps))
     left = np.zeros(len(reps))
     for k, n in enumerate(names):
-        v = np.array([reps[g]["bits_by_group"][n] for g in reps])
+        v = np.array([r["bits_by_group"][n] for _, r in reps])
         ax.barh(y, v, left=left, color=C[k % 8], height=0.6, edgecolor="#fcfcfb", linewidth=1,
                 hatch=None if k < 8 else "//", label=n)
         left += v
+    for i, (_, r) in enumerate(reps):
+        ax.text(left[i] + 1, i, "%.1f B" % r["bytes_entropy"], va="center", fontsize=7, color=INK2)
     ax.set_yticks(y)
-    ax.set_yticklabels(["%s\n(x_HII=%.2f, %d rays)" % (g, reps[g]["xHII_vol"], reps[g]["nrays"]) for g in reps],
+    ax.set_yticklabels(["%s\n(x_HII=%.2f, %d rays)" % (lab, r["xHII_vol"], r["nrays"]) for lab, r in reps],
                        fontsize=7)
-    ax.set_xlabel("bits per ray (rANS, lossless w.r.t. R-struct)")
-    ax.legend(ncol=6, fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.3))
+    ax.set_xlabel("bits per ray (rANS, 6-bit total, 10-bit offsets)")
+    ax.legend(ncol=6, fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.28))
     ax.grid(axis="y", visible=False)
+    ax.set_xlim(0, left.max() * 1.12)
     fig.tight_layout()
     fig.savefig(Path(outdir) / "raycomp_bits_by_field.png")
     plt.close(fig)

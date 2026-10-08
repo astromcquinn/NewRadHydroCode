@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-08, end of the first working thread.*
+*Last updated: 2026-10-08 (ray compression study thread).*
 
 ## Done (merged into `main`)
 
@@ -48,6 +48,25 @@ overcooling suppression, the rho_source photon consumption, SN heating.
 **Tools:** the comparison tool, quick-look figures
 (`tools/analysis/test_gallery.py` → `docs/figures/tests_*.png`), and the cooling
 figure.
+
+**Ray compression study (ROADMAP §4, Stage B): done** on branch
+`ray-compression`; see `docs/ray_compression.md`.
+
+- Optional ray snapshots (`ray_dump_*`) and a research-only lossy-precision
+  instrument (`ray_quant_*`). Both are off by default, and the C++ stays
+  bit-identical to the Fortran (`ctest -L raycomp`).
+- Never-merged rays are determined by (source, age, nside, ipix) to
+  float32 precision.
+- Ray size:
+  - fixed-width "R-struct": 29–31 B per ray (original 80 B);
+  - rANS prototype (`build/ray_codec`): 5–9 B before overlap and 12.7 B
+    after, with a 6-bit dithered photon total and 10-bit offsets. It costs
+    230–310 ns to decode and 290–450 ns to encode per ray, against ~2 µs of
+    RT per ray-substep.
+- Dithered photon quantisation down to 1–2 mantissa bits meets every
+  accuracy target. Round-to-nearest is biased (≈1 % error at 6 bits).
+- Recommendation: R-struct with dithered photons as the Stage D in-memory
+  format, and rANS for checkpoints and MPI.
 
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
@@ -98,7 +117,9 @@ follow-up PR.
    - Access: Claude Code installed in user space, `claude remote-control`
      inside tmux, batch jobs with restarts.
 5. After the production run, follow `docs/ROADMAP.md`:
-   - ray compression study, which can start now;
+   - ray compression study: done (`docs/ray_compression.md`). Before
+     adopting the format, re-check d4 and `struct_o10` once on the
+     production configuration;
    - framework spike (AMReX vs Parthenon);
    - ray data-structure rewrite;
    - MPI;
