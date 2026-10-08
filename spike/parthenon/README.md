@@ -182,6 +182,11 @@ Results (final code, `PAR_LOOP_LAYOUT=MANUAL1D_LOOP` build):
 | hydro_parthenon | sod, n=32, 10 steps | 1, 2, 4 | 16^3, 8^3 | 1, 2 | **12/12 PASS** |
 | hydro_parthenon | blast, n=64, 20 steps | 1, 2, 4 | 16^3, 8^3 | 1, 2 | **12/12 PASS** |
 | hydro_parthenon | blast, n=32, one 32^3 block | 1 | 32^3 | 1, 2 | **2/2 PASS** |
+| rt_parthenon_aos | uniform_8src and lognormal_16src_smallbuf, `legacy_rt=0` | 1, 4, 8 | 16^3, 8^3 | 1, 2 | **24/24 PASS** |
+
+The same matrix also passed (46/46 RT, 38/38 hydro) with Parthenon's default
+`SIMDFOR_LOOP` build before the loop-layout switch, so the results do not
+depend on the loop pattern either.
 
 "PASS" for RT is `compare.py ... --rtol 0 --atol-frac 0` reporting
 `RESULT: PASS` over all 10 steps (14 fields and all integer/real stats per
