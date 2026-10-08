@@ -48,6 +48,12 @@ python3 tools/compare/compare.py runs/fortran/uniform_1src runs/cpp/uniform_1src
   (Nfreq,N^3), `gamma lambda dx` (3,N^3), `u_gas` (5,N^3) and `w_gas` (4,N^3).
   A file may be called `<name>` or `<name>.{bin,dat,raw,f32}`. Any other file
   whose size is a multiple of 4N^3 bytes is also compared, as an extra field.
+* PM outputs (`apps/pm_driver`, `reference/harness_pm`) are also understood:
+  `v_gas` (3,N^3) and `phi` (N^3) are known fields, N is inferred from
+  `u_gas` when there is no scalar RT field, and `xv_dm` is read as a
+  particle array `(6,Npart)` (component fastest, Npart from the file size).
+  The worst particle value is reported as `(c=..,ip=..)` (1-based). For the
+  bit-for-bit check use `--rtol 0 --atol-frac 0`.
 * `stats.txt` holds `key = value` lines. Fortran `D` exponents are accepted.
   The integer keys `istep nstep_rt nray_active ncst1 nmrg1 nspl1 ndel1` are
   compared exactly by default. `redshift scalefactor ngam_rays_total` and any
