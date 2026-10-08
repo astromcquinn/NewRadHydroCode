@@ -70,13 +70,14 @@ for `calc_power_spectrum`.
 
 It mirrors `radhydro.f90`:
 
-1. `init_variables` (copied; it starts at `z_init`), `init_domain_gas`, the
-   `init_hydro` allocations, then the **original** `init_pm`, `init_fft`,
-   `calc_sim_var` and `read_init_conditions`, then `calc_sim_var`,
-   `summarize_dm` and the time-step part of `summarize_gas`.
+1. `init_variables` (shared copy, `harness_common/harness_timestep.f90`; it
+   starts at `z_init`), then the **original** `init_domain_gas`,
+   `init_hydro`, `init_pm`, `init_fft`, `calc_sim_var` and
+   `read_init_conditions`, then `calc_sim_var`, `summarize_dm` and
+   `summarize_gas` (original).
 2. For each step:
    * `calc_sim_var`;
-   * `calc_timestep`, copied verbatim: on the first step the expansion step
+   * `calc_timestep` (shared verbatim copy `calc_timestep_mode`): on the first step the expansion step
      is limited by `ra_max` (da = a/9); after that it is
      `dt = min(1/cmax_gas, 0.5/sqrt(amax_dm))`, limited by `ra_max`. This
      step also computes the RT substep count, and converts the
@@ -85,18 +86,15 @@ It mirrors `radhydro.f90`:
    * half clock step + `calc_sim_var`;
    * **`particle_mesh`** (original);
    * half clock step + `calc_sim_var`;
-   * `summarize_dm` (original) and `summarize_gas_speeds`;
+   * `summarize_dm` and `summarize_gas` (both original);
    * optionally `calc_power_spectrum` (original).
 
    The hydro sweeps and the transposes are skipped, so the gas stays in x,y,z
    order, as the PM step expects. RT is skipped.
 
-`summarize_gas_speeds` is a verbatim copy of the part of
-`hydro_tools.f90:summarize_gas` that computes `cmax_gas`, `vmax_gas` and
-`vrms_gas`. It keeps that routine's side effects: `u_gas(1) >= Dgas_min` and
-`w_gas >= 0`. The printed diagnostics (temperatures, fractions, clumping
-factors) are left out. When the hydro port lands, the full `summarize_gas`
-replaces it.
+`summarize_gas` keeps its side effects on the state: `u_gas(1) >= Dgas_min`
+and `w_gas >= 0`. (Until Phase 1c the driver had a copy of its time-step
+part, `summarize_gas_speeds`; the results are identical.)
 
 ## Validation status
 

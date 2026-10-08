@@ -11,7 +11,9 @@ thread. Its outputs are the reference for the C++ port (`src/hydro.cpp`,
 reference/harness_hydro/
   src/hydro_harness.f90    the driver (replaces radhydro.f90)
   src/hydro_tools.f90      copy of ../Radhydro/hydro_tools.f90, one format fix
-  src/mkl_dfti_shim.f90    module MKL_DFTI on FFTW3 (single precision)
+  ../harness_common/       module MKL_DFTI on FFTW3 (mkl_dfti_shim.f90) and
+                           init_variables/calc_timestep (harness_timestep.f90),
+                           shared with the PM and full harnesses
   Makefile                 also compiles ../Radhydro/{physical_constants,
                            cosmo_parameters,general_tools,cosmo_tools,
                            domain_tools}.f90 unmodified and reuses
@@ -43,7 +45,7 @@ it was built with `NCPU /= 1`.
 
 ## What the driver does (vs. `radhydro.f90`)
 
-1. **Initialise:** `init_variables` (copied; the clock starts at `z_init`
+1. **Initialise:** `init_variables` (shared copy; the clock starts at `z_init`
    from `params.txt` instead of `zinit = 300`), then the original
    `init_domain_gas` and `init_hydro`, then `calc_sim_var`. PM, RT, halo,
    data, IO and FFT initialisation are not called.
@@ -55,7 +57,8 @@ it was built with `NCPU /= 1`.
    and `summarize_gas` (written to `step_0000/`).
 3. **Each step:**
    * `calc_sim_var`;
-   * `calc_timestep`, hydro part, verbatim except for the step size choice:
+   * `calc_timestep` (shared copy `calc_timestep_mode`), verbatim except for
+     the step size choice:
      * `timestep = fixed`: `da_sim` from `params.txt`, `dt_sim` and `dt_yr`
        from `calc_dt_from_da` (the form of the `istep == 0` branch);
      * `timestep = courant`: the code's own step, the `istep > 0` branch,

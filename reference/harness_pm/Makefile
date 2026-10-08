@@ -14,10 +14,12 @@
 #   MF   -> -DMF     moving-frame branch, as the original Makefile (default 1)
 #   Ncpu is fixed to 1 (-DNCPU=1).
 #
-# Sources: unchanged modules come from reference/Radhydro (pm_tools.f90) and
-# from reference/harness/src (the RT harness copies, whose patches are listed
-# in reference/harness/PATCHES.md); fft_tools.f90 and io_tools.f90 are patched
-# copies in src/ (PATCHES.md here).
+# Sources: unchanged modules come from reference/Radhydro (pm_tools.f90,
+# fft_tools.f90) and from reference/harness/src (the RT harness copies, whose
+# patches are listed in reference/harness/PATCHES.md); hydro_tools.f90 (for
+# init_hydro and summarize_gas) from reference/harness_hydro/src; the MKL_DFTI
+# shim and calc_timestep from reference/harness_common; io_tools.f90 is a
+# patched copy in src/ (PATCHES.md here).
 
 ifeq ($(origin FC),default)
   FC = gfortran
@@ -35,7 +37,7 @@ ifeq ($(MF),1)
   DEFS += -DMF
 endif
 
-COMMON  = -cpp -fopenmp -ffree-line-length-none -mcmodel=medium -I$(FFTW_INC)
+COMMON  = -cpp -fopenmp -ffree-line-length-none -mcmodel=medium -I$(FFTW_INC) -I$(COM)/include
 OPT     = -O2 -g
 DBG     = -O0 -g -fcheck=all -fbacktrace -Wall -Wno-conversion -Wno-unused-variable \
           -Wno-unused-dummy-argument -Wno-unused-function -Wno-maybe-uninitialized
@@ -50,6 +52,7 @@ endif
 
 RTH  = ../harness/src
 ORIG = ../Radhydro
+COM  = ../harness_common
 
 # module dependency order; directory of each source
 SRC_ifport_shim       = $(RTH)/ifport_shim.f90
@@ -59,13 +62,17 @@ SRC_radhydro_global   = $(RTH)/radhydro_global.f90
 SRC_general_tools     = $(RTH)/general_tools.f90
 SRC_cosmo_tools       = $(RTH)/cosmo_tools.f90
 SRC_domain_tools      = $(RTH)/domain_tools.f90
-SRC_fft_tools         = src/fft_tools.f90
+SRC_mkl_dfti_shim     = $(COM)/mkl_dfti_shim.f90
+SRC_harness_timestep  = $(COM)/harness_timestep.f90
+SRC_fft_tools         = $(COM)/fft_tools.f90
+SRC_hydro_tools       = ../harness_hydro/src/hydro_tools.f90
 SRC_io_tools          = src/io_tools.f90
 SRC_pm_tools          = $(ORIG)/pm_tools.f90
 SRC_pm_harness        = src/pm_harness.f90
 
-MODS = ifport_shim physical_constants cosmo_parameters radhydro_global \
-       general_tools cosmo_tools domain_tools fft_tools io_tools pm_tools pm_harness
+MODS = ifport_shim mkl_dfti_shim physical_constants cosmo_parameters radhydro_global \
+       general_tools cosmo_tools harness_timestep domain_tools fft_tools io_tools \
+       hydro_tools pm_tools pm_harness
 OBJ  = $(addprefix $(BUILD)/,$(addsuffix .o,$(MODS)))
 
 EXE = $(BUILD)/pm_harness.x

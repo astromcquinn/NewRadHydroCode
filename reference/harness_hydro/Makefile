@@ -9,8 +9,10 @@
 # general_tools.f90, physical_constants.f90 and cosmo_parameters.f90 are
 # compiled UNMODIFIED straight from ../Radhydro.  radhydro_global.f90 (sizes
 # settable by -DNGRID/-DNCPU) and ifport_shim.f90 are reused from the RT
-# harness (../harness/src).  src/mkl_dfti_shim.f90 replaces Intel MKL DFTI by
-# FFTW3 (single precision).  src/hydro_harness.f90 is the driver.
+# harness (../harness/src).  ../harness_common/mkl_dfti_shim.f90 replaces Intel
+# MKL DFTI by FFTW3 (single precision) and ../harness_common/harness_timestep.f90
+# holds calc_timestep (both shared with the PM harness).  src/hydro_harness.f90
+# is the driver.
 #
 # -DMF as in the original Makefile (RADHY = -DMF): moving-frame code paths.
 
@@ -23,6 +25,7 @@ MODE    ?= opt
 
 ORIG    = ../Radhydro
 RTH     = ../harness/src
+COM     = ../harness_common
 
 DEFS    = -DMF -DNGRID=$(N) -DNCPU=$(NCPU)
 COMMON  = -cpp -fopenmp -ffree-line-length-none -mcmodel=medium
@@ -46,10 +49,11 @@ FFTW_INC ?= /usr/include
 FFTW_LIB ?= -lfftw3f
 
 # module dependency order: source path of each object
-SRCS = $(RTH)/ifport_shim.f90 src/mkl_dfti_shim.f90 \
+SRCS = $(RTH)/ifport_shim.f90 $(COM)/mkl_dfti_shim.f90 \
        $(ORIG)/physical_constants.f90 $(ORIG)/cosmo_parameters.f90 \
        $(RTH)/radhydro_global.f90 $(ORIG)/general_tools.f90 \
-       $(ORIG)/cosmo_tools.f90 $(ORIG)/domain_tools.f90 src/hydro_tools.f90 \
+       $(ORIG)/cosmo_tools.f90 $(COM)/harness_timestep.f90 \
+       $(ORIG)/domain_tools.f90 src/hydro_tools.f90 \
        src/hydro_harness.f90
 OBJS = $(addprefix $(BUILD)/,$(notdir $(SRCS:.f90=.o)))
 
