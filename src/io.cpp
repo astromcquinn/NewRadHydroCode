@@ -44,6 +44,10 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.legacy_rt = std::stoi(val);
     if (p.legacy_rt != 0 && p.legacy_rt != 1)
       throw std::runtime_error("legacy_rt must be 0 or 1");
+  } else if (key == "legacy_physics") {
+    p.legacy_physics = std::stoi(val);
+    if (p.legacy_physics != 0 && p.legacy_physics != 1)
+      throw std::runtime_error("legacy_physics must be 0 or 1");
   }
 }
 

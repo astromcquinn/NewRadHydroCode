@@ -37,6 +37,11 @@ endif()
 add_test(NAME halo_catalog
          COMMAND test_halo_catalog "${HALO_REF}" ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_run)
 
+# legacy_physics = 0 rates vs independent evaluations of the published fits
+add_executable(test_rates test_rates.cpp)
+target_link_libraries(test_rates PRIVATE radray)
+add_test(NAME rates COMMAND test_rates)
+
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(NAME healpix_vs_healpy
@@ -55,6 +60,13 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems
                    ${CMAKE_CURRENT_BINARY_DIR}/e2e_runs_legacy0 --set legacy_rt=0)
   set_tests_properties(end_to_end_legacy0 PROPERTIES TIMEOUT 3600 LABELS e2e)
+  # Recommended configuration: RT bookkeeping and atomic-physics fixes on
+  add_test(NAME end_to_end_fixed
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems
+                   ${CMAKE_CURRENT_BINARY_DIR}/e2e_runs_fixed
+                   --set legacy_rt=0 --set legacy_physics=0)
+  set_tests_properties(end_to_end_fixed PROPERTIES TIMEOUT 3600 LABELS e2e)
 
   # Strict comparison with the stored Fortran harness outputs
   # (reference/harness/outputs: stats for all steps, fields for step 10).
@@ -88,6 +100,22 @@ if(Python3_Interpreter_FOUND)
                  -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
       set_tests_properties(ref_legacy0_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
+    endif()
+    # Recommended configuration, legacy_rt = 0 + legacy_physics = 0 (atomic
+    # physics fixes P1-P6), against reference/harness/outputs_legacy_rt0_phys0.
+    set(refdir00 ${PROJECT_SOURCE_DIR}/reference/harness/outputs_legacy_rt0_phys0/${p})
+    if(EXISTS ${refdir00})
+      add_test(NAME ref_fixed_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ref_runs_fixed/${p}
+                 -DREF=${refdir00}
+                 -DSET=legacy_rt=0,legacy_physics=0
+                 -DPYTHON=${Python3_EXECUTABLE}
+                 -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
+      set_tests_properties(ref_fixed_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
 endif()
