@@ -25,6 +25,10 @@ set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(PARTHENON_ENABLE_PYTHON_MODULE_CHECK OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(PARTHENON_SINGLE_PRECISION OFF CACHE BOOL "" FORCE)  # Real = double
+# Parthenon's host default for par_for is SIMDFOR_LOOP: plain C loops with an
+# `omp simd` inner loop, i.e. NOT threaded (Parthenon expects one MPI rank
+# per core on CPUs). MANUAL1D_LOOP flattens to a threaded Kokkos::RangePolicy.
+set(PAR_LOOP_LAYOUT "MANUAL1D_LOOP" CACHE STRING "Default loop layout for parallel_for wrapper")
 
 set(PARTHENON_SOURCE_DIR "" CACHE PATH "Local Parthenon checkout (else FetchContent)")
 set(PARTHENON_TAG "v25.12" CACHE STRING "Parthenon tag for FetchContent")
