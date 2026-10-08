@@ -737,9 +737,13 @@ void radiative_physics(Simulation& s, int krt) {
 
         // Temperature index for RT rates
         int iT = 1 + f::nint((std::log10(tmp) - lgT_min) / lgT_del);
-        if (iT < 1 || iT > Ntemp)
+        if (s.cfg.legacy_physics && (iT < 1 || iT > Ntemp))
           throw std::runtime_error("radiative_physics: temperature index out of table, iT=" +
                                    std::to_string(iT));
+        // P9 (legacy_physics = 0; harness PATCHES.md 10): rates interpolated
+        // in log T (rates_interp). With legacy_physics they are the table
+        // values at the nearest node iT, as in the original.
+        const RateSet rs = s.cfg.legacy_physics ? rates_node(AR, iT) : rates_interp(AR, tmp);
 
         double ngam[kNfreq];
         for (int n = 0; n < kNfreq; ++n) ngam[n] = static_cast<double>(gng[n]) * u.nH_avg;
@@ -771,12 +775,12 @@ void radiative_physics(Simulation& s, int krt) {
         while (std::fabs(ne / ne_prev - 1) > static_cast<double>(1e-3f) && n < 5) {
           n = n + 1;
           ne_prev = ne;
-          const double AH2 = AR.alpha_rec(4, iT) * ne * dtsec_rt;
-          const double AHe2 = AR.alpha_rec(5, iT) * ne * dtsec_rt;
-          const double AHe3 = AR.alpha_rec(6, iT) * ne * dtsec_rt;
-          const double BH1 = (gam_pht[0] + AR.gamma_col(1, iT) * ne) * dtsec_rt;
-          const double BHe1 = (gam_pht[1] + AR.gamma_col(2, iT) * ne) * dtsec_rt;
-          const double BHe2 = (gam_pht[2] + AR.gamma_col(3, iT) * ne) * dtsec_rt;
+          const double AH2 = rs.alpha[3] * ne * dtsec_rt;
+          const double AHe2 = rs.alpha[4] * ne * dtsec_rt;
+          const double AHe3 = rs.alpha[5] * ne * dtsec_rt;
+          const double BH1 = (gam_pht[0] + rs.gcol[0] * ne) * dtsec_rt;
+          const double BHe1 = (gam_pht[1] + rs.gcol[1] * ne) * dtsec_rt;
+          const double BHe2 = (gam_pht[2] + rs.gcol[2] * ne) * dtsec_rt;
           const double sub1 = 1 + AHe3 + AHe2 + BHe2;
           const double sub2 = AHe2;
           const double sub3 = BHe1 - AHe3;
@@ -831,8 +835,8 @@ void radiative_physics(Simulation& s, int krt) {
         const double nsp_rec[3] = {nHII, nHeII, nHeIII};
         double ncol[3], nrec[3];
         for (int sp = 0; sp < 3; ++sp) {
-          ncol[sp] = AR.gamma_col(sp + 1, iT) * nsp[sp] * ne * dtsec_rt;
-          nrec[sp] = AR.alpha_rec(sp + 4, iT) * nsp_rec[sp] * ne * dtsec_rt;
+          ncol[sp] = rs.gcol[sp] * nsp[sp] * ne * dtsec_rt;
+          nrec[sp] = rs.alpha[sp + 3] * nsp_rec[sp] * ne * dtsec_rt;
         }
 
         // Photoheating
@@ -861,24 +865,24 @@ void radiative_physics(Simulation& s, int krt) {
         const double Tcmb = u.Tcmb;
         double cool_rate;
         if (s.cfg.legacy_physics) {
-          cool_rate = AR.coef_cool(4, iT) * ne * nHII + AR.coef_cool(5, iT) * ne * nHeII +
-                      AR.coef_cool(6, iT) * ne * nHeIII + AR.coef_cool(7, iT) * ne * nHI +
-                      AR.coef_cool(8, iT) * ne * nHeI + AR.coef_cool(9, iT) * ne * nHeII +
-                      AR.coef_cool(10, iT) * ne * nHI + AR.coef_cool(11, iT) * ne * nHeI +
-                      AR.coef_cool(12, iT) * ne * nHeII + AR.coef_cool(13, iT) * ne * nff +
-                      AR.coef_cool(14, iT) * ne * (tmp - Tcmb) * f::pow4(Tcmb);
+          cool_rate = rs.cool[3] * ne * nHII + rs.cool[4] * ne * nHeII +
+                      rs.cool[5] * ne * nHeIII + rs.cool[6] * ne * nHI +
+                      rs.cool[7] * ne * nHeI + rs.cool[8] * ne * nHeII +
+                      rs.cool[9] * ne * nHI + rs.cool[10] * ne * nHeI +
+                      rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +
+                      rs.cool[13] * ne * (tmp - Tcmb) * f::pow4(Tcmb);
         } else {
           // P2/P3 (legacy_physics = 0): HeI collisional excitation (Cen 1992)
           // scales as ne^2*nHeII; slot 15 is HeII dielectronic recombination
           // cooling (Hui & Gnedin 1997), times ne*nHeII. Same term order as
           // the Fortran, left to right.
-          cool_rate = AR.coef_cool(4, iT) * ne * nHII + AR.coef_cool(5, iT) * ne * nHeII +
-                      AR.coef_cool(6, iT) * ne * nHeIII + AR.coef_cool(7, iT) * ne * nHI +
-                      AR.coef_cool(8, iT) * ne * nHeI + AR.coef_cool(9, iT) * ne * nHeII +
-                      AR.coef_cool(10, iT) * ne * nHI + AR.coef_cool(11, iT) * ne * ne * nHeII +
-                      AR.coef_cool(12, iT) * ne * nHeII + AR.coef_cool(13, iT) * ne * nff +
-                      AR.coef_cool(14, iT) * ne * (tmp - Tcmb) * f::pow4(Tcmb) +
-                      AR.coef_cool(15, iT) * ne * nHeII;
+          cool_rate = rs.cool[3] * ne * nHII + rs.cool[4] * ne * nHeII +
+                      rs.cool[5] * ne * nHeIII + rs.cool[6] * ne * nHI +
+                      rs.cool[7] * ne * nHeI + rs.cool[8] * ne * nHeII +
+                      rs.cool[9] * ne * nHI + rs.cool[10] * ne * ne * nHeII +
+                      rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +
+                      rs.cool[13] * ne * (tmp - Tcmb) * f::pow4(Tcmb) +
+                      rs.cool[14] * ne * nHeII;
         }
 
         // Prevent overcooling/overheating

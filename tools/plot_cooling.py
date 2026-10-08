@@ -16,7 +16,12 @@ own rate tables, both modes). The figure has two panels:
      against collisional ionisation (gamma_col), no radiation. The HeI
      (2^3S) excitation term (slot 11) scales as ne^2 nHeII, so it depends on
      density: it is evaluated at --nH (default 1 cm^-3).
- (b) the ratio new/legacy of each coefficient changed by P1, P4, P5, P6.
+ (b) the ratio new/legacy of each coefficient changed by P1, P4-P8.
+ (c) the table-lookup error (P9) for a few steep rates: the worst case of
+     the legacy nearest-node lookup (half an interval off, |ln(R_i+1/R_i)|/2)
+     and of the log-log interpolation at mid-interval (|second difference
+     of ln R|/8), both from the tables themselves; test_rates checks the
+     latter against direct formula evaluation.
 
 It also prints the components at a few temperatures.
 """
@@ -87,7 +92,7 @@ def main():
 
     plt.rcParams.update({"font.size": 9, "axes.edgecolor": INK2, "axes.labelcolor": INK,
                          "xtick.color": INK2, "ytick.color": INK2, "axes.linewidth": 0.8})
-    fig, (ax, bx) = plt.subplots(1, 2, figsize=(11, 4.4), constrained_layout=True)
+    fig, (ax, bx, cx) = plt.subplots(1, 3, figsize=(16, 4.6), constrained_layout=True)
 
     names = ["recombination", "collisional ionisation", "collisional excitation",
              "dielectronic (HeII)", "bremsstrahlung"]
@@ -119,9 +124,12 @@ def main():
     ]
     with np.errstate(divide="ignore", invalid="ignore"):
         ratios.append(("HeII rec. rate B, +dielectronic (P6)", a["N_alpha5"] / a["L_alpha5"]))
-    cols = C + [INK2]
-    for (lab, r), col in zip(ratios, cols):
-        bx.plot(T[sel], r[sel], color=col, lw=2, label=lab)
+    ratios.append(("HeII rec. cooling A (P7)", a["N_cool2"] / a["L_cool2"]))
+    ratios.append(("bremsstrahlung, g_ff(T) (P8)", a["N_cool13"] / a["L_cool13"]))
+    cols = C + [INK2, C[0], C[1]]
+    styles = ["-"] * 6 + [(0, (1, 1.5)), (0, (1, 1.5))]
+    for (lab, r), col, ls in zip(ratios, cols, styles):
+        bx.plot(T[sel], r[sel], color=col, lw=2, ls=ls, label=lab)
     bx.axhline(1, color=INK2, lw=0.8)
     bx.set_xscale("log")
     bx.set_yscale("log")
@@ -131,7 +139,34 @@ def main():
     bx.set_title("(b) coefficients changed by legacy_physics = 0", loc="left", color=INK,
                  fontsize=9.5)
     bx.grid(True, which="major", color=GRID, lw=0.6)
-    bx.legend(frameon=False, fontsize=8, loc="lower left")
+    bx.legend(frameon=False, fontsize=7.5, loc="lower left")
+
+    # (c) lookup error, from the legacy_physics = 0 tables
+    lk = [("HI coll. excitation (10)", "N_cool10"), ("HeII coll. ionisation (9)", "N_cool9"),
+          ("HII rec. rate B (alpha 4)", "N_alpha4")]
+    Tm = 10 ** (0.5 * (lgT[1:] + lgT[:-1]))
+    selm = (Tm >= 1e4) & (Tm <= 1e8)
+    for (lab, key), col in zip(lk, C):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            lr = np.log(a[key])  # -inf below the code's cut-offs
+            near = np.abs(np.diff(lr)) / 2
+            d2 = np.full(lr.size, np.nan)
+            d2[1:-1] = lr[:-2] - 2 * lr[1:-1] + lr[2:]
+            interp = np.abs(0.5 * (d2[:-1] + d2[1:])) / 8
+        cx.plot(Tm[selm], near[selm], color=col, lw=1.2, ls=(0, (4, 3)))
+        cx.plot(Tm[selm], interp[selm], color=col, lw=2, label=lab)
+    cx.plot([], [], color=INK2, lw=2, label="log-log interpolation (solid)")
+    cx.plot([], [], color=INK2, lw=1.2, ls=(0, (4, 3)), label="nearest node, legacy (dashed)")
+    cx.set_xscale("log")
+    cx.set_yscale("log")
+    cx.set_xlim(1e4, 1e8)
+    cx.set_ylim(1e-8, 1)
+    cx.set_xlabel("T [K]")
+    cx.set_ylabel("max relative error of the rate lookup")
+    cx.set_title("(c) table lookup (P9), $\\Delta\\log T$ = 0.01", loc="left", color=INK,
+                 fontsize=9.5)
+    cx.grid(True, which="major", color=GRID, lw=0.6)
+    cx.legend(frameon=False, fontsize=7.5, loc="lower left")
     fig.savefig(args.out, dpi=150)
 
     print(f"CIE cooling components, Lambda/nH^2 [erg cm^3/s], nH = {args.nH:g}")

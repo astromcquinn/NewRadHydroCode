@@ -79,7 +79,7 @@ These follow the spec. The files in `tests/problems/<name>/` are:
     (PATCHES.md 8, `docs/port_notes.md` §5a).
   * `legacy_physics` (default 1, the original physics) is independent of
     `legacy_rt`. `legacy_physics = 0` turns on the atomic-physics fixes
-    P1–P6 (PATCHES.md 9, `docs/port_notes.md` §5b): case B recombination
+    P1–P9 (PATCHES.md 9–10, `docs/port_notes.md` §5b): case B recombination
     cooling, HeI collisional excitation, HeII dielectronic recombination,
     the HeIII case B rate and collisional-ionisation cooling.
 * `gas.bin`: float32 `(9,N,N,N)` holding `u_gas(1:5)` and `w_gas(1:4)`.

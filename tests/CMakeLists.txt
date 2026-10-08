@@ -102,7 +102,7 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_legacy0_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
     # Recommended configuration, legacy_rt = 0 + legacy_physics = 0 (atomic
-    # physics fixes P1-P6), against reference/harness/outputs_legacy_rt0_phys0.
+    # physics fixes P1-P9), against reference/harness/outputs_legacy_rt0_phys0.
     set(refdir00 ${PROJECT_SOURCE_DIR}/reference/harness/outputs_legacy_rt0_phys0/${p})
     if(EXISTS ${refdir00})
       add_test(NAME ref_fixed_${p}
