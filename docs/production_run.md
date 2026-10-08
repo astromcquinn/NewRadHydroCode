@@ -164,15 +164,22 @@ The ray pool could overflow (F3): merging is triggered by thresholds on the
 photon content, not by the pool size. With `legacy_rt = 0` there is now a
 guard (C++ and both Fortran harnesses, RT harness PATCHES.md 13): from the
 live count, the number of source cells and a histogram of the rays that may
-split this substep, the split threshold is raised so that at most
-3/4·Nray_max rays can be live after the substep, and if even the sources
-do not fit, splitting stops and all but fresh source rays merge. It is an
-integer computation on the histogram, deterministic, and inactive in every
-stored reference. The full harness's legacy problem with
+split this substep, the split threshold is raised (only) if the worst case
+— every candidate splits into 4 and every source cell emits 192 rays —
+could take the live count above 0.9·Nray_max (the remaining tenth covers
+the Fortran-style free buffer, ≤ Nray_max/16); the candidates that may
+still split then fit in a third of the remaining budget. If even the
+sources do not fit, splitting stops and all but fresh source rays merge.
+It is an integer computation on the histogram, deterministic, and inactive
+in every stored reference (all `legacy_rt = 0` references, including the
+nightly N = 32 ones, are unchanged). The full harness's legacy problem with
 nray_max_factor = 1 (which overflowed before) now runs, with the guard
-active in 1011 of 1669 substeps, and Fortran and C++ agree bit for bit
+active in 508 of 1669 substeps, and Fortran and C++ agree bit for bit
 (nightly CTest `full_vs_fortran_live_legacy_poolguard`). With
 `legacy_rt = 1` the original behaviour (error on overflow) is kept.
+(A first version capped at 3/4·Nray_max with a quarter of the budget; it
+acted in the N = 32, factor-4 nightly references during split bursts that
+did not threaten the pool, so it was relaxed to the worst case above.)
 
 `Ray` is now 88 B (int32 links), see `docs/parallel.md` §4.
 
@@ -215,10 +222,150 @@ at the end of the hydro step). Disk: 2·4N³ B per frame: 0.4 GB (N = 64),
 3.2 GB (N = 128), 10.8 GB (N = 192) for 190 frames; use
 `movie_fields = fHI` or a larger `movie_dz` at N = 192.
 
-## 5. Measured cost and timing table
+## 5. Measured runs, cost and timing table
 
-(see the measurements below)
+### Production-configuration runs
+
+Both runs: `tools/production/make_production.py` (box 10 Mpc/h, Ngas = Ndm
+= N, Zel'dovich ICs at z = 100, seed 7, FoF ≥ 20 particles, global SFR
+model, c_reduced = 0.01, nray_max_factor = 16, legacy_rt = legacy_physics
+= 0, deterministic_parallel, rt_substep_carry), `OMP_NUM_THREADS=4`.
+**The machine was shared** with another job during all measurements
+(load average 3–14; a calibration loop with no memory traffic got only
+1.9–2.6× on 4 threads), so the 4-thread wall times below are upper bounds.
+
+* **N = 64**, z = 100 → 4.87, 27 hydro steps, 256 s in total: hydro 27.7 s,
+  PM 5.6 s, FoF 2.2 s, summaries 1.9 s, IO 18 s, **RT 183 s** (82
+  substeps). The first FoF source forms at z = 8.9 (RT runs from the start
+  of that step, z = 10.05). x_HII,V = 0.02, 0.61, 0.99994 at z = 8.9, 7.1,
+  5.5. Rays: 2.73M at the end (0.65 Nray_max), pool guard active in 7
+  substeps. Peak RSS 400 MB.
+* **N = 128**, z = 100 → 5.27, 29 hydro steps, **69 min in total** on
+  the shared machine (≈ 2 cores effectively): RT 62 min (190 substeps
+  from z = 12.6, 177 of them to z = 5.56; the first FoF source forms at
+  z = 11.3), hydro + PM + FoF
+  + summaries ≈ 12 s per step, IO 1–2 min. The run stopped once at a full
+  disk while writing a checkpoint (section 7) and was restarted from the
+  step-23 checkpoint (`--restart`). RT steps 20–29: 29, 68, 323, 447, 455
+  (before the restart), 551, 468, 488, 368, 405 s; rays at their ends
+  0.26M, 2.1M, 11.1M, 14.5M, 17.1M, 19.2M, 20.7M, 21.3M, 21.8M, 22.0M
+  (0.66 Nray_max), x_HII,V = 0.04, 0.21, 0.42, 0.63, 0.83, …, 0.9915 at
+  z = 6.2, 0.99993 at z = 5.3. Pool guard active in 12 substeps. RSS 557 MB
+  before the rays, **2.76 GB peak**.
+* The Courant/PM limit binds at N = 128 below z ≈ 9 (da/a = 0.10, then
+  0.06–0.07 near z = 6); at N = 64 every step is the ra_max step.
+
+### Cost per component, one thread
+
+| N (= Ndm) | hydro / step | PM / step | summaries / step | FoF / call | RT per ray per substep | RT per cell per substep | memory without rays |
+|---|---|---|---|---|---|---|---|
+| 64 | 1.24 s | 0.18 s | 0.06 s | 0.18 s | 1.96 µs (2.8M rays) | 1.7 µs | 0.30 GB |
+| 128 | 9.5 s | 1.75 s | 0.49 s | 1.6 s | 1.8–2.2 µs (11–17M rays) | ≈ 1.7 µs | 0.56 GB |
+| 192 | 33.1 s | 5.0 s | 1.6 s | — | (same per ray) | (same per cell) | 1.89 GB |
+
+(Memory ≈ 265 B per cell with Ndm = N, plus 88 B per ray slot touched.)
+The RT per ray covers `ray_tracing_1`/`3`, `calc_ray_1` and the
+redshifting; per cell it is `radiative_physics` (fully ionised gas) and
+`calc_rt_1`.
+
+### Timing table (box 10 Mpc/h, Ngas = Ndm = N, nray_max_factor 16, 4 threads)
+
+From `tools/production/timing_table.py`: hydro steps from z = 100 to 5.5
+(ra_max steps), RT substeps = light travel at ĉ from the start of the step
+in which the first source forms (z = 10.05, 12.64 and ≈ 14.2 for N = 64,
+128, 192) to z = 5.5, and per substep (1.7 µs × N³ + 2.0 µs × ⟨N_ray⟩)
+with ⟨N_ray⟩ = 0.4 Nray_max (the substep-weighted mean seen in the runs;
+the population grows from 0 to 0.5–0.65 Nray_max by z = 5.5). The 4-thread
+column assumes the parallel efficiency measured when two cores were free
+(section 6): ×3.5 for the RT, ×3 for hydro/PM. Memory: grids + 88 B ×
+0.75 Nray_max (the runs peaked at 0.5–0.65; the pool guard caps the
+worst case at 0.9: then N = 128 needs 3.2 GB and N = 192 10.8 GB).
+
+| N | c_reduced | RT substeps | t (4 threads) | t (1 thread) | peak memory |
+|---|---|---|---|---|---|
+| **64** | **0.01** | 68 | **1 min** | 5 min | 0.3 GB |
+| 64 | 0.03 | 203 | 4 min | 14 min | 0.3 GB |
+| 64 | 0.1 | 675 | 12 min | 43 min | 0.3 GB |
+| **128** | **0.01** | 179 | **28 min** | 1.6 h | 2.8 GB |
+| 128 | 0.03 | 538 | 1.3 h | 4.6 h | 2.8 GB |
+| 128 | 0.1 | 1794 | 4.4 h | 15 h | 2.8 GB |
+| **192** | **0.01** | 301 | **2.6 h** | 8.9 h | 9.3 GB |
+| 192 | 0.03 | 902 | 7.4 h | 26 h | 9.3 GB |
+| 192 | 0.1 | 3007 | 25 h | 86 h | 9.3 GB |
+
+The hydro part (27–30 steps) is 2 min (N = 128) to 7 min (N = 192) of
+these. Checks against the runs: N = 64 predicts 68 substeps to z = 5.5
+(the run did 67) and 4 min of RT on one thread; N = 128 predicts 179
+substeps to z = 5.5 (the run did 177 to z = 5.56) and 1.6 h on one
+thread; the complete N = 128 run took 69 min on about two free cores,
+consistent with the 28-min projection for four. The uncertainty is mostly
+the ray population (±30%) and the source model: with the global SFR
+model the box is ionised by z ≈ 6.5 (N = 64) and the ray count saturates;
+an abundance-matched model with fainter, more numerous sources will change
+⟨N_ray⟩.
+
+Not included: checkpoints (`restart_every = 1`: N = 128 ≈ 2 GB per write,
+N = 192 ≈ 6–9 GB, 10–60 s each on this disk) and movie frames (section 4).
 
 ## 6. Speedups
 
-(see below)
+Measured by restarting the same checkpoint for one hydro step with 1, 2 and
+4 threads (`tools/production/speedup.sh`) and from the first steps of the
+runs (`speedup_hydro.sh`). The outputs of the 1-, 2- and 4-thread runs are
+**byte-identical** (N = 64 step 28 and N = 128 step 23, all files). The
+machine was shared: when the 2-thread runs were made about two cores were
+free (calibration loop 1.9–2.3× on 2 threads), and during the 4-thread runs
+fewer than that (load average up to 14).
+
+| component | N = 64, 2 threads | N = 128, 2 threads | N = 64, 4 threads (shared) | N = 128, 4 threads (shared) |
+|---|---|---|---|---|
+| ray_tracing_1 | 1.88 | (RT phases not timed separately) | 1.86 | |
+| ray_tracing_3 | 2.00 | | 1.94 | |
+| radiative_physics | 1.65 | | 1.59 | |
+| calc_ray_1 (histogram) | 1.63 | | 1.53 | |
+| post_rt (redshifting, PDFs) | 1.85 | | 1.90 | |
+| hydro | 1.65 | 1.63 | 1.34 | 2.0 |
+| PM | 1.57 | 2.3 | 1.0 | 2.2 |
+| summaries | 1.29 | 1.8 | 0.89 | 0.84 |
+| FoF | 1.36 | 1.6 | 0.80 | 1.7 |
+| RT total (one hydro step) | 1.90 | 1.90 | 1.85 | 1.24 |
+
+The ray tracing scales almost perfectly on the cores that were available
+(1.9–2.0 on two), which is what the colour scheme should do: 64 (N = 64)
+to 512 (N = 128) independent domains per colour and two barriers per
+colour. Hydro, PM and `radiative_physics` reach 1.6–1.7 on two threads
+(memory-bound sweeps; batched ordered replay). On four free cores we
+expect ≈ 3.5 for the RT and ≈ 3 for hydro/PM (the projection used in the
+timing table); the 4-thread numbers above are limited by the other job
+and should be re-measured on an idle machine with the two scripts.
+
+## 7. Recommendations for the production run
+
+1. **N = 128, c_reduced = 0.01** is the run to do first: about half an
+   hour on 4 idle cores (it took 69 min on this shared machine), 2.8 GB
+   of memory (measured peak RSS 2.76 GB). It resolves halos of ≈ 7e8 Msun/h (20 particles), 4.5× better
+   than N = 64.
+2. **N = 192, c_reduced = 0.01** fits (8–9 GB at the ray populations seen,
+   10.8 GB at the pool guard's cap; 1.9 GB without rays) and takes ≈ 2.5–3 h on 4 idle cores, but
+   only if the disk can hold the checkpoints: one checkpoint is 6–9 GB
+   and the atomic rewrite needs twice that. Use `restart_every = 2–3` and
+   check the free disk space (this sandbox has ≈ 40 GB in total, shared;
+   the N = 128 run stopped at a full disk).
+3. **c_reduced.** At 0.01 light crosses 16 Mpc/h between z = 15 and 5.5
+   and 1.6–2.4 Mpc/h per hydro step; reionization will be late and
+   light-limited. 0.03 costs 3× (N = 128: 1.3 h) and 0.1 costs 10×
+   (N = 128: 4.4 h; N = 192: ≈ 1 day), both affordable at N = 128.
+   Consider an N = 128, c_reduced = 0.1 run as the reference for how much
+   0.01 changes x_HII(z).
+4. **Outputs.** Keep ra_max (9 hydro steps from z = 15 to 5.5) for the
+   cost, and use `movie_dz` for the movie (0.05 → ≈ 190 frames of x_HI and
+   T; 3.2 GB at N = 128, 10.8 GB at N = 192: use `movie_fields = fHI` or
+   `movie_dz = 0.1` at N = 192). If the gas response to photoheating
+   matters, `ra_max = 0.03` (≈ 30 steps from z = 15) adds only minutes of
+   hydro. Use `data_files = norays` and a short `fields` list (the
+   production params do): with the F1 fix every data-1 output otherwise
+   writes all rays (1.4 GB at N = 128).
+5. Always use `rt_substep_carry = 1` and `deterministic_parallel = 1`
+   (the production params do): the first makes the light travel exact, the
+   second is the only way the ray tracing runs on more than one core, and
+   it makes the run reproducible and restartable bit for bit.

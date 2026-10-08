@@ -707,26 +707,28 @@ void rt_step_1(Simulation& s) {
   // overflowing. Rays are only created by splits (3 per split) and sources
   // (nray_init per source cell). From the live count L, the number of source
   // cells and the histogram of the rays that may split, limit the splits of
-  // this substep so that at most (3/4) Nray_max rays can be live after it:
-  // ngam_ray(32) (the split threshold) is raised to the lower edge of the
-  // brightest bins that fit in a quarter of the remaining budget. If even
-  // the sources do not fit, splitting stops and every ray except fresh
-  // source rays is merged (ngam_ray(16) = ngam_ray(32) = 1e30). Integer
-  // arithmetic on the histogram only: deterministic, the same in the
-  // Fortran harness, and inactive unless the pool is close to full.
+  // this substep so that even if every candidate splits at most 0.9 Nray_max
+  // rays are live after it (the rest of the pool covers the free buffer,
+  // <= Nray_max/16): ngam_ray(32) (the split threshold) is raised to the
+  // lower edge of the brightest bins whose candidates fit in a third of the
+  // remaining budget. If even the sources do not fit, splitting stops and
+  // every ray except fresh source rays is merged (ngam_ray(16) =
+  // ngam_ray(32) = 1e30). Integer arithmetic on the histogram only:
+  // deterministic, the same in the Fortran harness, and inactive unless the
+  // pool could overflow in this substep.
   if (!legacy) {
     std::int64_t L = 0;
     for (int n = 1; n <= N_pdf; ++n) L += ngam_pdf[n];
     std::int64_t nsrc = 0;
     for (std::int64_t c = 0; c < G.ncell; ++c)
       if (static_cast<double>(G.sfr[c]) > u.sfr_min) ++nsrc;
-    const std::int64_t budget = (3 * R.Nray_max) / 4 - L - rayp::nray_init * nsrc;
+    const std::int64_t budget = (9 * R.Nray_max) / 10 - L - rayp::nray_init * nsrc;
     if (budget <= 0) {
       R.ngam_ray[16 - 1] = 1e30;
       R.ngam_ray[32 - 1] = 1e30;
       R.npool_forced += 1;
     } else {
-      const std::int64_t smax = budget / 4;
+      const std::int64_t smax = budget / 3;
       std::int64_t nr = 0;
       int i = N_pdf;
       for (; i >= 1; --i) {
@@ -1395,14 +1397,21 @@ double ngam_rays_total(const Simulation& s) {
     for (std::int64_t c = 0; c < s.rt.ncell; ++c)
       for (std::int64_t ir = s.rt.htoc_ray(3, c); ir > 0; ir = s.rays.at(ir).next) {
         const Ray& r = s.rays.at(ir);
-        for (int n = 0; n < kNfreq; ++n) t += static_cast<double>(r.ngam[n]);
+        double sr = 0;
+        for (int n = 0; n < kNfreq; ++n) sr += static_cast<double>(r.ngam[n]);
+        t = t + sr;
       }
     return t;
   }
   for (std::int64_t ir = 1; ir <= s.rays.hwm(); ++ir) {
     const Ray& r = s.rays.at(ir);
-    if (r.nside > 0)
-      for (int n = 0; n < kNfreq; ++n) t += static_cast<double>(r.ngam[n]);
+    if (r.nside > 0) {
+      // ngam_tot + sum(real(ray(ir)%ngam,8)) of the harnesses: the ray's sum
+      // first, then added (not five separate additions)
+      double sr = 0;
+      for (int n = 0; n < kNfreq; ++n) sr += static_cast<double>(r.ngam[n]);
+      t = t + sr;
+    }
   }
   return t;
 }

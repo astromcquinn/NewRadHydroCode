@@ -800,7 +800,7 @@ int main(int argc, char** argv) {
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
            << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
   } catch (const std::exception& e) {
-    std::fprintf(stderr, "radhydro: error: %s\n", e.what());
+    std::fprintf(stderr, "radhydro: error: %s (peak RSS %.1f MB)\n", e.what(), peak_rss_mb());
     return 1;
   }
   return 0;
