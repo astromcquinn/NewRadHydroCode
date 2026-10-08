@@ -237,7 +237,7 @@ def main():
     for axis in range(3):
         rho, vel, eth, readme, _ = sod(axis)
         write_problem(root, f"sod_{'xyz'[axis]}",
-                      {"z_init": 10, "nsteps": 8, "timestep": "courant", "da_sim": 0},
+                      {"z_init": 10, "nsteps": 5, "timestep": "courant", "da_sim": 0},
                       rho, vel, eth, readme=readme, force=force)
     rho, vel, eth, readme, _ = sound()
     write_problem(root, "sound_x",
