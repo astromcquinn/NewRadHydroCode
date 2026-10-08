@@ -46,6 +46,9 @@ python3 tools/compare/compare.py runs/fortran/uniform_1src runs/cpp/uniform_1src
 * Fields are raw little-endian float32 in Fortran order, with the component
   index fastest: `fHI fHeI fHeII temp rhog` (N^3), `ngam nu fgam tau`
   (Nfreq,N^3), `gamma lambda dx` (3,N^3), `u_gas` (5,N^3) and `w_gas` (4,N^3).
+  Hydro-only runs (`apps/hydro_driver`, `reference/harness_hydro`) also
+  write `v_gas` (3,N^3); with no scalar field present, N is inferred from
+  `u_gas`, `w_gas` or `v_gas`.
   A file may be called `<name>` or `<name>.{bin,dat,raw,f32}`. Any other file
   whose size is a multiple of 4N^3 bytes is also compared, as an extra field.
 * PM outputs (`apps/pm_driver`, `reference/harness_pm`) are also understood:
@@ -112,3 +115,15 @@ exactly on `ngam_ray(16)` can switch between cast and merge. A single such flip
 changes the integer ray stats and then propagates. When the ray stats differ,
 the first divergent step and the location of the worst cell are the place to
 start debugging.
+
+## Hydro outputs
+
+`stats.txt` values may hold several numbers (`momentum = px py pz`); each
+number is compared and the worst component is reported. For a bit-for-bit
+check use `--rtol 0 --atol-frac 0` (the default `--atol-frac 1e-6` would
+otherwise forgive tiny absolute differences even with `--rtol 0`):
+
+```
+python3 tools/compare/compare.py reference/harness_hydro/runs/sod_x runs/sod_x \
+        --rtol 0 --atol-frac 0
+```

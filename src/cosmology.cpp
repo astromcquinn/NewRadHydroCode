@@ -106,6 +106,10 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   u.Tgas_min = u.temp_min / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 
+  // MF temperature limits in grid units
+  u.Tmf_min = 1;
+  u.Tmf_max = 1;
+
   // Radiation density thresholds: single-precision literals!
   u.sfr_min = static_cast<double>(1e-6f);
   u.ngam_min = static_cast<double>(1e-6f);

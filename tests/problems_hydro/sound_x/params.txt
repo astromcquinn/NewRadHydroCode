@@ -1,0 +1,6 @@
+# hydro test problem 'sound_x' (reference/harness_hydro/make_hydro_problems.py)
+N = 32
+z_init = 10
+nsteps = 24
+timestep = fixed
+da_sim = 0.004

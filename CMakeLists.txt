@@ -52,7 +52,7 @@ target_link_libraries(rt_driver PRIVATE radray)
 
 # PM gravity (pm_tools.f90 / fft_tools.f90) needs FFTW3 single precision.
 # Optional: without it only the RT part is built.
-option(RADRAY_WITH_PM "Build the PM gravity port (needs FFTW3f)" ON)
+option(RADRAY_WITH_PM "Build the PM gravity and hydro ports (need FFTW3f)" ON)
 set(RADRAY_HAVE_PM OFF)
 if(RADRAY_WITH_PM)
   find_path(FFTW3F_INCLUDE_DIR fftw3.h)
@@ -65,6 +65,13 @@ if(RADRAY_WITH_PM)
     add_executable(pm_driver apps/pm_driver.cpp)
     target_link_libraries(pm_driver PRIVATE radray_pm)
     message(STATUS "PM gravity: enabled (FFTW3f: ${FFTW3F_LIBRARY})")
+    # Hydro solver (hydro_tools.f90 -DMF) and gas domains, see
+    # docs/port_notes_hydro.md; also uses FFTW3f in place of MKL DFTI.
+    add_library(radray_hydro src/hydro.cpp src/domain_gas.cpp)
+    target_include_directories(radray_hydro PUBLIC ${FFTW3F_INCLUDE_DIR})
+    target_link_libraries(radray_hydro PUBLIC radray ${FFTW3F_LIBRARY})
+    add_executable(hydro_driver apps/hydro_driver.cpp)
+    target_link_libraries(hydro_driver PRIVATE radray_hydro)
   else()
     message(STATUS "PM gravity: disabled (FFTW3f not found)")
   endif()
