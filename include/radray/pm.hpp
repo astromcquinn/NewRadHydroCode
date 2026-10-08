@@ -75,6 +75,9 @@ void init_pm(PMState& s, const PMConfig& pc, const Domains& dom);
 void calc_drift(PMState& s, double dt_sim);
 void link_dm(PMState& s);
 void cic_mass_assignment(PMState& s, const std::array<int, 6>& box);
+// cic_mass_assignment over all domains in order 1..Ndomain (parallel,
+// bit-identical to the serial loop)
+void cic_mass_assignment_all(PMState& s);
 void calc_density_field(PMState& s, const float* u_gas);
 void calc_gravity_field(PMState& s, double scalefactor);
 // Sets clk.amax_dm, arms_dm, vmax_dm, vrms_dm (grid units).

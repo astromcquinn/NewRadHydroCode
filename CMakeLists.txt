@@ -29,10 +29,28 @@ add_library(radray
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
+# OpenMP (docs/parallel.md): hot loops of RT, hydro, PM, FoF and the
+# summaries. Results are bit-identical for any thread count; the ray tracing
+# itself runs in parallel only with deterministic_parallel = 1.
+option(RADRAY_OPENMP "Build with OpenMP" ON)
+set(RADRAY_HAVE_OPENMP OFF)
+if(RADRAY_OPENMP)
+  find_package(OpenMP)
+  if(OpenMP_CXX_FOUND)
+    set(RADRAY_HAVE_OPENMP ON)
+    target_link_libraries(radray PUBLIC OpenMP::OpenMP_CXX)
+    message(STATUS "OpenMP: enabled")
+  else()
+    message(STATUS "OpenMP: not found, serial build")
+  endif()
+endif()
+if(NOT RADRAY_HAVE_OPENMP)
+  target_compile_options(radray PUBLIC -Wno-unknown-pragmas)
+endif()
+
 # On-the-fly halo finder, source model, legacy halo catalogs
 # (docs/halos_and_sources.md). OpenMP is optional; results are identical
 # for any thread count.
-option(RADRAY_HALOS_OPENMP "Build the halo finder with OpenMP" OFF)
 add_library(radray_halos
   src/halos.cpp
   src/halo_sources.cpp
@@ -40,12 +58,6 @@ add_library(radray_halos
   src/mass_function.cpp
   src/abundance_matching.cpp)
 target_link_libraries(radray_halos PUBLIC radray)
-if(RADRAY_HALOS_OPENMP)
-  find_package(OpenMP REQUIRED)
-  target_link_libraries(radray_halos PUBLIC OpenMP::OpenMP_CXX)
-else()
-  target_compile_options(radray_halos PRIVATE -Wno-unknown-pragmas)
-endif()
 add_executable(find_halos apps/find_halos.cpp)
 target_link_libraries(find_halos PRIVATE radray_halos)
 
@@ -73,7 +85,7 @@ if(RADRAY_WITH_PM)
     add_executable(hydro_driver apps/hydro_driver.cpp)
     target_link_libraries(hydro_driver PRIVATE radray_hydro)
     # PM gravity (pm_tools.f90); uses the gas domains and summarize_gas.
-    add_library(radray_pm src/pm.cpp)
+    add_library(radray_pm src/pm.cpp src/checkpoint.cpp)
     target_link_libraries(radray_pm PUBLIC radray_hydro)
     add_executable(pm_driver apps/pm_driver.cpp)
     target_link_libraries(pm_driver PRIVATE radray_pm)
@@ -85,6 +97,10 @@ if(RADRAY_WITH_PM)
     message(STATUS "PM gravity: disabled (FFTW3f not found)")
   endif()
 endif()
+
+# The ~5-minute tests (label nightly) are registered but disabled unless
+# this is ON: cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest -L nightly
+option(RADRAY_NIGHTLY_TESTS "Enable the long (nightly) CTests" OFF)
 
 enable_testing()
 add_subdirectory(tests)

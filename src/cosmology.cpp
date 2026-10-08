@@ -199,7 +199,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     if (mode == TimestepMode::Fixed)
       clk.da_sim = da_fixed;
     else  // Restrict expansion timestep based on da/a ratio
-      clk.da_sim = a * ra_max / (1 - ra_max);
+      clk.da_sim = a * cfg.ra_max / (1 - cfg.ra_max);
     calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     t.dt_vg = 0;
     t.dt_ap = 0;
@@ -210,20 +210,40 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     t.dt_ap = dt_pm_factor / std::sqrt(clk.amax_dm);
     clk.dt_sim = f::gmin(t.dt_vg, t.dt_ap);
     calc_da_from_dt(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
-    clk.da_sim = f::gmin(clk.da_sim, a * ra_max / (1 - ra_max));
+    clk.da_sim = f::gmin(clk.da_sim, a * cfg.ra_max / (1 - cfg.ra_max));
     calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     t.dt_vg = clk.dt_yr * (t.dt_vg / clk.dt_sim);
     t.dt_ap = clk.dt_yr * (t.dt_ap / clk.dt_sim);
     clk.dt_sec = clk.dt_yr * yr2sec;
   }
 
-  // RT time step
-  const double cscale = 1;
+  // RT time step. Rays move one RT cell per substep, so the number of
+  // substeps per hydro step sets the speed of light: cscale = c_reduced < 1
+  // is the reduced speed of light approximation (the original hard-wires
+  // cscale = 1). See docs/production_run.md.
+  const double cscale = cfg.c_reduced;
   const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
                       (std::sqrt(a + clk.da_sim) - std::sqrt(a));
   const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
   t.ns_rt = f::nint(dl_c / dl_rt);
   clk.nstep_rt = f::nint(dl_c / dl_rt * cscale);
+  if (cfg.rt_substep_carry) {
+    // light cells of this step plus the remainder of the previous steps
+    const double want = dl_c / dl_rt * cscale + clk.rt_carry;
+    clk.nstep_rt = f::max(f::nint(want), 1);
+    clk.rt_carry = want - clk.nstep_rt;
+  }
+  if (clk.nstep_rt < 1) {
+    // Light (at c_reduced) moves less than half an RT cell in this hydro
+    // step. At least one substep is needed; rays then move one cell per
+    // hydro step, i.e. faster than c_reduced (same guard in the Fortran
+    // harnesses; never reached with c_reduced = 1 at the validated sizes).
+    std::fprintf(stderr,
+                 " calc_timestep: warning: nstep_rt = %d < 1 (light moves %.3g RT cells in "
+                 "this step at c_reduced = %g); using 1, so rays move faster than c_reduced\n",
+                 clk.nstep_rt, dl_c / dl_rt * cscale, cscale);
+    clk.nstep_rt = 1;
+  }
   clk.dt_rt = clk.dt_sim / clk.nstep_rt;
   clk.dtyr_rt = clk.dt_yr * (clk.dt_rt / clk.dt_sim);
   clk.dtsec_rt = clk.dt_sec * (clk.dt_rt / clk.dt_sim);

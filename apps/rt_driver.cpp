@@ -24,6 +24,7 @@
 
 #include "radray/cosmology.hpp"
 #include "radray/io.hpp"
+#include "radray/parallel.hpp"
 #include "radray/rt.hpp"
 #include "radray/simulation.hpp"
 
@@ -69,6 +70,9 @@ int main(int argc, char** argv) {
     init_simulation(s, P.N, P.nray_max_factor, P.z_init);
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
+    s.cfg.c_reduced = P.c_reduced;
+    s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
     s.raylog = &raylog;
@@ -85,6 +89,9 @@ int main(int argc, char** argv) {
               << " nsteps     : " << P.nsteps << "\n"
               << " legacy_rt  : " << P.legacy_rt << "\n"
               << " legacy_phys: " << P.legacy_physics << "\n"
+              << " c_reduced  : " << P.c_reduced << "\n"
+              << " det_par    : " << P.deterministic_parallel << "\n"
+              << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";
 
     calc_sim_var(s.cfg, s.clk, s.units);
@@ -110,7 +117,9 @@ int main(int argc, char** argv) {
     }
     const double secs =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << "\n Simulation completed in " << secs << " s\n";
+    std::cout << "\n Simulation completed in " << secs << " s\n " << format_rt_timers(s.timers)
+              << "\n ray pool guard: split limited in " << s.rays.npool_limited
+              << " substeps, merging forced in " << s.rays.npool_forced << "\n";
   } catch (const std::exception& e) {
     std::fprintf(stderr, "rt_driver: error: %s\n", e.what());
     return 1;
