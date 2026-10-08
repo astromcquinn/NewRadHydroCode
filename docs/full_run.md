@@ -164,7 +164,7 @@ CTests (label `full`):
 | test | what | time |
 |---|---|---|
 | `full_ref_smoke_rt1/rt0` | C++ vs stored Fortran outputs | 2 s |
-| `full_ref_{legacy,onthefly}_{rt1,rt0}` | same, label `long` | 5–6 min each |
+| `full_ref_{legacy,onthefly}_{rt1,rt0}` | same, label `nightly` (disabled unless `-DRADRAY_NIGHTLY_TESTS=ON`, `docs/production_run.md` §3) | 5–6 min each |
 | `full_vs_fortran_live_smoke_{legacy,onthefly}_{rt1,rt0}` | fresh gfortran build + run vs C++ | 2–7 s each (after the first build) |
 | `full_sanitize_smoke_rt1/rt0` | ASan/UBSan radhydro vs stored outputs | ~10 s |
 
@@ -264,8 +264,9 @@ else**:
 ## 6. Quirks found in this phase
 
 * **F1. `write_data_1/2` with `Ncpu = 1` write only the particles** (the
-  `select case (icpu)` loop, like `read_init_conditions`); not patched, no
-  effect on the state (reference/harness_full/PATCHES.md).
+  `select case (icpu)` loop, like `read_init_conditions`); no effect on the
+  state (reference/harness_full/PATCHES.md). **Fixed** since in both codes
+  (all files are written; `docs/production_run.md` §3).
 * **F2. `Nhalo_max = Npart/1024`** is 4 for Ndm = 16 and `read_halo` has no
   bound check; the harness uses `NHALO_MAX = 16384`.
 * **F3. The ray pool can overflow.** With `nray_max_factor = 1` the rays of
@@ -273,7 +274,9 @@ else**:
   `legacy_rt` modes: merging is triggered by thresholds on the photon
   content, not by the pool size. The C++ throws ("ray storage index out of
   range"); the original would write past `ray(:)`. Factor 4 was enough in
-  every run here; the original default is 64.
+  every run here; the original default is 64. **With `legacy_rt = 0` a
+  pool guard now prevents it** in both codes (`docs/production_run.md` §2);
+  `legacy_rt = 1` keeps the error.
 * **F4. The Courant limit never binds at these resolutions.** Every step is
   the ra_max step da/a = 1/9 (z = 100 → 7 in 24 steps). An RT step then
   spans ~1500–3300 light-crossing substeps (N = 32–64, box 4) and

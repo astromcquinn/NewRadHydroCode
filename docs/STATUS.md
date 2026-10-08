@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-08 (framework spike thread, branch `framework-spike`).*
+*Last updated: 2026-10-09, after PR #10 (production readiness) and the framework spike thread (branch `framework-spike`).*
 
 ## Done (merged into `main`)
 
@@ -52,6 +52,57 @@ figure.
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 
+**Production readiness (PR #10; `docs/production_run.md`, `docs/parallel.md`):**
+- `c_reduced`: reduced speed of light via the original's `cscale`. Bit-identical
+  between C++ and both Fortran harnesses. Includes an nstep_rt ≥ 1 guard,
+  `rt_substep_carry` for exact total light travel, and an I-front test against
+  the finite-c solution.
+- OpenMP in hydro, PM, summaries, FoF and all RT grid loops. These are
+  bit-identical to serial for any thread count.
+- Ray tracing runs in parallel only with `deterministic_parallel = 1`
+  (needs `legacy_rt = 0`). It uses 8³ domains swept by colour and is
+  thread-count independent. It differs from the legacy order at about 1e-7.
+  The 4-core speedup was not measured on an idle machine; re-measure on Hyak.
+- Ray-pool guard (F3, `legacy_rt = 0`). Rays are now 88 B.
+- F1 fix; bit-identical restarts (`restart_every`, `--restart`).
+- `movie_dz` frames, written from inside the RT substeps; `ra_max` parameter
+  (`legacy_rt = 0` only); `fields` and `data_files` output options.
+- `nightly` CTest label (`-DRADRAY_NIGHTLY_TESTS=ON`).
+- `tools/production/`: `make_production.py` (parameters), the timing table
+  and the speed-up scripts.
+
+**Hydro test suite (PR #10; `docs/hydro_tests.md`, `tests/hydro_suite/`):**
+- Covers Sod (axes and diagonals, strong shock, 123), Galilean invariance,
+  Sedov, sound waves, the Zel'dovich pancake with gas, an adiabatic
+  cosmological box, and Kelvin–Helmholtz.
+- **Key finding: the original scheme spuriously heats cold supersonic gas.**
+  The temperature of unshocked cold gas is wrong by factors of 10–1000:
+  underdense gas sits near 10⁴ K instead of 0.02–2 K, and pancake gas before
+  the caustic is too hot. The error falls steeply with resolution only for
+  smooth flows. There is no entropy fallback. **Don't trust pre-reionisation
+  gas temperatures** from this scheme.
+- Densities, velocities and shocks are accurate (Sod L1 order ≈ 0.8, Sedov
+  radius to 1% at 128³, sound-wave order ≈ 2).
+- Other issues: energy is not conserved (up to 5% in Sedov); contacts smear
+  over about 5 cells; orientation dependence (H2); the Courant step shrinks
+  with the bulk speed.
+- These matter for the plane-parallel / DM20-type runs, whose cold
+  pre-reionisation gas structure is the point. A fix, e.g. a dual-energy /
+  entropy formulation for cold supersonic gas behind a flag, is a candidate
+  next task.
+
+## Measured production costs (PR #10, `docs/production_run.md`)
+
+Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
+`deterministic_parallel`:
+
+| N | c_reduced | Measured / projected time | Memory |
+|---|---|---|---|
+| 128 | 0.01 | 69 min measured on about 2 cores; about 30 min projected on 4 | 2.8 GB |
+| 192 | 0.01 | about 2.5–3 h on 4 cores | 8–11 GB; checkpoints of 6–9 GB each |
+
+At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
+
 ## Framework spike (Stage C), branch `framework-spike`
 
 - `spike/`: AMReX and Parthenon prototypes of (a) an unsplit MUSCL-Hancock
@@ -74,26 +125,6 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 - GPU: the shared kernels and the Parthenon prototype compile with CUDA
   (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
   `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
-
-## In progress (when this file was written)
-
-These are background agents in the first thread. Their work lands in a
-follow-up PR.
-
-1. **Production readiness:**
-   - `c_reduced` (reduced speed of light via the original's `cscale`);
-   - deterministic OpenMP (thread-count independent), with speedups;
-   - the ray pool forcing merges instead of overflowing (legacy_rt=0);
-   - the F1 restart fix;
-   - long tests moved to a `nightly` label;
-   - a timing/memory table for the production config.
-2. **Hydro test suite** (`tests/hydro_suite`, `docs/hydro_tests.md`):
-   - Sod (including strong-shock and 123 cases) with convergence;
-   - Sedov–Taylor;
-   - Zel'dovich pancake with gas (Bryan et al. 1995);
-   - adiabatic cosmological box;
-   - sound waves;
-   - Kelvin–Helmholtz if feasible.
 
 ## Next
 
@@ -120,7 +151,10 @@ follow-up PR.
      limits. See `docs/ROADMAP.md` (answers section).
    - Access: Claude Code installed in user space, `claude remote-control`
      inside tmux, batch jobs with restarts.
-5. After the production run, follow `docs/ROADMAP.md`:
+5. **Hydro fix for cold supersonic gas** (see the hydro-suite finding above),
+   behind a flag, before the plane-parallel science runs.
+6. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
+7. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study, which can start now;
    - framework spike (AMReX vs Parthenon): prototypes done, recommendation
      AMReX, see `docs/framework_decision.md`; Hyak benchmarks to run;
@@ -140,7 +174,7 @@ follow-up PR.
 
 ## Known limits
 
-- **Serial code.** OpenMP is in progress. MPI/GPU is Phase 2.
+- **OpenMP only.** MPI/GPU is Phase 2. Thread scaling on Genoa is still to be measured on Hyak.
 - **RT dominates the cost.** Hydro+PM take under 1%. At full c, z=12→6 at
   128³ would take days on one core, hence `c_reduced`.
 - **Network access from cloud sessions.** arXiv, ADS and journal sites are

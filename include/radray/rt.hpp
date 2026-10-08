@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "radray/simulation.hpp"
@@ -44,6 +45,9 @@ void radiative_physics(Simulation& s, int krt);
 
 // rt_tools.f90: summarize_rt (writes to s.out)
 void summarize_rt(Simulation& s);
+
+// One line with the accumulated RT phase timers (Simulation::timers)
+std::string format_rt_timers(const RTTimers& t);
 
 // Diagnostics for the validation outputs
 std::int64_t count_live_rays(const Simulation& s);  // slots with nside > 0
