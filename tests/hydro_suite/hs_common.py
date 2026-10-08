@@ -117,10 +117,24 @@ def run_driver(pdir, odir, sets=(), driver=None, log=None):
     return wall
 
 
+def _compact(o):
+    """round floats to 6 significant digits (results files stay small)"""
+    if isinstance(o, dict):
+        return {k: _compact(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_compact(v) for v in o]
+    if isinstance(o, (float, np.floating)):
+        x = float(o)
+        return float(f"{x:.6g}") if math.isfinite(x) else x
+    if isinstance(o, np.integer):
+        return int(o)
+    return o
+
+
 def save_json(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        json.dump(obj, f, indent=1, sort_keys=True, default=float)
+        json.dump(_compact(obj), f, separators=(",", ":"), sort_keys=True, default=float)
 
 
 def load_json(path):

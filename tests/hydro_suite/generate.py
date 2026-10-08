@@ -156,7 +156,7 @@ def gen_sedov(outdir, N=64, t_end=10.0, nout=4, R_end_frac=0.35, bulk_frac=(0.11
 
 
 # ------------------------------------------------------------------ sound
-def gen_sound(outdir, N=32, A=1e-4, periods=1.0, nout=4, bulk=(0.2, 0.3, -0.25), c0=2.0,
+def gen_sound(outdir, N=32, A=1e-3, periods=1.0, nout=4, bulk=(0.2, 0.3, -0.25), c0=2.0,
               direction="x", z_init=1e4):
     """Travelling sound wave, one wavelength per box along `direction`
     (x or xy), exact eigenvector, cell-averaged. Phase speed c0 + vb.n."""

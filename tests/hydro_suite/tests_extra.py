@@ -70,14 +70,17 @@ def test_sound(ctx, tier):
         res[name] = r
         print(f"  {name:16s} steps {r['nsteps']:4d} phase speed err {r['speed_err']:+.2e} "
               f"damping/period {r['damping_per_period']:.2e} L1/A {r['l1_end']:.3e} "
+              f"k=1 error/A {r['k1_err_end']:.3e} "
               f"{r['wall']:.1f}s")
     Ns = [N for d, N in specs if d == "x"]
     keys = [f"sound_x_N{N}" for N in Ns]
     orders = {"l1": an.fit_order(Ns, [res[k]["l1_end"] for k in keys]),
+              "k1": an.fit_order(Ns, [res[k]["k1_err_end"] for k in keys]),
               "speed": an.fit_order(Ns, [abs(res[k]["speed_err"]) for k in keys]),
               "damping": an.fit_order(Ns, [res[k]["damping_per_period"] for k in keys])}
     # orders from the two finest grids only (asymptotic regime)
     orders_fine = {"l1": an.fit_order(Ns[-2:], [res[k]["l1_end"] for k in keys[-2:]]),
+                   "k1": an.fit_order(Ns[-2:], [res[k]["k1_err_end"] for k in keys[-2:]]),
                    "speed": an.fit_order(Ns[-2:], [abs(res[k]["speed_err"]) for k in keys[-2:]]),
                    "damping": an.fit_order(Ns[-2:], [res[k]["damping_per_period"]
                                                      for k in keys[-2:]])}
@@ -180,8 +183,10 @@ def analyze_cosmobox(run, meta):
         o["trho"] = {"logd": cen, "logT_med": med, "logT_16": p16, "logT_84": p84}
         # adiabatic expectation for unshocked gas: T = T_i (a_i/a)^2 (delta)^(2/3)
         o["T_adiabatic_mean"] = meta["T_init"] * ((1 + z) / (1 + meta["z_init"])) ** 2
-        H, xe, ye = np.histogram2d(ld, lt, bins=(np.linspace(-1.5, 3, 61), np.linspace(-1, 8.5, 77)))
-        o["trho_hist"] = {"H": H.tolist(), "x": xe.tolist(), "y": ye.tolist()}
+        if z < 0.01:
+            H, xe, ye = np.histogram2d(ld, lt, bins=(np.linspace(-1.5, 3, 46),
+                                                     np.linspace(-1, 8.5, 58)))
+            o["trho_hist"] = {"H": H.astype(int).tolist(), "x": xe.tolist(), "y": ye.tolist()}
         pkf = os.path.join(d, "pk.txt")
         if os.path.exists(pkf):
             pk = np.loadtxt(pkf)
@@ -248,7 +253,7 @@ def analyze_kh(run, meta):
         amps.append(float(F.max()))
     ts, amps = np.array(ts), np.array(amps)
     # growth rate: fit log amplitude where it is between 3x initial and 0.1 dv
-    sel = (amps > 3 * amps[0]) & (amps < 0.05 * meta["dv"])
+    sel = (ts > 0.25 * ts[-1]) & (amps < 0.1 * meta["dv"])
     rate = float(np.polyfit(ts[sel], np.log(amps[sel]), 1)[0]) if sel.sum() >= 3 else float("nan")
     return {"N": N, "t": ts.tolist(), "amp": amps.tolist(), "rate": rate}
 
@@ -279,9 +284,13 @@ def test_kh(ctx, tier):
     cases, metas = [], {}
     for N in Ns:
         name = f"kh_N{N}"
-        # same physical layer at every N: width N/32 cells (fixed fraction of the box)
-        pdir, odir, meta = ctx.case(name, gen.gen_kh, N=N, mode=1, a_shear=N / 32.0,
-                                    nout=24)
+        # same physical problem at every N: two wavelengths per box, layer
+        # width N/32 cells (k a = 0.39), Mach 0.5 shear, run for ~6 e-folds
+        # of the linear growth rate
+        k = 2 * np.pi * 2 / N
+        t_end = 6.0 / kh_linear_rate(k, 1.0, N / 32.0, 2.0)
+        pdir, odir, meta = ctx.case(name, gen.gen_kh, N=N, mode=2, a_shear=N / 32.0,
+                                    A=1e-2, nout=24, t_end=t_end)
         cases.append((name, pdir, odir))
         metas[name] = meta
     walls = ctx.run_many(cases)

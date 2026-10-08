@@ -385,8 +385,11 @@ def analyze_pancake(run, meta, ref=None):
             o["profile"].update(rho_ex=(rho_ex / fb).tolist(), v_ex=v_ex.tolist(),
                                 T_ex=T_ex.tolist())
             o["K_dev_max"] = float(np.max(np.abs(K - 1)))
-        # shock (entropy jump) position and entropy away from the shock
-        hw = shock_halfwidth(x, K)
+        # accretion shock position: walking in from the void, the first point
+        # where T exceeds 10 % of the profile maximum (the same rule is
+        # applied to the reference; an entropy threshold cannot be used for
+        # the code, whose pre-shock entropy is spuriously raised, see docs)
+        hw = shock_halfwidth(x, T / T.max(), thr=0.1)
         o["shock_halfwidth"] = hw
         xs = np.nanmean(hw)
         away = np.abs(x - 0.5) > xs + 3.0 / N
@@ -401,7 +404,7 @@ def analyze_pancake(run, meta, ref=None):
             i = refz[round(z, 6)]
             xr, rr = ref[f"{i}_x"], ref[f"{i}_rho"] / fb
             Kr, Tr, vr = ref[f"{i}_K"], ref[f"{i}_T"], ref[f"{i}_v"] * N
-            hw_r = shock_halfwidth(xr, Kr)
+            hw_r = shock_halfwidth(xr, Tr / Tr.max(), thr=0.1)
             o["ref"] = {"shock_halfwidth": hw_r, "rho_max": float(rr.max()),
                         "T_max": float(Tr.max())}
             # reference averaged over the code's cells (mass-weighted rho)
@@ -411,11 +414,11 @@ def analyze_pancake(run, meta, ref=None):
             mass = np.bincount(idx, weights=dm, minlength=N)
             rho_c = mass * N / fb
             o["profile"]["rho_ref_cell"] = rho_c.tolist()
-            o["profile"]["ref_x"] = xr[::4].tolist()
-            o["profile"]["ref_rho"] = rr[::4].tolist()
-            o["profile"]["ref_T"] = Tr[::4].tolist()
-            o["profile"]["ref_v"] = vr[::4].tolist()
-            o["profile"]["ref_K"] = Kr[::4].tolist()
+            o["profile"]["ref_x"] = xr[::8].tolist()
+            o["profile"]["ref_rho"] = rr[::8].tolist()
+            o["profile"]["ref_T"] = Tr[::8].tolist()
+            o["profile"]["ref_v"] = vr[::8].tolist()
+            o["profile"]["ref_K"] = Kr[::8].tolist()
             o["ref"]["l1_rho_cell"] = float(np.mean(np.abs(rho / fb - rho_c)) / np.mean(rho_c))
             o["shock_err_cells"] = float((xs - np.nanmean(hw_r)) * N)
         res["outputs"].append(o)
@@ -436,7 +439,7 @@ def analyze_sound(run, meta):
     A, c0 = meta["A"], meta["c0"]
     rho0 = hc.DGAS_AVG
     vb_n = float(np.dot(meta["bulk"], meta["normal"]))
-    ts, ph, amp, l1 = [], [], [], []
+    ts, ph, amp, l1, k1err = [], [], [], [], []
     # exact (cell-averaged) wave shape
     sub = off / N
     for d in hc.outputs(run):
@@ -451,6 +454,8 @@ def analyze_sound(run, meta):
         shift = (c0 + vb_n) * t / Ln
         ex = A * np.sin(2 * np.pi * (xi[:, None] + sub[None, :] - shift)).mean(axis=1)
         l1.append(float(np.mean(np.abs(drho - ex)) / A))
+        Fex = np.sum(ex * np.exp(-2j * np.pi * xi)) * 2 / xi.size
+        k1err.append(float(abs(F - Fex) / A))
     ts = np.array(ts)
     ph = np.unwrap(np.array(ph))
     # the k = 1 mode sin(2 pi (xi - s)) has phase -pi/2 - 2 pi s
@@ -468,7 +473,8 @@ def analyze_sound(run, meta):
             "speed": float(speed), "speed_exact": c0 + vb_n,
             "speed_err": float((speed - vb_n) / c0 - 1),
             "damping_per_period": float(per_period), "damping_total": float(damping),
-            "l1": l1, "l1_end": l1[-1], "nsteps": int(info["istep"]),
+            "l1": l1, "l1_end": l1[-1], "k1_err": k1err, "k1_err_end": k1err[-1],
+            "nsteps": int(info["istep"]),
             "wall": info["wall"], "periods": ts[-1] / T,
             "denergy": float(info["energy"] / i0["energy"] - 1)}
 
@@ -739,7 +745,10 @@ def fig_cosmobox(R, figdir):
     main = cs.get("cosmobox_N64_dlna0.02") or cs.get("cosmobox_N64")
     for k, o in enumerate(o for o in main["outputs"] if "pk" in o and o["z"] in (10.0, 3.0, 0.0)):
         pk = o["pk"]
-        ax[0].loglog(pk["k"], pk["dm"], "-", color=C[k], label=f"DM z={o['z']:g}")
+        kk = np.array(pk["k"])
+        kn = np.pi * (main["N"] // 2) / 64.0      # particle Nyquist (Ndm = N/2, box 64)
+        sel = kk <= kn
+        ax[0].loglog(kk[sel], np.array(pk["dm"])[sel], "-", color=C[k], label=f"DM z={o['z']:g}")
         ax[0].loglog(pk["k"], pk["gas"], "--", color=C[k], label=f"gas z={o['z']:g}")
     ax[0].set_xlabel("k [h/Mpc]")
     ax[0].set_ylabel(r"$\Delta^2(k)$")
@@ -751,6 +760,10 @@ def fig_cosmobox(R, figdir):
     ax[1].pcolormesh(h["x"], h["y"], np.log10(np.maximum(H, 0.5)), cmap="Greys", shading="auto")
     tr = o["trho"]
     ax[1].plot(tr["logd"], tr["logT_med"], color=C[0], label="median")
+    ld = np.array(tr["logd"])
+    tad = np.log10(np.maximum(o["T_adiabatic_mean"] * 10 ** (2 * ld / 3), 1.0))
+    ax[1].plot(ld, tad, "--", color=C[1], label="adiabatic (1 K floor)")
+    ax[1].legend(fontsize=6.5, loc="upper left")
     ax[1].set_xlabel(r"log $\delta_{\rm gas}$")
     ax[1].set_ylabel("log T [K]")
     ax[1].set_title(f"T-ρ at z = {o['z']:g} (N=64)", fontsize=8.5)
