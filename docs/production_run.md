@@ -373,6 +373,32 @@ The idle-node measurement on Hyak is at the top of this section.
 
 ## 7. Recommendations for the production run
 
+**Update after the Hyak runs (2026-10-08; `docs/cluster.md` §7–8).** The
+cost estimates below were made for 4 cores of a shared VM. On one klone node:
+
+| run | measured |
+|---|---|
+| 128³, 0.01c | 3 min 08 s (32 threads, shared node), 3.5 GB |
+| 128³, 0.1c | 16 min (48 threads, shared node), 3.2 GB |
+| 256³, 0.01c | 26 min (96 threads, shared node; 8 min of it checkpoints), 23 GB |
+| 256³, 0.1c, movie | **1 h 32 min (whole node, 192 threads)**, 27 GB, 25 GB of frames |
+
+So:
+1. Resolution is no longer the constraint: **256³** is cheap on one node.
+   192³ is not needed as an intermediate step.
+2. **c_reduced = 0.01 is strongly biased:** against 0.1c it delays
+   reionization by Δz ≈ 2–2.5 (z(50%) = 8.5–9.0 against 10.4; z(99%) = 6.2–6.5
+   against 8.8) and lowers τ_es by 20%. 0.1c histories agree between 128³
+   and 256³. Use **0.1c** as the baseline, and test its convergence with a
+   0.3c or 1c run at 128³ (hours).
+3. Run on a whole node with 192 threads at 256³; 96 threads at 128³.
+4. At 256³ the checkpoints are 12–17 GB: `restart_every` ≥ 2 (4 for short
+   runs) and `restart_keep_latest = 1`. `data_files = norays` and the short
+   `fields` list (as in `make_production.py`) still apply.
+
+The items below are the original recommendations, kept for reference; 1–3
+are superseded by the table above.
+
 1. **N = 128, c_reduced = 0.01** is the run to do first: about half an
    hour on 4 idle cores (it took 69 min on this shared machine), 2.8 GB
    of memory (measured peak RSS 2.76 GB). It resolves halos of ≈ 7e8 Msun/h (20 particles), 4.5× better
