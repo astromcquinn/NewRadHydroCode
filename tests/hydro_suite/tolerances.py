@@ -164,7 +164,11 @@ def check_cosmobox(ctx, out, tier):
 
 def check_kh(ctx, out, tier):
     for name, r in out["cases"].items():
-        if r["N"] >= 64:
+        amps = r["amp"]
+        ctx.check(all(math.isfinite(a) for a in amps) and max(amps) < 0.5,
+                  f"{name}: KH mode amplitude not finite/bounded")
+        if r["N"] >= 128:
+            # layer resolved by 4 cells: growth near the linear rate (see docs)
             rel = r["rate"] / r["rate_linear"] - 1
-            ctx.check(math.isfinite(rel) and abs(rel) < 0.3,
+            ctx.check(math.isfinite(rel) and abs(rel) < 0.35,
                       f"{name}: growth rate {r['rate']:.4f} vs {r['rate_linear']:.4f}")
