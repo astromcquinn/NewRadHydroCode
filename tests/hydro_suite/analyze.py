@@ -420,7 +420,8 @@ def analyze_pancake(run, meta, ref=None):
             o["profile"]["ref_v"] = vr[::8].tolist()
             o["profile"]["ref_K"] = Kr[::8].tolist()
             o["ref"]["l1_rho_cell"] = float(np.mean(np.abs(rho / fb - rho_c)) / np.mean(rho_c))
-            o["shock_err_cells"] = float((xs - np.nanmean(hw_r)) * N)
+            if z <= meta["z_c"] + 1e-6:  # an accretion shock exists only after the caustic
+                o["shock_err_cells"] = float((xs - np.nanmean(hw_r)) * N)
         res["outputs"].append(o)
     return res
 
