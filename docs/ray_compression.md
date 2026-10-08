@@ -360,6 +360,29 @@ merge thresholds, so `nrmf32` is identical to the baseline there.
 
 ![x_HII history](figures/raycomp_xhii_history.png)
 
+Slices through the 32³ runs (`tools/ray_compression/slices.py`). Columns:
+x_HII, T, the change in x_HII, and the relative change in T. Rows: the
+baseline and five variants.
+
+![slices, 1 source](figures/raycomp_slices_uniform_1src.png)
+
+![slices, 8 sources](figures/raycomp_slices_uniform_8src.png)
+
+![slices, lognormal 16 sources](figures/raycomp_slices_lognormal_16src.png)
+
+* **Where the differences are.** Every variant's differences sit on the
+  I-fronts, one cell thick. Dithered quantisation gives front cells that
+  scatter with both signs, with mean Δx_HII ≈ 0. Round-to-nearest gives a
+  coherent ring of the same sign (fronts run ahead), plus a systematic
+  temperature offset inside the bubble at 3 bits.
+* **Large T ratios.** The ratios of ±10 % or more are front cells whose
+  baseline T is still ~10²–10³ K. They are a front-position effect, not a
+  temperature error.
+* **Interior holes.** The isolated neutral cells inside the 1-source
+  sphere are present in the baseline. They are cells that no `nside = 4`
+  ray crosses near the source (an angular-sampling property of the original
+  algorithm), not a quantisation artefact.
+
 Findings:
 
 * **Dithered quantisation meets every target at every bit depth tested, down
