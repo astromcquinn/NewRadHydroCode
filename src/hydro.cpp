@@ -996,98 +996,125 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
     x4[m] = gmax(x4[m], val);
   };
 
-  for (int k = 1; k <= N; ++k) {
-    for (int j = 1; j <= N; ++j) {
-      for (int i = 1; i <= N; ++i) {
-        const std::int64_t c = gas.cell(i, j, k);
-        float* u = gas.u_p(c);
-        float* w = gas.w_p(c);
-        const float* v = hs.v_p(c);
+  // Per-cell values are computed in parallel (one k-plane batch at a time,
+  // cells independent; the clamps of u_gas/w_gas are per cell) and summed
+  // serially in the original k,j,i order with the original expressions, so
+  // every sum is bit-identical for any thread count. cmax is a maximum.
+  struct Rec {
+    double rho, vel[3], cs, tmp, fHI, fHeI, fHeII, fe, Z, nH, nHII, ne, alpha, x, cmax;
+  };
+  const std::int64_t plane = static_cast<std::int64_t>(N) * N;
+  const int nth = par::worth(cfg.Ncell) ? par::max_threads() : 1;
+  const int batch = nth > 1 ? std::min(N, 4 * nth) : 1;
+  std::vector<Rec> recs(static_cast<std::size_t>(batch * plane));
+  for (int k0 = 1; k0 <= N; k0 += batch) {
+    const int nb = std::min(batch, N - k0 + 1);
+#pragma omp parallel for schedule(static) if (nth > 1)
+    for (int b = 0; b < nb; ++b) {
+      const int k = k0 + b;
+      for (int j = 1; j <= N; ++j)
+        for (int i = 1; i <= N; ++i) {
+          const std::int64_t c = gas.cell(i, j, k);
+          float* u = gas.u_p(c);
+          float* w = gas.w_p(c);
+          const float* v = hs.v_p(c);
+          Rec& R = recs[b * plane + (i - 1) + static_cast<std::int64_t>(N) * (j - 1)];
 
-        // Hydro u_gas variables
-        u[0] = static_cast<float>(gmax(static_cast<double>(u[0]), un.Dgas_min));
-        const double rho = u[0];
-        double vel[3];
-        for (int m = 0; m < 3; ++m) vel[m] = u[1 + m] / rho + v[m];
-        double eth = u[4] - static_cast<double>(sumsq3(u + 1)) / rho / 2;
-        eth = gmax(eth, 0.0);
-        const double cs = std::sqrt(g * (g - 1) * eth / rho);
+          // Hydro u_gas variables
+          u[0] = static_cast<float>(gmax(static_cast<double>(u[0]), un.Dgas_min));
+          const double rho = u[0];
+          double vel[3];
+          for (int m = 0; m < 3; ++m) vel[m] = u[1 + m] / rho + v[m];
+          double eth = u[4] - static_cast<double>(sumsq3(u + 1)) / rho / 2;
+          eth = gmax(eth, 0.0);
+          const double cs = std::sqrt(g * (g - 1) * eth / rho);
 
-        // Chemistry w_gas variables
-        for (int m = 0; m < 4; ++m) w[m] = gmaxf(w[m], 0.0f);
-        const double fHI = w[0] / (XHy * rho);
-        const double fHeI = w[1] / (YHe * rho);
-        const double fHeII = w[2] / (YHe * rho);
-        const double Z = w[3] / rho;
+          // Chemistry w_gas variables
+          for (int m = 0; m < 4; ++m) w[m] = gmaxf(w[m], 0.0f);
+          const double fHI = w[0] / (XHy * rho);
+          const double fHeI = w[1] / (YHe * rho);
+          const double fHeII = w[2] / (YHe * rho);
+          const double Z = w[3] / rho;
 
-        // Additional variables
-        const double fHII = gmin(gmax(1 - fHI, 0.0), 1.0);
-        const double fHeIII = gmin(gmax(1 - fHeI - fHeII, 0.0), 1.0);
-        const double fe = (fHII * XHy + (fHeII + 2 * fHeIII) * YHe / 4) / (XHy + 2 * YHe / 4.0);
-        const double feff = ((1 + fHII) * XHy + (1 + fHeII + 2 * fHeIII) * YHe / 4) /
-                            (2 * XHy + 3 * YHe / 4.0);
-        const double tmp = eth / (rho * feff);
+          // Additional variables
+          const double fHII = gmin(gmax(1 - fHI, 0.0), 1.0);
+          const double fHeIII = gmin(gmax(1 - fHeI - fHeII, 0.0), 1.0);
+          const double fe = (fHII * XHy + (fHeII + 2 * fHeIII) * YHe / 4) / (XHy + 2 * YHe / 4.0);
+          const double feff = ((1 + fHII) * XHy + (1 + fHeII + 2 * fHeIII) * YHe / 4) /
+                              (2 * XHy + 3 * YHe / 4.0);
+          const double tmp = eth / (rho * feff);
 
-        acc(0, rho, rho);
-        for (int m = 0; m < 3; ++m) acc(1 + m, vel[m], rho);
-        acc(4, cs, rho);
-        acc(5, tmp, rho);
-        acc(6, fHI, rho);
-        acc(7, fHeI, rho);
-        acc(8, fHeII, rho);
-        acc(9, fe, rho);
-        acc(10, Z, rho);
+          // Max freezing speed (of this cell)
+          double cm = 0;
+          if (rho > un.Dgas_frz) {
+            const double c1 = maxabs3(vel);
+            double dvv[3];
+            for (int m = 0; m < 3; ++m) dvv[m] = vel[m] - v[m];
+            const double c2 = maxabs3(dvv) + cs;
+            cm = gmax(gmax(cm, c1), c2);
+          }
 
-        // Velocity dispersion
-        vrms = vrms + sumsq3(vel);
+          // HII recombination case B
+          const double x = 2 * HI_K / (tmp * un.temp3_unit);
+          const double alpha = alpha_B(x);
 
-        // Max freezing speed
-        if (rho > un.Dgas_frz) {
-          const double c1 = maxabs3(vel);
-          double dvv[3];
-          for (int m = 0; m < 3; ++m) dvv[m] = vel[m] - v[m];
-          const double c2 = maxabs3(dvv) + cs;
-          cmax = gmax(gmax(cmax, c1), c2);
+          // Clumping factor
+          const double nH = rho * un.H_unit;
+          const double nHe = rho * un.He_unit;
+          const double nHII = fHII * nH;
+          const double ne = fe * (nH + 2 * nHe);
+          R = Rec{rho, {vel[0], vel[1], vel[2]}, cs, tmp, fHI, fHeI, fHeII, fe, Z, nH, nHII, ne,
+                  alpha, gmin(std::exp(-(rho / fb - rho_source) / rho_source), 1.0), cm};
         }
+    }
+    for (std::int64_t n = 0; n < nb * plane; ++n) {
+      const Rec& R = recs[n];
+      const double rho = R.rho;
+      const double* vel = R.vel;
+      acc(0, rho, rho);
+      for (int m = 0; m < 3; ++m) acc(1 + m, vel[m], rho);
+      acc(4, R.cs, rho);
+      acc(5, R.tmp, rho);
+      acc(6, R.fHI, rho);
+      acc(7, R.fHeI, rho);
+      acc(8, R.fHeII, rho);
+      acc(9, R.fe, rho);
+      acc(10, R.Z, rho);
 
-        // HII recombination case B
-        double x = 2 * HI_K / (tmp * un.temp3_unit);
-        const double alpha = alpha_B(x);
+      // Velocity dispersion
+      vrms = vrms + sumsq3(vel);
 
-        // Clumping factor
-        const double nH = rho * un.H_unit;
-        const double nHe = rho * un.He_unit;
-        const double nHII = fHII * nH;
-        const double ne = fe * (nH + 2 * nHe);
+      // Max freezing speed
+      if (rho > un.Dgas_frz) cmax = gmax(cmax, R.cmax);
 
-        clump[1] += nHII;
-        clump[2] += nH * nH;
-        clump[3] += nHII * nHII;
-        clump[4] += nHII * ne * alpha;
-        if (rho / fb < 50) {
-          clump[5] += nHII;
-          clump[6] += nH * nH;
-          clump[7] += nHII * nHII;
-          clump[8] += nHII * ne * alpha;
-        }
-        if (rho / fb < 100) {
-          clump[9] += nHII;
-          clump[10] += nH * nH;
-          clump[11] += nHII * nHII;
-          clump[12] += nHII * ne * alpha;
-        }
-        if (rho / fb < 200) {
-          clump[13] += nHII;
-          clump[14] += nH * nH;
-          clump[15] += nHII * nHII;
-          clump[16] += nHII * ne * alpha;
-        }
-        x = gmin(std::exp(-(rho / fb - rho_source) / rho_source), 1.0);
-        clump[17] += x * nHII;
-        clump[18] += x * (nH * nH);
-        clump[19] += x * (nHII * nHII);
-        clump[20] += x * nHII * ne * alpha;
+      const double nH = R.nH, nHII = R.nHII, ne = R.ne, alpha = R.alpha;
+      clump[1] += nHII;
+      clump[2] += nH * nH;
+      clump[3] += nHII * nHII;
+      clump[4] += nHII * ne * alpha;
+      if (rho / fb < 50) {
+        clump[5] += nHII;
+        clump[6] += nH * nH;
+        clump[7] += nHII * nHII;
+        clump[8] += nHII * ne * alpha;
       }
+      if (rho / fb < 100) {
+        clump[9] += nHII;
+        clump[10] += nH * nH;
+        clump[11] += nHII * nHII;
+        clump[12] += nHII * ne * alpha;
+      }
+      if (rho / fb < 200) {
+        clump[13] += nHII;
+        clump[14] += nH * nH;
+        clump[15] += nHII * nHII;
+        clump[16] += nHII * ne * alpha;
+      }
+      const double x = R.x;
+      clump[17] += x * nHII;
+      clump[18] += x * (nH * nH);
+      clump[19] += x * (nHII * nHII);
+      clump[20] += x * nHII * ne * alpha;
     }
   }
 

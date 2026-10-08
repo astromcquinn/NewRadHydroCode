@@ -27,6 +27,15 @@ inline int max_threads() {
 #endif
 }
 
+// Threads of the current team (1 outside a parallel region)
+inline int num_threads() {
+#ifdef _OPENMP
+  return omp_get_num_threads();
+#else
+  return 1;
+#endif
+}
+
 inline int thread_id() {
 #ifdef _OPENMP
   return omp_get_thread_num();
