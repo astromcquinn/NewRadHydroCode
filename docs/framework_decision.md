@@ -53,13 +53,32 @@ enough for our secondary GPU target. Its constraints are C++20 and
 nvcc ≥ 12.2, which is why it could not be compiled for GPU here (§4).
 
 **Main risks of AMReX:**
-- Particle precision is one build-wide switch: we want float rays and
-  double DM.
 - Its SoA FABs fit badly with per-cell struct kernels on the CPU.
 - Keeping RT deposits consistent between coarse and fine levels is ours to
   write.
+- It needs C++20 (gcc ≥ 11) and, for GPU, nvcc ≥ 12.2. Check the Hyak
+  modules before Stage D.
 
 None of these is a blocker; each has a mitigation in the plan below.
+
+**Particle precision (reviewed 2026-10-09).** AMReX's `ParticleReal` is
+one build-wide type (`AMReX_PARTICLES_PRECISION`), and SoA integer
+components are 32-bit. The spike flagged "float rays but double dark
+matter" as a conflict. It is not one: the original stores the dark matter
+as `real(4)` (`xv_dm` in `radhydro_global.f90`), the port keeps it as
+`float` (`PMState::xv`), and every PM validation, bit-for-bit against the
+gfortran harness, already runs with float positions and velocities in
+cell units. So the **single-precision particle build is the one that
+reproduces the original**, and it halves the ray memory relative to a
+double build. Quantitatively, a float position in [0, N) cells has a
+resolution of N·2⁻²⁴, i.e. 7.6e-6 cells at N = 128, 3e-5 at 512 and
+6e-5 at 1024; even a random walk of that error over 10⁴ steps stays
+below 10⁻² cells, against a PM force resolution of one to two cells. With
+AMR at 3–4 levels over a 512³–1024³ base the resolution in fine cells is
+still below 10⁻³. The only cases where float positions become marginal
+are effective resolutions of order 10⁵ cells per side, which are not in
+the plan. The halo-mass-function gate (`STATUS.md`, Next 1) is the test
+that would reveal a precision problem if one appeared.
 
 ## 1. What was built
 
@@ -273,12 +292,13 @@ legacy reference, and every new behaviour is behind a flag.
    It should work on one `AmrLevel`-like object: a ray container per level,
    cell `FabArray`s, deposits as int64 with `SumBoundary`, 2 ghost layers
    with an assertion on the ray reach.
-3. Choose the ray encoding from the compression study (Stage B). Store rays
-   as SoA float components, so AMReX particle precision is `SINGLE` for
-   rays. Dark matter goes in a second container in double precision:
-   either build AMReX with double particles and store ray payloads in
-   float runtime components, or keep DM positions as double runtime
-   components. Decide this at the start of D.
+3. Choose the ray encoding from the compression study (Stage B). Build
+   AMReX with `AMReX_PARTICLES_PRECISION=SINGLE`: rays as SoA float
+   components, and dark matter as float positions and velocities in a
+   second container, the precision of the original (see "Particle
+   precision" above). Use 2 ghost layers for the deposit accumulators
+   (validated in the spike; `--ghosts 2`), with the assertion on the ray
+   reach kept.
 4. GPU: add the CUDA target, move the rate tables to device memory,
    implement a team-level step-1 for source cells, then benchmark on
    `ckpt` A100/H200 against a node (PLAN.md: ≥5× ⇒ ACCESS proposal).
@@ -334,8 +354,23 @@ swarms gain AMR support. Watch its CHANGELOG.
 ## 7. Open points for the user
 
 - Approve AMReX as the framework, or wait for the Hyak numbers first.
-- Precision layout for particles (Stage D item 3).
 - Moving `spike/common` into the main library (Stage D item 1) touches
-  `src/rt_tools.cpp` and `src/ray_tracing.cpp`, which the production-
-  readiness thread (OpenMP) may also be editing. Do it after that PR is
-  merged.
+  `src/rt_tools.cpp` and `src/ray_tracing.cpp`. PR #10 (production
+  readiness, OpenMP) is merged, so this can start.
+
+## 8. Review (2026-10-09, after merging `main` with PR #10)
+
+- The decisive claims were re-checked in the sources: Parthenon's
+  `particles.rst` states that swarms do not support AMR, and
+  `src/mesh/mesh-amr_loadbalance.cpp` and `mesh_refinement.cpp` contain no
+  swarm handling; Parthenon's driver sets one global time step
+  (`SetGlobalTimeStep`). AMReX's `ParticleReal` is build-wide and its SoA
+  integer components are 32-bit.
+- `main` (production readiness, PR #10) was merged into the branch. With
+  the merged library: the fast suite passes (80/80); `rt_serial` is
+  bitwise unchanged and still matches the new `rt_driver --set
+  legacy_rt=0` with identical ray statistics on all five problems; the
+  AMReX quick matrix passes 49/49; Parthenon passes at 1, 4 and 8 ranks.
+- The particle-precision risk is withdrawn (see "Particle precision"
+  above): the original and the port already use float dark matter.
+- The recommendation stands: AMReX.

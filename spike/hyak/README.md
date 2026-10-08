@@ -33,6 +33,8 @@ What the jobs measure:
 | `bench_scale.sbatch` | strong: RT 256³; weak: RT + hydro 192³ / 240³ / 304³ on 1 / 2 / 4 nodes | `LAYOUT` per node (default 24:8; set it to the node job's winner) |
 
 Notes:
+- AMReX 26.x needs C++20, so a gcc ≥ 11 module; its GPU build needs CUDA
+  ≥ 12.2. Check `module avail gcc cuda` and set `SPIKE_MODULES`.
 - `env.sh` sets `OMP_PROC_BIND=close OMP_PLACES=cores`; the scripts bind each
   MPI rank to a contiguous range of cores (`--map-by slot:PE=<threads>` /
   `ppr:<n>:node:PE=<threads>`). If your MPI is not OpenMPI, set `MPIFLAGS`.
