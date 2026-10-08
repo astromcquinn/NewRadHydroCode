@@ -17,7 +17,8 @@ reference/harness/
   run_all.sh           build what is needed and run every problem
   tests/check_healpix.py, hpx_check.f90   HEALPix-vs-healpy check
   tests/analyze_outputs.py                sanity checks (I-front, photon budget)
-  outputs/             stored reference outputs (subset, see below)
+  outputs/             stored reference outputs (subset, see below), legacy_rt = 1
+  outputs_legacy_rt0/  the same with legacy_rt = 0 (RT bookkeeping fixes on)
 ```
 
 ## Build
@@ -43,9 +44,15 @@ with a "rebuild with make N=.. NRF=.." message if not.
 ## Run
 
 ```
-./run_problem.sh <problem_dir> <outdir> [nsteps] [exe]
+./run_problem.sh <problem_dir> <outdir> [nsteps] [exe] [--set key=value ...]
 ./run_all.sh [outroot=reference/harness/runs] [opt|debug]
+RT_SET=legacy_rt=0 ./run_all.sh <outroot>      # RT bookkeeping fixes on
 ```
+
+The executable takes the same `--set key=value` arguments:
+`rt_harness.x <problem_dir> <outdir> [nsteps] [--set key=value ...]`. Each one
+overrides or adds a `params.txt` entry. The C++ `rt_driver` accepts the same
+`--set`.
 
 `run_all.sh` does the following:
 
@@ -63,7 +70,10 @@ step.
 
 These follow the spec. The files in `tests/problems/<name>/` are:
 * `params.txt`: `N`, `z_init`, `da_sim`, `nsteps`, and optionally
-  `nray_max_factor`.
+  `nray_max_factor` and `legacy_rt`.
+  * `legacy_rt = 1` (the default) is the original code.
+  * `legacy_rt = 0` turns on the fixes for bugs B1–B4, B8 and B9
+    (PATCHES.md 8, `docs/port_notes.md` §5a).
 * `gas.bin`: float32 `(9,N,N,N)` holding `u_gas(1:5)` and `w_gas(1:4)`.
 * `sources.txt`: one source per line as `i j k Luv sfr`.
 
@@ -151,6 +161,10 @@ much to keep in git. `outputs/<problem>/` therefore keeps:
   total. `uniform_8src_smallbuf` has no binaries, because its spec outputs are
   bit-identical to `uniform_8src` (see below).
 
+`outputs_legacy_rt0/` holds the same subset from
+`RT_SET=legacy_rt=0 ./run_all.sh`. Again, `uniform_8src_smallbuf` has no
+binaries; with the fixes its fields are still identical to `uniform_8src`.
+
 To regenerate everything (about 15 s), run `./run_all.sh outputs-full`.
 Output is deterministic: repeated runs are bit-identical, apart from the
 timing lines in the logs.
@@ -203,7 +217,12 @@ timing lines in the logs.
   Hence the extra problem `lognormal_16src_smallbuf` (factor 1).
 * **Runtime checks.** The `-fcheck=all` debug build runs all five problems
   with no runtime errors, after patch 5 in PATCHES.md. `FPE=overflow` also
-  passes.
+  passes. The `-fcheck=all` build is also clean with `legacy_rt = 0`, and in
+  both modes its outputs are bit-identical to the `-O2` build.
+* **`legacy_rt = 0`.** Merging in lognormal_16src_smallbuf now starts at
+  step 7 instead of step 5, with 41775 merges in total instead of 50900. The
+  uniform problems and the factor-64 problems still never merge. For the
+  full impact, see `docs/port_notes.md` §5a.
 * **Compiler sensitivity.**
   * `-O0` (debug) and `-O2`: every output is bit-identical (`compare.py`
     gives max_rel = 0) for all five problems.

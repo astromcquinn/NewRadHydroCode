@@ -56,8 +56,12 @@ Other options:
 ## Run
 
 ```
-./build/rt_driver tests/problems/uniform_1src out/uniform_1src [--nsteps n]
+./build/rt_driver tests/problems/uniform_1src out/uniform_1src [--nsteps n] [--set key=value ...]
 ```
+
+`--set` overrides a `params.txt` entry. For example, `--set legacy_rt=0`
+turns on the RT bookkeeping fixes; see
+[docs/port_notes.md](docs/port_notes.md) §5a.
 
 The driver reads `params.txt`, `gas.bin` and `sources.txt`. It then runs
 `nsteps` hydro steps. Each step is: clock update, source assignment, then

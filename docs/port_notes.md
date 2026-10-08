@@ -9,7 +9,7 @@ This document covers phase 1, the faithful port. It records:
 
 **Validation result:** the C++ port agrees **bit for bit** with the gfortran
 harness (`reference/harness`, one thread) on all five problems in
-`tests/problems`.
+`tests/problems`, in both `legacy_rt` modes (§5a).
 
 * 700/700 field files (all steps) are byte-identical.
 * `stats.txt` and `rt_stats.txt` agree exactly for all 10 steps, including
@@ -17,7 +17,8 @@ harness (`reference/harness`, one thread) on all five problems in
 * The merge path is exercised: `lognormal_16src_smallbuf` merges from step 5.
 
 The CTests `ref_*` check this continuously against
-`reference/harness/outputs`.
+`reference/harness/outputs`. The CTests `ref_legacy0_*` check it against
+`reference/harness/outputs_legacy_rt0`, with the fixes of §5a switched on.
 
 ## 1. Routine map
 
@@ -187,10 +188,15 @@ These do not affect the RT state or the spec outputs:
    so these are the live rays. **`ncst1`, `nmrg1`, `nspl1` and `ndel1`** are
    the values of the last RT substep (`ray_save`).
 5. **`int(Nray_max/64.)` and `j*int(...)`** in `rt_step_1` are int32 in
-   Fortran. The C++ uses int64 for the product. This is identical unless
+   Fortran. With `legacy_rt = 1`, the C++ keeps the real(4) division but
+   uses int64 for the product. This is identical unless
    `64*N^3 > 2^31`, roughly N ≥ 323, where the Fortran overflows (bug B9).
+   With `legacy_rt = 0`, both codes use exact int64 `j*(Nray_max/64)`.
 
 ## 5. Bugs and quirks in the original (preserved unless noted)
+
+B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
+`legacy_rt = 0` they are fixed in both codes; see §5a.
 
 * **B1. Dead rays steer the split/merge thresholds.** `ray_remove` only
   unlinks a ray and pushes its index onto the free list. `calc_ray_1` scans
@@ -198,19 +204,22 @@ These do not affect the RT state or the spec outputs:
   current hydro step are therefore counted in `ngam_pdf`, and so in
   `ngam_ray`, until `ray_buffer_deallocate` zeroes them in `post_rt`.
   Preserved by emulating the pool exactly. `ngam_avg/Nray` divides by the
-  pool count, but it is only logged.
+  pool count, but it is only logged. **Fixed with `legacy_rt = 0`**:
+  `ray_remove(...,flag=.true.)` clears the freed slot.
 * **B2. `ngam_ray(j)` is never reset** while the ray count is too small to
   reach `j*Nray_max/64`. It keeps its stale value, or its initial 0. The
   consequences:
   * with the default `Nray_max = 64 N^3`, merging is effectively disabled;
   * with `ngam_ray(32) = 0`, every ray with `dr < 0` is split.
 
-  Preserved.
+  Preserved. **Fixed with `legacy_rt = 0`**: `ngam_ray` is zeroed before
+  the thresholds are recomputed.
 * **B3. `rt_grid%dx` is never reset.** `calc_rt_1` zeroes `nu`, `ngam`,
   `fgam`, `gamma` and `lambda`, but not `dx`. The new photon-weighted
   directions are added on top of the previous substep's unit vector.
   `radiative_physics` then normalises the sum, and that direction is used
-  by `make_index_gas_rt` when `N_rt_gas > 1`. Preserved.
+  by `make_index_gas_rt` when `N_rt_gas > 1`. Preserved. **Fixed with
+  `legacy_rt = 0`**: `dx` is reset in `calc_rt_1`.
 * **B4. `tau` is zero in neutral cells during the first RT call.**
   `init_rt` zeroes `tau`. `calc_rt_1` updates it only in cells with
   `fHI < 0.99` or `fHeI < 0.99`, and `calc_rt_f` (all cells) runs only in
@@ -220,7 +229,9 @@ These do not affect the RT state or the spec outputs:
   * a source in a neutral cell always emits rays, instead of depositing
     photons locally.
 
-  Preserved.
+  Also, a cell that stays neutral keeps the `tau` of the last `post_rt`
+  for a whole hydro step. Preserved. **Fixed with `legacy_rt = 0`**:
+  `calc_rt_1` updates `tau` in every cell.
 * **B5. Out-of-bounds histogram in `post_rt`/`calc_ray_f`.** The arrays are
   `ngam_pdf, nrad_pdf(-9:10)`, but `max(ngam,1E-9)` with a real(4) `1E-9`
   (9.99999972e-10) gives bin −10 for empty cells. This is a stack write out
@@ -239,10 +250,12 @@ These do not affect the RT state or the spec outputs:
 * **B8. At most 3 segments per cast and advance.** A unit step along a
   near-diagonal can cross 3 faces and need 4 segments. The remainder is
   dropped, and the ray advances less than 1 cell. Preserved; the `rays` test
-  confirms it happens.
+  confirms it happens. **Fixed with `legacy_rt = 0`**: up to 4 segments.
 * **B9. int32 overflow** of `j*int(Nray_max/64.)` for N ≥ ~323, and loss of
   float precision in `int(Nray_max/64.)` for very large `Nray_max`. These are
-  irrelevant at N = 32. The C++ uses int64 here (see §4.5).
+  irrelevant at N = 32. The C++ uses int64 for the product (see §4.5).
+  **Fixed with `legacy_rt = 0`** in both codes: exact int64
+  `j*(Nray_max/64)`.
 * **B10. The `1E-6` nudge is lost.** In `ray_cast_3`, `x0+(l+1E-6)*dx` is
   stored as float. Near x = 32 the float ulp is 3.8e-6, so rays usually end
   exactly on a cell face. The home cell is still `int(x)`. A stored `x` can
@@ -270,6 +283,74 @@ These do not affect the RT state or the spec outputs:
 * **B15. `ray_buffer_supplement`** contains `!$omp barrier` inside a
   `parallel do`, which is non-conforming OpenMP. The harness removed it, and
   the C++ is serial.
+
+## 5a. The `legacy_rt` switch (phase 1b)
+
+`legacy_rt` is a `params.txt` key, default 1. Both drivers also accept
+`--set legacy_rt=0`: `rt_driver <prob> <out> --set legacy_rt=0` and
+`rt_harness.x <prob> <out> [nsteps] --set legacy_rt=0`. `--set key=value`
+works for any params.txt key. In Fortran the switch is the module variable
+`legacy_rt` in `radhydro_global` (harness patch 8). In C++ it is
+`Config::legacy_rt`. Every fix carries a comment naming its bug ID.
+
+| bug | Fortran (harness copy) | C++ | `legacy_rt = 0` behaviour |
+|---|---|---|---|
+| B1 | `ray_remove` | `ray_remove` | freed slot zeroed (`nside = 0`, ...) |
+| B2 | `rt_step_1` | `rt_step_1` | `ngam_ray = 0` before the threshold loop |
+| B9 | `rt_step_1` | `rt_step_1` | `nr > int(j,8)*(Nray_max/64)` |
+| B3 | `calc_rt_1` | `rt_step_1` (calc_rt_1 part) | `rt_grid%dx = 0` |
+| B4 | `calc_rt_1` | `rt_step_1` (calc_rt_1 part) | `tau` updated in all cells |
+| B8 | `ray_segment`, `ray_cast_1`, `ray_cast_3` | same | `nseg = 4` segments; `dl` arrays have 4 elements |
+
+With `legacy_rt = 1` the outputs are unchanged: they are bit-identical to
+`reference/harness/outputs`, in both codes. With `legacy_rt = 0` the C++
+and the harness are bit-identical too: all 700 field files, `stats.txt`
+and `rt_stats.txt` of all steps. This holds for the -O2 builds, the
+`-fcheck=all` harness and the ASan/UBSan C++ build.
+
+**Impact** (N=32, 10 steps, `legacy_rt = 0` vs `1`; from `compare.py`
+histories, `rt_stats.txt` and `ray.log`). The attribution comes from
+switching the fixes on one at a time in a scratch build.
+
+* **B3** changes only the `dx` output field, because `N_rt_gas = 1`.
+* **B1 and B2** change nothing when the thresholds are never reached, which
+  is every problem except `lognormal_16src_smallbuf`. There, B1 delays
+  merging: the first merge moves from step 5 to step 7, and the total
+  merges in `ray.log` fall from 50900 to 41775 (−18%). Merging now happens
+  in 41 substeps, down from 63. More rays survive: `nray_active` at step 10
+  is 14541 instead of 12831 (+13%), and with all fixes there are 30% more
+  splits. On top of B1, B2 makes no further difference here.
+  `uniform_8src_smallbuf` and the factor-64 problems still never merge.
+* **B4** is the main physics change. It matters in the first hydro step,
+  where `tau` used to be 0 in neutral cells:
+  * The volume-weighted xHII at step 1 drops by 1.1% (uniform_8src) and
+    11% (lognormal_16src). The mass-weighted xHII drops by 0.9%
+    (lognormal).
+  * The difference decays to about −0.1% (uniform_8src) and −0.3%
+    (lognormal) by step 10. In uniform_1src, xHII is +0.07% at step 1 and
+    +0.05% at step 10.
+  * In lognormal_16src, the step-1 photon budget
+    (absorbed + in rays)/emitted improves from 1.0049 to 1.0002, and from
+    1.0026 to 1.0006 at step 2. Dense, neutral source cells are now
+    optically thick, so they deposit their photons locally (see the
+    `rho_source` consumption factor). From step 3 on, the budget is within
+    0.12% of legacy.
+  * Also in lognormal_16src at step 1, more photons are still in flight:
+    `ngam_rays_total` is ×2.05 and `nray_active` is 405 instead of 213.
+  * Uniform problems: the budget is unchanged to 1e-5 (0.9996–0.9999).
+* **B8** lets rays advance a full cell every substep. They reach the next
+  split radius sooner. Total splits roughly double in uniform_8src
+  (12768 → 23808 with all fixes). There are +17% in uniform_1src and +8% in
+  lognormal_16src. `nspl1` at step 10 goes 640→704, 1120→1792 and
+  6804→7256. On the ionisation history, B8 has only a 1e-4 to 6e-4 effect.
+* **Temperatures.** Mass-weighted mean temperatures differ by at most
+  0.7% in the uniform problems. In lognormal they differ by 5% at step 1
+  and by at most 1.2% afterwards. Individual cells near the I-front differ
+  much more.
+* **Totals.** At step 10 the ionised fractions agree with legacy to 0.05%
+  to 0.3%. `ngam_rays_total` is 0.2% to 1.2% lower. `nray_active` is
+  unchanged in the uniform problems, +1.8% in lognormal_16src and +13% in
+  lognormal_16src_smallbuf.
 
 ## 6. Open issues / limitations
 
