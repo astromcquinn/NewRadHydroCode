@@ -1,7 +1,7 @@
 #!/bin/bash
 # Bitwise validation of the AMReX prototype against the serial reference.
 #
-#   spike/amrex/validate.sh <serial_build_dir> <amrex_build_dir> <work_dir> [quick]
+#   spike/amrex/validate.sh <serial_build_dir> <amrex_build_dir> <work_dir> [quick|hydro|rt]
 #
 # hydro: cmp of hydro_amrex vs hydro_serial (n=64, 20 steps, blast and sod)
 #        for ranks {1,2,4} x max_grid_size {32,16} x OMP threads {1,2}.
@@ -11,7 +11,8 @@
 #        max_grid_size {16,8} x OMP threads {1,2} (and 1 rank at mgs 32).
 # Prints one PASS/FAIL line per case and a summary; exit status 1 on any FAIL.
 set -u
-SER=$(realpath "$1"); AMX=$(realpath "$2"); W=$(realpath -m "$3"); QUICK=${4:-}
+SER=$(realpath "$1"); AMX=$(realpath "$2"); W=$(realpath -m "$3"); MODE=${4:-}
+QUICK=""; [ "$MODE" = quick ] && QUICK=1
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 MPIRUN="mpirun --oversubscribe --allow-run-as-root --bind-to none"
 ulimit -s unlimited 2>/dev/null || true
@@ -22,7 +23,7 @@ report() {  # name status
 }
 
 # ---------------- hydro ----------------
-for ic in blast sod; do
+[ "$MODE" = rt ] || for ic in blast sod; do
   OMP_NUM_THREADS=1 "$SER/hydro_serial" --n 64 --steps 20 --ic $ic --out "$W/hs_$ic.bin" > /dev/null
   for np in 1 2 4; do for mgs in 32 16; do for th in 1 2; do
     [ -n "$QUICK" ] && [ $th = 2 ] && [ $np != 1 ] && continue
@@ -55,9 +56,11 @@ rt_case() {  # tag problem sets...
     report "rt $tag ranks=$np mgs=$mgs threads=$th (compare.py --rtol 0 --atol-frac 0)" $?
   done
 }
+if [ "$MODE" != hydro ]; then
 rt_case u8 uniform_8src legacy_rt=0
 rt_case ln16 lognormal_16src_smallbuf legacy_rt=0
 rt_case ln16p0 lognormal_16src_smallbuf legacy_rt=0 legacy_physics=0
+fi
 
 echo "SUMMARY: $npass PASS, $nfail FAIL"
 [ $nfail = 0 ]

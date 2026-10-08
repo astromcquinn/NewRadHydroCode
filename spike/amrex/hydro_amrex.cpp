@@ -23,6 +23,13 @@
 
 using namespace amrex;
 
+// Predictor states: by default AoS, one QCell (20 doubles) per cell in a
+// FabArray<BaseFab<QCell>>, which is what the kernels (contiguous Q[NQ]) want;
+// -DHYDRO_Q_SOA stores them as a 20-component MultiFab (AMReX's native SoA).
+struct QCell {
+  double v[rrh::NQ];
+};
+
 int main(int argc, char** argv) {
   // Our own command line; keep AMReX quiet and do not let it parse argv.
   amrex::Initialize(argc, argv, false, MPI_COMM_WORLD, []() {
@@ -44,7 +51,8 @@ int main(int argc, char** argv) {
       else if (s == "--max_grid_size") mgs = std::atoi(argv[++a]);
       else amrex::Abort("unknown argument " + s);
     }
-    constexpr int G = rrh::NG, NV = rrh::NV, NQ = rrh::NQ;
+    constexpr int G = rrh::NG, NV = rrh::NV;
+    [[maybe_unused]] constexpr int NQ = rrh::NQ;
     const Box domain(IntVect(0), IntVect(n - 1));
     const RealBox rb({0., 0., 0.}, {1., 1., 1.});
     const Array<int, 3> per{1, 1, 1};
@@ -52,7 +60,12 @@ int main(int argc, char** argv) {
     BoxArray ba(domain);
     ba.maxSize(mgs);
     DistributionMapping dm(ba);
-    MultiFab U(ba, dm, NV, G), Q(ba, dm, NQ, 1);
+    MultiFab U(ba, dm, NV, G);
+#ifdef HYDRO_Q_SOA
+    MultiFab Q(ba, dm, NQ, 1);
+#else
+    FabArray<BaseFab<QCell>> Q(ba, dm, 1, 1);
+#endif
     Array<MultiFab, 3> F;
     for (int d = 0; d < 3; ++d) F[d].define(amrex::convert(ba, IntVect::TheDimensionVector(d)), dm, NV, 0);
 
@@ -72,8 +85,13 @@ int main(int argc, char** argv) {
     double t = 0;
     ParallelDescriptor::Barrier();
     const auto t0 = std::chrono::steady_clock::now();
+    auto clk = []() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
+    double Tfill = 0, Tred = 0, Tpred = 0, Tflux = 0, Tupd = 0;
     for (int s = 0; s < steps; ++s) {
+      double c0 = clk();
       U.FillBoundary(geom.periodicity());
+      double c1 = clk();
+      Tfill += c1 - c0;
       // global max signal speed (max is exact: order-independent)
       ReduceOps<ReduceOpMax> rop;
       ReduceData<double> rdat(rop);
@@ -89,6 +107,8 @@ int main(int argc, char** argv) {
       ParallelDescriptor::ReduceRealMax(smax);
       const double dt = cfl * dx / smax;
       const double dtdx = dt / dx;
+      double c2 = clk();
+      Tred += c2 - c1;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -99,11 +119,17 @@ int main(int argc, char** argv) {
         // predictor on the tile plus one ghost layer
         ParallelFor(mfi.growntilebox(1), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
           auto UA = [&](int ii, int jj, int kk, int m) { return u(ii, jj, kk, m); };
+#ifdef HYDRO_Q_SOA
           double qv[NQ];
           rrh::predict_cell(UA, i, j, k, dtdx, qv);
           for (int m = 0; m < NQ; ++m) q(i, j, k, m) = qv[m];
+#else
+          rrh::predict_cell(UA, i, j, k, dtdx, q(i, j, k).v);
+#endif
         });
       }
+      double c3 = clk();
+      Tpred += c3 - c2;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -113,16 +139,23 @@ int main(int argc, char** argv) {
           auto f = F[d].array(mfi);
           const int ei = d == 0, ej = d == 1, ek = d == 2;
           ParallelFor(mfi.nodaltilebox(d), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            double QL[NQ], QR[NQ], fv[NV];
+            double fv[NV];
+#ifdef HYDRO_Q_SOA
+            double QL[NQ], QR[NQ];
             for (int m = 0; m < NQ; ++m) {
               QL[m] = q(i - ei, j - ej, k - ek, m);
               QR[m] = q(i, j, k, m);
             }
             rrh::face_flux(QL, QR, d, fv);
+#else
+            rrh::face_flux(q(i - ei, j - ej, k - ek).v, q(i, j, k).v, d, fv);
+#endif
             for (int m = 0; m < NV; ++m) f(i, j, k, m) = fv[m];
           });
         }
       }
+      double c4 = clk();
+      Tflux += c4 - c3;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -144,6 +177,7 @@ int main(int argc, char** argv) {
           for (int m = 0; m < NV; ++m) u(i, j, k, m) = uv[m];
         });
       }
+      Tupd += clk() - c4;
       t += dt;
     }
     ParallelDescriptor::Barrier();
@@ -173,6 +207,8 @@ int main(int argc, char** argv) {
       std::printf(" ranks %d threads %d boxes %d wall %.3f s  ns/cell-update %.2f (core-ns %.2f)\n", nr, nth,
                   static_cast<int>(ba.size()), wall, 1e9 * wall / (double(n) * n * n * steps),
                   1e9 * wall * nth * nr / (double(n) * n * n * steps));
+      std::printf(" timers: FillBoundary %.3f maxspeed %.3f predict %.3f flux %.3f update %.3f\n", Tfill, Tred, Tpred,
+                  Tflux, Tupd);
       if (!out.empty()) {
         std::vector<double> o(static_cast<long long>(n) * n * n * NV);
         for (int k = 0; k < n; ++k)
