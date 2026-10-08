@@ -17,6 +17,7 @@ struct ProblemParams {
   int nsteps = 10;
   int nray_max_factor = 64;
   int legacy_rt = 1;  // 1: original RT bookkeeping; 0: fixes B1-B4, B8, B9
+  int legacy_physics = 1;  // 1: original atomic physics; 0: fixes P1-P6
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.

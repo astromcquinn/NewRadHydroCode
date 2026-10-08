@@ -18,7 +18,7 @@ constexpr double s(float v) { return static_cast<double>(v); }
 }  // namespace
 
 // rt_rates.f90: calc_atomic_rates
-void calc_atomic_rates(AtomicRates& R) {
+void calc_atomic_rates(AtomicRates& R, bool legacy_physics) {
   using namespace pc;
   using namespace cp;
   const double gam = gamma_ideal;
@@ -55,6 +55,29 @@ void calc_atomic_rates(AtomicRates& R) {
     x = 2 * xHeII;
     R.alpha_rec(6, i) = 2 * 3.753e-14 * pow(x, s(1.500f)) /
                         pow(1.0 + pow(x / s(2.740f), s(0.407f)), s(2.242f));
+
+    // legacy_physics = 0 (docs/port_notes.md 5b; harness PATCHES.md 9)
+    if (!legacy_physics) {
+      // P4: HeIII case B recombination. 2*3.753e-14 in the original is a
+      // typo; Hui & Gnedin (1997, MNRAS 292, 27, Appendix A):
+      // alpha_HeIII^B = 2*alpha_HII^B(lambda_HeII), coefficient 2.753e-14.
+      x = 2 * xHeII;
+      R.alpha_rec(6, i) = 2 * 2.753e-14 * pow(x, s(1.500f)) /
+                          pow(1.0 + pow(x / s(2.740f), s(0.407f)), s(2.242f));
+      // P6: HeII dielectronic recombination, Aldrovandi & Pequignot (1973)
+      // as given by Hui & Gnedin (1997, Appendix A):
+      // 1.90e-3 T^-1.5 exp(-0.75 lambda_HeII/2) (1 + 0.3 exp(-0.15 lambda_HeII/2)),
+      // added to the case A and case B radiative rates.
+      double adi;
+      if (xHeII > 100) {
+        adi = 0;
+      } else {
+        x = 2 * xHeII;
+        adi = 1.90e-3 / pow(T, 1.5) * exp(-0.375 * x) * (1 + 0.3 * exp(-0.075 * x));
+      }
+      R.alpha_rec(2, i) = R.alpha_rec(2, i) + adi;
+      R.alpha_rec(5, i) = R.alpha_rec(5, i) + adi;
+    }
 
     // HI collisional ionization
     if (xHI > 100) {
@@ -166,6 +189,53 @@ void calc_atomic_rates(AtomicRates& R) {
     R.coef_cool(14, i) =
         4 * sS_cgs / c_cgs * s(8.0f / 3.0f) * s(3.36e-24f) / (gam - 1);
     // coef_cool(15,:) never set in the original (stays 0, module array)
+
+    // legacy_physics = 0 (docs/port_notes.md 5b; harness PATCHES.md 9):
+    // overwrite the legacy values. radiative_physics then uses the corrected
+    // cooling sum, in which coef_cool(11) and (15) enter.
+    if (!legacy_physics) {
+      // P1: case B recombination cooling, Hui & Gnedin (1997, Appendix A).
+      // The original repeats the case A fits.
+      //   HII  : 3.435e-30 T lambda_HI^1.970 / (1+(lambda_HI/2.250)^0.376)^3.720
+      //   HeII : k T alpha_HeII^B = 1.26e-14 k T lambda_HeI^0.750 (radiative)
+      //   HeIII: 8 x the HII fit at lambda_HeII
+      x = 2 * xHI;
+      R.coef_cool(4, i) = 3.435e-30 * T * pow(x, 1.970) / pow(1 + pow(x / 2.250, 0.376), 3.720);
+      x = 2 * xHeI;
+      R.coef_cool(5, i) = 1.26e-14 * (k_cgs * T) * pow(x, 0.750);
+      x = 2 * xHeII;
+      R.coef_cool(6, i) =
+          8 * 3.435e-30 * T * pow(x, 1.970) / pow(1 + pow(x / 2.250, 0.376), 3.720);
+
+      // P5: collisional ionisation cooling = ionisation potential x rate,
+      // k T_X Gamma_X (Hui & Gnedin 1997, Appendix A; Cen 1992). The
+      // original uses k T, which underestimates it by T_X/T.
+      R.coef_cool(7, i) = (k_cgs * HI_K) * R.gamma_col(1, i);
+      R.coef_cool(8, i) = (k_cgs * HeI_K) * R.gamma_col(2, i);
+      R.coef_cool(9, i) = (k_cgs * HeII_K) * R.gamma_col(3, i);
+
+      // P2: HeI (2^3S) collisional excitation cooling, Cen (1992, ApJS 78,
+      // 341): 9.10e-27 T^-0.1687 (1+sqrt(T/1e5))^-1 exp(-13179/T)
+      // [erg cm^6/s], multiplies ne^2 nHeII.
+      if (13179 / T > 100) {
+        R.coef_cool(11, i) = 0;
+      } else {
+        R.coef_cool(11, i) =
+            9.10e-27 / pow(T, 0.1687) * exp(-13179 / T) / (1 + sqrt(T / 1e5));
+      }
+
+      // P3: coef_cool(15) = HeII dielectronic recombination cooling,
+      // 0.75 k T_HeII alpha_d (Hui & Gnedin 1997, Appendix A; = Cen 1992's
+      // 1.24e-13 T^-1.5 exp(-470000/T)(1+0.3 exp(-94000/T))), times ne*nHeII.
+      if (xHeII > 100) {
+        R.coef_cool(15, i) = 0;
+      } else {
+        x = 2 * xHeII;
+        const double adi =
+            1.90e-3 / pow(T, 1.5) * exp(-0.375 * x) * (1 + 0.3 * exp(-0.075 * x));
+        R.coef_cool(15, i) = 0.75 * (k_cgs * HeII_K) * adi;
+      }
+    }
   }
 }
 
