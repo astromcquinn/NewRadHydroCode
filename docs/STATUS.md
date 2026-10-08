@@ -91,7 +91,14 @@ follow-up PR.
    | Flags | legacy_rt = legacy_physics = 0 |
 4. Possibly run on the user's cluster: Claude Code installed in user space,
    `claude remote-control` inside tmux, batch jobs with restarts.
-5. Phase 2: Kokkos/GPU and MPI. Phase 3: ray encoding and adaptive split/merge.
+5. After the production run, follow `docs/ROADMAP.md`:
+   - ray compression study, which can start now;
+   - framework spike (AMReX vs Parthenon);
+   - ray data-structure rewrite;
+   - MPI;
+   - AMR for gas, then RT;
+   - multigrid/tree gravity;
+   - adaptive RT.
 
 ## Open questions for the user
 
