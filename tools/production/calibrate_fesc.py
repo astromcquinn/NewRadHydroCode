@@ -43,7 +43,9 @@ def main():
     ap.add_argument("--target", type=float, default=reion.PLANCK_TAU)
     ap.add_argument("--movie-dz", type=float, default=0.05)
     ap.add_argument("--movie-fields", default="fHI")
-    ap.add_argument("--extra", nargs="*", default=[], help="key=value lines added to params.txt")
+    ap.add_argument("--extra", nargs="*", default=["data_files=dm", "fields_at_data1=0"],
+                    help="key=value lines added to params.txt (default: lean outputs, about "
+                         "0.7 GB per 128^3 run instead of 6 GB)")
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.abspath(os.path.join(a.outdir, "ics"))
