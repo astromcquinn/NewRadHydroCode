@@ -8,7 +8,9 @@ exactly this, so their outputs can be compared file-by-file.
 * Cosmology and RT parameters: exactly `reference/Radhydro/cosmo_parameters.f90`
   (box = 5 Mpc/h, Omega_m = 0.27, Omega_b = 0.045, h = 0.7, Nfreq = 5, ...).
 * `Ngas = Nrt = N` (default `N = 32`), so `N_rt_gas = 1`.
-* `Nray_max = 64*N^3` (it enters the `ngam_ray` thresholds — keep it).
+* `Nray_max = nray_max_factor*N^3`, default factor 64 as in the original (it
+  enters the `ngam_ray` thresholds and the ray-buffer logic — keep both).
+  `params.txt` may set `nray_max_factor`.
 * Ray parameters as in `ray_tracing_tools.f90` (`nside_init=4`,
   `lside_max=13`, `ray_per_cell=1`).
 * `RAYFAST` undefined (the default code path). `METAL`, `FREQ1` undefined.
@@ -29,7 +31,8 @@ exactly this, so their outputs can be compared file-by-file.
 * `sources.txt`: one source per line: `i j k Luv sfr` with 1-based RT cell
   indices; these are assigned to `rt_grid%Luv`/`%sfr` exactly as
   `halo_tools.f90: add_halo_to_rt` would (metal injection skipped).
-* `params.txt`: `key = value` lines (`N`, `z_init`, `da_sim`, `nsteps`).
+* `params.txt`: `key = value` lines (`N`, `z_init`, `da_sim`, `nsteps`,
+  optional `nray_max_factor`).
 
 Problems:
 1. `uniform_1src`: uniform gas at mean baryon density, neutral, T = temp_min,
@@ -37,10 +40,13 @@ Problems:
 2. `uniform_8src`: as 1 with 8 sources at fixed positions.
 3. `lognormal_16src`: deterministic log-normal density field (seeded), neutral,
    16 sources in the densest cells.
+4. `uniform_8src_smallbuf`: as 2 but `nray_max_factor = 4`, so the `ngam_ray`
+   thresholds become nonzero and the merge path is exercised.
 
 ## Outputs (`<outdir>/step_%04d/`, after each hydro step)
 
-Raw little-endian float32, Fortran order (component index fastest):
+Raw little-endian float32, Fortran order (component index fastest), one file
+per field named `<field>.bin` (e.g. `fHI.bin`, `ngam.bin`):
 `fHI, fHeI, fHeII, temp, rhog` (N^3), `ngam, nu, fgam, tau` (Nfreq,N^3),
 `gamma, lambda, dx` (3,N^3) — i.e. the `rt_grid` fields — plus
 `u_gas` (5,N^3) and `w_gas` (4,N^3).
