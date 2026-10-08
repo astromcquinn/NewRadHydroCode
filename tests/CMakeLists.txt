@@ -492,3 +492,8 @@ foreach(t ${RADRAY_ALL_TESTS})
     set_property(TEST ${t} APPEND PROPERTY ENVIRONMENT OMP_NUM_THREADS=2)
   endif()
 endforeach()
+
+# Hydro accuracy test suite (docs/hydro_tests.md)
+if(RADRAY_HAVE_PM)
+  add_subdirectory(hydro_suite)
+endif()
