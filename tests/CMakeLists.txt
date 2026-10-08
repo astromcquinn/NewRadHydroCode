@@ -333,3 +333,8 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
     endif()
   endforeach()
 endif()
+
+# Hydro accuracy test suite (docs/hydro_tests.md)
+if(RADRAY_HAVE_PM)
+  add_subdirectory(hydro_suite)
+endif()
