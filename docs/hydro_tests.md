@@ -36,7 +36,7 @@ calls the unmodified library in the order of `apps/hydro_driver`
 equations contain no expansion terms for gamma = 5/3, so the code time
 t = Σ dt_sim *is* the Newtonian time of a test problem, whatever a(t) does.
 Only the 1 K floor and `c_limit` see the scale factor. Hydro-only tests start
-at z = 1000 (tubes, sound) or 10^4–10^5 (Sedov, KH) to have enough code time
+at z = 1000 (tubes) or 10^4–10^5 (sound, Sedov, KH) to have enough code time
 before a → ∞ (τ(∞) − τ(a) = 3/√a in matter domination). A Sod run started at
 z = 10 instead of z = 1000 gives bit-identical profiles (checked).
 
