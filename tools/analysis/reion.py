@@ -46,9 +46,21 @@ def nH0():
     return X * OB * rho_c / MH
 
 
-def read_frames(run_dir):
+def read_frames(run_dir, valid_only=False):
+    """frame, z, <x_HII>_V, <x_HII>_M from movie/frames.txt.
+
+    Frames written before the RT has run (no source yet) see an
+    uninitialised rt_grid (fHI = 0, rhog = 0: x_V = 1, x_M = nan); the gas is
+    neutral then, so x = 0 is returned for them. valid_only drops them.
+    """
     f = np.loadtxt(os.path.join(run_dir, "movie", "frames.txt"), ndmin=2)
-    return f[:, 0].astype(int), f[:, 3], f[:, 4], f[:, 5]  # frame, z, xV, xM
+    fr, z, xV, xM = f[:, 0].astype(int), f[:, 3], f[:, 4], f[:, 5]
+    pre = ~np.isfinite(xM)
+    if valid_only:
+        return fr[~pre], z[~pre], xV[~pre], xM[~pre]
+    xV = np.where(pre, 0.0, xV)
+    xM = np.where(pre, 0.0, xM)
+    return fr, z, xV, xM
 
 
 def tau_history(z_frames, xM_frames, nz=4000):
@@ -63,6 +75,17 @@ def tau_history(z_frames, xM_frames, nz=4000):
     integrand = SIGMA_T * C * nH0() * (1 + zz) ** 3 * x * he / ((1 + zz) * _H(zz))
     tau = np.concatenate([[0], np.cumsum(0.5 * (integrand[1:] + integrand[:-1]) * np.diff(zz))])
     return zz, tau
+
+
+def tau_running(z_frames, xM_frames, nz=4000):
+    """tau_es known at each frame: the run's history from z_max down to the
+    frame redshift, plus a fully ionised universe below it. It increases as
+    the run proceeds and equals the total tau_es at the last frame (where the
+    run is taken to be fully ionised below). Returns tau at z_frames."""
+    zz, tau = tau_history(z_frames, xM_frames, nz)
+    zz1, tau1 = tau_history(np.array([z_frames.min(), z_frames.max()]), np.array([1.0, 1.0]), nz)
+    t_all = tau[-1]
+    return np.array([t_all - np.interp(z, zz, tau) + np.interp(z, zz1, tau1) for z in z_frames])
 
 
 def main():

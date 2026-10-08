@@ -68,7 +68,7 @@ def render(k):
     npan = len(panels)
     w = 0.92 / npan
     for i, (title, img, cmap, (vmin, vmax), _) in enumerate(panels):
-        ax = fig.add_axes([0.04 + i * w, 0.38, w - 0.02, 0.56])
+        ax = fig.add_axes([0.04 + i * w, 0.38, w - 0.02, 0.52])
         im = ax.imshow(img, origin="lower", cmap=cmap, vmin=vmin, vmax=vmax,
                        extent=[0, A.box, 0, A.box], interpolation="nearest")
         ax.set_title(title, color="white", fontsize=14)
@@ -77,8 +77,8 @@ def render(k):
         cb = fig.colorbar(im, ax=ax, orientation="horizontal", fraction=0.05, pad=0.03)
         cb.ax.tick_params(colors="white", labelsize=10)
         cb.outline.set_edgecolor("white")
-    fig.text(0.04, 0.955, f"z = {z:5.2f}", color="white", fontsize=22, weight="bold")
-    fig.text(0.96, 0.955, f"{A.box:g} Mpc/h, {n}³ RT cells, slice {A.slice_axis} = {si}"
+    fig.text(0.04, 0.95, f"z = {z:5.2f}", color="white", fontsize=22, weight="bold")
+    fig.text(0.96, 0.975, f"{A.box:g} Mpc/h, {n}³ RT cells, slice {A.slice_axis} = {si}"
              f"{'' if A.thick == 1 else f' (+{A.thick-1})'}, ĉ = {A.c_label}",
              color="0.8", fontsize=12, ha="right")
 
@@ -94,7 +94,7 @@ def render(k):
     ax1.set_xlim(zr[1], zr[0])
     ax1.set_ylim(0, 1.02)
     ax1.set_xlabel("z", color="white")
-    ax1.set_ylabel("⟨x$_{\\rm HII}$⟩", color="white")
+    ax1.set_ylabel(r"$\langle x_{\rm HII}\rangle$", color="white")
     ax1.legend(frameon=False, labelcolor="white", fontsize=10, loc="upper left")
     ax2 = fig.add_axes([0.55, 0.07, 0.40, 0.24], facecolor="black")
     ax2.axhspan(reion.PLANCK_TAU - reion.PLANCK_SIG, reion.PLANCK_TAU + reion.PLANCK_SIG,
@@ -108,7 +108,8 @@ def render(k):
     ax2.set_xlim(zr[1], zr[0])
     ax2.set_ylim(0, max(0.08, 1.1 * tau.max()))
     ax2.set_xlabel("z", color="white")
-    ax2.set_ylabel("τ$_{\\rm es}$(<z)", color="white")
+    ax2.set_ylabel("τ$_{\\rm es}$", color="white")
+    ax2.set_title("τ$_{\\rm es}$ so far (+ fully ionized below z)", color="0.8", fontsize=10)
     for ax in (ax1, ax2):
         ax.tick_params(colors="white")
         for sp in ax.spines.values():
@@ -137,10 +138,21 @@ def main():
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--dpi", type=int, default=100)
     ap.add_argument("--frames-only", action="store_true")
+    ap.add_argument("--z-start", type=float, default=0, help="first redshift shown (0: all)")
     A = ap.parse_args()
+    # Frames before the first RT substep have no valid rt_grid (reion.py):
+    # they enter the history as neutral, but are not rendered.
     fr, z, xV, xM = reion.read_frames(A.run)
     zz, tau = reion.tau_history(z, xM)
-    HIST = {"frame": fr, "z": z, "xV": xV, "xM": xM, "tau": np.interp(z, zz, tau)}
+    if A.z_start > 0:
+        keep = z <= A.z_start
+        fr, z, xV, xM = fr[keep], z[keep], xV[keep], xM[keep]
+    valid = set(reion.read_frames(A.run, valid_only=True)[0])
+    keep = np.array([f in valid for f in fr])
+    fr, z, xV, xM = fr[keep], z[keep], xV[keep], xM[keep]
+    fall, zall, _, xMall = reion.read_frames(A.run)
+    trun = dict(zip(fall, reion.tau_running(zall, xMall)))
+    HIST = {"frame": fr, "z": z, "xV": xV, "xM": xM, "tau": np.array([trun[f] for f in fr])}
     A.zlo, A.zhi = z.min() - 0.1, z.max() + 0.1
     A.png_dir = os.path.join(A.run, "movie", "png")
     os.makedirs(A.png_dir, exist_ok=True)
