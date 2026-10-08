@@ -10,7 +10,9 @@
 #SBATCH --ntasks-per-node=192
 #SBATCH --cpus-per-task=1
 #SBATCH --exclusive
-#SBATCH --mem=0
+# whole node via --exclusive; --mem=0 asks for all 1.5 TB, above the astro group
+# memory limit while other members run jobs
+#SBATCH --mem=256G
 #SBATCH --time=08:00:00
 #SBATCH --output=spike-node-%j.log
 set -u

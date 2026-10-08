@@ -7,10 +7,22 @@
 # The defaults below load whatever version the stack marks as default.
 : "${SPIKE_MODULES:=gcc ompi cmake}"
 if command -v module > /dev/null 2>&1; then
+  # Lmod's shell functions fail under `set -u` (the sbatch scripts use it)
+  case $- in *u*) _spike_u=1; set +u;; *) _spike_u=;; esac
   for m in $SPIKE_MODULES; do
     module load "$m" || echo "env.sh: could not load module $m (set SPIKE_MODULES)" >&2
   done
+  [ -n "$_spike_u" ] && set -u; unset _spike_u
 fi
+# klone's ompi/4.1.6-2 module sets CC=mpiCC (the C++ wrapper), which breaks
+# CMake's C compiler check
+[ "${CC:-}" = mpiCC ] && export CC=mpicc
+# Optional directories to prepend to PATH, e.g. one with a newer cmake and a
+# python3 with numpy (klone's cmake modules depend_on gcc/11.2.0 and its
+# system python3 is 3.6). On klone (2026-10) we used
+#   SPIKE_MODULES="gcc/13.2.0 ompi/4.1.6-2"
+#   SPIKE_PATH=/gscratch/astro/$USER/spike/bin   (symlinks to cmake 4.4, python 3.12)
+[ -n "${SPIKE_PATH:-}" ] && export PATH="$SPIKE_PATH:$PATH"
 for t in mpicxx mpirun cmake g++ python3; do
   command -v $t > /dev/null 2>&1 || echo "env.sh: $t not found in PATH" >&2
 done
