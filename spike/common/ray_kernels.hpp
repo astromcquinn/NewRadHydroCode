@@ -21,6 +21,7 @@
 
 #include "healpix_hd.hpp"
 #include "radray/constants.hpp"
+#include "consts_hd.hpp"
 #include "rr_hd.hpp"
 
 namespace rrk {
@@ -339,7 +340,7 @@ RR_HD RayP merge_finish(const MergeAcc& a, const float cc[3], const RTP& P) {
   for (int d = 0; d < 3; ++d) x[d] = rrf::mod(static_cast<double>(cc[d]) + xd[d] + P.nrtr, P.nrtr);
   for (int n = 0; n < NF; ++n) {
     if (a.ngam[n] < P.ngam_min) {
-      nu[n] = cp::freq_init[n];
+      nu[n] = rrk::freq_init(n);
       ngam[n] = 0;
     } else {
       nu[n] = a.nu[n] / a.ngam[n];
@@ -382,8 +383,8 @@ RR_HD void source_thick_deposit(float Luv, const RTP& P, double v[kNdep]) {
   using namespace radray;
   const double Ldt = static_cast<double>(Luv) * P.dtsec_rt;
   for (int n = 0; n < NF; ++n) {
-    const double nu = cp::freq_init[n];
-    double ngam = cp::fResc * cp::pop2_init[n] * Ldt;
+    const double nu = rrk::freq_init(n);
+    double ngam = cp::fResc * rrk::pop2_init(n) * Ldt;
     ngam = ngam / P.vol_rt / P.nH_avg;
     v[n] = ngam;
     v[5 + n] = ngam * nu;
@@ -407,9 +408,9 @@ RR_HD RayP source_ray(int ipix, int i, int j, int k, float Luv, const RTP& P) {
   rrhp::pix2vec_nest(rayp::nside_init, ipix, dx);
   for (int d = 0; d < 3; ++d) ry.dx[d] = static_cast<float>(dx[d]);
   for (int n = 0; n < NF; ++n) {
-    double ngam = cp::fResc * cp::pop2_init[n] * Ldt;
+    double ngam = cp::fResc * rrk::pop2_init(n) * Ldt;
     ngam = ngam / P.vol_rt / P.nH_avg / rayp::nray_init;
-    ry.nu[n] = static_cast<float>(cp::freq_init[n]);
+    ry.nu[n] = static_cast<float>(rrk::freq_init(n));
     ry.ngam[n] = static_cast<float>(ngam);
   }
   return ry;
@@ -673,7 +674,7 @@ RR_HD void redshift_ray(RayP& ry, const RedshiftTable& T) {
   }
   for (int i = 1; i <= NF; ++i) {
     if (ngam1[i - 1] < T.ngam_min) {
-      nu[i - 1] = cp::freq_init[i - 1];
+      nu[i - 1] = rrk::freq_init(i - 1);
       ngam[i - 1] = 0;
     } else {
       nu[i - 1] = egam1[i - 1] / ngam1[i - 1] * T.fscale;

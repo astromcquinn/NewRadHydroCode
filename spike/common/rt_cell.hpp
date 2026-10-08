@@ -10,6 +10,7 @@
 
 #include "radray/constants.hpp"
 #include "radray/cosmology.hpp"
+#include "consts_hd.hpp"
 #include "rr_hd.hpp"
 
 namespace rrk {
@@ -204,7 +205,7 @@ RR_HD bool physics_cell(CellData& c, const PhysCtx& X) {
 
   for (int n = 0; n < 5; ++n) {
     if (static_cast<double>(gng[n]) < u.ngam_min) {
-      gnu[n] = static_cast<float>(freq_init[n]);
+      gnu[n] = static_cast<float>(rrk::freq_init(n));
       gng[n] = 0;
     } else {
       gnu[n] = gnu[n] / gng[n];
