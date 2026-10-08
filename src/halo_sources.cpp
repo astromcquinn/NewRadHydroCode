@@ -443,28 +443,87 @@ void calc_halo_records(Simulation& s, const std::vector<SourceRecord>& src,
 // Driver
 // ---------------------------------------------------------------------------
 
+SourceCatalog onthefly_catalog(const Config& cfg, const SimClock& clk, const Units& u,
+                               const float* xv_dm, std::int64_t npart,
+                               const HaloSourceParams& p) {
+  if (!xv_dm && npart > 0) throw std::invalid_argument("onthefly_catalog: xv_dm is null");
+  const HaloUnits hu = make_halo_units(cfg, clk, u);
+  const auto halos = find_halos(xv_dm, npart, hu, p.finder);
+  std::vector<SfrHistoryRow> table;
+  if (!p.model.sfr_history_path.empty()) table = read_sfr_history(p.model.sfr_history_path);
+  SourceCatalog cat = assign_sources(halos, hu, p.model,
+                                     p.model.sfr_history_path.empty() ? nullptr : &table);
+  if (!p.write_catalog_dir.empty() && !cat.tag.empty()) {
+    std::filesystem::create_directories(p.write_catalog_dir);
+    write_halo_catalog(p.write_catalog_dir + "/halo." + cat.tag, cat.halo);
+  }
+  return cat;
+}
+
 SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npart,
                              const HaloSourceParams& p, std::ostream* log) {
   SourceCatalog cat;
   if (p.mode == HaloSourceParams::Mode::Legacy) {
     cat = read_halo(p.dir_halo, s.clk.redshift, log);
   } else {
-    if (!xv_dm && npart > 0) throw std::invalid_argument("update_sources: xv_dm is null");
-    const HaloUnits hu = make_halo_units(s.cfg, s.clk, s.units);
-    const auto halos = find_halos(xv_dm, npart, hu, p.finder);
-    std::vector<SfrHistoryRow> table;
-    if (!p.model.sfr_history_path.empty()) table = read_sfr_history(p.model.sfr_history_path);
-    cat = assign_sources(halos, hu, p.model,
-                         p.model.sfr_history_path.empty() ? nullptr : &table);
-    if (!p.write_catalog_dir.empty() && !cat.tag.empty()) {
-      std::filesystem::create_directories(p.write_catalog_dir);
-      write_halo_catalog(p.write_catalog_dir + "/halo." + cat.tag, cat.halo);
-    }
+    cat = onthefly_catalog(s.cfg, s.clk, s.units, xv_dm, npart, p);
     if (log) *log << " Halos " << cat.halo.size() << " " << cat.Nsource << "\n";
   }
   s.Nsource = cat.Nsource;
   if (cat.Nsource > 0) calc_halo_records(s, cat.halo, cat.Nsource, p.add_metals);
   return cat;
+}
+
+}  // namespace radray
+
+namespace radray {
+
+bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::string& val) {
+  auto num = [&]() {
+    std::string v = val;
+    for (auto& ch : v)
+      if (ch == 'd' || ch == 'D') ch = 'e';
+    return std::stod(v);
+  };
+  if (key == "source_mode") {
+    if (val == "legacy")
+      p.mode = HaloSourceParams::Mode::Legacy;
+    else if (val == "onthefly")
+      p.mode = HaloSourceParams::Mode::OnTheFly;
+    else
+      throw std::runtime_error("source_mode must be legacy or onthefly: " + val);
+  } else if (key == "dir_halo") {
+    p.dir_halo = val;
+    if (!p.dir_halo.empty() && p.dir_halo.back() != '/') p.dir_halo += '/';
+  } else if (key == "fof_b") {
+    p.finder.b = num();
+  } else if (key == "fof_min_npart") {
+    p.finder.min_npart = static_cast<std::int64_t>(num());
+  } else if (key == "fof_so") {
+    p.finder.so_refine = num() != 0;
+  } else if (key == "sfr_model") {
+    if (val == "global")
+      p.model.model = SfrModel::GlobalMassProportional;
+    else if (val == "dynamical")
+      p.model.model = SfrModel::Dynamical;
+    else
+      throw std::runtime_error("sfr_model must be global or dynamical: " + val);
+  } else if (key == "tvir_min") {
+    p.model.Tvir_min = num();
+  } else if (key == "m_min") {
+    p.model.M_min = num();
+  } else if (key == "l_per_sfr") {
+    p.model.L_per_sfr = num();
+  } else if (key == "sfr_history") {
+    p.model.sfr_history_path = val;
+  } else if (key == "write_catalogs") {
+    p.write_catalog_dir = val;
+  } else if (key == "add_metals") {
+    p.add_metals = num() != 0;
+  } else {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace radray

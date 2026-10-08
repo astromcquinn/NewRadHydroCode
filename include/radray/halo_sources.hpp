@@ -187,6 +187,22 @@ struct HaloSourceParams {
                                       // written there in legacy format
 };
 
+// On-the-fly catalog: find_halos on xv_dm + assign_sources (+ optional
+// legacy dump), for the redshift of clk; units from calc_sim_var. The same
+// function serves the C++ driver and the C interface used by the Fortran
+// full harness (radray_onthefly_sources, halo_capi.cpp).
+SourceCatalog onthefly_catalog(const Config& cfg, const SimClock& clk, const Units& u,
+                               const float* xv_dm, std::int64_t npart,
+                               const HaloSourceParams& p);
+
+// Sets one halo/source parameter from a `key = value` entry (params.txt of
+// apps/radhydro and of the full Fortran harness). Returns false if the key
+// is not a halo/source key. Keys: source_mode (legacy|onthefly), dir_halo,
+// fof_b, fof_min_npart, fof_so (0|1), sfr_model (global|dynamical),
+// tvir_min, m_min, l_per_sfr, sfr_history, write_catalogs (directory),
+// add_metals (0|1).
+bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::string& val);
+
 // What radhydro.f90 does once per hydro step before radiative_transfer:
 // obtain the source list (read_halo, or FoF + source model on xv_dm) and,
 // if Nsource > 0, calc_halo. Returns the catalog; the caller calls

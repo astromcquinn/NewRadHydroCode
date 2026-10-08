@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "radray/constants.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/halo_sources.hpp"
 #include "radray/halos.hpp"
@@ -66,7 +67,8 @@ int main(int argc, char** argv) {
   if (argc < 4) {
     std::fprintf(stderr,
                  "usage: %s <xv_dm|--synthetic Ndm> <redshift> <out> [--b x] [--nmin n] [--so]\n"
-                 "       [--potmin] [--model global|dynamical] [--sfr file] [--tvir T] [--seq]\n",
+                 "       [--potmin] [--model global|dynamical] [--sfr file] [--tvir T] [--seq]\n"
+                 "       [--box Mpc/h (default 5)] [--ngas Ngas (default 2*Ndm)]\n",
                  argv[0]);
     return 2;
   }
@@ -96,6 +98,8 @@ int main(int argc, char** argv) {
     SourceModelParams mp;
     CatalogFormat fmt = CatalogFormat::Stream;
     std::vector<SfrHistoryRow> table;
+    double box = cp::box_default;
+    int ngas = 0;
     for (; a < argc; ++a) {
       const std::string s = argv[a];
       if (s == "--b") fp.b = std::atof(argv[++a]);
@@ -106,9 +110,11 @@ int main(int argc, char** argv) {
       else if (s == "--sfr") table = read_sfr_history(argv[++a]);
       else if (s == "--tvir") mp.Tvir_min = std::atof(argv[++a]);
       else if (s == "--seq") fmt = CatalogFormat::Sequential;
+      else if (s == "--box") box = std::atof(argv[++a]);
+      else if (s == "--ngas") ngas = std::atoi(argv[++a]);
       else throw std::runtime_error("unknown option " + s);
     }
-    const Config cfg = Config::make(2 * Ndm);
+    const Config cfg = Config::make(ngas > 0 ? ngas : 2 * Ndm, 64, Ndm, box);
     SimClock clk;
     init_variables(z, clk);
     Units u;

@@ -36,6 +36,7 @@ option(RADRAY_HALOS_OPENMP "Build the halo finder with OpenMP" OFF)
 add_library(radray_halos
   src/halos.cpp
   src/halo_sources.cpp
+  src/halo_capi.cpp
   src/mass_function.cpp)
 target_link_libraries(radray_halos PUBLIC radray)
 if(RADRAY_HALOS_OPENMP)
@@ -75,6 +76,9 @@ if(RADRAY_WITH_PM)
     target_link_libraries(radray_pm PUBLIC radray_hydro)
     add_executable(pm_driver apps/pm_driver.cpp)
     target_link_libraries(pm_driver PRIVATE radray_pm)
+    # Full radhydro.f90 time loop (docs/full_run.md)
+    add_executable(radhydro apps/radhydro.cpp)
+    target_link_libraries(radhydro PRIVATE radray_pm radray_halos)
     message(STATUS "PM gravity and hydro: enabled (FFTW3f: ${FFTW3F_LIBRARY})")
   else()
     message(STATUS "PM gravity: disabled (FFTW3f not found)")

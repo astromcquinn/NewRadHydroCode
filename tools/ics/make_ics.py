@@ -87,7 +87,7 @@ def eval_on_lattice(field_k, nsrc, nout, offset):
 def zeldovich(args, ndm, ngas, a_init):
     rng = np.random.default_rng(args.seed)
     nc = ndm ** 3
-    L = pc.BOX
+    L = args.box if args.box is not None else pc.BOX
     g_full = pc.Growth(1.0)
     g = pc.Growth(1.0 if args.growth == "full" else 1.0 - pc.FB)
 
@@ -185,6 +185,9 @@ def main(argv=None):
     ap.add_argument("--growth", choices=("full", "frozen-gas"), default="full")
     ap.add_argument("--axis", choices=("x", "y", "z"), default="x")
     ap.add_argument("--a-cross", type=float, default=0.05)
+    ap.add_argument("--box", type=float, default=None,
+                    help="box size in Mpc/h (default 5, cosmo_parameters.f90); only "
+                         "the P(k) normalisation depends on it")
     args = ap.parse_args(argv)
 
     ngas = args.Ngas
@@ -213,6 +216,8 @@ def main(argv=None):
         av = [os.path.basename(os.path.normpath(x)) if x == args.outdir else x for x in av]
         f.write("command = make_ics.py " + " ".join(av) + "\n")
         for k, v in vars(args).items():
+            if k == "box" and v is None:
+                continue
             if k == "outdir":
                 v = os.path.basename(os.path.normpath(v))
             f.write(f"{k} = {v}\n")
