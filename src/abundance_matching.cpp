@@ -184,7 +184,22 @@ std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt) {
 // Parametric model
 // ---------------------------------------------------------------------------
 
+double LuvModel::dlogL_norm(double z) const {
+  if (norm_z.empty() || !(z > z_hi)) return 0;
+  double za = z_hi, da = 0;
+  for (std::size_t k = 0; k < norm_z.size(); ++k) {
+    if (z <= norm_z[k]) return da + (norm_dlogL[k] - da) * (z - za) / (norm_z[k] - za);
+    za = norm_z[k];
+    da = norm_dlogL[k];
+  }
+  return da;  // held beyond the last knot
+}
+
 double LuvModel::log_luv(double logM, double z) const {
+  return log_luv_shape(logM, z) + dlogL_norm(z);
+}
+
+double LuvModel::log_luv_shape(double logM, double z) const {
   const double x = std::clamp(z, z_lo, z_hi) - z0;
   const double logLp = p[0] + p[1] * x + p[2] * x * x;
   const double a = p[3] + p[4] * x;
@@ -216,6 +231,13 @@ std::string LuvModel::to_params() const {
   s << "am_z0 = " << z0 << "\n";
   if (z_lo > 0) s << "am_zlo = " << z_lo << "\n";
   if (z_hi < 1e29) s << "am_zhi = " << z_hi << "\n";
+  if (!norm_z.empty()) {
+    s << "am_norm_z = ";
+    for (std::size_t k = 0; k < norm_z.size(); ++k) s << (k ? "," : "") << norm_z[k];
+    s << "\nam_norm_dl = ";
+    for (std::size_t k = 0; k < norm_dlogL.size(); ++k) s << (k ? "," : "") << norm_dlogL[k];
+    s << "\n";
+  }
   return s.str();
 }
 
@@ -223,7 +245,7 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
                         const std::array<bool, LuvModel::kNpar>& free) {
   std::vector<const AMPoint*> use;
   for (const auto& p : pts)
-    if (p.in_range && p.weight > 0) use.push_back(&p);
+    if (p.in_range && p.weight > 0 && p.z <= start.z_hi) use.push_back(&p);
   FitResult r;
   r.model = start;
   r.npoints = static_cast<int>(use.size());
@@ -240,7 +262,7 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
     for (int k = 0; k < nd; ++k) m.p[idx[k]] = v[k];
     double s = 0;
     for (const auto* p : use) {
-      const double d = m.log_luv(p->logM, p->z) - p->logL;
+      const double d = m.log_luv_shape(p->logM, p->z) - p->logL;
       s += p->weight * d * d;
     }
     return s / wsum;
@@ -310,6 +332,28 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
   r.rms_dex = std::sqrt(cost(x0));
   r.iterations = iters;
   return r;
+}
+
+LuvModel fit_highz_norm(const std::vector<AMPoint>& pts, const LuvModel& shape) {
+  LuvModel m = shape;
+  m.norm_z.clear();
+  m.norm_dlogL.clear();
+  std::vector<double> zs;
+  for (const auto& p : pts)
+    if (p.in_range && p.weight > 0 && p.z > shape.z_hi) zs.push_back(p.z);
+  std::sort(zs.begin(), zs.end());
+  zs.erase(std::unique(zs.begin(), zs.end()), zs.end());
+  for (double z : zs) {
+    double sw = 0, sd = 0;
+    for (const auto& p : pts) {
+      if (!p.in_range || !(p.weight > 0) || p.z != z) continue;
+      sw += p.weight;
+      sd += p.weight * (p.logL - shape.log_luv_shape(p.logM, p.z));
+    }
+    m.norm_z.push_back(z);
+    m.norm_dlogL.push_back(sd / sw);
+  }
+  return m;
 }
 
 std::vector<double> model_lf(const LuvModel& m, double z, const std::vector<double>& M_uv,

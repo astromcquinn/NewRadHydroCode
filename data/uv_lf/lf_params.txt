@@ -31,5 +31,9 @@
 #     and 13.5 (normalisation only)
 #   Harikane et al. 2024, ApJ 960, 56 (arXiv:2304.06658): spectroscopic only
 #   Whitler et al. 2025 (JADES, arXiv:2501.00984): z >~ 9
+# Rows above am_fit --shape-zmax (10.5) only set the normalisation of
+# L_UV(M) (shape fixed to the HST fit, user decision 2026-10-08). Set
+# M_bright/M_faint to the luminous galaxies actually observed, so that the
+# normalisation is fitted to them and not to the extrapolated faint end.
 # Template:
-# 11.0  dpl  M*  phi*  alpha  beta  -22.0  -17.5  1  Donnan+24  unconfirmed
+# 11.0  dpl  M*  phi*  alpha  beta  -22.0  -18.5  1  Donnan+24  unconfirmed

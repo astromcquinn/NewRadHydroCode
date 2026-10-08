@@ -13,8 +13,13 @@
 //   --logM-min X --logM-max X   halo mass range of the matched points
 //   --free l0,l1,a0,...    free parameters (default: all eight)
 //   --set am_b=0.3         starting/fixed value of a parameter (repeatable)
-//   --zlo Z --zhi Z        clamp of the redshift dependence (default: the
-//                          range of the LF entries)
+//   --shape-zmax Z         entries with z <= Z fix the shape of L_UV(M, z)
+//                          (all parameters fitted); entries above Z only set
+//                          the normalisation (one offset per redshift, the
+//                          shape held at its z_hi form). Default 10.5: HST
+//                          shape, JWST normalisation.
+//   --zlo Z --zhi Z        clamp of the shape's redshift dependence
+//                          (default: the range of the shape entries)
 //   --only-confirmed       ignore entries marked unconfirmed
 //
 // Writes <out>/am_points.txt, <out>/am_params.txt (params.txt lines) and
@@ -61,7 +66,7 @@ int main(int argc, char** argv) {
     std::array<bool, LuvModel::kNpar> free{};
     free.fill(true);
     bool only_confirmed = false;
-    double zlo = -1, zhi = -1;
+    double zlo = -1, zhi = -1, shape_zmax = 10.5;
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       auto next = [&]() -> std::string {
@@ -85,6 +90,7 @@ int main(int argc, char** argv) {
       else if (a == "--logM-max") opt.logM_max = std::stod(next());
       else if (a == "--zlo") zlo = std::stod(next());
       else if (a == "--zhi") zhi = std::stod(next());
+      else if (a == "--shape-zmax") shape_zmax = std::stod(next());
       else if (a == "--only-confirmed") only_confirmed = true;
       else if (a == "--free") {
         free.fill(false);
@@ -127,13 +133,17 @@ int main(int argc, char** argv) {
     for (const auto& e : lf) {
       const auto p = abundance_match(e, opt);
       pts.insert(pts.end(), p.begin(), p.end());
-      zmin = std::min(zmin, e.z);
-      zmax = std::max(zmax, e.z);
+      if (e.z <= shape_zmax) {
+        zmin = std::min(zmin, e.z);
+        zmax = std::max(zmax, e.z);
+      }
     }
+    if (zmax < zmin) throw std::runtime_error("no LF entries at z <= --shape-zmax");
     start.z_lo = zlo > 0 ? zlo : zmin;
     start.z_hi = zhi > 0 ? zhi : zmax;
 
-    const FitResult fr = fit_luv_model(pts, start, free);
+    FitResult fr = fit_luv_model(pts, start, free);
+    fr.model = fit_highz_norm(pts, fr.model);
 
     std::filesystem::create_directories(out_dir);
     {
@@ -177,9 +187,12 @@ int main(int argc, char** argv) {
     std::cout << "entries: " << lf.size() << ", fitted points: " << fr.npoints
               << ", rms = " << fr.rms_dex << " dex, iterations " << fr.iterations << "\n";
     std::cout << fr.model.to_params();
+    if (fr.model.norm_z.empty())
+      std::cout << "(no LF entries above z_hi = " << fr.model.z_hi
+                << ": L(M) is held at its z_hi form at all higher z)\n";
     // 20 particles at 128^3 in 10 Mpc/h: 7.1e8 Msun/h = 1.0e9 Msun (logM = 9.0)
     std::cout << "M_UV of the fit (logM in Msun; 128^3 in 10 Mpc/h resolves logM >= 9.0):\n";
-    for (double z : {6.0, 8.0, 10.0, 12.0, 14.0}) {
+    for (double z : {6.0, 8.0, 10.0, 12.0, 14.0, 16.0}) {
       std::cout << "  z = " << z << ":";
       for (double lm : {8.5, 9.0, 10.0, 11.0}) {
         char buf[64];

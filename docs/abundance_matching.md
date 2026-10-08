@@ -37,9 +37,18 @@ existing models are bit-identical to before.
    log10 L_p = l0 + l1 x + l2 x²,   a = a0 + a1 x,   log10 M_p = m0 + m1 x,   b
    ```
 
-   M is in M☉ and L in erg/s/Hz. z is clamped to the redshift range of the LF
-   entries, so the relation is **held fixed** outside the constrained
-   redshifts, rather than extrapolated (§4).
+   M is in M☉ and L in erg/s/Hz.
+   * **The shape is fitted to the HST LFs only** (entries with
+     z ≤ `--shape-zmax`, default 10.5). z is clamped to their range
+     [z_lo, z_hi].
+   * **Above z_hi only the normalisation changes**
+     (`fit_highz_norm`): one offset in log L per JWST redshift. It is the
+     weighted mean residual of the matched points inside that entry's
+     magnitude range, which should be the luminous galaxies actually
+     observed. The offset rises linearly from 0 at z_hi through the knots
+     (`am_norm_z`, `am_norm_dl`).
+   * **Beyond the last knot, L(M) is held fixed.** By then the halos are
+     disappearing anyway (user decision, 2026-10-08).
 4. **Ionising photons.** The RT emits `fResc * pop2_init * L` photons per
    second. That is a fixed 0.2 × 10^25.2 photons per erg/Hz, split over 5
    groups (cosmo_parameters.f90). The source model stores, for each halo:
@@ -53,6 +62,13 @@ existing models are bit-identical to before.
 
    ξ_ion and f_esc are degenerate: only f_esc ξ_ion enters the RT, and f_esc
    is calibrated to τ_es. ξ_ion matters only for quoting f_esc.
+   * **Production uses a JWST-era ξ_ion:** `xi_ion = 25.38` (user decision,
+     2026-10-08; §5).
+   * The code default stays 25.2, which equals the original's
+     `pop2_init`.
+   * The LFs are not dust-corrected (user decision), so L_UV is the observed
+     UV. The ξ_ion measurement is per intrinsic UV, but the difference is
+     small for the faint, blue galaxies that dominate the box.
 
 ## 2. Usage
 
@@ -72,8 +88,9 @@ against the LF the fit implies.
 |---|---|---|
 | `sfr_model` | `global` | `abundance` selects this model |
 | `am_l0 … am_b` | see `LuvModel` | fit parameters (from `am_fit`) |
-| `am_z0`, `am_zlo`, `am_zhi` | 8, 0, ∞ | pivot and clamp of the z dependence |
-| `xi_ion` | 25.2 | log10 ξ_ion, photons s⁻¹ / (erg s⁻¹ Hz⁻¹) |
+| `am_z0`, `am_zlo`, `am_zhi` | 8, 0, ∞ | pivot and clamp of the shape's z dependence |
+| `am_norm_z`, `am_norm_dl` | empty | high-z normalisation knots (comma lists) |
+| `xi_ion` | 25.2 | log10 ξ_ion, photons s⁻¹ / (erg s⁻¹ Hz⁻¹); production: 25.38 |
 | `f_esc` | 0.2 (`fResc`) | escape fraction (calibrated to τ_es, step 4) |
 | `l_per_sfr` | 8e27 | L_UV per M☉/yr (metals only) |
 | `tvir_min`, `m_min` | 1e4 K, 0 | halos below do not emit (as for the other models) |
@@ -102,25 +119,26 @@ That is up to about 1 mag (0.4 dex in L). Much of a uniform offset is
 absorbed by the f_esc calibration. The redshift and mass dependence is not
 absorbed, so it shapes the timing and morphology of reionisation.
 
-## 4. Decisions needed (user)
+## 4. Decisions
 
+**Decided (user, 2026-10-08):**
+* **Shape and normalisation.** The shape of L_UV(M) comes from the
+  lower-redshift (HST) LFs. At z > 10 only the normalisation is fitted, to
+  the luminous galaxies JWST observes.
+* **Dust:** no correction.
+* **ξ_ion:** a JWST-era value. The value chosen is log ξ_ion = 25.38 (§5).
+* **Beyond the data:** L(M) is held fixed above the highest LF redshift.
+
+**Still open:**
 1. **LF parameters:** confirm the rows of `data/uv_lf/lf_params.txt`, or
    supply the papers (§5).
-2. **z > 10 data set:** Donnan+24, Finkelstein+24, McLeod+24, Harikane+24
-   or Whitler+25, or a combination.
-3. **Faint end:** fit only the observed range, or include the
-   extrapolated faint-end slope (`--extend-faint`), and down to which
-   magnitude (lensing LFs reach about −13 to −15 at z ≈ 6–8)?
+2. **z > 10 data set:** which of Donnan+24, Finkelstein+24, McLeod+24,
+   Harikane+24 or Whitler+25, or a combination.
+3. **Faint end of the shape:** fit only the observed HST range (the
+   default), or include the extrapolated faint-end slope
+   (`--extend-faint`)?
 4. **Halo mass function** for the matching: ST, Tinker, or the measured
-   mass function of the step-2 run (not yet implemented; it would remove
-   the analytic-HMF vs FoF mismatch at the resolution limit).
-5. **Dust:** none (default), or the Meurer IRX–β with which β(M_UV, z)
-   relation (e.g. Bouwens et al. 2014)?
-6. **ξ_ion:** 10^25.2 (the original's `pop2_init`, the canonical
-   Robertson et al. 2013 value), or a JWST-era value (log ξ_ion ≈ 25.3–25.8;
-   from memory, unconfirmed)?
-7. **z outside the data:** hold L(M) fixed above the highest LF redshift
-   (current), or extrapolate the linear z dependence?
+   mass function of the step-2 run (not yet implemented).
 
 ## 5. Parameters used, with provenance
 
@@ -155,7 +173,9 @@ in snippets: Donnan+24 fixes β = −4.05 at z = 10, and McLeod+24 fixes
 | Sheth–Tormen | A = 0.3222, a = 0.707, p = 0.3 | Sheth & Tormen 1999 (already in the code) |
 | IRX–β | A_UV = 4.43 + 1.99 β | Meurer, Heckman & Calzetti 1999 |
 | L_UV / SFR | 8.0×10²⁷ erg/s/Hz per M☉/yr | Madau, Pozzetti & Dickinson 1998 (already in the code) |
-| ξ_ion | 10^25.2 Hz/erg | Robertson et al. 2013; equals the original's `pop2_init` |
+| ξ_ion (code default) | 10^25.2 Hz/erg | Robertson et al. 2013; equals the original's `pop2_init` |
+| ξ_ion (production) | 10^25.38 Hz/erg | median log ξ_ion,0 of the z > 4.64 galaxies in a CEERS+JADES NIRSpec sample: Pahl et al. 2025, ApJ (arXiv:2407.03399). Snippet; author attribution from memory |
+| ξ_ion(z), alternative | log ξ_ion = 0.06 z + 24.82, i.e. 25.18 at z = 6 and 25.42 at z = 10 | 761 NIRSpec galaxies at z = 4–10: Llerena et al. 2025, A&A (arXiv:2412.01358). Snippet; attribution from memory |
 
 ## 6. Tests
 

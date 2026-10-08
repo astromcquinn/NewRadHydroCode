@@ -141,6 +141,21 @@ and adaptive calculations.
   (user decision, 2026-10-08). Only halos above the resolution limit emit,
   about 7×10⁸ M☉/h for 128³ particles in 10 Mpc/h.
 
+### Abundance-matched sources (decided 2026-10-08; docs/abundance_matching.md)
+
+* **Model:** a new `sfr_model = abundance`. The existing models stay.
+* **Shape:** the shape of L_UV(M_halo) is fitted to the lower-redshift
+  (HST) UV LFs.
+* **High z:** at z > 10 only the normalisation is fitted, to the luminous
+  galaxies JWST observes.
+* **Beyond the data:** L(M) is held fixed above the highest LF redshift,
+  since the halos disappear anyway.
+* **Dust:** no correction.
+* **ξ_ion:** a JWST-era value, log ξ_ion = 25.38, with a single f_esc
+  calibrated to τ_es.
+* **Still open:** confirmation of the LF parameters, the choice of JWST
+  data set, the faint-end treatment, and the HMF used for the matching.
+
 ### Long-term decisions (2026-10-08; details in docs/ROADMAP.md)
 
 * Follow the stage order in `docs/ROADMAP.md` §7. MPI comes after the

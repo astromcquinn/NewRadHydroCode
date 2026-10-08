@@ -545,6 +545,16 @@ bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::stri
     p.model.log_xi_ion = num();
   } else if (key == "f_esc") {
     p.model.f_esc = num();
+  } else if (key == "am_norm_z" || key == "am_norm_dl") {
+    std::vector<double> v;
+    std::stringstream ss(val);
+    std::string t;
+    while (std::getline(ss, t, ',')) {
+      for (auto& ch : t)
+        if (ch == 'd' || ch == 'D') ch = 'e';
+      if (t.find_first_not_of(" \t") != std::string::npos) v.push_back(std::stod(t));
+    }
+    (key == "am_norm_z" ? p.model.am.norm_z : p.model.am.norm_dlogL) = v;
   } else if (key.rfind("am_", 0) == 0) {
     for (int i = 0; i < LuvModel::kNpar; ++i) {
       if (key == LuvModel::name(i)) {

@@ -7,9 +7,12 @@
 //  * fit_luv_model recovers the parameters of synthetic points;
 //  * Tinker et al. (2008) mass function: sane relative to Sheth-Tormen;
 //  * the source model: L, sfr, the xi_ion/f_esc scaling, the z clamp and
-//    the params.txt keys.
+//    the params.txt keys;
+//  * the high-z normalisation with the shape fixed (fit_highz_norm).
 #include <cmath>
 #include <cstdio>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include "check.hpp"
@@ -161,6 +164,56 @@ void test_tinker() {
   CHECK(mf2.dndlnM(1e11, 8, K::Tinker08) != mf.dndlnM(1e11, 8, K::Tinker08));
 }
 
+void test_highz_norm() {
+  LuvModel shape;
+  shape.p = {29.3, 0.05, -0.03, 1.5, 0.02, 11.4, -0.1, 0.4};
+  shape.z_lo = 6;
+  shape.z_hi = 10;
+  // No knots: L(M) held at its z_hi form above z_hi
+  CHECK(shape.log_luv(10, 13) == shape.log_luv(10, 10));
+  // Synthetic JWST points: shape + 0.3 dex at z = 11, -0.2 dex at z = 14,
+  // plus an out-of-range point that must be ignored
+  std::vector<AMPoint> pts;
+  for (double z : {11.0, 14.0})
+    for (double lm = 9.5; lm <= 11.5 + 1e-9; lm += 0.25) {
+      AMPoint p;
+      p.z = z;
+      p.logM = lm;
+      p.logL = shape.log_luv_shape(lm, z) + (z == 11 ? 0.3 : -0.2);
+      p.in_range = true;
+      pts.push_back(p);
+    }
+  AMPoint bad;
+  bad.z = 11;
+  bad.logM = 8;
+  bad.logL = 0;
+  bad.in_range = false;
+  pts.push_back(bad);
+  const LuvModel m = fit_highz_norm(pts, shape);
+  CHECK(m.norm_z.size() == 2);
+  CHECK(std::fabs(m.norm_dlogL[0] - 0.3) < 1e-12 && std::fabs(m.norm_dlogL[1] + 0.2) < 1e-12);
+  // The shape is unchanged; zero offset up to z_hi, linear between knots,
+  // held beyond the last
+  CHECK(m.p == shape.p);
+  CHECK(m.dlogL_norm(9) == 0 && m.dlogL_norm(10) == 0);
+  CHECK(std::fabs(m.dlogL_norm(10.5) - 0.15) < 1e-12);
+  CHECK(std::fabs(m.dlogL_norm(12.5) - 0.05) < 1e-12);
+  CHECK(m.dlogL_norm(20) == m.dlogL_norm(14));
+  CHECK(std::fabs(m.log_luv(10, 11) - (shape.log_luv(10, 10) + 0.3)) < 1e-12);
+  // params round trip
+  HaloSourceParams hp;
+  std::istringstream in(m.to_params());
+  std::string line;
+  while (std::getline(in, line)) {
+    const auto eq = line.find(" = ");
+    CHECK(set_halo_param(hp, line.substr(0, eq), line.substr(eq + 3)));
+  }
+  CHECK(hp.model.am.norm_z == m.norm_z);
+  for (std::size_t k = 0; k < m.norm_z.size(); ++k)
+    CHECK(std::fabs(hp.model.am.norm_dlogL[k] - m.norm_dlogL[k]) < 1e-9);
+  CHECK(std::fabs(hp.model.am.log_luv(10.3, 12) - m.log_luv(10.3, 12)) < 1e-8);
+}
+
 HaloUnits units_at(double z) {
   const Config cfg = Config::make(64);
   SimClock clk;
@@ -234,6 +287,7 @@ int main() {
   test_model_lf();
   test_fit_recovery();
   test_tinker();
+  test_highz_norm();
   test_source_model();
   TEST_MAIN_END();
 }

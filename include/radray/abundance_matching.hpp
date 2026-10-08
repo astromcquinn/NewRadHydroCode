@@ -112,21 +112,32 @@ std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt);
 // L_UV = 2 L_p / ((M/M_p)^-a + (M/M_p)^-b),  x = z - z0,
 //   log10 L_p = l0 + l1 x + l2 x^2,   a = a0 + a1 x,
 //   log10 M_p = m0 + m1 x,            b fixed by default.
-// M in Msun, L in erg/s/Hz. z is clamped to [z_lo, z_hi] before evaluation,
-// so the relation is held fixed outside the redshifts the fit is
-// constrained by.
+// M in Msun, L in erg/s/Hz. z is clamped to [z_lo, z_hi] before evaluation
+// of the shape, so the shape is held fixed outside the redshifts it is
+// fitted to (the HST LFs).
+//
+// Above z_hi only the normalisation changes (fixed shape, user decision
+// 2026-10-08): log10 L += dlogL(z), piecewise linear through (z_hi, 0) and
+// the knots (norm_z[k], norm_dlogL[k]) (increasing z, all > z_hi), held at
+// the last knot's value beyond it. The knots are fitted to the luminous
+// galaxies of the JWST LFs (fit_highz_norm).
 struct LuvModel {
   static constexpr int kNpar = 8;
   // order: l0 l1 l2 a0 a1 m0 m1 b
   std::array<double, kNpar> p = {28.0, -0.1, 0.0, 1.3, 0.0, 11.5, 0.0, 0.3};
   double z0 = 8;
   double z_lo = 0, z_hi = 1e30;
+  std::vector<double> norm_z, norm_dlogL;
 
-  double log_luv(double logM, double z) const;
+  double dlogL_norm(double z) const;
+
+  double log_luv(double logM, double z) const;        // shape + norm
+  double log_luv_shape(double logM, double z) const;  // without dlogL_norm
   double luv(double M_msun, double z) const;
 
   static const char* name(int i);
-  // `key = value` lines (am_l0 ... am_b, am_z0, am_zlo, am_zhi)
+  // `key = value` lines (am_l0 ... am_b, am_z0, am_zlo, am_zhi, and the
+  // comma-separated lists am_norm_z, am_norm_dl)
   std::string to_params() const;
 };
 
@@ -137,10 +148,18 @@ struct FitResult {
   int iterations = 0;
 };
 
-// Weighted least squares in log L over the in-range points (Nelder-Mead).
+// Weighted least squares in log L of the shape (log_luv_shape) over the
+// in-range points with z <= start.z_hi (Nelder-Mead).
 // free[i] = false keeps p[i] at its starting value.
 FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
                         const std::array<bool, LuvModel::kNpar>& free);
+
+// High-redshift normalisation with the shape fixed: for each distinct
+// redshift z > model.z_hi among the in-range points, the knot value is the
+// weighted mean of logL_AM - log_luv(logM, z) over the points at that z
+// (the exact least-squares solution for an offset). Returns the model with
+// norm_z / norm_dlogL set (replacing any previous knots).
+LuvModel fit_highz_norm(const std::vector<AMPoint>& pts, const LuvModel& shape);
 
 // UV LF implied by a halo mass function and an L_UV(M) relation (no
 // scatter), for checking a fit against the input LF: phi(M_UV) in
