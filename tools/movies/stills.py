@@ -40,7 +40,10 @@ def read_frames(run):
                 continue
             p = line.split()
             rows.append((int(p[0]), float(p[3]), float(p[4]), float(p[5])))
-    return np.array(rows, dtype=[("frame", int), ("z", float), ("xv", float), ("xm", float)])
+    fr = np.array(rows, dtype=[("frame", int), ("z", float), ("xv", float), ("xm", float)])
+    # frames written before the first RT call hold an all-zero rt_grid
+    # (quirk F5: x_HII reads 1, the mass weighting is NaN); skip them
+    return fr[np.isfinite(fr["xm"])]
 
 
 def load(run, frame, field):
@@ -49,10 +52,11 @@ def load(run, frame, field):
     return a.reshape((n, n, n), order="F")
 
 
-def slab(a, axis, width):
+def slab(a, axis, width, k0=None):
     n = a.shape[axis]
-    k0 = n // 2 - width // 2
-    s = np.take(a, range(k0, k0 + width), axis=axis).mean(axis=axis)
+    if k0 is None:
+        k0 = n // 2 - width // 2
+    s = np.take(a, [(k0 + i) % n for i in range(width)], axis=axis).mean(axis=axis)
     return s.T  # x right, y up
 
 
@@ -84,6 +88,9 @@ def main():
     ap.add_argument("--z", default="12,9,7.5,6.5")
     ap.add_argument("--axis", type=int, default=2)
     ap.add_argument("--slab", type=int, default=2)
+    ap.add_argument("--pos", type=int, default=-1,
+                    help="first cell of the slab (0-based); default: the plane cutting the "
+                         "most ionised gas at the second requested redshift")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     fr = read_frames(a.run)
@@ -98,6 +105,14 @@ def main():
         if fr[i]["frame"] not in [p["frame"] for p in picks]:
             picks.append(fr[i])
     fields = ["rhog", "fHI", "temp"]
+    if a.pos >= 0:
+        k0 = a.pos
+    else:
+        ref = picks[min(1, len(picks) - 1)]
+        x = 1 - load(a.run, ref["frame"], "fHI")
+        other = tuple(i for i in range(3) if i != a.axis)
+        prof = x.sum(axis=other)
+        k0 = int(np.argmax(np.convolve(np.r_[prof, prof[:a.slab - 1]], np.ones(a.slab), "valid")))
     plt.rcParams.update({"font.size": 10, "text.color": INK, "axes.labelcolor": INK,
                          "xtick.color": MUTED, "ytick.color": MUTED})
 
@@ -107,16 +122,15 @@ def main():
     ims = {}
     for r, p in enumerate(picks):
         for c, fld in enumerate(fields):
-            img = slab(load(a.run, p["frame"], fld), a.axis, a.slab)
+            img = slab(load(a.run, p["frame"], fld), a.axis, a.slab, k0)
             ims[fld] = panel(axs[r, c], img, fld, box)
         axs[r, 0].set_ylabel(f"z = {p['z']:.2f}\n" + rf"$\langle x_{{\rm HII}}\rangle_V$ = {p['xv']:.2f}",
                              fontsize=11)
     for c, fld in enumerate(fields):
         cb = fig.colorbar(ims[fld], ax=axs[:, c], location="top", shrink=0.85, pad=0.01)
         cb.set_label(MAPS[fld]["label"])
-    axs[-1, 0].text(0.02, -0.06, f"slab of {a.slab} cells through the box centre; "
-                    f"box {box:g} Mpc/h (comoving)", transform=axs[-1, 0].transAxes,
-                    fontsize=8, color=MUTED, va="top")
+    fig.supxlabel(f"slab of {a.slab} cells at cell {k0} along {'xyz'[a.axis]}; "
+                  f"box {box:g} Mpc/h (comoving)", fontsize=8, color=MUTED)
     fig.savefig(os.path.join(a.out, "stills_grid.png"), dpi=110)
     plt.close(fig)
 
@@ -124,7 +138,7 @@ def main():
     for p in picks:
         fig, axs = plt.subplots(1, 3, figsize=(12, 4.4), constrained_layout=True)
         for c, fld in enumerate(fields):
-            im = panel(axs[c], slab(load(a.run, p["frame"], fld), a.axis, a.slab), fld, box)
+            im = panel(axs[c], slab(load(a.run, p["frame"], fld), a.axis, a.slab, k0), fld, box)
             fig.colorbar(im, ax=axs[c], location="bottom", shrink=0.85, pad=0.02).set_label(MAPS[fld]["label"])
         fig.suptitle(f"z = {p['z']:.2f}   volume-weighted ionised fraction {p['xv']:.2f}   "
                      f"({box:g} Mpc/h box)", color=INK)
