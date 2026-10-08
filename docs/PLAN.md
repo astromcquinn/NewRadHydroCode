@@ -122,15 +122,15 @@ and adaptive calculations.
 
 ### Production-run decisions (2026-10-08)
 
-* **Box:** 20 Mpc/h for the reionisation movie run.
+* **Box:** 10 Mpc/h for the first reionisation movie run (changed from
+  20 Mpc/h on 2026-10-08).
   * RT validation problems so far use 5 Mpc/h.
   * Full-loop tests and the demo use 4 Mpc/h.
 * **Reduced speed of light:** `c_reduced` parameter, mapped onto the
   original's `cscale`.
-  * The user suggested 0.01c.
-  * First run a short 64³ convergence check of 0.01c, 0.03c and 0.1c,
-    because light at 0.01c only crosses about one box length between z = 12
-    and 6.
+  * Use 0.01c. The user accepts that light is too slow for now: at 0.01c it
+    covers only about 15–20 comoving Mpc/h between z = 12 and 6, so overlap
+    and the post-overlap background will be biased.
 * **Ray buffer:** `nray_max_factor = 16`, giving about 5–10 live rays per
   cell (live rays saturate at 0.3–0.6 × Nray_max).
 * **Resolution:** Ngas = Ndm.
