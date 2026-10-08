@@ -154,6 +154,10 @@ These do not affect the RT state or the spec outputs:
   Fortran ones. Only the touched part of the pool is materialised: capacity
   for `Nray_max` rays is reserved but untouched. Positions above the
   high-water mark are implicitly the identity and zero, which is equivalent.
+  Since Phase 1d the links and `ray_index`/`ifree` are stored as int32
+  (`Nray_max < 2^31` is checked), so a ray is 88 B instead of 96 B; the
+  values are those of the Fortran int8 and no result changes
+  (`docs/parallel.md` §4).
 * **HEALPix.** It is a transcription of the HEALPix **3.11 Fortran**
   `pix2vec_nest`/`vec2pix_nest` (32-bit path, `nside <= 8192`), which is the
   version the original Makefile links. It is not a transcription of
