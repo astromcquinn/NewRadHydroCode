@@ -8,7 +8,10 @@ RT.
 
 At the start of a session, read:
 - `docs/STATUS.md`: what's done, what's in progress, open questions.
-- `docs/PLAN.md`: the roadmap and every user decision.
+- `docs/PLAN.md`: every user decision so far.
+- `docs/ROADMAP.md`: the long-term plan (AMR, tree/multigrid gravity,
+  OpenMP/MPI/GPU, ray compression), the proposed order, and suggested
+  threads.
 
 ## Ground rules (non-negotiable)
 
