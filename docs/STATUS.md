@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09, end of the first working thread (after PR #10).*
+*Last updated: 2026-10-08, movie tooling (branch `movies`).*
 
 ## Done (merged into `main`)
 
@@ -91,6 +91,25 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   entropy formulation for cold supersonic gas behind a flag, is a candidate
   next task.
 
+**Movie tooling (branch `movies`; `docs/movies.md`):**
+- `tools/movies/make_movie.py` renders an `apps/radhydro` run directory to an
+  MP4 (ffmpeg, piped raw frames) and a few PNG stills.
+- Style `cosmo` shows slices or thin projections of x_HII (or log x_HI), T
+  and ρ_gas, with fixed scales and perceptually uniform colour maps. The time
+  panel has x_HII,V/M(z), τ_es accumulated, the total τ_es if the IGM were
+  ionised below z, and a Planck band. Labels give z, cosmic time and the box.
+- Style `planar` shows a slice along the ray direction and the I-front
+  position against time, for the future plane-parallel mode.
+- Options for zoom, slice axis, position and thickness. Memory is bounded:
+  frames are memory-mapped one slab at a time.
+- `make_production.py` now writes `rhog` in the movie frames as well.
+- Test: CTest `movie_tool` (synthetic run).
+- Test movie: `docs/movies/reion64_test.mp4` (0.9 MB), from a 64³ production
+  run (90 s run, 16 s render).
+- Finding: frames written before the first RT step have an uninitialised
+  rt_grid (fHI = rhog = 0). The tool skips them; a C++ fix that skips them at
+  write time is optional.
+
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
 Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
@@ -111,7 +130,9 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    - Calibrate f_esc to Planck τ_es.
    - No sub-grid sources for unresolved halos (user decision).
 3. **Production reionisation run and movie.** The box is decided; the
-   resolution waits on the timing table.
+   resolution waits on the timing table. The movie tool is ready
+   (`docs/movies.md`): run `tools/movies/make_movie.py RUN/run --jobs 4` on
+   the 128³/192³ Hyak runs.
 
    | Setting | Value |
    |---|---|
