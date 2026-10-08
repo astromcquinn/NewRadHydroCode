@@ -216,9 +216,12 @@ since it only produces prototypes and a decision.
 
 ## Plane-parallel RT mode (requested 2026-10-08)
 
-The user's papers, e.g. arXiv:2002.02467 and arXiv:2504.21082, cast rays
-from one or more box faces. Those papers are not readable from cloud
-sessions; ask the user for PDFs or key details.
+The user's papers (arXiv:2002.02467 and arXiv:2504.21082) cast rays from
+the boundaries of RT domains. **The specification taken from those papers
+is in `docs/plane_parallel.md`.** It covers RT domains, 1–6 directions,
+the ν^−1.5 spectrum, the Γ_HI normalisation, z_re turn-on, the adaptive
+reduced c, the T_min preheating floor, separate baryon/DM transfer
+functions, and DC modes.
 
 - **Sources:** rays enter from chosen faces, such as −x or ±x. Each face cell
   launches a ray every RT substep carrying incident flux × face area × dt_rt.
