@@ -214,12 +214,35 @@ Suggested threads and opening prompts:
 Threads 1, 2 and 3 can run at the same time. Thread 4 can also start soon,
 since it only produces prototypes and a decision.
 
-## Open questions for the user
+## Answers from the user (2026-10-08)
 
-- Is there a preference or existing experience in the group with AMReX, Parthenon or Kokkos?
-- The cluster's node size and GPU type (NVIDIA or AMD), and the typical queue limits.
-- For AMR: overcooling suppression as in the original, or a simple
-  star-formation sink? Can a sink consume dense gas with a constant
-  efficiency per free-fall time?
-- What precision is acceptable for ray fluxes (e.g. 1%), and which outputs
-  must be preserved (x_HII(z), τ_es, I-front positions)?
+- **No prior experience** with AMReX, Parthenon or Kokkos. This favours the
+  framework with the most documentation, community and cosmology heritage
+  (AMReX/Nyx), but the spike still decides.
+- **Cluster:**
+  - UW Hyak, `klone` partition, about 15 slices (nodes) owned by the group.
+  - High-memory nodes; essentially no queue or time limits.
+  - Number of GPU nodes unknown. Check with Hyak's allocation tools
+    (e.g. `hyakalloc`, if available) or with Hyak support.
+  - No time limits means long single-node OpenMP runs are practical before
+    MPI. 15 nodes is a natural first MPI target.
+- **Dense gas under AMR:** use an efficient star-formation sink, a fixed
+  efficiency per free-fall time above a density threshold. It is faster than
+  keeping cold dense gas, because it removes the gas that limits the time
+  step and the RT optical depth. It goes behind a flag: the original's
+  no-cooling-above-200× stays available. Later it could also supply the
+  ionising sources directly, as an alternative to the halo-based model.
+- **RT accuracy:**
+  - Target errors of a few percent in astrophysical outputs.
+  - Turn that into ray-level precision empirically. Define acceptance
+    metrics first (e.g. x_HII(z) within 1–2%, τ_es within 1%, I-front
+    position within half a cell, T within a few percent). Then let the
+    compression study find the coarsest flux precision that meets them.
+  - Per-ray errors average down in each cell when quantisation is unbiased
+    (dithered), roughly as 1/√(rays per cell). Per-ray precision of order
+    10% (8-bit log-scaled photon counts) may well be acceptable, but that
+    has to be measured.
+
+## Still open
+
+- The number and type of Hyak GPU nodes (NVIDIA or AMD) owned by the group.

@@ -140,3 +140,14 @@ and adaptive calculations.
   luminosity functions. No sub-grid sources for unresolved galaxies for now
   (user decision, 2026-10-08). Only halos above the resolution limit emit,
   about 7×10⁸ M☉/h for 128³ particles in 10 Mpc/h.
+
+### Long-term decisions (2026-10-08; details in docs/ROADMAP.md)
+
+* Follow the stage order in `docs/ROADMAP.md` §7. MPI comes after the
+  framework spike. Single-node OpenMP runs on Hyak cover testing until then.
+* **Cluster:** UW Hyak `klone`, about 15 group nodes, high memory, no queue
+  time limits. GPU count still unknown.
+* **Dense gas under AMR:** an efficient star-formation sink (behind a flag),
+  in preference to the no-cooling switch.
+* **RT accuracy target:** a few percent in astrophysical outputs. Ray-level
+  precision is set empirically against acceptance metrics.
