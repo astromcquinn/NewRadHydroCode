@@ -384,3 +384,15 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
     endif()
   endforeach()
 endif()
+
+# ---------------------------------------------------------------------------
+# OpenMP: every test runs with 2 threads unless it sets OMP_NUM_THREADS
+# itself (ctest -j runs several tests at once; results do not depend on the
+# thread count, see docs/parallel.md and the thread_* tests).
+get_property(RADRAY_ALL_TESTS DIRECTORY PROPERTY TESTS)
+foreach(t ${RADRAY_ALL_TESTS})
+  get_test_property(${t} ENVIRONMENT tenv)
+  if(NOT tenv MATCHES "OMP_NUM_THREADS")
+    set_property(TEST ${t} APPEND PROPERTY ENVIRONMENT OMP_NUM_THREADS=2)
+  endif()
+endforeach()

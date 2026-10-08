@@ -45,6 +45,11 @@ inline void set_threads(int n) {
 #endif
 }
 
+// Whether a loop over `cells` grid cells is worth a parallel region (small
+// grids: the fork/join cost of thousands of RT substeps dominates). Only
+// affects speed, never results.
+inline bool worth(long long cells) { return cells >= 32LL * 32 * 32; }
+
 inline bool enabled() {
 #ifdef _OPENMP
   return true;

@@ -2,7 +2,9 @@
 // undefined). See include/radray/ray_tracing.hpp for conventions.
 #include "radray/ray_tracing.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -129,6 +131,30 @@ namespace {
 // 1 + mod(int(x),Nrt): RT cell index (1-based) of a position in RT units.
 inline int cell_of(double x, int Nrt) { return 1 + f::mod(f::int4(x), Nrt); }
 
+// deterministic_parallel: the cell being processed by this thread, and the
+// reach check. Every chain insertion must stay within dmax = d/2 - 1 cells
+// (periodic Chebyshev distance) of it, so that a cast from there (one more
+// cell) stays within d/2 and concurrent domains of one colour (>= d cells
+// apart) never touch the same cell or ray chain.
+thread_local int det_cell[3] = {0, 0, 0};
+inline void det_set_cell(int i, int j, int k) {
+  det_cell[0] = i;
+  det_cell[1] = j;
+  det_cell[2] = k;
+}
+void det_check_reach(const Simulation& s, int i, int j, int k) {
+  const int N = s.cfg.Nrt, dmax = s.ddom.d / 2 - 1;
+  const int ijk[3] = {i, j, k};
+  for (int m = 0; m < 3; ++m) {
+    int dd = std::abs(ijk[m] - det_cell[m]);
+    dd = std::min(dd, N - dd);
+    if (dd > dmax)
+      throw std::runtime_error("deterministic_parallel: ray moved " + std::to_string(dd) +
+                               " cells from the cell being processed (limit " +
+                               std::to_string(dmax) + ")");
+  }
+}
+
 inline double sum_ngam_r4(const Ray& r) {
   // sum(ray(ir)%ngam): real(4) sum, then widened
   return static_cast<double>(f::sum4<kNfreq>(r.ngam));
@@ -151,6 +177,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
   constexpr int kMergeCap = 10000;
   static thread_local std::vector<std::vector<std::int64_t>> merge1_ir(192);
   int merge1_nr[192];
+  const bool det = s.cfg.det_parallel;
 
   for (int krt = box[4]; krt <= box[5]; ++krt) {
     for (int jrt = box[2]; jrt <= box[3]; ++jrt) {
@@ -159,6 +186,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
         if (!(G.htoc_ray(1, c) > 0 ||
               static_cast<double>(G.sfr[c]) > u.sfr_min))
           continue;
+        if (det) det_set_cell(irt, jrt, krt);
 
         std::int64_t ncst_tot = 0, nspl_tot = 0, nmrg_tot = 0;
         const int nside_merge = 2;
@@ -253,13 +281,23 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
           }
         }
 
-        // Update ray stat
-        rys.ncst1 = rys.ncst1 + ncst_tot;
-        rys.ncst2 = f::max(rys.ncst2, ncst_tot);
-        rys.nspl1 = rys.nspl1 + nspl_tot;
-        rys.nspl2 = f::max(rys.nspl2, nspl_tot);
-        rys.nmrg1 = rys.nmrg1 + nmrg_tot;
-        rys.nmrg2 = f::max(rys.nmrg2, nmrg_tot);
+        // Update ray stat (deterministic_parallel: the thread's counters)
+        if (det) {
+          ThreadRays& t = R.tl[par::thread_id()];
+          t.ncst1 += ncst_tot;
+          t.ncst2 = f::max(t.ncst2, ncst_tot);
+          t.nspl1 += nspl_tot;
+          t.nspl2 = f::max(t.nspl2, nspl_tot);
+          t.nmrg1 += nmrg_tot;
+          t.nmrg2 = f::max(t.nmrg2, nmrg_tot);
+        } else {
+          rys.ncst1 = rys.ncst1 + ncst_tot;
+          rys.ncst2 = f::max(rys.ncst2, ncst_tot);
+          rys.nspl1 = rys.nspl1 + nspl_tot;
+          rys.nspl2 = f::max(rys.nspl2, nspl_tot);
+          rys.nmrg1 = rys.nmrg1 + nmrg_tot;
+          rys.nmrg2 = f::max(rys.nmrg2, nmrg_tot);
+        }
       }
     }
   }
@@ -585,6 +623,7 @@ void ray_tracing_3(Simulation& s, const std::array<int, 6>& box) {
         if (!(G.htoc_ray(1, c) > 0 ||
               static_cast<double>(G.sfr[c]) > u.sfr_min))
           continue;
+        if (s.cfg.det_parallel) det_set_cell(irt, jrt, krt);
 
         const std::int64_t head = G.htoc_ray(1, c);
         const std::int64_t tail = G.htoc_ray(2, c);
@@ -911,6 +950,7 @@ void ray_insert_head(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) 
 void ray_insert_tail(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
   RayState& R = s.rays;
   RTGrid& G = s.rt;
+  if (s.cfg.det_parallel) det_check_reach(s, irt, jrt, krt);
   const std::int64_t c = G.cell(irt, jrt, krt);
   const std::int64_t tail = G.htoc_ray(4, c);
   if (tail == 0) {

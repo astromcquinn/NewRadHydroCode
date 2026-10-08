@@ -46,6 +46,7 @@
 #include "radray/halo_sources.hpp"
 #include "radray/hydro.hpp"
 #include "radray/io.hpp"
+#include "radray/parallel.hpp"
 #include "radray/pm.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
@@ -84,6 +85,8 @@ struct RunParams {
   int legacy_rt = 1;
   int legacy_physics = 1;
   double c_reduced = 1.0;   // reduced speed of light (calc_timestep cscale)
+  int deterministic_parallel = 0;  // parallel ray tracing (docs/parallel.md)
+  int threads = 0;          // OpenMP threads (0: OpenMP default)
   // Sources
   HaloSourceParams halo;
   std::string ics;          // directory of xv_dm.init/u_gas.init
@@ -113,6 +116,12 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.legacy_rt = std::stoi(val);
   else if (key == "legacy_physics")
     P.legacy_physics = std::stoi(val);
+  else if (key == "deterministic_parallel") {
+    P.deterministic_parallel = std::stoi(val);
+    if (P.deterministic_parallel != 0 && P.deterministic_parallel != 1)
+      throw std::runtime_error("deterministic_parallel must be 0 or 1");
+  } else if (key == "threads")
+    P.threads = std::stoi(val);
   else if (key == "c_reduced") {
     P.c_reduced = to_double(val);
     if (!(P.c_reduced > 0)) throw std::runtime_error("c_reduced must be > 0");
@@ -253,6 +262,10 @@ int main(int argc, char** argv) {
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
+    s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    if (s.cfg.det_parallel && s.cfg.legacy_rt)
+      throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
+    par::set_threads(P.threads);
     s.raylog = &raylog;
     s.out = out;
     const Config& cfg = s.cfg;
@@ -288,7 +301,8 @@ int main(int argc, char** argv) {
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
-           << ", sources = "
+           << ", deterministic_parallel = " << P.deterministic_parallel
+           << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
            << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
 
@@ -528,6 +542,8 @@ int main(int argc, char** argv) {
         "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
         s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
         peak_rss_mb());
+    std::printf(" %s\n", format_rt_timers(s.timers).c_str());
+    timing << "# " << format_rt_timers(s.timers) << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
            << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";

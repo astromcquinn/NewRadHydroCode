@@ -19,6 +19,8 @@ struct ProblemParams {
   int legacy_rt = 1;  // 1: original RT bookkeeping; 0: fixes B1-B4, B8, B9
   int legacy_physics = 1;  // 1: original atomic physics; 0: fixes P1-P6
   double c_reduced = 1.0;  // reduced speed of light (calc_timestep cscale)
+  int deterministic_parallel = 0;  // 1: parallel ray tracing (docs/parallel.md)
+  int threads = 0;                 // OpenMP threads (0: OpenMP default)
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.

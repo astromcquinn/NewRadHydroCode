@@ -24,11 +24,14 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <string>
 #include <stdexcept>
 
 #include "radray/constants.hpp"
 #include "radray/fft.hpp"
 #include "radray/fortran.hpp"
+#include "radray/parallel.hpp"
 
 namespace radray {
 
@@ -805,37 +808,77 @@ void hydro_step(const Config& cfg, const Units& un, const SimClock& clk,
   // Calc freezing speed limit
   hs.c_limit = gmax(2 * clk.cmax_gas, static_cast<double>(2e8f) / un.vel_unit);
 
-  Fft1d fft(N, bscale);
-  Sweep S;
-  S.init(N);
-  S.N = N;
-  S.Dgas_min = un.Dgas_min;
-  S.Dgas_frz = un.Dgas_frz;
-  S.c_limit = hs.c_limit;
-  S.Tmf_min = un.Tmf_min;
-  S.Tmf_max = un.Tmf_max;
-  S.temp1_unit = un.temp1_unit;
-  S.dt_hy = hs.dt_hy;
-  S.ngasr = cfg.ngasr;
-  S.cnt = &hs.counters;
-  S.fft = &fft;
+  // The pencils (j,k) are independent: each touches only its own cells.
+  // One sweep workspace, FFT descriptor (planned serially: the FFTW planner
+  // is not thread-safe) and set of counters per thread; the counters are
+  // integer sums/maxima and vmax a maximum, so the result is the same for
+  // any thread count.
+  const int nth = par::max_threads();
+  std::vector<std::unique_ptr<Fft1d>> ffts;
+  std::vector<Sweep> sweeps(nth);
+  std::vector<HydroCounters> cnts(nth);
+  std::vector<std::array<double, 2>> vmaxs(nth, {0.0, 0.0});
+  for (int t = 0; t < nth; ++t) {
+    ffts.emplace_back(new Fft1d(N, bscale));
+    Sweep& S = sweeps[t];
+    S.init(N);
+    S.N = N;
+    S.Dgas_min = un.Dgas_min;
+    S.Dgas_frz = un.Dgas_frz;
+    S.c_limit = hs.c_limit;
+    S.Tmf_min = un.Tmf_min;
+    S.Tmf_max = un.Tmf_max;
+    S.temp1_unit = un.temp1_unit;
+    S.dt_hy = hs.dt_hy;
+    S.ngasr = cfg.ngasr;
+    S.cnt = &cnts[t];
+    S.fft = ffts[t].get();
+  }
 
-  for (int k = 1; k <= N; ++k) {
-    for (int j = 1; j <= N; ++j) {
+  const std::int64_t npencil = static_cast<std::int64_t>(N) * N;
+  std::string err;
+#pragma omp parallel for schedule(dynamic, 16) if (par::worth(npencil * N))
+  for (std::int64_t p = 0; p < npencil; ++p) {
+    const int t = par::thread_id();
+    Sweep& S = sweeps[t];
+    double* vm = vmaxs[t].data();
+    const int k = static_cast<int>(p / N) + 1, j = static_cast<int>(p % N) + 1;
+    try {
       const std::int64_t c0 = gas.cell(1, j, k);
       float* u = gas.u_p(c0);
       float* w = gas.w_p(c0);
       float* v = hs.v_p(c0);
       smooth(u, v, w, S);
       if (order == SweepOrder::Forward) {
-        euler(u, v, w, vmax, S);
-        advect(u, v, w, vmax, S);
+        euler(u, v, w, vm, S);
+        advect(u, v, w, vm, S);
       } else {
-        advect(u, v, w, vmax, S);
-        euler(u, v, w, vmax, S);
+        advect(u, v, w, vm, S);
+        euler(u, v, w, vm, S);
       }
       freeze(u, w, S);
+    } catch (const std::exception& e) {
+#pragma omp critical(radray_hydro_err)
+      if (err.empty()) err = e.what();
     }
+  }
+  if (!err.empty()) throw std::runtime_error(err);
+  HydroCounters& C = hs.counters;
+  for (int t = 0; t < nth; ++t) {
+    vmax[0] = gmax(vmax[0], vmaxs[t][0]);
+    vmax[1] = gmax(vmax[1], vmaxs[t][1]);
+    const HydroCounters& c = cnts[t];
+    C.smooth_cells_1 += c.smooth_cells_1;
+    C.smooth_cells_2 += c.smooth_cells_2;
+    C.climit_branch += c.climit_branch;
+    C.freeze_smooth += c.freeze_smooth;
+    C.check_temp_fix += c.check_temp_fix;
+    C.euler_pencils += c.euler_pencils;
+    C.euler_subcycled += c.euler_subcycled;
+    C.euler_max_nt = std::max(C.euler_max_nt, c.euler_max_nt);
+    C.advect_pencils += c.advect_pencils;
+    C.advect_subcycled += c.advect_subcycled;
+    C.advect_max_nt = std::max(C.advect_max_nt, c.advect_max_nt);
   }
   hs.vmax_last = {vmax[0], vmax[1]};
 }
@@ -873,6 +916,8 @@ void transpose_field(std::vector<float>& a, int N, const int (&perm)[NC]) {
     else
       swap_perm<NC>(&a[idx(i, b, l)], &a[idx(b, i, l)], perm);
   };
+  // each plane l is independent
+#pragma omp parallel for schedule(static) if (par::worth(static_cast<long long>(N) * N * N))
   for (int l = 1; l <= N; ++l) {
     for (int b1 = 1; b1 <= N; b1 += nb) {
       for (int b = b1; b <= b1 + nb - 1; ++b)
