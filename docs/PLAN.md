@@ -86,3 +86,21 @@ and adaptive calculations.
 * **On-the-fly halo finder** (decided 2026-10-08): FoF on the DM particles, a
   source model reconstructed from Trac & Cen 2007 and Trac, Cen & Loeb 2008,
   and a reader for the original catalog format to keep legacy mode working.
+
+## Phase 1d (requested 2026-10-08, after 1c and the physics fixes)
+
+1. **Validate the halo mass function** from full runs against Sheth–Tormen
+   (and Tinker et al.), as a gate before any science run.
+2. **Hydro test suite:** Sod, Sedov–Taylor blast, Zel'dovich pancake with
+   gas (Bryan et al. 1995), and a Santa Barbara-like cluster or
+   adiabatic cosmological box if feasible. Compare against analytic
+   solutions and the literature.
+3. **Abundance-matched sources:** calibrate the halo UV luminosity
+   (L_UV–M_halo) so that the simulated UV luminosity functions match the
+   observed high-z LFs (z ≈ 6–10 HST, e.g. Bouwens et al. 2021; z > 10
+   JWST). Ionising emissivity follows from L_UV through ξ_ion·f_esc;
+   f_esc is calibrated to τ_es (Planck) and the end of reionisation.
+4. **Movie of a full reionisation run:** the largest run this machine can do
+   efficiently (4 cores, 15 GB RAM, no GPU). This first needs OpenMP in the
+   hot loops and a ray-memory budget (`nray_max_factor`). The size gets
+   decided from measured timings.
