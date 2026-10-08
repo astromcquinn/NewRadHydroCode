@@ -119,6 +119,14 @@ if(Python3_Interpreter_FOUND)
     endif()
   endforeach()
 
+  # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
+  # (retarded-time / Shapiro et al. 2006) solution (docs/production_run.md)
+  add_test(NAME ifront_rsla
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/ifront_rsla_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/ifront_rsla)
+  set_tests_properties(ifront_rsla PROPERTIES TIMEOUT 600 LABELS physics)
+
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
   foreach(p uniform_8src lognormal_16src_smallbuf)
