@@ -311,8 +311,23 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
     the fixed flags and `deterministic_parallel`.
   * **Cosmological runs:** visible as one-cell streaks and "+" crosses on
     sources (`docs/movies.md`).
-  * **Not fixed yet.** Candidate fix behind a flag: rotate the HEALPix frame
-    deterministically per source and/or per substep.
+  * **Not fixed yet** (on hold, user decision 2026-10-08). The fix options
+    and their costs:
+    1. One fixed global rotation of the HEALPix frame: a 3×3 rotation
+       after `pix2vec_nest` and its transpose before `vec2pix_nest`, at
+       emission, split and merge. Well under 1% of the RT cost, with no
+       change to the ray size, and cross-source merging stays consistent.
+       It does not average out the radial spokes. This is the one to try
+       first.
+    2. Emit from the luminosity-weighted sub-cell source position instead
+       of the cell centre. Also nearly free (about 3 floats per source cell).
+    3. A rotation per substep or per source, as in Abel & Wandelt 2002.
+       This also smooths the spokes, but costs more:
+       - per substep: every live ray needs a new pixel index (one
+         `vec2pix` per ray per substep, an estimated 5–10% of the RT);
+       - per source: a frame id on each ray (+4 B), and a frame rule for
+         rays merged from different sources.
+    Check any fix with `tools/analysis/axis_deficit.py` and the 64³ movie.
 
 ## 5a. The `legacy_rt` switch (phase 1b)
 
