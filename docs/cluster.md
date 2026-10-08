@@ -319,8 +319,119 @@ adds `-ffp-contract=off -fno-fast-math`) in `build-znver4/`:
 
 ## 7. Runs
 
-RUNS_PLACEHOLDER
+All four runs: `tools/production/make_production.py` (10 Mpc/h, Ngas = Ndm = N,
+Zel'dovich ICs at z = 100, seed 7, FoF ≥ 20 particles, the current
+**global SFR source model**, nray_max_factor = 16, `legacy_rt =
+legacy_physics = 0`, `deterministic_parallel`, `rt_substep_carry`, movie
+frames of fHI and T every Δz = 0.05), to z = 5.27 (128³) or 5.43 (256³).
+The two c_reduced values of each N share the ICs. Wall time and peak RSS are
+from `/usr/bin/time -v` (sacct agrees to 1%). The pool guard never acted in
+any run.
+
+| run | node, threads | wall time | RT / hydro / PM / FoF / IO [s] | RT substeps | rays at the end (max) | peak RSS | disk |
+|---|---|---|---|---|---|---|---|
+| 128³, 0.01c (`reion128`) | shared, 32 | **3 min 08 s** | 132 / 9.0 / 3.1 / 1.6 / 26 | 190 (from z = 12.6) | 22.2M (0.66 Nray_max) | 3.46 GB | 36 GB (29 checkpoints kept) |
+| 128³, 0.1c (`reion128_c01`) | shared, 48 | **16 min 18 s** | 923 / 5.5 / 2.5 / 1.3 / 23 | 1900 | 17.1M (0.51) | 3.22 GB | 11 GB |
+| 256³, 0.01c (`reion256`) | shared, 96 | **26 min 17 s** | 889 / 33 / 25 / 25 / 480 | 404 (from z = 13.1) | 157.9M (0.59) | 23.1 GB | 309 GB (checkpoints every 2 steps, all kept) |
+| 256³, 0.1c (`reion256_c01`) | **whole node, 192** | **1 h 32 min** | 5039 / 20 / 21 / 23 / 387 | 4064 | 131.1M (0.49) | 27.0 GB | 51 GB: 25 GB of movie (192 frames), 15.8 GB final checkpoint |
+
+* The first three ran on shared nodes (other jobs on the node), so their
+  times are upper bounds. Even so, the 128³, 0.01c run took 3 minutes against
+  69 minutes on the old 4-core VM.
+* At 256³ the Courant/PM limit binds earlier: 46 hydro steps against 29 at
+  128³. The RT starts at z = 13.1 (first FoF halo at 256³) against 12.6.
+* **Checkpoints dominate the IO at 256³:** 12–17 GB each. With
+  `restart_every = 2` the 0.01c run spent 480 s of its 1577 s writing them.
+  At 0.1c the IO share is 7%.
+* Ray history (256³, 0.1c; step, z, rays): 20, 13.1, 45M; 23, 10.9, 93M;
+  26, 9.4, 120M; 29, 8.3, 126M; 35, 7.0, 125M; 41, 6.0, 130M; 46, 5.4,
+  131M. The population saturates at 0.45–0.5 Nray_max once the box is
+  ionised. At 0.01c it keeps rising, to 0.59 Nray_max at z ≈ 5.9. All the
+  per-step numbers are in `run/timing.txt`.
+
+**Where they are** (`/gscratch/astro/mcquinn/runs/`): each `<run>/run/` holds
+`timing.txt`, `step_NNNN/` (stats and fields at the zdata1 outputs),
+`movie/` (frames and `frames.txt`), `RT/`, `Gas/`, `DM/`, `Pk/`, `Log/`,
+`restart/` and `DONE`, plus `<run>/run.log`. The 256³, 0.1c final checkpoint
+is `reion256_c01/run/restart/checkpoint.bin` (z = 5.43). The 256³, 0.01c
+checkpoints from every second step are in `reion256/run/restart/` (309 GB;
+prune them when they are no longer needed). The scaling checkpoint is
+`reion256/ck_scaling_0030.bin`.
+
+### Slow light: c_reduced = 0.01 against 0.1
+
+`tools/analysis/reion_history.py` (x_HII from `movie/frames.txt`, τ_es with
+HeII following HII and HeIII at z < 3; the code's cosmology):
+
+![reionization histories](figures/hyak_reion_history.png)
+
+| run | weighting | z(10%) | z(25%) | z(50%) | z(75%) | z(90%) | z(99%) | z(99.9%) | tau_es |
+|---|---|---|---|---|---|---|---|---|---|
+| 128³, 0.01c | V | 10.71 | 9.81 | 8.54 | 7.60 | 6.98 | 6.24 | 5.95 | 0.0686 |
+| 128³, 0.01c | M | 10.94 | 10.07 | 8.75 | 7.71 | 7.04 | 6.22 | 5.90 | |
+| 128³, 0.1c | V | 11.98 | 11.24 | 10.43 | 9.69 | 9.29 | 8.79 | 8.60 | 0.0869 |
+| 128³, 0.1c | M | 12.07 | 11.34 | 10.47 | 9.67 | 9.25 | 8.77 | 8.57 | |
+| 256³, 0.01c | V | 11.65 | 10.29 | 8.96 | 7.94 | 7.29 | 6.49 | 6.15 | 0.0761 |
+| 256³, 0.01c | M | 12.06 | 10.75 | 9.35 | 8.20 | 7.45 | 6.55 | 6.16 | |
+| 256³, 0.1c | V | 12.64 | 11.48 | 10.38 | 9.66 | 9.25 | 8.83 | 8.65 | 0.0904 |
+| 256³, 0.1c | M | 12.89 | 11.76 | 10.56 | 9.75 | 9.29 | 8.82 | 8.64 | |
+
+| run | weighting | z = 10 | z = 9 | z = 8 | z = 7.5 | z = 7 | z = 6.5 | z = 6 | z = 5.5 |
+|---|---|---|---|---|---|---|---|---|---|
+| 128³, 0.01c | V | 0.219 | 0.406 | 0.645 | 0.779 | 0.896 | 0.970 | 0.998 | 1.000 |
+| 128³, 0.01c | M | 0.266 | 0.449 | 0.679 | 0.803 | 0.907 | 0.971 | 0.998 | 1.000 |
+| 128³, 0.1c | V | 0.649 | 0.967 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| 128³, 0.1c | M | 0.649 | 0.961 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| 256³, 0.01c | V | 0.294 | 0.491 | 0.735 | 0.857 | 0.948 | 0.990 | 1.000 | 1.000 |
+| 256³, 0.01c | M | 0.370 | 0.574 | 0.795 | 0.892 | 0.961 | 0.992 | 1.000 | 1.000 |
+| 256³, 0.1c | V | 0.622 | 0.965 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| 256³, 0.1c | M | 0.666 | 0.966 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+
+* **Light travel at 0.01c delays reionization by Δz ≈ 2–2.5.** At 128³,
+  x_HII,V reaches 50% at z = 8.5 instead of 10.4 and 99% at z = 6.2 instead
+  of 8.8. At 256³ the numbers are 9.0 against 10.4 and 6.5 against 8.8.
+  τ_es is 0.069–0.076 at 0.01c and 0.087–0.090 at 0.1c, a 20% bias.
+  docs/production_run.md §1 called this "delayed"; it is a large effect, not
+  a small correction.
+* **The 0.1c histories hardly depend on resolution** (z(50%) = 10.43 at 128³
+  and 10.38 at 256³, the same z(90%)). At 0.01c they differ by 0.4 in z.
+  So at 0.01c the timing is set by the light horizon, not by the sources.
+* The ionized fraction at 0.1c drops from 10% to 99% over Δz ≈ 3.2–3.8; at 0.01c
+  over Δz ≈ 4.5–5.2. The 0.01c x_HII,V also lags x_HII,M by more (light
+  reaches the dense regions near sources first).
+* Whether 0.1c is converged needs a 0.3c or 1c run (at 128³: under an hour
+  or a few hours on a whole node, scaling from the 0.1c run).
+* With the global SFR model both c values reionize too early: τ_es = 0.07–0.09
+  against Planck's 0.054. That is the source calibration (not yet done), not
+  the RT.
 
 ## 8. Recommendations for the next runs
 
-RECS_PLACEHOLDER
+1. **Thread count and node.** Use a **whole node** (`--exclusive -c 192
+   --mem=256G`) with **192 threads at 256³**: RT 94× over one core. At
+   **128³ use 96 threads**: 192 gives the same time, so two 128³ runs can share
+   a node, or one run can share a node with other jobs at 96 cores. Below 128³
+   (512 domains per colour) more than 96 threads does not help. Always
+   `OMP_PLACES=cores OMP_PROC_BIND=close`; `numactl` is not needed.
+2. **Memory:** 128³ needs 4 GB, 256³ 27 GB (the pool guard caps the rays at
+   0.9 Nray_max ≈ 21 GB at 256³). `--mem=64G` covers both. At 256³ the
+   memory is far below the node's 1.5 TB, so 384³ (Nray_max = 0.9 G rays,
+   ≈ 60 GB of rays at 0.75 Nray_max) also fits on one node.
+3. **Cost for planning** (whole node, 192 threads, current source model):
+   128³ 0.01c ≈ 2–3 min, 0.1c ≈ 15 min; 256³ 0.01c ≈ 15–25 min, 0.1c ≈
+   1.5 h, 1c ≈ 15 h (4 × 10⁴ substeps). The RT cost per substep at 256³ is
+   1.2 s at 120–130M rays on 192 threads (5039 s / 4064 substeps).
+4. **c_reduced.** At these costs there is no reason to run 0.01c: it delays
+   reionization by Δz ≈ 2–2.5 (§7). Use **0.1c** at 256³ as the baseline, and
+   check its convergence with one 0.3c or 1c run at 128³.
+5. **Checkpoints:** 16 GB at 256³. Use `restart_every = 4` or more for 0.01c
+   (the run is 25 minutes), and keep `restart_keep_latest = 1` unless a
+   specific checkpoint is needed. The default `--time` is 1 hour: always
+   set it, keep it under the next maintenance window, and chain jobs with
+   `--dependency=afterany`.
+6. **Build:** the default flags. `-march=znver4` gives the same answers and
+   only about 3% (§6).
+7. **Tests on klone:** expect the 8 RT stored-reference failures of §3 until
+   the references are regenerated or the comparison is made platform-
+   independent (a user decision; CLAUDE.md forbids regenerating them on a
+   whim). All live Fortran-vs-C++ comparisons pass byte for byte.
