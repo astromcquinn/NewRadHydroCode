@@ -39,11 +39,11 @@ build, all steps and fields), `hydro_physics`, `hydro_sanitize_*`.
 | `check_temp` | `check_temp` (internal) |
 | `transpose_ij`, `transpose_ik` | same names (same blocked loop order, nb = 8) |
 | `summarize_gas` | `summarize_gas` → `GasSummary` (record + printed table); `format_gas_record` writes the `50es13.5` record |
-| MKL DFTI descriptors in `hydro_step`/`smooth` | class `Fft1d` (FFTW3 single precision, see §3) |
+| MKL DFTI descriptors in `hydro_step`/`smooth` | class `fft::Fft1d` (`fft.hpp`, FFTW3 single precision, see §3; the FFT layer shared with the PM since Phase 1c) |
 | domain_tools.f90 `init_domain_gas`, `set_domain_gas`, `end_domain_gas` | same names, using the `Domains` struct of `simulation.hpp` (`box` = `indx_dom_gas`, `domain` = `domain_gas`) |
-| radhydro.f90 `calc_timestep` (hydro part) | `calc_timestep_hydro` (`TimestepMode::Fixed` / `Courant`) |
+| radhydro.f90 `calc_timestep` | `radray::calc_timestep` (`cosmology.hpp`, `TimestepMode::Fixed` / `Courant` / `Original`), shared by all drivers since Phase 1c |
 | radhydro.f90 `radhydro` (hydro part) | `radhydro_hydro_step` (no `particle_mesh`, no RT, no summaries) |
-| radhydro_global.f90 `cmax_gas, vmax_gas, vrms_gas, c_limit, dt_hy`, `v_gas` | `HydroState` |
+| radhydro_global.f90 `c_limit, dt_hy`, `v_gas` | `HydroState`; `cmax_gas, vmax_gas, vrms_gas` are `SimClock` fields (Phase 1c) |
 | radhydro_global.f90 `ra_max, dt_gas_factor, dt_pm_factor`; hydro_tools `rmf, cfl` | `hydrop::` constants |
 | cosmo_tools.f90 `calc_sim_var`: `Tmf_min = Tmf_max = 1` | added to `Units` / `calc_sim_var` (the only edit to shared files besides CMake) |
 | radhydro.f90 main loop (hydro only) | `apps/hydro_driver.cpp` |
@@ -97,7 +97,8 @@ table, the standard-output formatting of `hydro_step` and `calc_timestep`
 * `wg = exp(-((pi*rmf*(i-1)/ngasr)**2)/2)`: `pi*rmf` is folded at compile
   time, which is an exact IEEE product, then `*(i-1)`, `/ngasr`, square.
 * **FFT.** MKL DFTI is replaced by FFTW3 single precision in both the
-  harness (`mkl_dfti_shim.f90`) and the C++ (`Fft1d`), identically:
+  harness (`reference/harness_common/mkl_dfti_shim.f90`, shared by all
+  harnesses since Phase 1c) and the C++ (`fft::Fft1d`), identically:
   `FFTW_ESTIMATE` r2c/c2r plans on an `fftwf_alloc_real(n+2)` buffer, data
   copied in/out, backward result times the real(4) scale. MKL's default
   1-D real storage (CCS) is FFTW's r2c layout, which is what `smooth`'s

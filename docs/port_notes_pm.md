@@ -30,10 +30,10 @@ passes.
 | Fortran | C++ (`namespace radray::pm` unless noted) |
 |---|---|
 | radhydro_global.f90 sizes: `Ngas, Hgas, Ndm, Npart, ngasr, ndmr, N_dm_gas, N_dm_gas_c, x_dm_gas` | `PMConfig` (`PMConfig::make(Ngas, Ndm, mf)`; `mf` = the `-DMF` switch) |
-| radhydro_global.f90 arrays `xv_dm, ll_dm, hoc_dm, hoc_cpu, density, dm_cpu` and the globals `amax_dm, arms_dm, vmax_dm, vrms_dm` | `PMState` (SoA vectors; `xv[(ip-1)*6+c]`, 1-based `ip`, `ll[0]` dummy) |
-| `cmax_gas, vmax_gas, vrms_gas` | `GasSpeeds` |
+| radhydro_global.f90 arrays `xv_dm, ll_dm, hoc_dm, hoc_cpu, density, dm_cpu` | `PMState` (SoA vectors; `xv[(ip-1)*6+c]`, 1-based `ip`, `ll[0]` dummy) |
+| the "Sim" globals `amax_dm, arms_dm, vmax_dm, vrms_dm, cmax_gas, vmax_gas, vrms_gas` | `SimClock` fields (Phase 1c; they were in `PMState` and `GasSpeeds`) |
 | `u_gas`, `w_gas` | plain `std::vector<float>` arguments (the `GasGrid::u/w` layout). `v_gas(3,Ngas^3)` is a separate vector, so `grid.hpp` stays untouched for the hydro port |
-| domain_tools.f90 `init_domain_gas` | `init_domain_gas` → `GasDomains`. `set_domain_gas`/`end_domain_gas` with one thread hand out the domains in order 1..Ndomain on every pass, so the C++ loops over them in that order |
+| domain_tools.f90 `init_domain_gas` | the hydro port's `init_domain_gas` (`Domains`, `src/domain_gas.cpp`), passed to `init_pm` (Phase 1c; the PM had its own `GasDomains` copy). `set_domain_gas`/`end_domain_gas` with one thread hand out the domains in order 1..Ndomain on every pass, so the C++ loops over them in that order |
 | pm_tools.f90 `init_pm` | `init_pm` |
 | `particle_mesh` | `particle_mesh` |
 | `calc_drift` | `calc_drift` |
@@ -43,13 +43,13 @@ passes.
 | `calc_kick` (`accelerate_dm`, `accelerate_gas`, `force`) | `calc_kick`. `force` is the file-local `force()`. Both `accelerate_gas` branches (MF and non-MF) are ported |
 | `calc_power_spectrum` | `calc_power_spectrum` (computation) + `write_power_spectrum` (`(7es14.6)` → `%14.6E`) |
 | `summarize_dm` | `summarize_dm`, which returns the reductions and prints the summary |
-| fft_tools.f90 `fft_3d`, `fft_1d`, `init_fft` | `radray::fft::fft_3d`, `fft_1d` (`src/fft.cpp`). `init_fft` is a forward transform of the zero `density`, done inline in the driver |
+| fft_tools.f90 `fft_3d`, `fft_1d`, `init_fft` | `radray::fft::fft_3d`, `fft_1d` (`src/fft.cpp`, the one FFT layer shared with the hydro's `Fft1d`). `init_fft` is a forward transform of the zero `density`, done inline in the driver |
 | cosmo_tools.f90 `calc_pk_3d`; general_tools `sinc` | `calc_pk_3d`; file-local `sinc` |
 | cosmo_tools.f90 `ztag` (in `calc_sim_var`) | `ztag(z)` |
 | io_tools.f90 `read_init_conditions` | `read_init_conditions` (see Q1) |
-| radhydro.f90 `calc_timestep`, complete | `calc_timestep_full`. The existing `radray::calc_timestep` (fixed da, RT only) is unchanged |
+| radhydro.f90 `calc_timestep`, complete | `radray::calc_timestep` (`cosmology.hpp`, modes Original/Courant/Fixed), shared by every driver since Phase 1c (it replaced `pm::calc_timestep_full`) |
 | radhydro.f90 `radhydro`, gravity part | `apps/pm_driver.cpp` main loop |
-| hydro_tools.f90 `summarize_gas`, time-step part only | `summarize_gas_speeds` (see §4.2) |
+| hydro_tools.f90 `summarize_gas` | the hydro port's full `summarize_gas` (Phase 1c; it replaced `summarize_gas_speeds`, see §4.2) |
 | hydro_tools.f90 `init_hydro` allocations | `pm_driver` |
 
 Not ported: `write_data_1/2` (snapshot output), the `timing` array and the
@@ -57,7 +57,10 @@ Not ported: `write_data_1/2` (snapshot output), the `timing` array and the
 
 ## 2. FFT (MKL DFTI → FFTW3f)
 
-`reference/harness_pm/PATCHES.md` §1 has the full mapping. In summary:
+`reference/harness_pm/PATCHES.md` §1 has the full mapping (since Phase 1c
+the FFTW calls are made by the shared shim
+`reference/harness_common/mkl_dfti_shim.f90` under the original
+`fft_tools.f90`). In summary:
 
 * **Layout.** `a(n1+2,n2,n3)` in place. The real data is in `a(1:n1,:,:)`.
   The conjugate-even half spectrum `c(n1/2+1,n2,n3)` (MKL
@@ -113,12 +116,11 @@ Everything follows `port_notes.md` §3. The PM-specific points:
    time-step part of `summarize_gas`. The DM and gas are synchronised at the
    mid-step, as in the original. The kick uses `dt_sim` and the mid-step
    scale factor.
-2. **`summarize_gas`** belongs to the hydro module, which needs MKL and the
-   hydro solver. The part that feeds `calc_timestep` is ported as
-   `summarize_gas_speeds`, identically in the harness and in C++: the
-   `cmax/vmax/vrms` reductions with the side effects `u_gas(1) =
-   max(u_gas(1),Dgas_min)` and `w_gas = max(w_gas,0.)`. Phase 1c should
-   replace it with the hydro port's full `summarize_gas`.
+2. **`summarize_gas`.** Until Phase 1c the harness and the C++ used a copy
+   of its time-step part (`summarize_gas_speeds`). Both now call the full
+   original/ported `summarize_gas`, with its side effects `u_gas(1) =
+   max(u_gas(1),Dgas_min)` and `w_gas = max(w_gas,0.)`; the stored outputs
+   did not change.
 3. **Time step.** `calc_timestep` is ported completely: the istep == 0
    `ra_max` step, `dt = min(2*dt_gas_factor/cmax_gas,
    dt_pm_factor/sqrt(amax_dm))` with the `ra_max` limit, the RT substep
