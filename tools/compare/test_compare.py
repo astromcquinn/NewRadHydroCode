@@ -285,5 +285,74 @@ class CompareTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(pd, "history.png")))
 
 
+NPART = 5 ** 3
+
+
+def write_pm_run(root, mutate=None):
+    """A PM-format run (pm_driver / harness_pm): no scalar RT fields, N is
+    inferred from u_gas; xv_dm(6,Npart) particles."""
+    rng = np.random.default_rng(99)
+    for s in range(0, 3):
+        d = os.path.join(root, f"step_{s:04d}")
+        os.makedirs(d)
+        f = {"u_gas": rng.random((5, N, N, N)), "v_gas": rng.normal(0, 1, (3, N, N, N)),
+             "phi": rng.normal(0, 1, (1, N, N, N)), "xv_dm": rng.random((6, NPART)) * N}
+        f = {k: np.asarray(v, dtype=np.float32) for k, v in f.items()}
+        if mutate:
+            mutate(s, f)
+        for k, a in f.items():
+            a.astype("<f4").ravel(order="F").tofile(os.path.join(d, k + ".bin"))
+        with open(os.path.join(d, "stats.txt"), "w") as fh:
+            fh.write(f"istep = {s}\nnstep_rt = 7\namax_dm = {0.1 * s!r}\n")
+
+
+class ComparePMTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="cmp_pm_test_")
+        self.ref = os.path.join(self.tmp, "ref")
+        write_pm_run(self.ref)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def report(self, mutate=None):
+        new = os.path.join(self.tmp, "new")
+        write_pm_run(new, mutate)
+        js = os.path.join(self.tmp, "rep.json")
+        rc, out = run_compare(self.ref, new, "--rtol", "0", "--atol-frac", "0", "--json", js)
+        with open(js) as f:
+            return rc, out, json.load(f)
+
+    def test_identical_strict(self):
+        rc, out, rep = self.report()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(rep["N"], N)
+        names = {r["field"] for r in rep["fields"]}
+        self.assertEqual(names, {"u_gas", "v_gas", "phi", "xv_dm"})
+
+    def test_particle_difference_located(self):
+        # one ulp in vy (comp 5) of particle ip = 17 (1-based) at step 1
+        def m(s, f):
+            if s == 1:
+                f["xv_dm"][4, 16] = np.nextafter(f["xv_dm"][4, 16], np.float32(1e9))
+        rc, out, rep = self.report(m)
+        self.assertEqual(rc, 1, out)
+        r = [r for r in rep["fields"] if r["field"] == "xv_dm" and r["step"] == 1][0]
+        self.assertEqual(r["n_diff"], 1)
+        self.assertEqual((r["worst"]["comp"], r["worst"]["ip"]), (5, 17))
+        self.assertEqual(rep["first_divergence"], 1)
+        self.assertIn("ip=17", out)
+
+    def test_v_gas_difference_located(self):
+        def m(s, f):
+            if s == 2:
+                f["v_gas"][2, 1, 2, 3] += 1.0
+        rc, out, rep = self.report(m)
+        self.assertEqual(rc, 1)
+        r = [r for r in rep["fields"] if r["field"] == "v_gas" and r["step"] == 2][0]
+        w = r["worst"]
+        self.assertEqual((w["comp"], w["i"], w["j"], w["k"]), (3, 2, 3, 4))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

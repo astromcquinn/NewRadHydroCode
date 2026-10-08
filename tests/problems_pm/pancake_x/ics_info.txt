@@ -1,0 +1,19 @@
+# written by tools/ics/make_ics.py
+command = make_ics.py pancake_x --kind pancake --axis x --a-cross 0.05 --Ngas 32 --Ndm 16 --z-init 300 --gas uniform --growth frozen-gas
+outdir = pancake_x
+kind = pancake
+Ngas = 32
+Ndm = 16
+z_init = 300.0
+seed = 1
+gas = uniform
+growth = frozen-gas
+axis = x
+a_cross = 0.05
+Ndm = 16
+a_init = 0.0033222591362126247
+D_over_Dcross_init = 0.09301617535305749
+a_cross = 0.05
+k_dm = 0.39269908169872414
+axis = x
+vamp = 0.0031417317115964177

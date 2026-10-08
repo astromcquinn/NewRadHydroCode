@@ -91,3 +91,59 @@ if(Python3_Interpreter_FOUND)
     endif()
   endforeach()
 endif()
+
+# ---------------------------------------------------------------------------
+# PM gravity (only when FFTW3f was found, see the top-level CMakeLists.txt)
+if(RADRAY_HAVE_PM)
+  add_executable(test_pm test_pm.cpp)
+  target_link_libraries(test_pm PRIVATE radray_pm)
+  add_test(NAME pm_unit COMMAND test_pm)
+  set_tests_properties(pm_unit PROPERTIES LABELS pm)
+
+  if(Python3_Interpreter_FOUND)
+    set(PM_PROBLEMS zeldovich_3d growth_3d pancake_x pancake_z_nomf)
+    foreach(p ${PM_PROBLEMS})
+      set(run ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/${p})
+      # 1. run pm_driver (fixture shared by the checks below)
+      add_test(NAME pm_run_${p}
+               COMMAND ${CMAKE_COMMAND} -DDRIVER=$<TARGET_FILE:pm_driver>
+                       -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p} -DOUT=${run}
+                       -P ${CMAKE_CURRENT_SOURCE_DIR}/run_pm.cmake)
+      set_tests_properties(pm_run_${p} PROPERTIES FIXTURES_SETUP pm_${p} LABELS pm TIMEOUT 600)
+      # 2. bit-for-bit against the stored Fortran harness outputs
+      set(refdir ${PROJECT_SOURCE_DIR}/reference/harness_pm/outputs/${p})
+      if(EXISTS ${refdir})
+        add_test(NAME pm_ref_${p}
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/compare_pm_reference.py
+                         ${refdir} ${run})
+        set_tests_properties(pm_ref_${p} PROPERTIES FIXTURES_REQUIRED pm_${p}
+                             LABELS "pm;reference")
+      endif()
+      # 3. momentum conservation (all problems)
+      add_test(NAME pm_momentum_${p}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                       momentum ${run} ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p})
+      set_tests_properties(pm_momentum_${p} PROPERTIES FIXTURES_REQUIRED pm_${p} LABELS pm)
+    endforeach()
+    # 4. analytic Zel'dovich pancakes and linear growth
+    add_test(NAME pm_pancake_x
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     pancake ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_x
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/pancake_x)
+    set_tests_properties(pm_pancake_x PROPERTIES FIXTURES_REQUIRED pm_pancake_x LABELS pm)
+    # fixed da_sim = 0.002 from z = 300: the first step has da/a = 0.6, so the
+    # time-integration error of the mode is ~1.3% (see docs/port_notes_pm.md)
+    add_test(NAME pm_pancake_z_nomf
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     pancake ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_z_nomf
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/pancake_z_nomf
+                     --tol-mode-x 0.025 --tol-mode-v 0.025)
+    set_tests_properties(pm_pancake_z_nomf PROPERTIES FIXTURES_REQUIRED pm_pancake_z_nomf
+                         LABELS pm)
+    add_test(NAME pm_growth_3d
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     growth ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/growth_3d
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/growth_3d)
+    set_tests_properties(pm_growth_3d PROPERTIES FIXTURES_REQUIRED pm_growth_3d LABELS pm)
+  endif()
+endif()

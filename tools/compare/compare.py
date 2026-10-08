@@ -43,8 +43,13 @@ KNOWN_FIELDS: Dict[str, object] = {
     "ngam": "F", "nu": "F", "fgam": "F", "tau": "F",
     "gamma": 3, "lambda": 3, "dx": 3,
     "u_gas": 5, "w_gas": 4,
+    # PM gravity outputs (reference/harness_pm, apps/pm_driver)
+    "v_gas": 3, "phi": 1,
 }
-FIELD_ORDER = list(KNOWN_FIELDS)
+# Particle arrays: name -> components per particle; read as (ncomp, Npart)
+# with the component fastest (Fortran xv_dm(6,Npart)); Npart from the size.
+PARTICLE_FIELDS: Dict[str, int] = {"xv_dm": 6}
+FIELD_ORDER = list(KNOWN_FIELDS) + list(PARTICLE_FIELDS)
 EXTENSIONS = ("", ".bin", ".dat", ".raw", ".f32")
 STATS_FILE = "stats.txt"
 
@@ -102,6 +107,16 @@ def infer_N(stepdir: str) -> int:
             if n ** 3 * 4 == nbytes:
                 return n
             raise StructureError(f"{p}: size {nbytes} is not 4*N^3")
+    # PM outputs have no scalar RT field: use a multi-component gas field
+    for name in ("u_gas", "w_gas", "v_gas", "phi"):
+        p = find_field_file(stepdir, name)
+        if p:
+            nc = KNOWN_FIELDS[name]
+            nbytes = os.path.getsize(p)
+            n = round((nbytes / (4 * nc)) ** (1.0 / 3.0))
+            if nc * n ** 3 * 4 == nbytes:
+                return n
+            raise StructureError(f"{p}: size {nbytes} is not 4*{nc}*N^3")
     raise StructureError(f"cannot infer N in {stepdir}: no scalar field found "
                          f"(use --N)")
 
@@ -136,6 +151,15 @@ def read_field(path: str, N: int, ncomp: Optional[int]) -> np.ndarray:
         raise StructureError(f"{path}: expected {ncomp} components, file has {nc}")
     a = np.fromfile(path, dtype="<f4")
     return a.reshape((nc, N, N, N), order="F")
+
+
+def read_particles(path: str, ncomp: int) -> np.ndarray:
+    """Return array (ncomp, Npart) for a particle file (component fastest)."""
+    nbytes = os.path.getsize(path)
+    if nbytes % (4 * ncomp):
+        raise StructureError(f"{path}: size {nbytes} not a multiple of 4*{ncomp}")
+    a = np.fromfile(path, dtype="<f4")
+    return a.reshape((ncomp, -1), order="F")
 
 
 def read_stats(path: str) -> Dict[str, str]:
@@ -230,12 +254,16 @@ def compare_arrays(a: np.ndarray, b: np.ndarray, step: int, name: str,
         else:
             score = rel + 1e-300 * absd
             flat = int(np.argmax(score.ravel(order="F")))
-        c, i, j, k = np.unravel_index(flat, a.shape, order="F")
-        r.worst = {
-            "comp": int(c) + 1, "i": int(i) + 1, "j": int(j) + 1, "k": int(k) + 1,
-            "ref": float(a64[c, i, j, k]), "new": float(b64[c, i, j, k]),
-            "abs": float(absd[c, i, j, k]), "rel": float(rel[c, i, j, k]),
-        }
+        idx = np.unravel_index(flat, a.shape, order="F")
+        if a.ndim == 2:   # particles: (comp, ip)
+            loc = {"comp": int(idx[0]) + 1, "ip": int(idx[1]) + 1}
+        else:
+            c, i, j, k = idx
+            loc = {"comp": int(c) + 1, "i": int(i) + 1, "j": int(j) + 1, "k": int(k) + 1}
+        r.worst = dict(loc, **{
+            "ref": float(a64[idx]), "new": float(b64[idx]),
+            "abs": float(absd[idx]), "rel": float(rel[idx]),
+        })
     return r
 
 
@@ -394,6 +422,8 @@ def fmt_loc(w: Optional[Dict[str, object]], ncomp: int) -> str:
     if not w:
         return "-"
     c = f"c={w['comp']}," if ncomp > 1 else ""
+    if "ip" in w:
+        return f"({c}ip={w['ip']}) ref={w['ref']:.6g} new={w['new']:.6g}"
     return (f"({c}{w['i']},{w['j']},{w['k']}) ref={w['ref']:.6g} new={w['new']:.6g}")
 
 
@@ -495,7 +525,7 @@ def run(args) -> int:
                 if fn == STATS_FILE or not os.path.isfile(p):
                     continue
                 nm = field_name_of(fn)
-                if nm in KNOWN_FIELDS:
+                if nm in KNOWN_FIELDS or nm in PARTICLE_FIELDS:
                     continue
                 if os.path.getsize(p) % (4 * N ** 3) == 0 and os.path.getsize(p) > 0:
                     extra.add(nm)
@@ -518,9 +548,13 @@ def run(args) -> int:
                 missing.append(msg)
                 structural = True
                 continue
-            nc = ncomp_of(n, nfreq)
-            a = read_field(pa, N, nc)
-            b = read_field(pb, N, nc)
+            if n in PARTICLE_FIELDS:
+                a = read_particles(pa, PARTICLE_FIELDS[n])
+                b = read_particles(pb, PARTICLE_FIELDS[n])
+            else:
+                nc = ncomp_of(n, nfreq)
+                a = read_field(pa, N, nc)
+                b = read_field(pb, N, nc)
             if a.shape != b.shape:
                 raise StructureError(f"step {s}: {n} shape {a.shape} vs {b.shape}")
             r = compare_arrays(a, b, s, n, rtol_over.get(n, args.rtol), args.atol_frac)
