@@ -1,0 +1,13 @@
+# Full radhydro loop validation problem (tests/problems_full/make_problems.py)
+N = 32
+Ndm = 16
+box = 4
+nray_max_factor = 4
+z_init = 100
+zdata1 = 8.5 7.5
+ics = ../ics
+fof_min_npart = 8
+legacy_rt = 1
+legacy_physics = 1
+source_mode = legacy
+dir_halo = Halo

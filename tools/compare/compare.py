@@ -510,7 +510,17 @@ def run(args) -> int:
     if not steps:
         raise StructureError("no common steps to compare")
 
+    # N from the first common step that has a scalar field (the full-loop
+    # outputs write fields only at some steps)
     s0 = steps[0]
+    if not args.N:
+        for s in steps:
+            try:
+                infer_N(ref_steps[s])
+                s0 = s
+                break
+            except StructureError:
+                continue
     N = args.N or infer_N(ref_steps[s0])
     N_new = args.N or infer_N(new_steps[s0])
     if N != N_new:

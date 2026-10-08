@@ -247,3 +247,89 @@ if(Python3_Interpreter_FOUND)
   endforeach()
 endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# Full radhydro loop (apps/radhydro vs reference/harness_full): docs/full_run.md
+# ---------------------------------------------------------------------------
+if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
+  set(FULL_PROBLEMS ${CMAKE_CURRENT_SOURCE_DIR}/problems_full)
+  set(FULL_REF ${PROJECT_SOURCE_DIR}/reference/harness_full/outputs)
+  set(FULL_RUN ${CMAKE_COMMAND} -DPYTHON=${Python3_EXECUTABLE}
+               -DTESTS=${CMAKE_CURRENT_SOURCE_DIR}
+               -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py)
+  set(FULL_SET_rt1 "legacy_rt=1,legacy_physics=1")
+  set(FULL_SET_rt0 "legacy_rt=0,legacy_physics=0")
+
+  # Strict comparison with the stored Fortran full-harness outputs (stats of
+  # every step, SHA-256 of every field file, hydro.log, P(k), particles).
+  # smoke_*: seconds; legacy_* / onthefly_*: ~4 minutes each (label long).
+  foreach(c smoke_rt1 smoke_rt0 legacy_rt1 legacy_rt0 onthefly_rt1 onthefly_rt0)
+    string(REGEX REPLACE "_rt[01]$" "" p ${c})
+    string(REGEX REPLACE "^.*_" "" m ${c})
+    if(EXISTS ${FULL_REF}/${c})
+      add_test(NAME full_ref_${c}
+               COMMAND ${FULL_RUN} -DMODE=ref -DDRIVER=$<TARGET_FILE:radhydro>
+                       -DPROBLEM=${FULL_PROBLEMS}/${p} -DSET=${FULL_SET_${m}}
+                       -DREF=${FULL_REF}/${c} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_ref_runs/${c}
+                       -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+      if(p STREQUAL "smoke")
+        set_tests_properties(full_ref_${c} PROPERTIES TIMEOUT 600 LABELS "full;reference")
+      else()
+        set_tests_properties(full_ref_${c} PROPERTIES TIMEOUT 3600
+                             LABELS "full;reference;long")
+      endif()
+    endif()
+  endforeach()
+
+  # Live comparison with a fresh gfortran build of the full radhydro.f90
+  # (smoke problem, both source modes and both flag sets).
+  find_program(GFORTRAN_FULL gfortran)
+  if(GFORTRAN_FULL)
+    foreach(p smoke)
+      foreach(src legacy onthefly)
+        foreach(m rt1 rt0)
+          add_test(NAME full_vs_fortran_live_${p}_${src}_${m}
+                   COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
+                           -DPROBLEM=${FULL_PROBLEMS}/${p}
+                           -DSET=source_mode=${src},${FULL_SET_${m}}
+                           -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                           -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
+                           -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/${p}_${src}_${m}
+                           -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+          set_tests_properties(full_vs_fortran_live_${p}_${src}_${m} PROPERTIES
+                               TIMEOUT 1800 LABELS "full;fortran"
+                               RESOURCE_LOCK harness_full_build)
+        endforeach()
+      endforeach()
+    endforeach()
+  endif()
+
+  # ASan/UBSan build of radhydro (all radray sources) on the smoke problem;
+  # it must still match the reference bit for bit.
+  if(NOT RADRAY_SANITIZE)
+    file(GLOB RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/*.cpp)
+    add_executable(radhydro_asan ${PROJECT_SOURCE_DIR}/apps/radhydro.cpp ${RADRAY_ALL_SRC_FULL})
+    target_include_directories(radhydro_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
+                               ${FFTW3F_INCLUDE_DIR})
+    target_compile_options(radhydro_asan PRIVATE -fsanitize=address,undefined
+                           -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g -O1
+                           -Wno-unknown-pragmas)
+    target_link_options(radhydro_asan PRIVATE -fsanitize=address,undefined)
+    target_link_libraries(radhydro_asan PRIVATE ${FFTW3F_LIBRARY})
+    set(FULL_ASAN_DRIVER $<TARGET_FILE:radhydro_asan>)
+  else()
+    set(FULL_ASAN_DRIVER $<TARGET_FILE:radhydro>)
+  endif()
+  foreach(m rt1 rt0)
+    if(EXISTS ${FULL_REF}/smoke_${m})
+      add_test(NAME full_sanitize_smoke_${m}
+               COMMAND ${FULL_RUN} -DMODE=sanitize -DDRIVER=${FULL_ASAN_DRIVER}
+                       -DPROBLEM=${FULL_PROBLEMS}/smoke -DSET=${FULL_SET_${m}}
+                       -DREF=${FULL_REF}/smoke_${m}
+                       -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_asan_runs/smoke_${m}
+                       -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+      set_tests_properties(full_sanitize_smoke_${m} PROPERTIES TIMEOUT 1800
+                           LABELS "full;sanitize")
+    endif()
+  endforeach()
+endif()

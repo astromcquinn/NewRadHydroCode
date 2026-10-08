@@ -162,6 +162,15 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
   out.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n * sizeof(float)));
 }
 
+// Peak resident set size (VmHWM of /proc/self/status) in MB, -1 if unknown
+double peak_rss_mb() {
+  std::ifstream in("/proc/self/status");
+  std::string line;
+  while (std::getline(in, line))
+    if (line.rfind("VmHWM:", 0) == 0) return std::stod(line.substr(6)) / 1024.0;
+  return -1;
+}
+
 struct Timers {
   double hydro = 0, pm = 0, halos = 0, rt = 0, summaries = 0, io = 0, pk = 0;
 };
@@ -217,6 +226,9 @@ int main(int argc, char** argv) {
       return pdir + "/" + p;
     };
     const std::string ics_dir = P.ics.empty() ? pdir : in_problem(P.ics);
+    if (!P.halo.dir_halo.empty() && P.halo.dir_halo[0] != '/' &&
+        P.halo.dir_halo.rfind(pdir, 0) != 0)
+      P.halo.dir_halo = in_problem(P.halo.dir_halo);
     if (!P.halo.model.sfr_history_path.empty())
       P.halo.model.sfr_history_path = in_problem(P.halo.model.sfr_history_path);
 
@@ -508,11 +520,12 @@ int main(int argc, char** argv) {
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
     std::printf(
         " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
-        "rt %.2f, summaries %.2f, io %.2f\n",
-        s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io);
+        "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
+        s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
+        peak_rss_mb());
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
-           << T.io << "\n";
+           << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
   } catch (const std::exception& e) {
     std::fprintf(stderr, "radhydro: error: %s\n", e.what());
     return 1;
