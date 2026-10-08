@@ -4,7 +4,13 @@ A C++ cosmological radiative-transfer (RT) code built on the adaptive
 ray-tracing algorithm of Hy Trac's RadHydro (Trac & Cen 2007; Trac, Cen &
 Loeb 2008). The roadmap is in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: phase 1, the faithful port.** `radray` is a serial C++17 port of the
+**Status: phase 1c, the full radhydro loop.** `apps/radhydro` runs the
+complete `radhydro.f90` time loop (hydro + PM gravity + halos/sources + RT)
+and is bit-identical to a gfortran build of the original program
+(`reference/harness_full`), with legacy halo catalogs and with on-the-fly
+friends-of-friends sources; see [docs/full_run.md](docs/full_run.md).
+
+**Phase 1, the faithful port.** `radray` is a serial C++17 port of the
 RT part of `reference/Radhydro`. That covers ray tracing, HEALPix ray
 splitting and merging, photo-ionisation and heating chemistry, and the
 cosmology and units the RT uses. On every validation problem it reproduces
@@ -103,6 +109,22 @@ Each N = 32 problem takes about 0.5–2 s (10 hydro steps × 12 RT substeps).
 | `end_to_end_legacy0`, `end_to_end_fixed` | as `end_to_end`, with `legacy_rt=0`, and with `legacy_rt=0 legacy_physics=0` |
 | `ref_<problem>` | byte comparison with the stored harness outputs `reference/harness/outputs` |
 | `ref_legacy0_<problem>`, `ref_fixed_<problem>` | the same for `legacy_rt=0` (`outputs_legacy_rt0`) and for `legacy_rt=0 legacy_physics=0` (`outputs_legacy_rt0_phys0`) |
+
+Hydro, PM and full-loop tests carry the labels `hydro`, `pm` and `full`.
+The four N = 32 full-loop reference tests (`full_ref_legacy_*`,
+`full_ref_onthefly_*`) take about 5 minutes each and carry the label `long`
+(`ctest -LE long` skips them).
+
+## Full radiation-hydrodynamics run
+
+```
+./build/radhydro tests/problems_full/onthefly out/onthefly [--set key=value ...] [--quiet]
+reference/harness_full/run_problem.sh tests/problems_full/onthefly out/f_onthefly   # Fortran
+python3 tools/compare/compare.py out/f_onthefly out/onthefly --rtol 0 --atol-frac 0
+```
+
+Parameters, outputs, validation and the cost model are in
+[docs/full_run.md](docs/full_run.md).
 
 How the Fortran maps onto the C++, the ambiguous constructs and the bugs
 found in the original are described in
