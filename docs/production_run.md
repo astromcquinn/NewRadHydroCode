@@ -240,9 +240,10 @@ model, c_reduced = 0.01, nray_max_factor = 16, legacy_rt = legacy_physics
   of that step, z = 10.05). x_HII,V = 0.02, 0.61, 0.99994 at z = 8.9, 7.1,
   5.5. Rays: 2.73M at the end (0.65 Nray_max), pool guard active in 7
   substeps. Peak RSS 400 MB.
-* **N = 128**, z = 100 → 5.27, 29 hydro steps, **77 min in total** on
-  the shared machine (≈ 2 cores effectively): RT 69.5 min (212 substeps
-  from z = 12.6; the first FoF source forms at z = 11.3), hydro + PM + FoF
+* **N = 128**, z = 100 → 5.27, 29 hydro steps, **69 min in total** on
+  the shared machine (≈ 2 cores effectively): RT 62 min (190 substeps
+  from z = 12.6, 177 of them to z = 5.56; the first FoF source forms at
+  z = 11.3), hydro + PM + FoF
   + summaries ≈ 12 s per step, IO 1–2 min. The run stopped once at a full
   disk while writing a checkpoint (section 7) and was restarted from the
   step-23 checkpoint (`--restart`). RT steps 20–29: 29, 68, 323, 447, 455
@@ -295,10 +296,9 @@ worst case at 0.9: then N = 128 needs 3.2 GB and N = 192 10.8 GB).
 The hydro part (27–30 steps) is 2 min (N = 128) to 7 min (N = 192) of
 these. Checks against the runs: N = 64 predicts 68 substeps to z = 5.5
 (the run did 67) and 4 min of RT on one thread; N = 128 predicts 179
-substeps to z = 5.5 (the run did 199 to z = 5.56, 212 to 5.27: the
-Courant-limited steps round up more often) and 1.6 h on one thread; the
-complete N = 128 run took 77 min on about two free cores, consistent with
-the 28-min projection for four. The uncertainty is mostly
+substeps to z = 5.5 (the run did 177 to z = 5.56) and 1.6 h on one
+thread; the complete N = 128 run took 69 min on about two free cores,
+consistent with the 28-min projection for four. The uncertainty is mostly
 the ray population (±30%) and the source model: with the global SFR
 model the box is ionised by z ≈ 6.5 (N = 64) and the ray count saturates;
 an abundance-matched model with fainter, more numerous sources will change
@@ -342,8 +342,8 @@ and should be re-measured on an idle machine with the two scripts.
 ## 7. Recommendations for the production run
 
 1. **N = 128, c_reduced = 0.01** is the run to do first: about half an
-   hour on 4 idle cores (1–1.5 h on this shared machine), 2.8 GB of
-   memory. It resolves halos of ≈ 7e8 Msun/h (20 particles), 4.5× better
+   hour on 4 idle cores (it took 69 min on this shared machine), 2.8 GB
+   of memory (measured peak RSS 2.76 GB). It resolves halos of ≈ 7e8 Msun/h (20 particles), 4.5× better
    than N = 64.
 2. **N = 192, c_reduced = 0.01** fits (8–9 GB at the ray populations seen,
    10.8 GB at the pool guard's cap; 1.9 GB without rays) and takes ≈ 2.5–3 h on 4 idle cores, but
