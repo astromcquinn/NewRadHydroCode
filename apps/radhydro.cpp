@@ -138,6 +138,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ray_quant.dither = std::stoi(val) != 0;
   else if (key == "ray_quant_struct")
     P.ray_quant.structural = std::stoi(val) != 0;
+  else if (key == "ray_quant_offbits")
+    P.ray_quant.offbits = std::stoi(val);
   else if (!set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||

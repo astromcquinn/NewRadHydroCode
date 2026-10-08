@@ -32,6 +32,8 @@ variants=(
   "r6:ray_quant_bits=6 ray_quant_dither=0"
   "struct:ray_quant_struct=1"
   "struct_d4:ray_quant_struct=1 ray_quant_bits=4"
+  "struct_o10:ray_quant_struct=1 ray_quant_offbits=10"
+  "struct_o10_d4:ray_quant_struct=1 ray_quant_offbits=10 ray_quant_bits=4"
   "nrmf32:nray_max_factor=32"
 )
 

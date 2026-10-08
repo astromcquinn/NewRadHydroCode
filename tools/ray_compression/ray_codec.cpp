@@ -1,7 +1,7 @@
 // Ray-compression prototype (docs/ray_compression.md, steps 4-5).
 //
-// usage: ray_codec TRAIN_STEM TEST_STEM [--mbits m] [--block n] [--reps k]
-//                  [--no-origin] [--json]
+// usage: ray_codec TRAIN_STEM TEST_STEM [--mbits m] [--offbits b] [--block n]
+//                  [--reps k] [--no-origin]
 //
 // Reads two ray snapshots written by the RT's optional ray dump
 // (include/radray/ray_dump.hpp): models are fitted on TRAIN and used to
@@ -182,6 +182,12 @@ struct Recon {  // decoded float fields (what the RT works with)
   float r, dr, x[3], dx[3], nu[5], ngam[5];
 };
 
+// Bits per axis of the in-cell position offset (--offbits; 16 = R-struct)
+int g_offbits = 16;
+// Mantissa bits of the float32 photon total (--mbits; 23 = exact float)
+int g_mbits = 23;
+inline double off_to_frac(int q) { return (q + 0.5) / static_cast<double>(1 << g_offbits); }
+
 struct Geometry {
   int N;
   std::vector<std::array<double, 3>> src_x;  // source cell centres (0-based coords)
@@ -237,8 +243,10 @@ QRay quantise(const RayDumpRecord& a, const Geometry& g, const QuantOpts& o) {
   int ijk[3];
   cell_ijk(a.cell, N, ijk);
   for (int d = 0; d < 3; ++d) {
-    const double off = static_cast<double>(a.x[d]) - ijk[d];
-    q.off[d] = static_cast<std::uint16_t>(std::min(std::max(std::floor(off * 65536), 0.0), 65535.0));
+    double off = static_cast<double>(a.x[d]) - ijk[d];
+    if (off >= 0.5 * N) off -= N;  // x == N (float round-up) lies in cell 0
+    const double M = 1 << g_offbits;
+    q.off[d] = static_cast<std::uint16_t>(std::min(std::max(std::floor(off * M), 0.0), M - 1));
   }
   q.lside = bitlen(static_cast<std::uint32_t>(a.nside)) - 1;
   q.ipix = static_cast<std::uint32_t>(a.ipix);
@@ -346,7 +354,7 @@ void reconstruct(const QRay& q, long long cell, const Geometry& g, Recon& out) {
       out.x[d] = static_cast<float>(x);
     }
   } else {
-    for (int d = 0; d < 3; ++d) out.x[d] = static_cast<float>(ijk[d] + (q.off[d] + 0.5) / 65536.0);
+    for (int d = 0; d < 3; ++d) out.x[d] = static_cast<float>(ijk[d] + off_to_frac(q.off[d]));
   }
   float tot;
   std::memcpy(&tot, &q.ntot_bits, 4);
@@ -701,7 +709,7 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
   } else {
     // offsets
     // (nearly uniform: stored raw)
-    for (int d = 0; d < 3; ++d) q.off[d] = static_cast<std::uint16_t>(io.raw(q.off[d], 16, gOff));
+    for (int d = 0; d < 3; ++d) q.off[d] = static_cast<std::uint16_t>(io.raw(q.off[d], g_offbits, gOff));
     // nside, r
     q.lside = 2 + io.sym(M.lsideG, q.cls, q.lside - 2, gLside);
     {
@@ -723,8 +731,8 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
           q.src = static_cast<int>(io.raw(static_cast<std::uint32_t>(q.src), nsrc_bits, gSrc));
         bs.last_src = q.src;
         if (can_predict(q.rq / 8.0, N)) {
-          const double p[3] = {ijk[0] + (q.off[0] + 0.5) / 65536.0, ijk[1] + (q.off[1] + 0.5) / 65536.0,
-                               ijk[2] + (q.off[2] + 0.5) / 65536.0};
+          const double p[3] = {ijk[0] + off_to_frac(q.off[0]), ijk[1] + off_to_frac(q.off[1]),
+                               ijk[2] + off_to_frac(q.off[2])};
           double v[3];
           image_vector(p, g.src_x[q.src], N, v);
           const std::uint32_t pred = predict_pix(q.lside, v);
@@ -757,7 +765,9 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
     int s = (e - base >= -32 && e - base < 31) ? e - base + 32 : 63;
     s = io.sym(M.nexp, q.lside - 2, s, gNtot);
     const int ee = (s == 63) ? static_cast<int>(io.raw(static_cast<std::uint32_t>(e), 8, gNtot)) : s - 32 + base;
-    const std::uint32_t man = io.raw(q.ntot_bits & 0x7fffff, 23, gNtot);
+    // only the kept mantissa bits are stored
+    const int drop = 23 - g_mbits;
+    const std::uint32_t man = io.raw((q.ntot_bits & 0x7fffff) >> drop, g_mbits, gNtot) << drop;
     q.ntot_bits = (static_cast<std::uint32_t>(ee) << 23) | man;
   }
   // shape: s0, then steps between adjacent groups
@@ -1072,11 +1082,13 @@ int main(int argc, char** argv) {
   for (int a = 3; a < argc; ++a) {
     const std::string s = argv[a];
     if (s == "--mbits" && a + 1 < argc)
-      o.mbits = std::atoi(argv[++a]);
+      o.mbits = g_mbits = std::atoi(argv[++a]);
     else if (s == "--block" && a + 1 < argc)
       block = static_cast<std::size_t>(std::atoll(argv[++a]));
     else if (s == "--reps" && a + 1 < argc)
       reps = std::atoi(argv[++a]);
+    else if (s == "--offbits" && a + 1 < argc)
+      g_offbits = std::atoi(argv[++a]);
     else if (s == "--no-origin")
       o.origin = false;
     else {
@@ -1143,7 +1155,8 @@ int main(int argc, char** argv) {
     }
 
     std::printf("{\n  \"train\": \"%s\", \"test\": \"%s\", \"nrays\": %zu, \"N\": %d,\n", argv[1], argv[2], n, te.N);
-    std::printf("  \"mbits\": %d, \"block\": %zu, \"origin\": %d,\n", o.mbits, block, o.origin ? 1 : 0);
+    std::printf("  \"mbits\": %d, \"offbits\": %d, \"block\": %zu, \"origin\": %d,\n", o.mbits, g_offbits, block,
+                o.origin ? 1 : 0);
     std::printf("  \"class_frac\": [%.4f, %.4f, %.4f],\n", ncls[0] / double(n), ncls[1] / double(n),
                 ncls[2] / double(n));
     std::printf("  \"bytes_raw\": 80, \"bytes_structural\": %.3f,\n", sbits / 8 / n);

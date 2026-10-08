@@ -45,7 +45,7 @@ def cmd_entropy(args):
 
 def cmd_codec(args):
     res = []
-    variants = [("lossless", []), ("m10", ["--mbits", "10"]), ("m6", ["--mbits", "6"]),
+    variants = [("lossless", []), ("m10", ["--mbits", "10"]), ("m6", ["--mbits", "6"]), ("m6_o10", ["--mbits", "6", "--offbits", "10"]),
                 ("no_origin", ["--no-origin"])]
     for rd in args.runs:
         ss = stems(rd)

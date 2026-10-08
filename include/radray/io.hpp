@@ -27,6 +27,7 @@ struct ProblemParams {
   int ray_quant_bits = 0;
   int ray_quant_dither = 1;
   int ray_quant_struct = 0;
+  int ray_quant_offbits = 16;
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.

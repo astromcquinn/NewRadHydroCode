@@ -60,14 +60,15 @@ void tangent_basis(const double c[3], double eth[3], double eph[3]) {
   }
 }
 
-void structural_round_trip(Ray& ry, int N, bool dither, std::uint64_t key) {
-  // position: 16-bit offset inside the cell (the cell does not change)
+void structural_round_trip(Ray& ry, int N, bool dither, int offbits, std::uint64_t key) {
+  // position: offbits-bit offset inside the cell (the cell does not change)
+  const double M = std::ldexp(1.0, offbits);
   for (int d = 0; d < 3; ++d) {
     const double x = ry.x[d];
     const double c = std::floor(x);
-    double q = std::floor((x - c) * 65536);
-    q = std::fmin(std::fmax(q, 0.0), 65535.0);
-    double xn = c + (q + 0.5) / 65536;
+    double q = std::floor((x - c) * M);
+    q = std::fmin(std::fmax(q, 0.0), M - 1);
+    double xn = c + (q + 0.5) / M;
     if (xn >= N) xn -= N;
     ry.x[d] = static_cast<float>(xn);
   }
@@ -137,7 +138,7 @@ void ray_quantise(Simulation& s, const RayQuantConfig& qc) {
     while (ir > 0) {
       Ray& ry = R.at(ir);
       const std::uint64_t key = splitmix64(step_key ^ (static_cast<std::uint64_t>(ir) * 0x100000001b3ull));
-      if (qc.structural) structural_round_trip(ry, s.cfg.Nrt, qc.dither, key);
+      if (qc.structural) structural_round_trip(ry, s.cfg.Nrt, qc.dither, qc.offbits, key);
       if (qc.bits > 0) {
         for (int n = 0; n < kNfreq; ++n) {
           const double u = qc.dither ? uniform(key ^ (0x9e37ull + n)) : -1;

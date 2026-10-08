@@ -84,6 +84,7 @@ int main(int argc, char** argv) {
     s.ray_quant.bits = P.ray_quant_bits;
     s.ray_quant.dither = (P.ray_quant_dither != 0);
     s.ray_quant.structural = (P.ray_quant_struct != 0);
+    s.ray_quant.offbits = P.ray_quant_offbits;
     if (s.ray_quant.enabled())
       std::cout << " RESEARCH: ray_quant bits=" << P.ray_quant_bits << " dither="
                 << P.ray_quant_dither << " struct=" << P.ray_quant_struct

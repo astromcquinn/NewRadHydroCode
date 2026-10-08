@@ -54,6 +54,8 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.ray_quant_dither = std::stoi(val);
   else if (key == "ray_quant_struct")
     p.ray_quant_struct = std::stoi(val);
+  else if (key == "ray_quant_offbits")
+    p.ray_quant_offbits = std::stoi(val);
   else if (key == "legacy_rt") {
     p.legacy_rt = std::stoi(val);
     if (p.legacy_rt != 0 && p.legacy_rt != 1)

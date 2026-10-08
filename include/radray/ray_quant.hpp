@@ -11,7 +11,8 @@
 //    (hydro step, RT substep, storage slot, group), so runs are
 //    deterministic.
 //  * structural = true: the "R-struct" round trip of
-//    tools/ray_compression/ray_codec.cpp: position as a 16-bit offset in its
+//    tools/ray_compression/ray_codec.cpp: position as an `offbits`-bit
+//    (default 16) offset in its
 //    cell, r to 1/8 cell (dr = rmax(nside) - r), direction as the HEALPix
 //    centre plus an offset quantised to 1/128 pixel, nu to 8 bits in its
 //    band, and the photon groups as the exact float total times log2
@@ -30,6 +31,7 @@ struct RayQuantConfig {
   int bits = 0;             // photon mantissa bits (0: off)
   bool dither = true;       // stochastic (unbiased) rounding
   bool structural = false;  // R-struct round trip of geometry, nu and shape
+  int offbits = 16;         // structural: bits per axis of the in-cell offset
   bool enabled() const { return bits > 0 || structural; }
 };
 
