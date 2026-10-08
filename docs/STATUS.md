@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09, end of the first working thread (after PR #10).*
+*Last updated: 2026-10-09, production-run thread (branch `production-run`, PR #7).*
 
 ## Done (merged into `main`)
 
@@ -91,6 +91,58 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   entropy formulation for cold supersonic gas behind a flag, is a candidate
   next task.
 
+## Production run, sources, calibration, movie (PR #7, branch `production-run`)
+
+**Abundance-matched sources** (`docs/abundance_matching.md`):
+- `sfr_model = abundance`, a new source model; the existing models are
+  unchanged and bit-identical.
+- L_UV(M_halo, z) comes from abundance matching to observed UV LFs with
+  the Tinker 2008 HMF. The shape is fitted at z ≤ 9, with the faint end
+  extrapolated to M_UV = −12. At z = 10–12.5 only the normalisation is
+  fitted, to the JWST LFs of Donnan+24. L(M) is held fixed beyond the
+  data.
+- Ionizing rate = f_esc ξ_ion L_UV, with log ξ_ion = 25.38. The RT code
+  is untouched.
+- Tools: `apps/am_fit`, `apps/hmf_table`, `tools/analysis/plot_am.py`,
+  `tools/analysis/box_lf.py`.
+- The LFs at z ≥ 9 are read from the paper (Donnan+24). The z ≈ 6–8 rows
+  (Bouwens+21) are still unconfirmed; the user will supply JWST-era LFs.
+
+**Halo mass function** at 128³ / 10 Mpc/h (`docs/hmf_validation.md`):
+- FoF agrees with Sheth–Tormen above about 100 particles; it is 1.3–2.2×
+  above Tinker.
+- There is a 2–4× deficit at 20–60 particles, growing with z (PM force
+  resolution and Zel'dovich ICs). The first halo forms at z ≈ 11.3.
+- So the box's UV LF is 1.3–2× above the observed one brighter than
+  M_UV ≈ −16, and below it at the faint end.
+
+**f_esc calibration** at 128³ (`docs/reionization_production.md` §1):
+- **f_esc = 0.50 gives τ_es = 0.0540** (Planck 2018: 0.054 ± 0.007), with
+  the midpoint at z = 7.0. x_M = 0.985 at z ≈ 5.3, so the end is late.
+- Each run takes 13–16 min on 4 threads.
+- τ is a weak constraint: f_esc 0.2–0.8 gives τ = 0.046–0.058. Only
+  f_esc ≳ 0.8 ends reionization by z ≈ 5.7.
+- The biases are documented: 0.01c, no sub-grid sources and late first
+  halos bias f_esc high; the box's excess of bright halos biases it low.
+
+**Movie** (`tools/movie/make_movie.py`):
+- Each frame has slices of x_HII, T and gas density, plus x_HII(z) and
+  τ_es panels; ffmpeg assembles the MP4.
+- Test movies: 64³ (`runs/`, not committed) and 128³
+  (`docs/figures/reion_test_128.mp4`).
+- Movie frames written before the first RT substep have an uninitialised
+  rt_grid. The tools skip them.
+
+**Hyak** (`tools/hyak/`, `docs/reionization_production.md` §3):
+- Scripts: build, thread-scaling test, and a production job that resumes
+  automatically from the latest checkpoint.
+- Cost estimate: 128³ takes minutes on a node; 256³ about 0.5–1 h on
+  32–64 cores (about 20 GB); 512³ about 8–16 h (about 160 GB). Thread
+  scaling on Genoa is still to be measured.
+
+**Not run yet:** the production run itself (the commands are in the doc),
+and the scaling test on Hyak.
+
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
 Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
@@ -105,21 +157,19 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
 ## Next
 
-1. Check the halo mass function at production resolution against Sheth–Tormen/Tinker.
-2. **Abundance-matched sources:**
-   - Fit L_UV(M_halo) to the observed high-z UV LFs (HST z≈6–10, JWST z>10).
-   - Calibrate f_esc to Planck τ_es.
-   - No sub-grid sources for unresolved halos (user decision).
-3. **Production reionisation run and movie.** The box is decided; the
-   resolution waits on the timing table.
-
-   | Setting | Value |
-   |---|---|
-   | Box | 10 Mpc/h |
-   | c_reduced | 0.01 (the user accepts slow light) |
-   | nray_max_factor | 16 |
-   | Ngas = Ndm | 128³, or 192³ if the timing table allows |
-   | Flags | legacy_rt = legacy_physics = 0 |
+1. **User decisions pending for the production run**
+   (`docs/reionization_production.md`):
+   - the z ≈ 6–8 LF papers;
+   - abundance matching against the simulated FoF mass function instead
+     of Tinker, so the box LF matches the observations by construction;
+   - f_esc from τ alone (0.5), or also from the end of reionization
+     (0.6–0.8);
+   - the production N on Hyak (128 or 256);
+   - a 0.1c reference run.
+2. **Production run on Hyak** with `tools/hyak/reion_production.slurm`,
+   then the movie (`make_movie.py`). First run the scaling test.
+3. Recalibrate f_esc when the LFs or the matching change: four runs of
+   about 15 min at 128³ (`calibrate_fesc.py`).
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
    - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
      and 1.5 TB per node) with 7.8 TB of memory, a 64-core,
