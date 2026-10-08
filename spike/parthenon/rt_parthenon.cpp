@@ -20,6 +20,8 @@
 // usage: rt_parthenon -i rt.in <problem_dir> <outdir> [--nsteps n] [--set k=v]...
 //                     [--no-output] [--mb 16] [block/par=value ...]
 #include <cstddef>
+#include <type_traits>
+#include <utility>
 
 #include "parth_common.hpp"
 
@@ -61,44 +63,64 @@ constexpr unsigned long long kUW = rng(kTau + 5, kNcd);  // u_gas, w_gas
 // tau/fgam are mirrored into the Parthenon variables for the ghost exchange
 // -- a measurement of what the Parthenon variable layout costs.
 using AosV = Kokkos::View<float****, Kokkos::LayoutRight>;  // (k,j,i,45) interior
+
 template <class A, class F>
 struct CellVarsT {
   A rtc, tau, fgam;
   F aos;
   int is, js, ks;  // first interior index
-  KOKKOS_FORCEINLINE_FUNCTION Real& at(int q, int K, int J, int I) const {
-    if (q < kFg) return rtc(q, K, J, I);
-    if (q < kTau) return fgam(q - kFg, K, J, I);
-    if (q < kTau + 5) return tau(q - kTau, K, J, I);
-    return rtc(q - 10, K, J, I);
+  // One base pointer + component stride per variable and cell: indexing
+  // every component through the 7-D ParArrayND costs more than calc_rt_1.
+  struct Ptrs {
+    Real *r, *f, *t;
+    std::ptrdiff_t sr, sf, st;
+    KOKKOS_FORCEINLINE_FUNCTION Real& at(int q) const {
+      if (q < kFg) return r[q * sr];
+      if (q < kTau) return f[(q - kFg) * sf];
+      if (q < kTau + 5) return t[(q - kTau) * st];
+      return r[(q - 10) * sr];
+    }
+  };
+  KOKKOS_FORCEINLINE_FUNCTION Ptrs ptrs(int i, int j, int k) const {
+    const int I = i + is, J = j + js, K = k + ks;
+    Ptrs p;
+    p.r = &rtc(0, K, J, I);
+    p.f = &fgam(0, K, J, I);
+    p.t = &tau(0, K, J, I);
+    p.sr = &rtc(1, K, J, I) - p.r;
+    p.sf = &fgam(1, K, J, I) - p.f;
+    p.st = &tau(1, K, J, I) - p.t;
+    return p;
   }
   template <unsigned long long M = kAll>
   KOKKOS_FORCEINLINE_FUNCTION CellData load(int i, int j, int k) const {
     CellData c{};
     float* f = reinterpret_cast<float*>(&c);
 #ifdef RT_CELLS_AOS
+    const float* a = &aos(k, j, i, 0);
     for (int q = 0; q < kNcd; ++q)
-      if ((M >> q) & 1ULL) f[q] = aos(k, j, i, q);
+      if ((M >> q) & 1ULL) f[q] = a[q];
 #else
-    const int I = i + is, J = j + js, K = k + ks;
+    const Ptrs p = ptrs(i, j, k);
     for (int q = 0; q < kNcd; ++q)
-      if ((M >> q) & 1ULL) f[q] = static_cast<float>(at(q, K, J, I));
+      if ((M >> q) & 1ULL) f[q] = static_cast<float>(p.at(q));
 #endif
     return c;
   }
   template <unsigned long long M = kAll>
   KOKKOS_FORCEINLINE_FUNCTION void store(int i, int j, int k, const CellData& c) const {
     const float* f = reinterpret_cast<const float*>(&c);
-    const int I = i + is, J = j + js, K = k + ks;
+    const Ptrs p = ptrs(i, j, k);
 #ifdef RT_CELLS_AOS
+    float* a = &aos(k, j, i, 0);
     for (int q = 0; q < kNcd; ++q)
-      if ((M >> q) & 1ULL) aos(k, j, i, q) = f[q];
+      if ((M >> q) & 1ULL) a[q] = f[q];
     constexpr unsigned long long MG = M & rng(kFg, kTau + 5);  // tau, fgam: also for the halo
     for (int q = kFg; q < kTau + 5; ++q)
-      if ((MG >> q) & 1ULL) at(q, K, J, I) = f[q];
+      if ((MG >> q) & 1ULL) p.at(q) = f[q];
 #else
     for (int q = 0; q < kNcd; ++q)
-      if ((M >> q) & 1ULL) at(q, K, J, I) = f[q];
+      if ((M >> q) & 1ULL) p.at(q) = f[q];
 #endif
   }
 };
