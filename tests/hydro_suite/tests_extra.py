@@ -280,7 +280,7 @@ def kh_linear_rate(k, dv, a, c0):
 
 
 def test_kh(ctx, tier):
-    Ns = (32, 64) if tier == "quick" else (32, 64, 128)
+    Ns = (32,) if tier == "quick" else (32, 64, 128)
     cases, metas = [], {}
     for N in Ns:
         name = f"kh_N{N}"

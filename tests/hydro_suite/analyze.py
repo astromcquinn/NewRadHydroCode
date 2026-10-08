@@ -787,14 +787,15 @@ def fig_kh(R, figdir):
     plt = _plt()
     cs = R["cases"]
     fig, ax = plt.subplots(1, 1, figsize=(4.5, 3.0))
-    for k, (name, c) in enumerate(cs.items()):
-        t = np.array(c["t"])
-        ax.semilogy(t, c["amp"], "o-", ms=2.5, color=C[k], label=f"N={c['N']}")
-        a0 = c["amp"][0]
-        ax.semilogy(t, a0 * np.exp(c["rate_linear"] * t) * 0.5, ":", color=C[k], lw=0.8)
-    ax.set_xlabel("t [code units]")
+    for k, name in enumerate(sorted(cs, key=lambda n: cs[n]["N"])):
+        c = cs[name]
+        t = np.array(c["t"]) * c["rate_linear"]
+        ax.semilogy(t, c["amp"], "o-", ms=2.5, color=C[k],
+                    label=f"N={c['N']} (layer {c['N'] / 32:g} cells)")
+    ax.semilogy(t, 0.005 * np.exp(t - 0.5), ":", color=INK2, lw=1, label="linear theory")
+    ax.set_xlabel(r"$t\,\sigma_{\rm lin}$")
     ax.set_ylabel(r"$|\hat v_y(k)|$")
-    ax.set_title("Kelvin-Helmholtz: mode growth (dotted: linear theory)", fontsize=8.5)
+    ax.set_title("Kelvin-Helmholtz: growth of the seeded mode", fontsize=8.5)
     ax.legend(fontsize=7)
     fig.tight_layout()
     _save(fig, figdir, "kh")
