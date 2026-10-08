@@ -114,6 +114,8 @@ struct RunParams {
   int fields_every = 0;     // write fields every n steps (0: never)
   int fields_at_data1 = 1;  // write fields at the zdata1 output steps
   int max_steps = 1000;     // the original's timing(1000) array
+  int run_steps = 0;        // > 0: stop after this many steps of this invocation
+                            // (timing runs from a checkpoint; 0: run to the end)
 };
 
 void set_run_param(RunParams& P, const std::string& key_in, const std::string& val_in) {
@@ -174,6 +176,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.fields_at_data1 = std::stoi(val);
   else if (key == "max_steps")
     P.max_steps = std::stoi(val);
+  else if (key == "run_steps")
+    P.run_steps = std::stoi(val);
   else if (!set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
@@ -655,6 +659,7 @@ int main(int argc, char** argv) {
     // Time stepping
     // ------------------------------------------------------------------
     std::vector<double> pk_dm, pk_gas;
+    int steps_run = 0;
     for (;;) {
       if (s.clk.istep >= P.max_steps)
         throw std::runtime_error("max_steps reached before the last zdata1 redshift");
@@ -784,6 +789,7 @@ int main(int argc, char** argv) {
 
       // Stop
       if (last) break;
+      if (P.run_steps > 0 && ++steps_run >= P.run_steps) break;
     }
 
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
