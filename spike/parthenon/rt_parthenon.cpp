@@ -44,27 +44,42 @@ static_assert(offsetof(CellData, u) == (kTau + 5) * sizeof(float), "CellData lay
 
 using PVar = ParArrayND<Real, VariableState>;
 
+// Bit masks over the 45 floats of CellData: the kernels touch only part of
+// a cell, and with Parthenon's component-slowest layout every component is a
+// separate memory stream, so each phase loads/stores only what it uses.
+constexpr unsigned long long rng(int a, int b) { return ((1ULL << b) - 1) & ~((1ULL << a) - 1); }
+constexpr unsigned long long kAll = rng(0, kNcd);
+constexpr unsigned long long kGas = rng(0, 5);           // rhog fHI fHeI fHeII temp
+constexpr unsigned long long kSrc = rng(5, 7);           // Luv sfr
+constexpr unsigned long long kDx = rng(7, 10), kGamLam = rng(10, 16), kNu = rng(16, 21), kNgam = rng(21, 26);
+constexpr unsigned long long kFgam = rng(kFg, kFg + 5), kTauM = rng(kTau, kTau + 5);
+constexpr unsigned long long kUW = rng(kTau + 5, kNcd);  // u_gas, w_gas
+
 template <class A>
 struct CellVarsT {
   A rtc, tau, fgam;
   int is, js, ks;  // first interior index
-  KOKKOS_INLINE_FUNCTION CellData load(int i, int j, int k) const {
-    CellData c;
+  KOKKOS_FORCEINLINE_FUNCTION Real& at(int q, int K, int J, int I) const {
+    if (q < kFg) return rtc(q, K, J, I);
+    if (q < kTau) return fgam(q - kFg, K, J, I);
+    if (q < kTau + 5) return tau(q - kTau, K, J, I);
+    return rtc(q - 10, K, J, I);
+  }
+  template <unsigned long long M = kAll>
+  KOKKOS_FORCEINLINE_FUNCTION CellData load(int i, int j, int k) const {
+    CellData c{};
     float* f = reinterpret_cast<float*>(&c);
     const int I = i + is, J = j + js, K = k + ks;
-    for (int q = 0; q < kFg; ++q) f[q] = static_cast<float>(rtc(q, K, J, I));
-    for (int q = 0; q < 5; ++q) f[kFg + q] = static_cast<float>(fgam(q, K, J, I));
-    for (int q = 0; q < 5; ++q) f[kTau + q] = static_cast<float>(tau(q, K, J, I));
-    for (int q = kTau + 5; q < kNcd; ++q) f[q] = static_cast<float>(rtc(q - 10, K, J, I));
+    for (int q = 0; q < kNcd; ++q)
+      if ((M >> q) & 1ULL) f[q] = static_cast<float>(at(q, K, J, I));
     return c;
   }
-  KOKKOS_INLINE_FUNCTION void store(int i, int j, int k, const CellData& c) const {
+  template <unsigned long long M = kAll>
+  KOKKOS_FORCEINLINE_FUNCTION void store(int i, int j, int k, const CellData& c) const {
     const float* f = reinterpret_cast<const float*>(&c);
     const int I = i + is, J = j + js, K = k + ks;
-    for (int q = 0; q < kFg; ++q) rtc(q, K, J, I) = f[q];
-    for (int q = 0; q < 5; ++q) fgam(q, K, J, I) = f[kFg + q];
-    for (int q = 0; q < 5; ++q) tau(q, K, J, I) = f[kTau + q];
-    for (int q = kTau + 5; q < kNcd; ++q) rtc(q - 10, K, J, I) = f[q];
+    for (int q = 0; q < kNcd; ++q)
+      if ((M >> q) & 1ULL) at(q, K, J, I) = f[q];
   }
 };
 using CellVars = CellVarsT<PVar>;
@@ -465,9 +480,9 @@ int main(int argc, char** argv) {
           B.pmb->par_for(
               "rt_prep", 0, B.ncell - 1, KOKKOS_LAMBDA(const int c) {
                 const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
-                CellData d = cv.load(i, j, k);
+                CellData d = cv.load<kUW>(i, j, k);
                 rrk::prep_cell(d, u);
-                cv.store(i, j, k, d);
+                cv.store<kGas>(i, j, k, d);
               });
         }
       }
@@ -539,9 +554,9 @@ int main(int argc, char** argv) {
             B.pmb->par_for(
                 "rt_calc_rt_1", 0, B.ncell - 1, KOKKOS_LAMBDA(const int c) {
                   const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
-                  CellData d = cv.load(i, j, k);
+                  CellData d = cv.load<rng(0, 4)>(i, j, k);  // rhog fHI fHeI fHeII
                   rrk::calc_rt_1_cell(d, u, sig.s);
-                  cv.store(i, j, k, d);
+                  cv.store<rng(7, kTau + 5)>(i, j, k, d);    // dx .. tau
                 });
           }
           Kokkos::fence();
@@ -591,7 +606,7 @@ int main(int argc, char** argv) {
           B.pmb->par_for(
               "rt_step1_count", 0, B.ncell - 1, KOKKOS_LAMBDA(const int c) {
                 const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
-                const CellData d = cv.load(i, j, k);
+                const CellData d = cv.load<kSrc | kTauM>(i, j, k);
                 const bool src = static_cast<double>(d.sfr) > sfr_min;
                 const bool thick = src && rrk::source_is_thick(d.tau);
                 rrk::CellStats cs;
@@ -622,7 +637,7 @@ int main(int argc, char** argv) {
           B.pmb->par_for(
               "rt_step1_write", 0, B.ncell - 1, KOKKOS_LAMBDA(const int c) {
                 const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
-                const CellData d = cv.load(i, j, k);
+                const CellData d = cv.load<kSrc | kTauM>(i, j, k);
                 const bool src = static_cast<double>(d.sfr) > sfr_min;
                 const bool thick = src && rrk::source_is_thick(d.tau);
                 if (thick) {
@@ -688,13 +703,13 @@ int main(int argc, char** argv) {
             B.pmb->par_for(
                 "rt_physics", 0, B.ncell - 1, KOKKOS_LAMBDA(const int c) {
                   const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
-                  CellData d = cv.load(i, j, k);
+                  CellData d = cv.load<kGas | kGamLam | kFgam | kUW>(i, j, k);
                   const long long* a = &acc(k + G, j + G, i + G, 0);
                   for (int m = 0; m < 5; ++m) d.ngam[m] = static_cast<float>(rrk::from_fx(a[m], rrk::kScaleNgam));
                   for (int m = 0; m < 5; ++m) d.nu[m] = static_cast<float>(rrk::from_fx(a[5 + m], rrk::kScaleNu));
                   for (int m = 0; m < 3; ++m) d.dx[m] = static_cast<float>(rrk::from_fx(a[10 + m], rrk::kScaleNgam));
                   rrk::physics_cell(d, X);
-                  cv.store(i, j, k, d);
+                  cv.store<kGas | kDx | kGamLam | kNu | kNgam | kFgam | kUW>(i, j, k, d);
                 });
           }
           Kokkos::fence();
@@ -824,9 +839,9 @@ int main(int argc, char** argv) {
           B.pmb->par_for(
               "rt_post_cell", 0, B.ncell - 1, KOKKOS_LAMBDA(const int c) {
                 const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
-                CellData d = cv.load(i, j, k);
+                CellData d = cv.load<kUW>(i, j, k);
                 rrk::post_cell(d, u, sig.s);
-                cv.store(i, j, k, d);
+                cv.store<kGas | kTauM>(i, j, k, d);
               });
         }
         Kokkos::fence();
