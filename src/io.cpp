@@ -28,6 +28,10 @@ bool little_endian() {
 void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   const std::string key = trim(key_in);
   val = trim(val);
+  if (key == "ray_dump_dir") {
+    p.ray_dump_dir = val;
+    return;
+  }
   for (auto& ch : val)
     if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
   if (key == "N")
@@ -40,6 +44,16 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.nsteps = std::stoi(val);
   else if (key == "nray_max_factor")
     p.nray_max_factor = std::stoi(val);
+  else if (key == "ray_dump_every")
+    p.ray_dump_every = std::stoll(val);
+  else if (key == "ray_dump_at")
+    p.ray_dump_at = val;
+  else if (key == "ray_quant_bits")
+    p.ray_quant_bits = std::stoi(val);
+  else if (key == "ray_quant_dither")
+    p.ray_quant_dither = std::stoi(val);
+  else if (key == "ray_quant_struct")
+    p.ray_quant_struct = std::stoi(val);
   else if (key == "legacy_rt") {
     p.legacy_rt = std::stoi(val);
     if (p.legacy_rt != 0 && p.legacy_rt != 1)

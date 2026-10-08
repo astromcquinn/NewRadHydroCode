@@ -1,0 +1,41 @@
+# Ray-compression study instrumentation (docs/ray_compression.md):
+#  1. rt_driver with the ray dump on must still match the Fortran reference
+#     bit for bit (the dump has no effect on results);
+#  2. the codec prototype must round-trip the last snapshot exactly
+#     (q_mismatch = 0).
+# Variables: DRIVER CODEC PROBLEM OUT REF PYTHON COMPARE SET
+file(REMOVE_RECURSE ${OUT})
+file(MAKE_DIRECTORY ${OUT})
+set(extra --set ray_dump_dir=${OUT}/dump --set ray_dump_every=20)
+if(SET)
+  string(REPLACE "," ";" set_list "${SET}")
+  foreach(kv IN LISTS set_list)
+    list(APPEND extra --set ${kv})
+  endforeach()
+endif()
+execute_process(COMMAND ${DRIVER} ${PROBLEM} ${OUT} ${extra}
+                OUTPUT_FILE ${OUT}.stdout RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "rt_driver failed (${rc}), see ${OUT}.stdout")
+endif()
+execute_process(COMMAND ${PYTHON} ${COMPARE} ${REF} ${OUT} RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "outputs with the ray dump on differ from the Fortran reference")
+endif()
+file(GLOB snaps ${OUT}/dump/rays_s*.npy)
+list(LENGTH snaps n)
+if(n LESS 2)
+  message(FATAL_ERROR "expected at least 2 ray snapshots, found ${n}")
+endif()
+list(SORT snaps)
+list(GET snaps -2 a)
+list(GET snaps -1 b)
+string(REGEX REPLACE "\\.npy$" "" a ${a})
+string(REGEX REPLACE "\\.npy$" "" b ${b})
+execute_process(COMMAND ${CODEC} ${a} ${b} --reps 1 OUTPUT_VARIABLE js RESULT_VARIABLE rc)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "ray_codec failed (${rc})")
+endif()
+if(NOT js MATCHES "\"q_mismatch\": 0,")
+  message(FATAL_ERROR "ray_codec round trip is not exact:\n${js}")
+endif()

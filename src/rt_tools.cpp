@@ -11,6 +11,8 @@
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
+#include "radray/ray_dump.hpp"
+#include "radray/ray_quant.hpp"
 #include "radray/ray_tracing.hpp"
 
 namespace radray {
@@ -204,9 +206,14 @@ void radiative_transfer(Simulation& s) {
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
 
+    if (s.raydump_state) {
+      s.rays.prov_substep = ++s.raydump_state->substep;
+    }
     rt_step_1(s);
     rt_step_2(s);
     rt_step_3(s);
+    if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
+    if (s.raydump_state) ray_dump_after_substep(s);
 
     const std::int64_t nr = s.rays.Nray - s.rays.save.nfree;
     const float fnr = static_cast<float>(static_cast<double>(nr) /

@@ -5,16 +5,20 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <ostream>
 #include <vector>
 
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/grid.hpp"
+#include "radray/ray_quant.hpp"
 #include "radray/rays.hpp"
 #include "radray/rt_rates.hpp"
 
 namespace radray {
+
+struct RayDump;  // radray/ray_dump.hpp
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -49,6 +53,12 @@ struct Simulation {
   // ray.log (Fortran unit 201) and stdout-like summary; may be null.
   std::ostream* raylog = nullptr;
   std::ostream* out = nullptr;
+
+  // Optional ray snapshots for the compression study (ray_dump.hpp); null
+  // (the default) means off. Never read by the RT.
+  std::shared_ptr<RayDump> raydump_state;
+  // Lossy ray-precision experiment (ray_quant.hpp); off by default.
+  RayQuantConfig ray_quant;
 };
 
 }  // namespace radray

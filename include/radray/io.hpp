@@ -18,6 +18,15 @@ struct ProblemParams {
   int nray_max_factor = 64;
   int legacy_rt = 1;  // 1: original RT bookkeeping; 0: fixes B1-B4, B8, B9
   int legacy_physics = 1;  // 1: original atomic physics; 0: fixes P1-P6
+  // Ray snapshots (ray_dump.hpp); off unless ray_dump_dir is set and
+  // ray_dump_every > 0 or ray_dump_at lists global RT substeps.
+  std::string ray_dump_dir;
+  long long ray_dump_every = 0;
+  std::string ray_dump_at;
+  // Lossy ray-precision experiment (ray_quant.hpp); research only, off.
+  int ray_quant_bits = 0;
+  int ray_quant_dither = 1;
+  int ray_quant_struct = 0;
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.

@@ -47,6 +47,7 @@
 #include "radray/hydro.hpp"
 #include "radray/io.hpp"
 #include "radray/pm.hpp"
+#include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/simulation.hpp"
@@ -90,6 +91,11 @@ struct RunParams {
   int fields_every = 0;     // write fields every n steps (0: never)
   int fields_at_data1 = 1;  // write fields at the zdata1 output steps
   int max_steps = 1000;     // the original's timing(1000) array
+  // Ray snapshots for the compression study (radray/ray_dump.hpp); off by
+  // default, no effect on results.
+  RayDumpConfig ray_dump;
+  // Lossy ray-precision experiment (radray/ray_quant.hpp); research only.
+  RayQuantConfig ray_quant;
 };
 
 void set_run_param(RunParams& P, const std::string& key_in, const std::string& val_in) {
@@ -120,6 +126,18 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.fields_at_data1 = std::stoi(val);
   else if (key == "max_steps")
     P.max_steps = std::stoi(val);
+  else if (key == "ray_dump_dir")
+    P.ray_dump.dir = val;
+  else if (key == "ray_dump_every")
+    P.ray_dump.every = std::stoll(val);
+  else if (key == "ray_dump_at")
+    P.ray_dump.at = parse_substep_list(val);
+  else if (key == "ray_quant_bits")
+    P.ray_quant.bits = std::stoi(val);
+  else if (key == "ray_quant_dither")
+    P.ray_quant.dither = std::stoi(val) != 0;
+  else if (key == "ray_quant_struct")
+    P.ray_quant.structural = std::stoi(val) != 0;
   else if (!set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
@@ -263,6 +281,8 @@ int main(int argc, char** argv) {
     pm::init_pm(pm, pm::PMConfig::make(cfg), gdom);    // init_pm
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
+    ray_dump_enable(s, P.ray_dump);                    // (study only; off by default)
+    s.ray_quant = P.ray_quant;                         // (research only; off by default)
     // init_io: output redshifts
     const std::vector<double> zdata1 = read_zdata(P.zdata1, pdir + "/zdata1.txt", true);
     const std::vector<double> zdata2 = read_zdata(P.zdata2, pdir + "/zdata2.txt", false);

@@ -39,6 +39,21 @@ struct Ray {
   float ngam[kNfreq] = {0, 0, 0, 0, 0};
 };
 
+// Provenance of a ray, kept only when a ray dump is enabled
+// (include/radray/ray_dump.hpp); never read by the RT itself.
+struct RayProv {
+  enum : std::uint8_t {
+    kMerged = 1,     // some ancestor was produced by ray_cast_merge
+    kMixedSrc = 2,   // merged from rays of different sources
+    kClamped = 4,    // a split clamped r, moving the effective origin
+  };
+  std::int32_t src = -1;     // emitting source cell (0-based), -1 if mixed
+  std::int32_t birth = 0;    // global RT substep at emission
+  std::uint16_t nmerge = 0;  // merges in the ancestry (saturating)
+  std::uint8_t nclamp = 0;   // clamped splits in the ancestry (saturating)
+  std::uint8_t flags = 0;
+};
+
 // radhydro_global.f90: ray_stat_type
 struct RayStat {
   std::int64_t ncst1 = 0, ncst2 = 0;
@@ -64,6 +79,11 @@ struct RayState {
   RayStat save;  // ray_save
 
   std::array<double, 64> ngam_ray{};  // ngam_ray(1:64) -> [0..63]
+
+  // Ray-dump provenance (empty and untouched unless track_prov is set).
+  bool track_prov = false;
+  std::int64_t prov_substep = 0;  // global RT substep, for RayProv::birth
+  std::vector<RayProv> prov;      // prov[ir], grown with ray
 
   void init(std::int64_t nray_max, std::int64_t nfree_max);
 

@@ -118,6 +118,29 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_fixed_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
+  # Ray dump (compression study) on: still bit-identical to the Fortran, and
+  # the codec prototype round-trips the snapshots (docs/ray_compression.md).
+  foreach(cfg "legacy;outputs;" "fixed;outputs_legacy_rt0_phys0;legacy_rt=0,legacy_physics=0")
+    list(GET cfg 0 tag)
+    list(GET cfg 1 refsub)
+    list(GET cfg 2 sets)
+    set(p lognormal_16src_smallbuf)
+    set(refdir ${PROJECT_SOURCE_DIR}/reference/harness/${refsub}/${p})
+    if(EXISTS ${refdir})
+      add_test(NAME ray_dump_${tag}_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DCODEC=$<TARGET_FILE:ray_codec>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ray_dump_runs/${tag}_${p}
+                 -DREF=${refdir}
+                 -DSET=${sets}
+                 -DPYTHON=${Python3_EXECUTABLE}
+                 -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_ray_dump.cmake)
+      set_tests_properties(ray_dump_${tag}_${p} PROPERTIES TIMEOUT 1800 LABELS "reference;raycomp")
+    endif()
+  endforeach()
 endif()
 
 # ---------------------------------------------------------------------------
