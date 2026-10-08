@@ -18,9 +18,10 @@
 //    band, and the photon groups as the exact float total times log2
 //    fractions quantised to 1/128 octave (dithered if dither = true).
 //
-// This deliberately changes results. It is a measurement instrument, not a
-// correction of the original, so it has no Fortran counterpart; with the
-// defaults (bits = 0, structural = false) nothing is touched.
+// This deliberately changes results. With the defaults (bits = 0,
+// structural = false) nothing is touched, so the original behaviour, which
+// the Fortran harnesses provide for comparison, is unchanged; new options
+// need no Fortran counterpart (docs/PLAN.md, "Fortran harness scope").
 #pragma once
 
 namespace radray {

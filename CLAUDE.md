@@ -20,13 +20,19 @@ At the start of a session, read:
    (`reference/harness*/src`) as documented patches in that harness's
    `PATCHES.md`.
 2. **Bit-for-bit validation.**
-   - The C++ must stay byte-identical to the gfortran harnesses on every
-     validation problem and in every flag combination.
+   - The gfortran harnesses hold the original specification, for
+     comparison. With the default (original) settings the C++ must stay
+     byte-identical to them on every validation problem.
+   - The existing mirrored flags (`legacy_rt`, `legacy_physics`) are also
+     in the Fortran harnesses; keep the C++ byte-identical in every
+     combination of them.
    - Check with `tools/compare/compare.py REF NEW --rtol 0 --atol-frac 0`.
      `--rtol 0` alone still allows absolute differences.
-   - Changing results on purpose requires two things: a flag that keeps the
-     old behaviour, and the same change in the Fortran harness. After that,
-     regenerate the stored references.
+   - Changing results on purpose requires a C++ flag whose default keeps
+     the original behaviour. New flags do **not** need a mirrored
+     implementation in the Fortran harness (user decision, 2026-10-08):
+     the Fortran only has to provide the original for comparison. Example:
+     the research-only `ray_quant_*` options (`docs/ray_compression.md`).
 3. **Legacy flags always reproduce the original.**
    - `legacy_rt = 1` and `legacy_physics = 1` (the defaults) give the
      original behaviour.

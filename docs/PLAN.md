@@ -151,3 +151,13 @@ and adaptive calculations.
   in preference to the no-cooling switch.
 * **RT accuracy target:** a few percent in astrophysical outputs. Ray-level
   precision is set empirically against acceptance metrics.
+
+## Fortran harness scope (decided 2026-10-08)
+
+* The Fortran harnesses only have to reproduce the **original** code, so the
+  C++ can be compared with it at the default settings.
+* New C++ options that change results (fixes, research instruments such as
+  the `ray_quant_*` lossy-precision options of the ray-compression study)
+  go behind a flag whose default is the original behaviour. They need **no**
+  mirrored implementation in Fortran. The already mirrored `legacy_rt` and
+  `legacy_physics` stay as they are.
