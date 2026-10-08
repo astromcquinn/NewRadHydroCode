@@ -1,6 +1,6 @@
 # written by tools/ics/make_ics.py
-command = make_ics.py /home/user/NewRadHydroCode/.claude/worktrees/agent-a72366df8f11410ce/tests/problems_pm/zeldovich_3d --kind zeldovich --Ngas 32 --Ndm 16 --z-init 300 --seed 1 --gas zeldovich --growth full
-outdir = /home/user/NewRadHydroCode/.claude/worktrees/agent-a72366df8f11410ce/tests/problems_pm/zeldovich_3d
+command = make_ics.py zeldovich_3d --kind zeldovich --Ngas 32 --Ndm 16 --z-init 300 --seed 1 --gas zeldovich --growth full
+outdir = zeldovich_3d
 kind = zeldovich
 Ngas = 32
 Ndm = 16

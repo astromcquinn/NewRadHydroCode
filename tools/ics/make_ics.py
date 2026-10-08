@@ -209,8 +209,12 @@ def main(argv=None):
     np.asarray(u, dtype="<f4").ravel(order="F").tofile(os.path.join(args.outdir, "u_gas.init"))
     with open(os.path.join(args.outdir, "ics_info.txt"), "w") as f:
         f.write("# written by tools/ics/make_ics.py\n")
-        f.write("command = make_ics.py " + " ".join(argv if argv is not None else sys.argv[1:]) + "\n")
+        av = list(argv if argv is not None else sys.argv[1:])
+        av = [os.path.basename(os.path.normpath(x)) if x == args.outdir else x for x in av]
+        f.write("command = make_ics.py " + " ".join(av) + "\n")
         for k, v in vars(args).items():
+            if k == "outdir":
+                v = os.path.basename(os.path.normpath(v))
             f.write(f"{k} = {v}\n")
         f.write(f"Ndm = {ndm}\na_init = {a_init!r}\n")
         for k, v in info.items():
