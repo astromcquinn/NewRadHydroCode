@@ -118,6 +118,25 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_fixed_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
+
+  # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
+  # recommended flags, against reference/harness/outputs_c0.1_fixed.
+  foreach(p uniform_8src lognormal_16src_smallbuf)
+    set(refdirc ${PROJECT_SOURCE_DIR}/reference/harness/outputs_c0.1_fixed/${p})
+    if(EXISTS ${refdirc})
+      add_test(NAME ref_c01_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ref_runs_c01/${p}
+                 -DREF=${refdirc}
+                 -DSET=c_reduced=0.1,legacy_rt=0,legacy_physics=0
+                 -DPYTHON=${Python3_EXECUTABLE}
+                 -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
+      set_tests_properties(ref_c01_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
+    endif()
+  endforeach()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -301,6 +320,24 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
                                RESOURCE_LOCK harness_full_build)
         endforeach()
       endforeach()
+    endforeach()
+    # Reduced speed of light: c_reduced = 0.1 (both flag sets) and 1e-4,
+    # where nstep_rt rounds to 0 and the nstep_rt >= 1 guard is used.
+    foreach(cs "legacy;rt1;0.1" "onthefly;rt0;0.1" "legacy;rt0;0.0001")
+      list(GET cs 0 src)
+      list(GET cs 1 m)
+      list(GET cs 2 cr)
+      set(tname full_vs_fortran_live_smoke_${src}_${m}_c${cr})
+      add_test(NAME ${tname}
+               COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
+                       -DPROBLEM=${FULL_PROBLEMS}/smoke
+                       -DSET=source_mode=${src},${FULL_SET_${m}},c_reduced=${cr}
+                       -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                       -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
+                       -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/smoke_${src}_${m}_c${cr}
+                       -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+      set_tests_properties(${tname} PROPERTIES TIMEOUT 1800 LABELS "full;fortran"
+                           RESOURCE_LOCK harness_full_build)
     endforeach()
   endif()
 

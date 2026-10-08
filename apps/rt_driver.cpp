@@ -69,6 +69,7 @@ int main(int argc, char** argv) {
     init_simulation(s, P.N, P.nray_max_factor, P.z_init);
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
+    s.cfg.c_reduced = P.c_reduced;
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
     s.raylog = &raylog;
@@ -85,6 +86,7 @@ int main(int argc, char** argv) {
               << " nsteps     : " << P.nsteps << "\n"
               << " legacy_rt  : " << P.legacy_rt << "\n"
               << " legacy_phys: " << P.legacy_physics << "\n"
+              << " c_reduced  : " << P.c_reduced << "\n"
               << " sources    : " << sources.size() << "\n";
 
     calc_sim_var(s.cfg, s.clk, s.units);

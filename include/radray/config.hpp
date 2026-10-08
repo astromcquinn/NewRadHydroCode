@@ -52,6 +52,11 @@ struct Config {
   // call calc_atomic_rates(rates, legacy_physics) after changing it.
   bool legacy_physics = true;
 
+  // Reduced speed of light: c_hat = c_reduced * c. Enters only through
+  // calc_timestep (the original's cscale): nstep_rt = nint(dl_c/dl_rt*cscale).
+  // 1 (default) is the original.
+  double c_reduced = 1.0;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

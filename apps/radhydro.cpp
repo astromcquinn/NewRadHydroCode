@@ -83,6 +83,7 @@ struct RunParams {
   // Switches
   int legacy_rt = 1;
   int legacy_physics = 1;
+  double c_reduced = 1.0;   // reduced speed of light (calc_timestep cscale)
   // Sources
   HaloSourceParams halo;
   std::string ics;          // directory of xv_dm.init/u_gas.init
@@ -112,7 +113,10 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.legacy_rt = std::stoi(val);
   else if (key == "legacy_physics")
     P.legacy_physics = std::stoi(val);
-  else if (key == "ics")
+  else if (key == "c_reduced") {
+    P.c_reduced = to_double(val);
+    if (!(P.c_reduced > 0)) throw std::runtime_error("c_reduced must be > 0");
+  } else if (key == "ics")
     P.ics = val;
   else if (key == "fields_every")
     P.fields_every = std::stoi(val);
@@ -248,6 +252,7 @@ int main(int argc, char** argv) {
     s.cfg = Config::make(P.N, P.nray_max_factor, P.Ndm, P.box);
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
+    s.cfg.c_reduced = P.c_reduced;
     s.raylog = &raylog;
     s.out = out;
     const Config& cfg = s.cfg;
@@ -282,7 +287,7 @@ int main(int argc, char** argv) {
     if (out)
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
-           << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics
+           << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
            << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
            << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
