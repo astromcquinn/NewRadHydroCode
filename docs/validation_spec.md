@@ -40,8 +40,14 @@ Problems:
 2. `uniform_8src`: as 1 with 8 sources at fixed positions.
 3. `lognormal_16src`: deterministic log-normal density field (seeded), neutral,
    16 sources in the densest cells.
-4. `uniform_8src_smallbuf`: as 2 but `nray_max_factor = 4`, so the `ngam_ray`
-   thresholds become nonzero and the merge path is exercised.
+4. `uniform_8src_smallbuf`: as 2 but `nray_max_factor = 4` (in practice never
+   merges; kept as a buffer-logic test).
+5. `lognormal_16src_smallbuf`: as 3 but `nray_max_factor = 1`; merges from
+   step 5 on — the merge-path test.
+
+The canonical inputs are the files committed in `tests/problems/` (generated
+by `reference/harness/make_test_problem.py`, seed 20121); reference outputs
+are in `reference/harness/outputs/`.
 
 ## Outputs (`<outdir>/step_%04d/`, after each hydro step)
 
