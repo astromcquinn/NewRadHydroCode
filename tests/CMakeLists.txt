@@ -19,6 +19,11 @@ add_executable(test_halos test_halos.cpp)
 target_link_libraries(test_halos PRIVATE radray_halos)
 add_test(NAME halos COMMAND test_halos)
 
+# Abundance matching to UV LFs (docs/abundance_matching.md)
+add_executable(test_abundance_matching test_abundance_matching.cpp)
+target_link_libraries(test_abundance_matching PRIVATE radray_halos)
+add_test(NAME abundance_matching COMMAND test_abundance_matching)
+
 add_executable(test_halo_catalog test_halo_catalog.cpp)
 target_link_libraries(test_halo_catalog PRIVATE radray_halos)
 find_program(RADRAY_GFORTRAN gfortran)

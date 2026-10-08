@@ -1,0 +1,35 @@
+# Observed rest-frame UV (1500-1600 A) luminosity functions for abundance
+# matching (apps/am_fit, docs/abundance_matching.md).
+#
+# EVERY ROW IS "unconfirmed" UNTIL THE USER HAS CHECKED IT AGAINST THE PAPER.
+# arXiv, ADS and journal sites are blocked from the cloud sessions. The
+# "provenance" comment on each row says where the numbers came from:
+#   snippet = text of the paper's table quoted in a web-search result
+#   memory  = recalled, not seen this session
+#
+# Columns:
+#   z  form  Mstar  phistar[Mpc^-3 mag^-1]  alpha  beta  M_bright  M_faint
+#   weight  ref  status
+# form: schechter | dpl (double power law, phi*/(10^(0.4(a+1)dM)+10^(0.4(b+1)dM)))
+# beta is unused for Schechter rows. M_bright/M_faint is the magnitude range
+# the fit is taken to constrain (approximate data range, set by us, not
+# from the paper); only matched points inside it enter the L_UV(M,z) fit.
+#
+# --- HST: Bouwens et al. 2021, AJ 162, 47 (arXiv:2102.07775), Table (Schechter
+#     fits to the blank-field LFs). Mean redshifts of the dropout samples.
+5.9   schechter  -20.93  0.19e-3   -1.93  0  -22.5  -16.5  1  Bouwens+21  unconfirmed  # memory
+6.8   schechter  -21.15  0.12e-3   -2.06  0  -22.5  -16.75 1  Bouwens+21  unconfirmed  # memory
+7.9   schechter  -20.93  0.09e-3   -2.23  0  -22.25 -17.0  1  Bouwens+21  unconfirmed  # snippet (Y drop, <z>=7.9)
+8.9   schechter  -21.15  0.021e-3  -2.33  0  -22.0  -17.25 1  Bouwens+21  unconfirmed  # snippet (J drop, M* fixed)
+10.2  schechter  -21.19  0.0042e-3 -2.38  0  -21.75 -17.5  1  Oesch+18    unconfirmed  # M*, phi*: snippet (Oesch+18 row of Bouwens+21); alpha: memory
+#
+# --- JWST, z > 10: NOT FILLED IN. Candidates (need the tables from the user):
+#   Donnan et al. 2024, MNRAS 533, 3222 (arXiv:2403.03171): DPL at z = 9, 10, 11, 12.5
+#     (PRIMER+JADES+NGDEEP, 2548 galaxies; beta fixed to -4.05 at z = 10)
+#   Finkelstein et al. 2024, ApJL 969, L2 (arXiv:2311.04279): DPL at z ~ 9, 11, 14 (Table 5)
+#   McLeod et al. 2024, MNRAS 527, 5004 (arXiv:2304.14469): DPL at z ~ 11 (alpha fixed -2.35)
+#     and 13.5 (normalisation only)
+#   Harikane et al. 2024, ApJ 960, 56 (arXiv:2304.06658): spectroscopic only
+#   Whitler et al. 2025 (JADES, arXiv:2501.00984): z >~ 9
+# Template:
+# 11.0  dpl  M*  phi*  alpha  beta  -22.0  -17.5  1  Donnan+24  unconfirmed

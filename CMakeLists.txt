@@ -37,7 +37,8 @@ add_library(radray_halos
   src/halos.cpp
   src/halo_sources.cpp
   src/halo_capi.cpp
-  src/mass_function.cpp)
+  src/mass_function.cpp
+  src/abundance_matching.cpp)
 target_link_libraries(radray_halos PUBLIC radray)
 if(RADRAY_HALOS_OPENMP)
   find_package(OpenMP REQUIRED)
@@ -87,3 +88,8 @@ endif()
 
 enable_testing()
 add_subdirectory(tests)
+
+# Abundance matching of halo UV luminosities to observed UV LFs
+# (docs/abundance_matching.md)
+add_executable(am_fit apps/am_fit.cpp)
+target_link_libraries(am_fit PRIVATE radray_halos)

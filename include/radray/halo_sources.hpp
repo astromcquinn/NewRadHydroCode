@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "radray/abundance_matching.hpp"
+#include "radray/constants.hpp"
 #include "radray/halos.hpp"
 #include "radray/rt.hpp"
 #include "radray/simulation.hpp"
@@ -104,6 +106,11 @@ enum class SfrModel {
   // SFR = eSF * fb * M / t_dyn, t_dyn = sqrt(3 pi / (32 G rho_vir)),
   // the same form as the SN-heating star formation of rt_tools.f90.
   Dynamical,
+  // UV luminosity from a parametric L_UV(M_halo, z) fitted by abundance
+  // matching to observed UV luminosity functions (abundance_matching.hpp,
+  // apps/am_fit, docs/abundance_matching.md). Ionising photons follow from
+  // xi_ion and a single f_esc; sfr = L_UV / L_per_sfr (metals only).
+  AbundanceMatched,
 };
 
 struct SourceModelParams {
@@ -128,6 +135,17 @@ struct SourceModelParams {
   double L_per_sfr = 8.0e27;
 
   double eSF = 0.05;  // Dynamical model efficiency (cosmo_parameters.f90)
+
+  // AbundanceMatched: L_UV(M, z) and the ionising photon budget. The RT
+  // emits fResc * pop2_init * L per erg/Hz (cosmo_parameters.f90, fixed
+  // at 0.2 and 10^25.2 photons per erg/Hz in total). To give
+  // N_ion,esc = f_esc * xi_ion * L_UV without touching the RT, the record
+  // carries L = L_UV * (xi_ion / sum(pop2_init)) * (f_esc / fResc); the
+  // defaults (xi_ion = 10^25.2, f_esc = fResc) make the factor 1/1.0001
+  // (the pop2_init weights sum to 1.0001).
+  LuvModel am;
+  double log_xi_ion = 25.2;  // log10 ionising photons/s per erg/s/Hz at 1500 A
+  double f_esc = cp::fResc;
   double z_max = 50;  // start of the integration for the stellar mass
 };
 
@@ -198,9 +216,11 @@ SourceCatalog onthefly_catalog(const Config& cfg, const SimClock& clk, const Uni
 // Sets one halo/source parameter from a `key = value` entry (params.txt of
 // apps/radhydro and of the full Fortran harness). Returns false if the key
 // is not a halo/source key. Keys: source_mode (legacy|onthefly), dir_halo,
-// fof_b, fof_min_npart, fof_so (0|1), sfr_model (global|dynamical),
-// tvir_min, m_min, l_per_sfr, sfr_history, write_catalogs (directory),
-// add_metals (0|1).
+// fof_b, fof_min_npart, fof_so (0|1), sfr_model (global|dynamical|
+// abundance), tvir_min, m_min, l_per_sfr, sfr_history, write_catalogs
+// (directory), add_metals (0|1), and for sfr_model = abundance: am_l0, am_l1,
+// am_l2, am_a0, am_a1, am_m0, am_m1, am_b, am_z0, am_zlo, am_zhi, xi_ion
+// (log10), f_esc.
 bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::string& val);
 
 // What radhydro.f90 does once per hydro step before radiative_transfer:

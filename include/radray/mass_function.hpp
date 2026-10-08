@@ -1,8 +1,9 @@
-// Analytic halo mass functions (Press-Schechter, Sheth-Tormen) for
-// validating the halo finder. Linear power spectrum: BBKS transfer
-// function with the Sugiyama (1995) shape parameter, normalised to sigma8;
-// linear growth from the Heath (1977) integral. Accurate to ~10-20%, which
-// is all the "rough" comparison of the halo finder needs.
+// Analytic halo mass functions (Press-Schechter, Sheth-Tormen, Tinker et
+// al. 2008) for validating the halo finder and for abundance matching.
+// Linear power spectrum: BBKS transfer function with the Sugiyama (1995)
+// shape parameter, normalised to sigma8; linear growth from the Heath
+// (1977) integral. Accurate to ~10-20%, which is all the "rough"
+// comparison of the halo finder needs.
 #pragma once
 
 #include "radray/constants.hpp"
@@ -29,7 +30,14 @@ class MassFunction {
   // Comoving mean matter density, Msun/h per (Mpc/h)^3
   double rho_mean() const;
 
-  enum class Kind { PressSchechter, ShethTormen };
+  // Tinker08: Tinker et al. (2008, ApJ 688, 709), Delta = 200 relative to
+  // the mean density, with their z-evolution of A, a, b. The coefficients
+  // are quoted from memory (docs/abundance_matching.md, to be confirmed).
+  // Tinker et al. calibrated the evolution only to z ~ 2.5; above
+  // tinker_zmax_evol the coefficients are held at their tinker_zmax_evol
+  // values (set it large to evolve without limit).
+  enum class Kind { PressSchechter, ShethTormen, Tinker08 };
+  double tinker_zmax_evol = 1e30;
   // dn/dlnM in (Mpc/h)^-3 at mass M (Msun/h) and redshift z.
   double dndlnM(double M_msun_h, double z, Kind k) const;
   // Number of halos per (Mpc/h)^3 with M1 <= M < M2 (Msun/h).

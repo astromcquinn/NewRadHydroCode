@@ -310,7 +310,7 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
   const double fb = omegab / omegam;
   const double z = hu.redshift;
   const std::size_t n = halos.size();
-  std::vector<double> sfr(n, 0), mstar(n, 0);
+  std::vector<double> sfr(n, 0), mstar(n, 0), Lrt(n, 0);
   std::vector<char> active(n, 0);
   for (std::size_t i = 0; i < n; ++i)
     active[i] = halos[i].T >= p.Tvir_min && halos[i].M >= p.M_min && halos[i].M > 0;
@@ -327,6 +327,18 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
       const double w = halos[i].M / Msum;
       sfr[i] = w * sfr_tot;
       mstar[i] = std::min(w * mstar_tot, fb * halos[i].M);
+    }
+  } else if (p.model == SfrModel::AbundanceMatched) {
+    double xi_pop2 = 0;
+    for (double v : pop2_init) xi_pop2 += v;
+    const double rt_scale = std::pow(10.0, p.log_xi_ion) / xi_pop2 * (p.f_esc / fResc);
+    const double tage = cosmic_time_yr(z, p.z_max);
+    for (std::size_t i = 0; i < n; ++i) {
+      if (!active[i]) continue;
+      const double Luv = p.am.luv(halos[i].M, z);
+      sfr[i] = Luv / p.L_per_sfr;
+      Lrt[i] = Luv * rt_scale;
+      mstar[i] = std::min(sfr[i] * tage, fb * halos[i].M);
     }
   } else {
     const double dvir = delta_vir_bryan_norman(hu.omegam_z);
@@ -356,7 +368,8 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
     r.R = static_cast<float>(h.R);
     r.T = static_cast<float>(h.T);
     r.sfr = static_cast<float>(sfr[i]);
-    r.L = static_cast<float>(p.L_per_sfr * sfr[i]);
+    r.L = static_cast<float>(p.model == SfrModel::AbundanceMatched ? Lrt[i]
+                                                                   : p.L_per_sfr * sfr[i]);
     r.mstar = static_cast<float>(mstar[i]);
     r.fgas = h.M > 0 ? static_cast<float>(std::max(0.0, fb - mstar[i] / h.M)) : 0.0f;
     return r;
@@ -506,8 +519,10 @@ bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::stri
       p.model.model = SfrModel::GlobalMassProportional;
     else if (val == "dynamical")
       p.model.model = SfrModel::Dynamical;
+    else if (val == "abundance")
+      p.model.model = SfrModel::AbundanceMatched;
     else
-      throw std::runtime_error("sfr_model must be global or dynamical: " + val);
+      throw std::runtime_error("sfr_model must be global, dynamical or abundance: " + val);
   } else if (key == "tvir_min") {
     p.model.Tvir_min = num();
   } else if (key == "m_min") {
@@ -520,6 +535,24 @@ bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::stri
     p.write_catalog_dir = val;
   } else if (key == "add_metals") {
     p.add_metals = num() != 0;
+  } else if (key == "am_z0") {
+    p.model.am.z0 = num();
+  } else if (key == "am_zlo") {
+    p.model.am.z_lo = num();
+  } else if (key == "am_zhi") {
+    p.model.am.z_hi = num();
+  } else if (key == "xi_ion") {
+    p.model.log_xi_ion = num();
+  } else if (key == "f_esc") {
+    p.model.f_esc = num();
+  } else if (key.rfind("am_", 0) == 0) {
+    for (int i = 0; i < LuvModel::kNpar; ++i) {
+      if (key == LuvModel::name(i)) {
+        p.model.am.p[i] = num();
+        return true;
+      }
+    }
+    return false;
   } else {
     return false;
   }
