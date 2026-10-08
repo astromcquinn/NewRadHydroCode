@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-08, end of the first working thread.*
+*Last updated: 2026-10-08 (framework spike thread, branch `framework-spike`).*
 
 ## Done (merged into `main`)
 
@@ -52,6 +52,29 @@ figure.
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 
+## Framework spike (Stage C), branch `framework-spike`
+
+- `spike/`: AMReX and Parthenon prototypes of (a) an unsplit MUSCL-Hancock
+  hydro step and (b) the sorted-ray-array RT substep with HEALPix split and
+  merge, int64 fixed-point deposits and ray migration between ranks, all
+  built on shared host/device kernels (`spike/common`).
+- Validation:
+  - the serial sorted-array reference `rt_serial` matches `rt_driver
+    --set legacy_rt=0` with identical ray statistics on all five RT
+    problems, fields to round-off (the explained exceptions are in
+    `docs/framework_decision.md` §2);
+  - both prototypes are bitwise identical to `rt_serial`/`hydro_serial`
+    for 1–8 ranks, several block sizes and 1–2 threads.
+- Local 4-core timings: the RT on one core costs serial 19.6 s, AMReX
+  26.6 s, Parthenon 35.7 s (64³, 400k rays, 32³ blocks).
+- **Recommendation: AMReX** (`docs/framework_decision.md`). Parthenon swarms
+  do not support AMR, there is no sub-cycling, and the mesh overhead was
+  higher. **Pending the user's decision** and the Hyak runs
+  (`spike/hyak/README.md`: single-node layouts, 1–4 nodes).
+- GPU: the shared kernels and the Parthenon prototype compile with CUDA
+  (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
+  `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
+
 ## In progress (when this file was written)
 
 These are background agents in the first thread. Their work lands in a
@@ -99,7 +122,8 @@ follow-up PR.
      inside tmux, batch jobs with restarts.
 5. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study, which can start now;
-   - framework spike (AMReX vs Parthenon);
+   - framework spike (AMReX vs Parthenon): prototypes done, recommendation
+     AMReX, see `docs/framework_decision.md`; Hyak benchmarks to run;
    - ray data-structure rewrite;
    - MPI;
    - AMR for gas, then RT;
