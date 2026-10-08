@@ -128,10 +128,16 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
      limits. See `docs/ROADMAP.md` (answers section).
    - Access: Claude Code installed in user space, `claude remote-control`
      inside tmux, batch jobs with restarts.
-5. **Hydro fix for cold supersonic gas** (see the hydro-suite finding above),
+5. **Investigate grid-aligned RT artifacts.** The 64³ stills
+   (`docs/figures/stills64_*.png`, `tools/movies/stills.py`) show straight
+   neutral streaks and "+"-shaped crosses centred on sources, aligned with the
+   grid axes, plus faint radial spokes inside bubbles. A suspect is rays moving
+   exactly along grid planes (B10, positions on cell faces). Check this before
+   science runs, and see whether it also happens with legacy_rt = 1.
+6. **Hydro fix for cold supersonic gas** (see the hydro-suite finding above),
    behind a flag, before the plane-parallel science runs.
-6. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
-7. After the production run, follow `docs/ROADMAP.md`:
+7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
+8. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study, which can start now;
    - framework spike (AMReX vs Parthenon);
    - ray data-structure rewrite;
