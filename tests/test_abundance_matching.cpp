@@ -76,8 +76,7 @@ void test_abundance_match() {
   for (const auto& p : pts) {
     // matched abundance; the cumulative tables are piecewise linear in log
     CHECK_CLOSE(e.n_brighter(p.M_obs), p.n_halo, 2e-3);
-    CHECK_CLOSE(halo_n_above(mf, opt.cosmo.hubble0, std::pow(10.0, p.logM), e.z,
-                             MassFunction::Kind::ShethTormen),
+    CHECK_CLOSE(halo_n_above(mf, opt.cosmo.hubble0, std::pow(10.0, p.logM), e.z, opt.hmf),
                 p.n_halo, 1e-2);
     CHECK(p.logL > prevL);  // monotone
     prevL = p.logL;
@@ -128,7 +127,7 @@ void test_fit_recovery() {
       p.z = z;
       p.logM = lm;
       p.logL = truth.log_luv(lm, z);
-      p.in_range = true;
+      p.in_shape = true;
       pts.push_back(p);
     }
   }

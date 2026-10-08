@@ -5,19 +5,19 @@
 //   am_fit --lf data/uv_lf/lf_params.txt --out am_out [options]
 //
 // Options:
-//   --hmf st|tinker        analytic halo mass function (default st)
+//   --hmf st|tinker        analytic halo mass function (default tinker)
 //   --tinker-zmax Z        freeze the Tinker z-evolution above Z
 //   --dust 0|1             Meurer IRX-beta dust correction (default 0)
 //   --beta0 B --dbeta D    beta_UV(M) = B + D (M + 19.5)
-//   --extend-faint M       also fit matched points down to M_UV = M
+//   --extend-faint M       the shape fit also uses matched points down to
+//                          M_UV = M (default -12; 0 = observed range only)
 //   --logM-min X --logM-max X   halo mass range of the matched points
 //   --free l0,l1,a0,...    free parameters (default: all eight)
 //   --set am_b=0.3         starting/fixed value of a parameter (repeatable)
 //   --shape-zmax Z         entries with z <= Z fix the shape of L_UV(M, z)
 //                          (all parameters fitted); entries above Z only set
 //                          the normalisation (one offset per redshift, the
-//                          shape held at its z_hi form). Default 10.5: HST
-//                          shape, JWST normalisation.
+//                          shape held at its z_hi form). Default 9.5.
 //   --zlo Z --zhi Z        clamp of the shape's redshift dependence
 //                          (default: the range of the shape entries)
 //   --only-confirmed       ignore entries marked unconfirmed
@@ -62,11 +62,12 @@ int main(int argc, char** argv) {
   try {
     std::string lf_path, out_dir = "am_out";
     AMOptions opt;
+    opt.extend_faint_to = -12;
     LuvModel start;
     std::array<bool, LuvModel::kNpar> free{};
     free.fill(true);
     bool only_confirmed = false;
-    double zlo = -1, zhi = -1, shape_zmax = 10.5;
+    double zlo = -1, zhi = -1, shape_zmax = 9.5;
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       auto next = [&]() -> std::string {
@@ -118,8 +119,9 @@ int main(int argc, char** argv) {
     std::vector<LFEntry> lf;
     int n_unconf = 0;
     for (const auto& e : read_lf_table(lf_path)) {
-      if (!e.confirmed) ++n_unconf;
+      if (!e.confirmed && e.weight > 0) ++n_unconf;
       if (only_confirmed && !e.confirmed) continue;
+      if (!(e.weight > 0)) continue;  // kept in the table for reference only
       lf.push_back(e);
     }
     if (lf.empty()) throw std::runtime_error("no LF entries to fit");
@@ -133,7 +135,7 @@ int main(int argc, char** argv) {
     for (const auto& e : lf) {
       const auto p = abundance_match(e, opt);
       pts.insert(pts.end(), p.begin(), p.end());
-      if (e.z <= shape_zmax) {
+      if (e.z <= shape_zmax && e.weight > 0) {
         zmin = std::min(zmin, e.z);
         zmax = std::max(zmax, e.z);
       }
@@ -148,12 +150,12 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(out_dir);
     {
       std::ofstream o(out_dir + "/am_points.txt");
-      o << "# z logM[Msun] n_halo[Mpc^-3] M_obs M_int logL_AM logL_fit in_range\n";
+      o << "# z logM[Msun] n_halo[Mpc^-3] M_obs M_int logL_AM logL_fit in_range in_shape\n";
       for (const auto& p : pts) {
         char buf[256];
-        std::snprintf(buf, sizeof buf, "%.3f %.3f %.6e %.4f %.4f %.5f %.5f %d\n", p.z, p.logM,
-                      p.n_halo, p.M_obs, p.M_int, p.logL, fr.model.log_luv(p.logM, p.z),
-                      p.in_range ? 1 : 0);
+        std::snprintf(buf, sizeof buf, "%.3f %.3f %.6e %.4f %.4f %.5f %.5f %d %d\n", p.z,
+                      p.logM, p.n_halo, p.M_obs, p.M_int, p.logL, fr.model.log_luv(p.logM, p.z),
+                      p.in_range ? 1 : 0, p.in_shape ? 1 : 0);
         o << buf;
       }
     }

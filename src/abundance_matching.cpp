@@ -174,7 +174,8 @@ std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt) {
     p.M_int = p.M_obs - opt.dust.A_uv(p.M_obs);
     p.logL = std::log10(luv_from_muv(p.M_int));
     p.weight = e.weight;
-    p.in_range = p.M_obs >= e.M_bright && p.M_obs <= faint;
+    p.in_range = p.M_obs >= e.M_bright && p.M_obs <= e.M_faint;
+    p.in_shape = p.M_obs >= e.M_bright && p.M_obs <= faint;
     pts.push_back(p);
   }
   return pts;
@@ -245,7 +246,7 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
                         const std::array<bool, LuvModel::kNpar>& free) {
   std::vector<const AMPoint*> use;
   for (const auto& p : pts)
-    if (p.in_range && p.weight > 0 && p.z <= start.z_hi) use.push_back(&p);
+    if (p.in_shape && p.weight > 0 && p.z <= start.z_hi) use.push_back(&p);
   FitResult r;
   r.model = start;
   r.npoints = static_cast<int>(use.size());
@@ -265,7 +266,14 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
       const double d = m.log_luv_shape(p->logM, p->z) - p->logL;
       s += p->weight * d * d;
     }
-    return s / wsum;
+    // L(M) must increase with M at every redshift (abundance matching is
+    // monotone): penalise b < 0 and a(z) < 0 over the clamped z range.
+    double pen = std::min(0.0, m.p[7]) * std::min(0.0, m.p[7]);
+    for (double z : {m.z_lo, m.z_hi}) {
+      const double a = m.p[3] + m.p[4] * (std::clamp(z, m.z_lo, m.z_hi) - m.z0);
+      pen += std::min(0.0, a) * std::min(0.0, a);
+    }
+    return s / wsum + 1e3 * pen;
   };
 
   std::vector<double> x0(nd);

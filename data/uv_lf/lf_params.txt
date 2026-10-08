@@ -1,39 +1,45 @@
-# Observed rest-frame UV (1500-1600 A) luminosity functions for abundance
+# Observed rest-frame UV (1500 A) luminosity functions for abundance
 # matching (apps/am_fit, docs/abundance_matching.md).
 #
-# EVERY ROW IS "unconfirmed" UNTIL THE USER HAS CHECKED IT AGAINST THE PAPER.
-# arXiv, ADS and journal sites are blocked from the cloud sessions. The
-# "provenance" comment on each row says where the numbers came from:
-#   snippet = text of the paper's table quoted in a web-search result
-#   memory  = recalled, not seen this session
+# status: "confirmed" = read from the paper (user-supplied PDF);
+#         "unconfirmed" = not yet checked (arXiv/ADS/journals are blocked from
+#         the cloud sessions); the trailing comment says where it came from:
+#         snippet = a web-search excerpt of the paper; memory = recalled.
 #
 # Columns:
 #   z  form  Mstar  phistar[Mpc^-3 mag^-1]  alpha  beta  M_bright  M_faint
 #   weight  ref  status
-# form: schechter | dpl (double power law, phi*/(10^(0.4(a+1)dM)+10^(0.4(b+1)dM)))
-# beta is unused for Schechter rows. M_bright/M_faint is the magnitude range
-# the fit is taken to constrain (approximate data range, set by us, not
-# from the paper); only matched points inside it enter the L_UV(M,z) fit.
+# form: schechter | dpl, phi = phi*/(10^(0.4(a+1)(M-M*)) + 10^(0.4(b+1)(M-M*)))
+# beta is unused for Schechter rows. M_bright/M_faint: the observed magnitude
+# range (outer edges of the binned data). weight 0 keeps a row for reference
+# only.
 #
-# --- HST: Bouwens et al. 2021, AJ 162, 47 (arXiv:2102.07775), Table (Schechter
-#     fits to the blank-field LFs). Mean redshifts of the dropout samples.
-5.9   schechter  -20.93  0.19e-3   -1.93  0  -22.5  -16.5  1  Bouwens+21  unconfirmed  # memory
-6.8   schechter  -21.15  0.12e-3   -2.06  0  -22.5  -16.75 1  Bouwens+21  unconfirmed  # memory
-7.9   schechter  -20.93  0.09e-3   -2.23  0  -22.25 -17.0  1  Bouwens+21  unconfirmed  # snippet (Y drop, <z>=7.9)
-8.9   schechter  -21.15  0.021e-3  -2.33  0  -22.0  -17.25 1  Bouwens+21  unconfirmed  # snippet (J drop, M* fixed)
-10.2  schechter  -21.19  0.0042e-3 -2.38  0  -21.75 -17.5  1  Oesch+18    unconfirmed  # M*, phi*: snippet (Oesch+18 row of Bouwens+21); alpha: memory
+# How am_fit uses the rows (user decisions 2026-10-08):
+#  * z <= --shape-zmax (9.5): the full shape of L_UV(M_halo, z), with the
+#    faint end extrapolated to --extend-faint (-12) so the matching reaches
+#    the halos the simulation resolves;
+#  * z > 9.5: the normalisation only (shape fixed), from the observed range;
+#  * L(M) is held fixed above the highest-z row with weight > 0.
 #
-# --- JWST, z > 10: NOT FILLED IN. Candidates (need the tables from the user):
-#   Donnan et al. 2024, MNRAS 533, 3222 (arXiv:2403.03171): DPL at z = 9, 10, 11, 12.5
-#     (PRIMER+JADES+NGDEEP, 2548 galaxies; beta fixed to -4.05 at z = 10)
-#   Finkelstein et al. 2024, ApJL 969, L2 (arXiv:2311.04279): DPL at z ~ 9, 11, 14 (Table 5)
-#   McLeod et al. 2024, MNRAS 527, 5004 (arXiv:2304.14469): DPL at z ~ 11 (alpha fixed -2.35)
-#     and 13.5 (normalisation only)
-#   Harikane et al. 2024, ApJ 960, 56 (arXiv:2304.06658): spectroscopic only
-#   Whitler et al. 2025 (JADES, arXiv:2501.00984): z >~ 9
-# Rows above am_fit --shape-zmax (10.5) only set the normalisation of
-# L_UV(M) (shape fixed to the HST fit, user decision 2026-10-08). Set
-# M_bright/M_faint to the luminous galaxies actually observed, so that the
-# normalisation is fitted to them and not to the extrapolated faint end.
-# Template:
-# 11.0  dpl  M*  phi*  alpha  beta  -22.0  -18.5  1  Donnan+24  unconfirmed
+# --- HST, z ~ 6-8: Bouwens et al. 2021, AJ 162, 47 (arXiv:2102.07775),
+#     Schechter fits to the blank-field LFs; mean dropout redshifts.
+5.9   schechter  -20.93  0.19e-3   -1.93  0      -22.5   -16.5   1  Bouwens+21  unconfirmed  # memory
+6.8   schechter  -21.15  0.12e-3   -2.06  0      -22.5   -16.75  1  Bouwens+21  unconfirmed  # memory
+7.9   schechter  -20.93  0.09e-3   -2.23  0      -22.25  -17.0   1  Bouwens+21  unconfirmed  # snippet
+8.9   schechter  -21.15  0.021e-3  -2.33  0      -22.0   -17.25  0  Bouwens+21  unconfirmed  # snippet; superseded by Donnan+24 z=9
+10.2  schechter  -21.19  0.0042e-3 -2.38  0      -21.75  -17.5   0  Oesch+18    unconfirmed  # snippet/memory; superseded by Donnan+24 z=10
+#
+# --- JWST, z = 9-14.5: Donnan et al. 2024, MNRAS 533, 3222 (arXiv:2403.03171v3),
+#     Table 3 (DPL; * = fixed in their fit), observed ranges from Table 2
+#     (bin centres +-0.25 mag). Cosmology h = 0.7, Om = 0.3. z = 9 and 11
+#     fits include Bowler+20 and McLeod+24 bright points.
+9.0   dpl  -19.70  23.5e-5  -2.00  -3.81   -21.0   -17.3   1  Donnan+24  confirmed
+10.0  dpl  -19.98  14.5e-5  -1.98  -4.05   -21.0   -17.3   1  Donnan+24  confirmed  # beta fixed
+11.0  dpl  -20.73  3.27e-5  -2.19  -4.29   -21.5   -18.0   1  Donnan+24  confirmed
+12.5  dpl  -20.82  0.99e-5  -2.19  -4.29   -21.5   -18.0   1  Donnan+24  confirmed  # alpha, beta fixed to z=11
+# z = 14.5: a single bin from ~1.3 galaxies (M* alpha beta fixed); weight 0.
+14.5  dpl  -20.82  0.18e-5  -2.19  -4.29   -20.5   -20.0   0  Donnan+24  confirmed
+#
+# Other candidates (not entered): Finkelstein et al. 2024, ApJL 969, L2 (z ~ 9,
+# 11, 14); McLeod et al. 2024, MNRAS 527, 5004 (z ~ 11, 13.5); Whitler et al.
+# 2025 (JADES, z >~ 9); Willott et al. 2024 (CANUCS); Adams et al. 2024.

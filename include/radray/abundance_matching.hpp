@@ -75,14 +75,16 @@ struct DustModel {
 };
 
 struct AMOptions {
-  MassFunction::Kind hmf = MassFunction::Kind::ShethTormen;
+  MassFunction::Kind hmf = MassFunction::Kind::Tinker08;  // user choice
   MassFunctionCosmology cosmo;   // simulation cosmology (cosmo_parameters)
   double tinker_zmax_evol = 1e30;
   DustModel dust;
   // Halo masses (Msun, not Msun/h) of the matched points
   double logM_min = 8.0, logM_max = 13.0, dlogM = 0.1;
-  // Use points down to this magnitude even if fainter than the entry's
-  // M_faint (extrapolating the faint-end slope); 0 = only the observed range.
+  // The shape fit also uses matched points down to this magnitude, beyond
+  // the entry's M_faint (the LF's faint end extrapolated to the halos the
+  // simulation resolves, user decision); 0 = only the observed range. The
+  // high-z normalisation always uses the observed range only.
   double extend_faint_to = 0;
 };
 
@@ -94,7 +96,8 @@ struct AMPoint {
   double M_int = 0;   // intrinsic (dust-corrected) magnitude
   double logL = 0;    // log10 intrinsic L_UV, erg/s/Hz
   double weight = 1;
-  bool in_range = false;  // inside [M_bright, M_faint or extend_faint_to]
+  bool in_range = false;  // inside the observed [M_bright, M_faint]
+  bool in_shape = false;  // inside [M_bright, max(M_faint, extend_faint_to)]
 };
 
 // Cumulative halo number density above M (Msun), Mpc^-3, at redshift z
@@ -149,7 +152,8 @@ struct FitResult {
 };
 
 // Weighted least squares in log L of the shape (log_luv_shape) over the
-// in-range points with z <= start.z_hi (Nelder-Mead).
+// in_shape points with z <= start.z_hi (Nelder-Mead), with a penalty that
+// keeps L(M) increasing (b >= 0, a(z) >= 0).
 // free[i] = false keeps p[i] at its starting value.
 FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
                         const std::array<bool, LuvModel::kNpar>& free);
