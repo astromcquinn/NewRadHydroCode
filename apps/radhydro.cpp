@@ -459,7 +459,6 @@ int main(int argc, char** argv) {
       // IO
       th = Clock::now();
       const std::string d = step_dir();
-      write_stats(d);
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
       if (data2_out) {  // write_data_2
         write_f32(odir + "/DM/xv_dm." + pm::ztag(s.clk.redshift), pm.xv.data(), pm.xv.size());
@@ -479,6 +478,7 @@ int main(int argc, char** argv) {
         if (P.fields_at_data1) fields = true;
       }
       const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
+      write_stats(d);
       if (fields || last) write_fields(d);
       T.io += std::chrono::duration<double>(Clock::now() - th).count();
 
