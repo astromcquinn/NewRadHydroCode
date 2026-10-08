@@ -152,7 +152,7 @@ Packages_t process_packages(std::unique_ptr<ParameterInput>& pin) {
   Metadata mg({Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost}, std::vector<int>{5});
   pkg->AddField("tau", mg);
   pkg->AddField("fgam", mg);
-  pkg->AddSwarm("rays", Metadata({Metadata::Provides, Metadata::None}));
+  pkg->AddSwarm("rays", Metadata({Metadata::Provides, Metadata::None, Metadata::NoPersistentParticleIds}));
   pkg->AddSwarmValue("ri", "rays", Metadata({Metadata::Integer}, std::vector<int>{2}));
   pkg->AddSwarmValue("rf", "rays", Metadata({Metadata::Real}, std::vector<int>{18}));
   packages.Add(pkg);
