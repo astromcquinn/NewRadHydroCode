@@ -433,7 +433,8 @@ Reasoning for the less obvious choices:
   in both codes. Relative to HeII collisional excitation at 3×10⁴ K it is
   about 8×10⁻³ (ne/cm⁻³), so it is negligible at IGM densities.
   Two-body excitation of HeI from the ground state (thresholds 19.8 and
-  21.2 eV) is still missing, as it is in all these rate sets.
+  21.2 eV), missing from all these rate sets, is added separately as P10
+  (Glover & Jappsen 2007).
 * **P3.** Slot 15 has no comment, and `photo_cell` never reads it. The
   comment block in `calc_atomic_rates` lists an older 10-slot layout, and
   the comment in `photo_cell` lists 14 slots, so the array was evidently
@@ -621,24 +622,33 @@ mass-weighted T of ionised gas: −0.40%, −0.35%, +1.9%). P8 and P9 will
 matter more once hydro is coupled: P8 for shock-heated gas above 10⁶ K,
 P9 wherever steep Boltzmann-factor rates are sampled at 10⁴–10⁵ K.
 
-### HeI collisional excitation from the ground state (not added)
+### P10: HeI collisional excitation from the ground state (added)
 
-There is still no term for two-body excitation of HeI from the 1¹S ground
-state (thresholds 19.8 and 21.2 eV). None of the compilations this code
-follows (Cen 1992, Katz et al. 1996, HG97; Enzo/Grackle and SPHRAY likewise)
-has one: their "HeI collisional excitation" is Cen's He(2³S) rate, which
-`legacy_physics = 0` uses (P2). A published fit exists: Glover & Jappsen
-(2007, ApJ 666, 1), Table 7, fitted to the convergent-close-coupling
-effective collision strengths of Bray et al. (2000, A&AS 146, 481), which
-cover about 5600–5.6×10⁵ K; it is used for example in the NIRVANA chemistry
-module. I could not obtain the paper or the coefficients from this
-environment (arXiv and the journal sites are blocked), so I could not
-verify a transcription, and the rate is **not added** rather than written
-from memory. It would mainly matter in collisionally ionised gas at
-2–4×10⁴ K, where HeI is still present but HI excitation dominates the
-cooling by a large factor. To add it: transcribe GJ07 Table 7, check it
-against Bray et al. (2000), give it its own slot (`coef_cool` would need a
-16th entry) times `ne*nHeI`, and extend `test_rates`.
+None of the compilations this code follows (Cen 1992, Katz et al. 1996,
+HG97; Enzo/Grackle and SPHRAY likewise) has a term for two-body excitation
+of HeI from the 1¹S ground state (thresholds 19.8 and 21.2 eV). Their "HeI
+collisional excitation" is Cen's He(2³S) rate, which `legacy_physics = 0`
+uses as P2. The user supplied Glover & Jappsen (2007, ApJ 666, 1). Its
+Table 7 (p. 16) gives their own fit to the convergent-close-coupling data of
+Bray et al. (2000, A&AS 146, 481):
+
+    He excitation (1¹S state):  Λ = 1.1×10⁻¹⁹ T^0.082 exp(−230000/T) ne nHe   [erg cm⁻³ s⁻¹]
+
+where nHe is the neutral-helium density. With `legacy_physics = 0` this is
+a new slot, `coef_cool(16)`, which multiplies `ne*nHeI` and is appended as
+the last term of the cooling sum in both codes. It is set to 0 where
+`230000/T > 100`, the same underflow guard as the other Boltzmann-factor
+rates. It is interpolated with P9 like every other slot, and `test_rates`
+checks it against an independent evaluation (agreement 1e-12, slot 16).
+Note that GJ07 say their model is not designed for very hot gas, and the
+Bray et al. data span about 5.6×10³–5.6×10⁵ K.
+
+Impact on the RT test problems (N=32, 10 steps, legacy_rt=0): negligible.
+⟨xHII⟩_V changes by at most 1e-6 relative, the mass-weighted T of ionised gas
+by 0.1 K, and per-cell T by at most 1.8×10⁻⁴. The gas there stays near
+2×10⁴ K, where exp(−230000/T) ≈ 10⁻⁵. The term matters in collisionally
+ionised gas at 3–10×10⁴ K where HeI survives, i.e. shocks, once hydro is
+coupled.
 
 ### The thermal update `eth/(1+log(1-net*dt/eth))` (analysed, not changed)
 

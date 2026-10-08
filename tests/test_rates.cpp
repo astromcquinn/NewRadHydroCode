@@ -104,6 +104,11 @@ double hg97_alpha_di(double T, const Consts& c) {
          (1 + 0.3 * std::exp(-0.15 * l / 2));
 }
 double hg97_dicool(double T, const Consts& c) { return 0.75 * c.k * c.THeII * hg97_alpha_di(T, c); }
+// Glover & Jappsen (2007, ApJ 666, 1, Table 7): He(1^1S) collisional
+// excitation cooling [erg cm^3 s^-1], times ne*nHeI (P10)
+double gj07_ceHeI_ground(double T) {
+  return 1.1e-19 * std::pow(T, 0.082) * std::exp(-230000. / T);
+}
 // Cen (1992): the same two processes in Cen's form
 double cen92_alpha_di(double T) {
   return 1.9e-3 * std::pow(T, -1.5) * std::exp(-470000. / T) * (1 + 0.3 * std::exp(-94000. / T));
@@ -164,7 +169,7 @@ int main(int argc, char** argv) {
   for (int i = 1; i <= cp::Ntemp; ++i) {
     for (int n : {1, 3, 10, 12, 14}) CHECK(N.coef_cool(n, i) == L.coef_cool(n, i));
     for (int n : {1, 3, 4}) CHECK(N.alpha_rec(n, i) == L.alpha_rec(n, i));
-    CHECK(L.coef_cool(11, i) == 0 && L.coef_cool(15, i) == 0);
+    CHECK(L.coef_cool(11, i) == 0 && L.coef_cool(15, i) == 0 && L.coef_cool(16, i) == 0);
   }
 
   const auto di = [](double T, const Consts& c) { return hg97_alpha_di(T, c); };
@@ -196,6 +201,10 @@ int main(int argc, char** argv) {
       {"P3 coef_cool(15) HeII dielec. cooling",
        [](const AtomicRates& R, int i) { return R.coef_cool(15, i); },
        [](const AtomicRates& R, int i) { return R.coef_cool(15, i); }, hg97_dicool, 1e-2},
+      {"P10 coef_cool(16) HeI(1^1S) coll. exc.",
+       [](const AtomicRates& R, int i) { return R.coef_cool(16, i); },
+       [](const AtomicRates& R, int i) { return R.coef_cool(16, i); },
+       [](double T, const Consts&) { return gj07_ceHeI_ground(T); }, 1e-12},
       {"P4 alpha_rec(6)  HeIII rec. B",
        [](const AtomicRates& R, int i) { return R.alpha_rec(6, i); },
        [](const AtomicRates& R, int i) { return R.alpha_rec(6, i); }, hg97_alpha_B_HeIII, 1e-3, 1e-6},
@@ -279,7 +288,7 @@ int main(int argc, char** argv) {
   for (int n = 1; n <= 3; ++n)
     slots.push_back({"gamma_col(" + std::to_string(n) + ")",
                      [n](const RateSet& r) { return r.gcol[n - 1]; }});
-  for (int n = 1; n <= 15; ++n)
+  for (int n = 1; n <= 16; ++n)
     slots.push_back({"coef_cool(" + std::to_string(n) + ")",
                      [n](const RateSet& r) { return r.cool[n - 1]; }});
 
@@ -383,7 +392,7 @@ int main(int argc, char** argv) {
     if (fp) {
       std::fprintf(fp, "logT");
       for (const char* m : {"L", "N"}) {
-        for (int n = 1; n <= 15; ++n) std::fprintf(fp, ",%s_cool%d", m, n);
+        for (int n = 1; n <= 16; ++n) std::fprintf(fp, ",%s_cool%d", m, n);
         for (int n = 1; n <= 6; ++n) std::fprintf(fp, ",%s_alpha%d", m, n);
         for (int n = 1; n <= 3; ++n) std::fprintf(fp, ",%s_gcol%d", m, n);
       }
@@ -391,7 +400,7 @@ int main(int argc, char** argv) {
       for (int i = 1; i <= cp::Ntemp; ++i) {
         std::fprintf(fp, "%.2f", (i - 1) * cp::lgT_del + cp::lgT_min);
         for (const AtomicRates* R : {&L, &N}) {
-          for (int n = 1; n <= 15; ++n) std::fprintf(fp, ",%.9e", R->coef_cool(n, i));
+          for (int n = 1; n <= 16; ++n) std::fprintf(fp, ",%.9e", R->coef_cool(n, i));
           for (int n = 1; n <= 6; ++n) std::fprintf(fp, ",%.9e", R->alpha_rec(n, i));
           for (int n = 1; n <= 3; ++n) std::fprintf(fp, ",%.9e", R->gamma_col(n, i));
         }
