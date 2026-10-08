@@ -1,0 +1,4 @@
+N = 32
+z_init = 10.0
+da_sim = 0.0001
+nsteps = 10
