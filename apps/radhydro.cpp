@@ -90,6 +90,7 @@ struct RunParams {
   int deterministic_parallel = 0;  // parallel ray tracing (docs/parallel.md)
   int threads = 0;          // OpenMP threads (0: OpenMP default)
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
+  int rt_substep_carry = 0;  // 1: exact total RT substeps (Config::rt_substep_carry)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -131,6 +132,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.legacy_physics = std::stoi(val);
   else if (key == "ra_max")
     P.ra_max = to_double(val);
+  else if (key == "rt_substep_carry")
+    P.rt_substep_carry = std::stoi(val);
   else if (key == "restart_every")
     P.restart_every = std::stoi(val);
   else if (key == "restart_keep_latest")
@@ -411,6 +414,10 @@ int main(int argc, char** argv) {
         throw std::runtime_error("ra_max can only be changed with legacy_rt = 0");
       if (!(P.ra_max < 1)) throw std::runtime_error("ra_max must be in (0,1)");
       s.cfg.ra_max = P.ra_max;
+    }
+    if (P.rt_substep_carry) {
+      if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
+      s.cfg.rt_substep_carry = true;
     }
     s.raylog = &raylog;
     s.out = out;

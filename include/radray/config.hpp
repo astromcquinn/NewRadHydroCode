@@ -70,6 +70,12 @@ struct Config {
   // different value only with legacy_rt = 0).
   double ra_max = static_cast<double>(0.1f);
 
+  // Carry the rounding remainder of nstep_rt = nint(light cells) from one
+  // hydro step to the next, so that the total number of RT substeps (light
+  // travel at c_reduced) is exact over the run even when a hydro step spans
+  // only a few cells of light travel. false: the original rounding.
+  bool rt_substep_carry = false;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

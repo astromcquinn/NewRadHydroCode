@@ -227,6 +227,12 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
   const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
   t.ns_rt = f::nint(dl_c / dl_rt);
   clk.nstep_rt = f::nint(dl_c / dl_rt * cscale);
+  if (cfg.rt_substep_carry) {
+    // light cells of this step plus the remainder of the previous steps
+    const double want = dl_c / dl_rt * cscale + clk.rt_carry;
+    clk.nstep_rt = f::max(f::nint(want), 1);
+    clk.rt_carry = want - clk.nstep_rt;
+  }
   if (clk.nstep_rt < 1) {
     // Light (at c_reduced) moves less than half an RT cell in this hydro
     // step. At least one substep is needed; rays then move one cell per
