@@ -1,0 +1,1102 @@
+ Harness parameters
+ Ngas                 32
+ Ndm                  16
+ mf                    1
+ z_init        300.00000000000000     
+ da_sim        0.0000000000000000     
+ nsteps               30
+ pk_every              1
+           1           8           2          16          32
+           1           1           1          16
+           1           1           1          16
+           1           1           1          16
+           2           2          17          32
+           2           1           1          16
+           2           1           1          16
+           3           1           1          16
+           3           2          17          32
+           3           1           1          16
+           4           2          17          32
+           4           2          17          32
+           4           1           1          16
+           5           1           1          16
+           5           1           1          16
+           5           2          17          32
+           6           2          17          32
+           6           1           1          16
+           6           2          17          32
+           7           1           1          16
+           7           2          17          32
+           7           2          17          32
+           8           2          17          32
+           8           2          17          32
+           8           2          17          32
+    0.00  05:06:54  05:06:54  Called init domain gas
+ DM
+           1                    1                 4096                 4096
+    0.00  05:06:54  05:06:54  Called init pm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called init fft
+ Reading Init/xv_dm.init
+ Reading Init/u_gas.init
+    0.00  05:06:54  05:06:54  Called read init conditions
+ DM
+ x  :    8.00000000      0.460006893       15.4934607    
+ y  :    8.00000000      0.475352764       15.5177574    
+ z  :    8.00000000      0.475844294       15.5165100    
+ vx :   -1.00024755E-09  -10.4545498       12.9551001    
+ vy :   -5.81659061E-11  -6.90817165       6.82544088    
+ vz :   -9.20429233E-10  -7.25674820       8.92204475    
+    0.00  05:06:54  05:06:54  Called summarize dm
+
+ Step number  :            1
+ Redshift     :     300.000000       269.899994      -30.1000004    
+ Scale factor :     3.32225906E-03   3.69139900E-03   3.69139918E-04  0.100000001    
+ Year         :     3434094.00       3997257.50       563163.375      0.140887439    
+ Velocity Gas :     0.00000000       0.00000000       0.00000000    
+ Velocity DM  :     0.00000000       0.00000000    
+ Acceleration :     0.00000000       0.00000000       0.00000000    
+ RT           :          230         230   2448.53638    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.456292719       15.4928493    
+ y  :    8.00000000      0.473064631       15.5194025    
+ z  :    8.00000000      0.473597646       15.5180464    
+ vx :   -3.43061712E-09  -10.8330460       13.4548445    
+ vy :    1.59963298E-09  -7.16033936       7.07210970    
+ vz :   -2.21966934E-09  -7.50058460       9.26057434    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=269.900
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    1 wall     0.0128 s
+
+ Step number  :            2
+ Redshift     :     269.899994       242.809998      -27.0900002    
+ Scale factor :     3.69139900E-03   4.10155440E-03   4.10155451E-04  0.100000001    
+ Year         :     3997257.50       4659582.50       662325.188      0.142142594    
+ Velocity Gas :    0.848125398       1.88637817       327491264.    
+ Velocity DM  :     3.10308766       6.72742224    
+ Acceleration :     1328.37683       2871.89795       9317467.00    
+ RT           :          243         243   2725.61792    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.452222973       15.4921713    
+ y  :    8.00000000      0.470558852       15.5211992    
+ z  :    8.00000000      0.471129477       15.5197353    
+ vx :   -1.71286829E-09  -11.2330341       13.9774637    
+ vy :    1.62733405E-09  -7.42693186       7.33350515    
+ vz :   -3.21168980E-09  -7.75877476       9.61759186    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=242.810
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    2 wall     0.0279 s
+
+ Step number  :            3
+ Redshift     :     242.809998       218.429001      -24.3810005    
+ Scale factor :     4.10155440E-03   4.55728266E-03   4.55728295E-04  0.100000001    
+ Year         :     4659582.50       5438230.00       778647.625      0.143180341    
+ Velocity Gas :     1.64671671       3.66252899       272025120.    
+ Velocity DM  :     3.22491288       6.98873186    
+ Acceleration :     1176.64319       2540.99634       10441341.0    
+ RT           :          256         256   3041.59229    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.447762161       15.4914207    
+ y  :    8.00000000      0.467813134       15.5231619    
+ z  :    8.00000000      0.468417466       15.5215921    
+ vx :   -3.51091017E-10  -11.6548338       14.5234337    
+ vy :    7.64337760E-11  -7.70845890       7.61007595    
+ vz :   -1.97588368E-09  -8.03103828       9.99378014    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=218.429
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    3 wall     0.0272 s
+
+ Step number  :            4
+ Redshift     :     218.429001       196.486099      -21.9428997    
+ Scale factor :     4.55728266E-03   5.06364740E-03   5.06364740E-04  0.100000001    
+ Year         :     5438230.00       6353308.00       915077.562      0.144031674    
+ Velocity Gas :     2.40231967       5.34287930       207190384.    
+ Velocity DM  :     3.35276532       7.26171684    
+ Acceleration :     1042.82983       2248.86572       11699107.0    
+ RT           :          270         270   3389.17603    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.442871481       15.4905901    
+ y  :    8.00000000      0.464802951       15.5253086    
+ z  :    8.00000000      0.465437084       15.5236330    
+ vx :   -1.51366419E-09  -12.0988703       15.0932665    
+ vy :    3.40968298E-09  -8.00546837       7.90234280    
+ vz :   -1.40959411E-09  -8.31718254       10.3899288    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=196.486
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    4 wall     0.0271 s
+
+ Step number  :            5
+ Redshift     :     196.486099       176.737488      -19.7486095    
+ Scale factor :     5.06364740E-03   5.62627520E-03   5.62627509E-04  0.100000001    
+ Year         :     6353308.00       7428374.50       1075066.88      0.144724369    
+ Velocity Gas :     3.12089014       6.94057083       177216832.    
+ Velocity DM  :     3.48686194       7.54663324    
+ Acceleration :     924.712097       1990.81104       13106776.0    
+ RT           :          284         284   3785.44653    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.437508404       15.4896708    
+ y  :    8.00000000      0.461501330       15.5276566    
+ z  :    8.00000000      0.462161303       15.5258751    
+ vx :   -3.94033650E-09  -12.5656652       15.6875048    
+ vy :    4.19462243E-09  -8.31855774       8.21090317    
+ vz :   -4.14055146E-09  -8.61711407       10.8069620    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=176.737
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    5 wall     0.0232 s
+
+ Step number  :            6
+ Redshift     :     176.737488       158.963745      -17.7737484    
+ Scale factor :     5.62627520E-03   6.25141663E-03   6.25141663E-04  0.100000001    
+ Year         :     7428374.50       8691033.00       1262658.88      0.145282924    
+ Velocity Gas :     3.80786204       8.46759319       161397008.    
+ Velocity DM  :     3.62744021       7.84375238    
+ Acceleration :     820.366333       1762.73560       14682294.0    
+ RT           :          300         300   4208.86279    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.431626379       15.4886541    
+ y  :    8.00000000      0.457878560       15.5302277    
+ z  :    8.00000000      0.458560258       15.5283394    
+ vx :   -7.75757414E-09  -13.0558481       16.3067112    
+ vy :    3.70624642E-09  -8.64836407       8.53643513    
+ vz :    2.70360689E-09  -8.93076706       11.2459335    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=158.964
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    6 wall     0.0224 s
+
+ Step number  :            7
+ Redshift     :     158.963745       142.967361      -15.9963741    
+ Scale factor :     6.25141663E-03   6.94601843E-03   6.94601855E-04  0.100000001    
+ Year         :     8691033.00       10173623.0       1482589.62      0.145728782    
+ Velocity Gas :     4.46819830       9.93491840       152843424.    
+ Velocity DM  :     3.77475691       8.15335560    
+ Acceleration :     728.117737       1561.05176       16445825.0    
+ RT           :          316         316   4691.73926    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.425174505       15.4875307    
+ y  :    8.00000000      0.453901887       15.5330439    
+ z  :    8.00000000      0.454601139       15.5310469    
+ vx :   -4.52263293E-09  -13.5701399       16.9514484    
+ vy :    3.11725756E-09  -8.99559307       8.87969398    
+ vz :    7.14134973E-09  -9.25811863       11.7080593    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=142.967
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    7 wall     0.0235 s
+
+ Step number  :            8
+ Redshift     :     142.967361       128.570633      -14.3967371    
+ Scale factor :     6.94601843E-03   7.71779846E-03   7.71779858E-04  0.100000001    
+ Year         :     10173623.0       11914030.0       1740406.88      0.146080449    
+ Velocity Gas :     5.10644674       11.3525753       148618336.    
+ Velocity DM  :     3.92908955       8.47572422    
+ Acceleration :     646.510376       1382.61475       18420046.0    
+ RT           :          333         333   5226.44727    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.418096989       15.4862900    
+ y  :    8.00000000      0.449535161       15.5361300    
+ z  :    8.00000000      0.450247705       15.5340204    
+ vx :   -5.00257347E-09  -14.1093512       17.6222801    
+ vy :    3.82005716E-09  -9.36101055       9.24153233    
+ vz :    9.54138546E-09  -9.59919453       12.1947346    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=128.571
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    8 wall     0.0211 s
+
+ Step number  :            9
+ Redshift     :     128.570633       115.613564      -12.9570627    
+ Scale factor :     7.71779846E-03   8.57533142E-03   8.57533189E-04  0.100000001    
+ Year         :     11914030.0       13956639.0       2042608.62      0.146353915    
+ Velocity Gas :     5.72678471       12.7297745       147265824.    
+ Velocity DM  :     4.09073687       8.81114006    
+ Acceleration :     574.273865       1224.67383       20630428.0    
+ RT           :          351         351   5819.39795    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.410332799       15.4849195    
+ y  :    8.00000000      0.444738597       15.5395126    
+ z  :    8.00000000      0.445459932       15.5372868    
+ vx :   -5.61672131E-09  -14.6743565       18.3197327    
+ vy :    5.33770228E-09  -9.74545479       9.62290192    
+ vz :    1.49949049E-08  -9.95403099       12.7075787    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=115.614
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step    9 wall     0.0207 s
+
+ Step number  :           10
+ Redshift     :     115.613564       103.952209      -11.6613569    
+ Scale factor :     8.57533142E-03   9.52814613E-03   9.52814647E-04  0.100000001    
+ Year         :     13956639.0       16353444.0       2396805.75      0.146562755    
+ Velocity Gas :     6.33305979       14.0750065       147989232.    
+ Velocity DM  :     4.26002073       9.15986633    
+ Acceleration :     510.297852       1084.80835       23105706.0    
+ RT           :          370         370   6477.85352    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.401815116       15.4834061    
+ y  :    8.00000000      0.439468205       15.5432224    
+ z  :    8.00000000      0.440193683       15.5408735    
+ vx :   -1.95969529E-09  -15.2661266       19.0443096    
+ vy :    5.37177902E-09  -10.1498432       10.0248709    
+ vz :    5.71343062E-09  -10.3226900       13.2484970    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=103.952
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   10 wall     0.0306 s
+
+ Step number  :           11
+ Redshift     :     103.952209       93.4569855      -10.4952211    
+ Scale factor :     9.52814613E-03   1.05868289E-02   1.05868292E-03  0.100000001    
+ Year         :     16353444.0       19165358.0       2811913.50      0.146718547    
+ Velocity Gas :     6.92883348       15.3961134       150322432.    
+ Velocity DM  :     4.43728733       9.52215481    
+ Acceleration :     453.611542       961.124695       25875176.0    
+ RT           :          390         390   7210.03467    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.392470896       15.4817343    
+ y  :    8.00000000      0.433675349       15.5472908    
+ z  :    8.00000000      0.434400231       15.5448112    
+ vx :   -1.43103174E-09  -15.8857298       19.7964706    
+ vy :    2.79745027E-09  -10.5751772       10.4486370    
+ vz :    8.55237836E-09  -10.7203178       13.8197279    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=93.4570
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   11 wall     0.0215 s
+
+ Step number  :           12
+ Redshift     :     93.4569855       84.0112915      -9.44569874    
+ Scale factor :     1.05868289E-02   1.17631434E-02   1.17631443E-03  0.100000001    
+ Year         :     19165358.0       22463732.0       3298373.50      0.146831065    
+ Velocity Gas :     7.51741028       16.7003670       153980304.    
+ Velocity DM  :     4.62291193       9.89823532    
+ Acceleration :     403.363129       853.062012       28950792.0    
+ RT           :          411         411   8025.23975    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.382220179       15.4798889    
+ y  :    8.00000000      0.427306265       15.5517550    
+ z  :    8.00000000      0.428025603       15.5491343    
+ vx :   -4.70134154E-09  -16.5342999       20.5765896    
+ vy :    4.87285678E-09  -11.0225573       10.8955412    
+ vz :    6.37044728E-09  -11.1643648       14.4239407    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=84.0113
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   12 wall     0.0189 s
+
+ Step number  :           13
+ Redshift     :     84.0112915       75.5101624      -8.50112915    
+ Scale factor :     1.17631434E-02   1.30701596E-02   1.30701601E-03  0.100000001    
+ Year         :     22463732.0       26332148.0       3868416.00      0.146908492    
+ Velocity Gas :     8.10187531       17.9945507       158783936.    
+ Velocity DM  :     4.81730127       10.2882948    
+ Acceleration :     358.805847       757.179688       32391342.0    
+ RT           :          433         433   8933.98633    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.370975643       15.4778519    
+ y  :    8.00000000      0.420301437       15.5566549    
+ z  :    8.00000000      0.421010226       15.5538788    
+ vx :   -2.70325340E-09  -17.2130585       21.3849659    
+ vy :    4.97657648E-09  -11.4931974       11.3670969    
+ vz :    8.05575340E-09  -11.6304407       15.0643511    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=75.5102
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   13 wall     0.0203 s
+
+ Step number  :           14
+ Redshift     :     75.5101624       67.8591461      -7.65101624    
+ Scale factor :     1.30701596E-02   1.45223998E-02   1.45223993E-03  0.100000001    
+ Year         :     26332148.0       30868514.0       4536365.50      0.146957695    
+ Velocity Gas :     8.68512154       19.2850323       164620432.    
+ Velocity DM  :     5.02089882       10.6924829    
+ Acceleration :     319.282928       672.067017       36240976.0    
+ RT           :          457         457   9926.40137    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.358641773       15.4756041    
+ y  :    8.00000000      0.412594944       15.5620346    
+ z  :    8.00000000      0.413288087       15.5590858    
+ vx :    4.00530276E-09  -17.9233170       22.2217846    
+ vy :    2.91060598E-09  -11.9884338       11.8650160    
+ vz :    9.58239177E-09  -12.1198378       15.7448626    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=67.8591
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   14 wall     0.0149 s
+
+ Step number  :           15
+ Redshift     :     67.8591461       60.9732285      -6.88591433    
+ Scale factor :     1.45223998E-02   1.61359999E-02   1.61359995E-03  0.100000001    
+ Year         :     30868514.0       36187512.0       5319000.50      0.146984413    
+ Velocity Gas :     9.26988125       20.5778217       171419936.    
+ Velocity DM  :     5.23419094       11.1108923    
+ Acceleration :     284.217255       596.481934       40549488.0    
+ RT           :          481         481   11058.2129    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.345114380       15.4731236    
+ y  :    8.00000000      0.404113561       15.5679445    
+ z  :    8.00000000      0.404786080       15.5648003    
+ vx :    6.41747100E-09  -18.6664600       23.0870895    
+ vy :    4.56975258E-09  -12.5097408       12.3912373    
+ vz :    1.03270610E-08  -12.6339912       16.4702606    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=60.9732
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   15 wall     0.0183 s
+
+ Step number  :           16
+ Redshift     :     60.9732285       54.7759056      -6.19732285    
+ Scale factor :     1.61359999E-02   1.79288890E-02   1.79288886E-03  0.100000001    
+ Year         :     36187512.0       42423484.0       6235971.00      0.146993369    
+ Velocity Gas :     9.85874939       21.8786736       179141600.    
+ Velocity DM  :     5.45771408       11.5435448    
+ Acceleration :     253.100067       529.326294       45373284.0    
+ RT           :          507         507   12299.7461    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.330279708       15.4703856    
+ y  :    8.00000000      0.394776106       15.5744400    
+ z  :    8.00000000      0.395423114       15.5710697    
+ vx :    1.24262831E-08  -19.4439602       24.0208797    
+ vy :    5.75515458E-09  -13.0587339       12.9479685    
+ vz :    2.29988508E-08  -13.1745138       17.2464962    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=54.7759
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   16 wall     0.0156 s
+
+ Step number  :           17
+ Redshift     :     54.7759056       49.1983147      -5.57759047    
+ Scale factor :     1.79288890E-02   1.99209880E-02   1.99209875E-03  0.100000001    
+ Year         :     42423484.0       49733776.0       7310293.00      0.146988496    
+ Velocity Gas :     10.4542131       23.1930847       187765456.    
+ Velocity DM  :     5.69206715       12.0104399    
+ Acceleration :     225.483795       469.631744       50776324.0    
+ RT           :          535         535   13664.0986    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.314013839       15.4673653    
+ y  :    8.00000000      0.384492218       15.5815821    
+ z  :    8.00000000      0.385109156       15.5779476    
+ vx :    1.97545660E-08  -20.2573643       24.9989796    
+ vy :    8.77556339E-09  -13.6371994       13.5377445    
+ vz :    4.06335054E-08  -13.7432222       18.0810184    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=49.1983
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   17 wall     0.0169 s
+
+ Step number  :           18
+ Redshift     :     49.1983147       44.1784821      -5.01983166    
+ Scale factor :     1.99209880E-02   2.21344307E-02   2.21344316E-03  0.100000001    
+ Year         :     49733776.0       58302700.0       8568921.00      0.146972969    
+ Velocity Gas :     11.0586758       24.5264206       197286256.    
+ Velocity DM  :     5.93792105       12.4994898    
+ Acceleration :     200.973526       416.540375       56831556.0    
+ RT           :          564         564   15193.1221    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.296181858       15.4640341    
+ y  :    8.00000000      0.373161316       15.5894403    
+ z  :    8.00000000      0.373744130       15.5854931    
+ vx :    3.21065485E-08  -21.1083107       26.0052395    
+ vy :    9.41928491E-09  -14.2471008       14.1634874    
+ vz :    2.91262694E-08  -14.3421621       18.9832973    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=44.1785
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   18 wall     0.0155 s
+
+ Step number  :           19
+ Redshift     :     44.1784821       39.6606369      -4.51784849    
+ Scale factor :     2.21344307E-02   2.45938115E-02   2.45938124E-03  0.100000001    
+ Year         :     58302700.0       68346120.0       10043423.0      0.146949425    
+ Velocity Gas :     11.6744652       25.7842541       208513088.    
+ Velocity DM  :     6.19603968       13.0026197    
+ Acceleration :     179.221191       369.425354       63611096.0    
+ RT           :          594         594   16908.1191    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.276637077       15.4603605    
+ y  :    8.00000000      0.360671252       15.5980930    
+ z  :    8.00000000      0.361216664       15.5937691    
+ vx :    4.04844833E-08  -21.9985275       27.0349751    
+ vy :    9.41259959E-09  -14.8906212       14.8286190    
+ vz :    2.96323588E-08  -14.9735384       19.9637833    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=39.6606
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   19 wall     0.0132 s
+
+ Step number  :           20
+ Redshift     :     39.6606369       35.5945702      -4.06606340    
+ Scale factor :     2.45938115E-02   2.73264572E-02   2.73264572E-03  0.100000001    
+ Year         :     68346120.0       80116896.0       11770771.0      0.146919966    
+ Velocity Gas :     12.3037529       26.9195747       221909888.    
+ Velocity DM  :     6.46730137       13.5174875    
+ Acceleration :     159.919189       327.318909       71234256.0    
+ RT           :          626         626   18803.1484    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.255220383       15.4563112    
+ y  :    8.00000000      0.346896708       15.6076298    
+ z  :    8.00000000      0.347402722       15.6028461    
+ vx :    4.32175860E-08  -22.9297657       28.1286335    
+ vy :    9.58037205E-09  -15.5701809       15.5371838    
+ vz :    2.98799065E-08  -15.6398315       21.0313148    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=35.5946
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   20 wall     0.0138 s
+
+ Step number  :           21
+ Redshift     :     35.5945702       31.9351139      -3.65945721    
+ Scale factor :     2.73264572E-02   3.03627308E-02   3.03627318E-03  0.100000001    
+ Year         :     80116896.0       93911152.0       13794260.0      0.146886274    
+ Velocity Gas :     12.9486685       27.9054813       237855024.    
+ Velocity DM  :     6.75269794       14.0643167    
+ Acceleration :     142.792892       292.855225       79382760.0    
+ RT           :          660         660   20900.3926    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.231751502       15.4518490    
+ y  :    8.00000000      0.331697345       15.6181526    
+ z  :    8.00000000      0.332163841       15.6128025    
+ vx :    4.63301895E-08  -23.8912582       29.3527088    
+ vy :    1.24071224E-08  -16.2892513       16.2942619    
+ vz :    2.70530300E-08  -16.3437901       22.2012844    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=31.9351
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   21 wall     0.0121 s
+
+ Step number  :           22
+ Redshift     :     31.9351139       28.6416035      -3.29351139    
+ Scale factor :     3.03627308E-02   3.37363668E-02   3.37363686E-03  0.100000001    
+ Year         :     93911152.0       110075736.       16164587.0      0.146849677    
+ Velocity Gas :     13.6109953       28.7795105       256256848.    
+ Velocity DM  :     7.05319643       14.6763544    
+ Acceleration :     127.575508       263.634460       88192136.0    
+ RT           :          696         696   23224.9824    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.205986589       15.4469337    
+ y  :    8.00000000      0.314915746       15.6297779    
+ z  :    8.00000000      0.315345287       15.6237192    
+ vx :    5.76163153E-08  -24.9005566       30.6717415    
+ vy :    1.29275382E-08  -17.0523643       17.1065903    
+ vz :    3.47428539E-08  -17.0887299       23.3229675    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=28.6416
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   22 wall     0.0121 s
+
+ Step number  :           23
+ Redshift     :     28.6416035       25.6774426      -2.96416044    
+ Scale factor :     3.37363668E-02   3.74848507E-02   3.74848535E-03  0.100000001    
+ Year         :     110075736.       129016856.       18941118.0      0.146811187    
+ Velocity Gas :     14.2924137       30.1990032       271345952.    
+ Velocity DM  :     7.36975193       15.3358707    
+ Acceleration :     114.040115       237.089264       98028720.0    
+ RT           :          734         734   25805.3379    
+
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called calc density field
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc gravity field
+    0.00  05:06:54  05:06:54  Called calc kick
+    0.00  05:06:54  05:06:54  Called calc drift
+    0.00  05:06:54  05:06:54  Called particle-mesh
+ DM
+ x  :    8.00000000      0.177624181       15.4415216    
+ y  :    8.00000000      0.296374887       15.6426449    
+ z  :    8.00000000      0.296773732       15.6356802    
+ vx :    7.22406455E-08  -25.9752693       32.0336914    
+ vy :    1.26410953E-08  -17.8652458       17.9828644    
+ vz :    5.75305314E-08  -17.8780251       24.2709599    
+    0.00  05:06:54  05:06:54  Called summarize dm
+    0.00  05:06:54  05:06:54  Called link dm
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+    0.00  05:06:54  05:06:54  Called fft 3d
+    0.00  05:06:54  05:06:54  Called calc pk 3d
+ Writing Pk/pk.z=25.6774
+    0.00  05:06:54  05:06:54  Called calc power spectrum
+ pm_harness: step   23 wall     0.0121 s
+
+ Step number  :           24
+ Redshift     :     25.6774426       23.0096989      -2.66774440    
+ Scale factor :     3.74848507E-02   4.16498370E-02   4.16498352E-03  0.100000001    
+ Year         :     129016856.       151210208.       22193352.0      0.146771520    
+ Velocity Gas :     14.9940472       31.8063202       286259296.    
+ Velocity DM  :     7.70320415       16.0168457    
+ Acceleration :     101.976212       210.830994       109577248.    
+ RT           :          773         773   28710.6738    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.00000000      0.146341294       15.4355631    
+ y  :    8.00000000      0.275874972       15.6569138    
+ z  :    8.00000000      0.276252836       15.6487751    
+ vx :    7.94724002E-08  -27.1174889       33.4381905    
+ vy :    2.26338415E-08  -18.7356777       18.9326782    
+ vz :    6.05488140E-08  -18.7152672       25.0999928    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=23.0097
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   24 wall     0.0111 s
+
+ Step number  :           25
+ Redshift     :     23.0096989       20.6087284      -2.40096998    
+ Scale factor :     4.16498370E-02   4.62775938E-02   4.62775957E-03  0.100000001    
+ Year         :     151210208.       177212864.       26002648.0      0.146731153    
+ Velocity Gas :     15.7167873       33.4648170       302302432.    
+ Velocity DM  :     8.05437088       16.7190952    
+ Acceleration :     91.2121048       190.230057       121597992.    
+ RT           :          815         815   31905.0898    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.00000000      0.111794040       15.4290009    
+ y  :    8.00000000      0.253184348       15.6727800    
+ z  :    8.00000000      0.253555983       15.6631107    
+ vx :    9.23966397E-08  -28.3327179       34.8983917    
+ vy :    1.91724379E-08  -19.6787796       19.9086418    
+ vz :    6.71774671E-08  -19.5938206       25.8883724    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=20.6087
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   25 wall     0.0123 s
+
+ Step number  :           26
+ Redshift     :     20.6087284       18.4478550      -2.16087294    
+ Scale factor :     4.62775938E-02   5.14195524E-02   5.14195533E-03  0.100000001    
+ Year         :     177212864.       207677088.       30464226.0      0.146690369    
+ Velocity Gas :     16.4617958       35.1945648       319382880.    
+ Velocity DM  :     8.42409515       17.4491959    
+ Acceleration :     81.6026917       169.104507       135946096.    
+ RT           :          859         859   35464.7578    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.00000000       7.36330077E-02   15.4217701    
+ y  :    8.00000000      0.228043243       15.6904831    
+ z  :    8.00000000      0.228428185       15.6788092    
+ vx :    9.22518808E-08  -29.6250076       36.4201736    
+ vy :    1.65218754E-08  -20.7589054       20.9113789    
+ vz :    4.55980924E-08  -20.4850216       27.4972115    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=18.4479
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   26 wall     0.0131 s
+
+ Step number  :           27
+ Redshift     :     18.4478550       16.5030708      -1.94478559    
+ Scale factor :     5.14195524E-02   5.71328327E-02   5.71328355E-03  0.100000001    
+ Year         :     207677088.       243366576.       35689496.0      0.146649137    
+ Velocity Gas :     17.2304249       37.0088463       337472832.    
+ Velocity DM  :     8.81338596       18.2100868    
+ Acceleration :     73.0276642       150.391663       151953536.    
+ RT           :          906         906   39392.3828    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.00000000       3.15142609E-02   15.4137907    
+ y  :    8.00000000      0.200197712       15.7103176    
+ z  :    8.00000000      0.200593352       15.6960115    
+ vx :    1.08038577E-07  -30.9965611       38.0058022    
+ vy :    2.32508377E-08  -22.0331841       21.9512787    
+ vz :    4.39539320E-08  -21.4516087       29.5094738    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=16.5031
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   27 wall     0.0142 s
+
+ Step number  :           28
+ Redshift     :     16.5030708       14.7527628      -1.75030708    
+ Scale factor :     5.71328327E-02   6.34809285E-02   6.34809257E-03  0.100000001    
+ Year         :     243366576.       285175360.       41808768.0      0.146607235    
+ Velocity Gas :     18.0244465       38.9201508       356555296.    
+ Velocity DM  :     9.22306347       19.0029011    
+ Acceleration :     65.3590012       136.437057       168164704.    
+ RT           :          955         955   43778.8164    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.00390625       9.23826883E-04   15.9850798    
+ y  :    8.00000000      0.169380203       15.7326546    
+ z  :    8.00000000      0.169724494       15.7148666    
+ vx :    1.11622818E-07  -32.4717560       39.6568680    
+ vy :    3.19566560E-08  -23.4955730       23.0760269    
+ vz :    7.19329734E-08  -22.5548916       31.6953201    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=14.7528
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   28 wall     0.0117 s
+
+ Step number  :           29
+ Redshift     :     14.7527628       13.1774864      -1.57527637    
+ Scale factor :     6.34809285E-02   7.05343634E-02   7.05343625E-03  0.100000001    
+ Year         :     285175360.       334149728.       48974368.0      0.146564156    
+ Velocity Gas :     18.8458214       40.9434586       376594432.    
+ Velocity DM  :     9.65382862       19.8284340    
+ Acceleration :     58.4922180       126.361198       184192704.    
+ RT           :         1006        1006   48682.2773    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.06640625       5.06100804E-03   15.9990959    
+ y  :    8.00000000      0.135282099       15.7579718    
+ z  :    8.00000000      0.135398731       15.7355280    
+ vx :    1.26455234E-07  -34.2423248       41.3655319    
+ vy :    4.04688087E-08  -25.0533905       24.3607903    
+ vz :    8.19141661E-08  -23.7235928       34.0145531    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=13.1775
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   29 wall     0.0113 s
+
+ Step number  :           30
+ Redshift     :     13.1774864       11.7597380      -1.41774869    
+ Scale factor :     7.05343634E-02   7.83715174E-02   7.83715118E-03  0.100000001    
+ Year         :     334149728.       391513952.       57364244.0      0.146519020    
+ Velocity Gas :     19.6966991       43.0911903       397582112.    
+ Velocity DM  :     10.1063795       20.6827660    
+ Acceleration :     52.3433571       113.211952       205121568.    
+ RT           :         1061        1061   54066.2031    
+
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called calc density field
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc gravity field
+    0.00  05:06:55  05:06:55  Called calc kick
+    0.00  05:06:55  05:06:55  Called calc drift
+    0.00  05:06:55  05:06:55  Called particle-mesh
+ DM
+ x  :    8.13671875       3.19729396E-03   15.9988432    
+ y  :    8.00000000       9.75377932E-02   15.7866116    
+ z  :    8.00000000       9.70674008E-02   15.7581263    
+ vx :    1.33351676E-07  -36.1547318       43.1473503    
+ vy :    5.16164000E-08  -26.6870670       25.9085331    
+ vz :    4.10700913E-08  -24.9887371       36.3863449    
+    0.00  05:06:55  05:06:55  Called summarize dm
+    0.00  05:06:55  05:06:55  Called link dm
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+    0.00  05:06:55  05:06:55  Called fft 3d
+    0.00  05:06:55  05:06:55  Called calc pk 3d
+ Writing Pk/pk.z=11.7597
+    0.00  05:06:55  05:06:55  Called calc power spectrum
+ pm_harness: step   30 wall     0.0118 s
+ pm_harness: particle_mesh wall time     0.0845 s
+ pm_harness: total wall time     0.5362 s

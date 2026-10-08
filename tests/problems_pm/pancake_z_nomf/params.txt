@@ -1,0 +1,8 @@
+# PM test problem (tests/problems_pm/make_problems.sh)
+Ngas = 32
+Ndm = 16
+mf = 0
+z_init = 300
+nsteps = 20
+da_sim = 0.002
+pk_every = 0

@@ -1,0 +1,6 @@
+# hydro test problem 'sod_x' (reference/harness_hydro/make_hydro_problems.py)
+N = 32
+z_init = 10
+nsteps = 5
+timestep = courant
+da_sim = 0
