@@ -136,6 +136,7 @@ and adaptive calculations.
 * **Resolution:** Ngas = Ndm.
   * 128³ is the default.
   * 192³ fits in memory if the timings allow.
-* **Sources:** abundance-match resolved halos to the observed UV
-  luminosity functions, plus sub-grid sources for unresolved faint
-  galaxies (down to M_UV ≈ −13).
+* **Sources:** abundance-match the resolved halos to the observed UV
+  luminosity functions. No sub-grid sources for unresolved galaxies for now
+  (user decision, 2026-10-08). Only halos above the resolution limit emit,
+  about 7×10⁸ M☉/h for 128³ particles in 10 Mpc/h.
