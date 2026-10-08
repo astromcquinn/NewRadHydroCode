@@ -270,6 +270,18 @@ since it only produces prototypes and a decision.
 3. Until MPI exists, the largest single-node runs go on `cpu-g2-mem2x` (about
    1 TB) or one `cpu-g2` node. That is enough for 256³ RT tests.
 
+### NSF ACCESS (2026-10-08)
+
+The user can also apply for NSF ACCESS supercomputer time if GPUs give a big
+gain. So GPU portability stays a hard requirement. The decision is made
+with data:
+
+- **Stage D:** benchmark the GPU RT kernel on Hyak `ckpt` A100/H200 nodes
+  against one `cpu-g2` node, for both ray-substeps/s and full-step time.
+- **If one GPU is worth several CPU nodes** (say ≥5×), apply for an ACCESS
+  GPU allocation. Use these benchmarks and the production-run science case
+  as the justification, starting at a small allocation tier.
+
 ## Still open
 
 - The per-node specs of `cpu-g2` and `cpu-g2-mem2x` (cores per node, memory
