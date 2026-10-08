@@ -379,9 +379,10 @@ baseline and five variants.
   baseline T is still ~10²–10³ K. They are a front-position effect, not a
   temperature error.
 * **Interior holes.** The isolated neutral cells inside the 1-source
-  sphere are present in the baseline. They are cells that no `nside = 4`
-  ray crosses near the source (an angular-sampling property of the original
-  algorithm), not a quantisation artefact.
+  sphere are identical in the baseline, so they are not a quantisation
+  artefact. Their 12-fold ring pattern suggests a HEALPix angular-sampling
+  property of the original ray tracing, but I have not investigated it
+  (worth a separate look).
 
 Findings:
 
