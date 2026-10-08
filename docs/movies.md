@@ -139,14 +139,50 @@ What the movie shows:
   0.9999 by z = 5.5.
 - τ_es accumulated in the run is 0.023. Adding full ionisation below
   z = 4.87 gives a total of 0.052.
-- Individual H II regions grow and overlap. They are limited by light travel
-  at ĉ = 0.01c: the bubbles stay small for several frames after a source
-  appears.
-- The neutral IGM shows T = 10²·⁵–10³·⁵ K in under-dense gas, which is the
-  spurious heating of cold supersonic gas (`docs/hydro_tests.md`). Don't
-  read pre-reionisation temperatures from these movies.
-- A few one-cell-wide streaks in x_HII and T are in the data, not in the
-  rendering.
+- **Bubbles.** Ionised regions grow and reach about 2×10⁴ K, and they have
+  merged by z ≈ 6.5. The last neutral patches are dense filaments. Light
+  travel at ĉ = 0.01c limits the growth: the bubbles stay small for several
+  frames after a source appears.
+- **Bubble shapes.** The bubbles are nearly spherical because at 64³ only a
+  few halos are resolved (2 sources at z ≈ 8, 7 by z ≈ 7). The 128³
+  production run with abundance-matched sources will be much clumpier.
+- **Gas ahead of the I-front is too hot.** Filaments sit at 10³–10⁴ K and
+  voids near 10²–10³ K, hotter than an adiabatic IGM. This is the hydro
+  suite's finding that the scheme spuriously heats cold supersonic gas
+  (`docs/hydro_tests.md`). Don't read pre-reionisation temperatures from
+  these movies.
+
+Artefacts, all in the data rather than the rendering:
+
+- **Grid-aligned streaks (quirk B16, `docs/port_notes.md`).** Straight,
+  one-cell-wide streaks of partly neutral gas run along x and y through
+  sources, giving small "+" crosses on the sources. In the 64³ run one of
+  them runs down the centre of the z = 32 slice (x = 31, y = 39–45, at
+  x_HII ≈ 0.1 inside a bubble).
+  - **Cause, as far as the uniform test shows:** the original HEALPix ray
+    frame is fixed to the grid, and sources sit at cell centres. In that
+    frame ±x and ±y are pixel vertices at every nside, so the rays around
+    each of these axes are mirror-symmetric about it. They all leave the
+    column of cells along the axis at the same distance, and those cells
+    get too few photons. The rays around ±z (the poles) are diagonal, so
+    the deficit there is much weaker.
+  - **It is in the original code, not from our changes** (it is not B10,
+    and not `deterministic_parallel` or `c_reduced`). In the uniform
+    single-source test (`tests/problems/uniform_1src`, 30 steps;
+    `tools/analysis/axis_deficit.py`), the axis cells near the front fall
+    short of their shell mean by up to 0.25 in x_HII along x and y, and by
+    0.003 along z. This holds with the legacy flags (bit-identical to
+    gfortran), with the fixed flags, and with `deterministic_parallel`. With
+    `c_reduced = 0.1` the shortfall reaches 0.45.
+
+    ![axis deficit](figures/axis_deficit.png)
+
+  - **Still open:** in uniform gas the front lags by about one cell on the
+    axes. The cosmological streaks are deeper, about 7 cells. They need a
+    dedicated look before any science run, and a fix behind a flag, e.g. a
+    rotation of the HEALPix frame per source or per step.
+- **Radial spokes.** Faint spokes inside the bubbles follow the ray
+  directions.
 
 ## Tests
 

@@ -296,6 +296,24 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
   `parallel do`, which is non-conforming OpenMP. The harness removed it, and
   the C++ is serial.
 
+* **B16. Grid-aligned photon deficit along ±x and ±y from each source.**
+  `ray_source` emits the `nside_init = 4` HEALPix directions
+  (`pix2vec_nest`) in a frame fixed to the grid, from the source cell
+  centre. Directions ±x and ±y are pixel vertices at every nside. The
+  rays around each of these axes are therefore mirror-symmetric about the
+  grid planes through the source, and they leave the column of cells along
+  the axis at the same distance. Those cells get too few photons. At ±z
+  (the poles) the surrounding rays are diagonal, and the effect is about
+  100× weaker.
+  * **Uniform single-source test** (30 steps): axis cells near the front
+    fall short of their shell mean by up to 0.25 in x_HII (0.45 with
+    `c_reduced = 0.1`). This is identical for the legacy flags (= gfortran),
+    the fixed flags and `deterministic_parallel`.
+  * **Cosmological runs:** visible as one-cell streaks and "+" crosses on
+    sources (`docs/movies.md`).
+  * **Not fixed yet.** Candidate fix behind a flag: rotate the HEALPix frame
+    deterministically per source and/or per substep.
+
 ## 5a. The `legacy_rt` switch (phase 1b)
 
 `legacy_rt` is a `params.txt` key, default 1. Both drivers also accept

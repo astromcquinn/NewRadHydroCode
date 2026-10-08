@@ -106,6 +106,14 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 - Test: CTest `movie_tool` (synthetic run).
 - Test movie: `docs/movies/reion64_test.mp4` (0.9 MB), from a 64³ production
   run (90 s run, 16 s render).
+- Finding (B16, `docs/port_notes.md`): the original ray tracer leaves a
+  photon deficit along ±x/±y from every source. Its HEALPix frame is fixed
+  to the grid, so those axes are pixel vertices and the rays around them
+  are symmetric. In the movies this shows as grid-aligned neutral streaks
+  and "+" crosses on sources. The deficit is up to 0.25 in x_HII near the
+  front in the uniform test, and present in the legacy (= Fortran) runs.
+  **Look into it and fix it behind a flag (frame rotation) before any
+  science run.**
 - Finding: frames written before the first RT step have an uninitialised
   rt_grid (fHI = rhog = 0). The tool skips them; a C++ fix that skips them at
   write time is optional.
