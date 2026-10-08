@@ -176,7 +176,7 @@ Two routes:
 | **B (parallel with A/C)** | Ray measurement and compression study (§4 steps 1–3) on dumped rays. | Evidence for the encoding choice. |
 | **C** | Framework spike (§1): hydro and RT kernels on AMReX vs Parthenon. Decision. | Everything below. |
 | **D** | Ray data-structure rewrite (sorted arrays, deterministic), with the chosen encoding, in the framework on a uniform grid, with Kokkos/GPU. Validated against the legacy code. | GPU, MPI, AMR. |
-| **E** | MPI on uniform grid in the framework: hydro, PM/FFT, RT ray migration, load balancing. Scaling tests on the cluster. | Large production runs. |
+| **E** | MPI on uniform grid in the framework: hydro, PM/FFT, RT ray migration, load balancing. Scaling tests on the ~1000 owned `cpu-g2` cores. **High priority:** CPU MPI is the production platform. | Large production runs. |
 | **F** | AMR for gas (new unsplit solver), then RT on AMR. Overcooling switch or star-formation sink. | Item 1. |
 | **G** | Multigrid gravity on AMR; TreePM optional. | Item 2. |
 | **H** | Adaptive RT: error-driven split/merge, cones per cell, hybrid optically thin treatment. | Item 4, speed-ups. |
@@ -243,6 +243,34 @@ since it only produces prototypes and a decision.
     10% (8-bit log-scaled photon counts) may well be acceptable, but that
     has to be measured.
 
+### Hyak allocation (from `hyakalloc`, 2026-10-08)
+
+| Account `astro` partition | CPUs | Memory | GPUs |
+|---|---|---|---|
+| `compute-bigmem` | 40 | 377 GB | 0 |
+| `cpu-g2` | 992 | 7809 GB | 0 |
+| `cpu-g2-mem2x` | 64 | 1007 GB | 0 |
+
+- **Owned GPUs: none.** GPUs are only available through the preemptible
+  checkpoint partitions (`ckpt`, `ckpt-g2`, `ckpt-all`): 28 idle GPUs and
+  about 5500 idle CPUs at the time of checking. All Hyak GPUs are NVIDIA
+  (2080 Ti, P100, RTX 6000, A40, L40, L40S, A100, H200). Only P100, A100 and
+  H200 have fast FP64, so GPU kernels should be mostly single precision.
+- The partitions have no time limits.
+
+**Consequences for the plan:**
+
+1. The production platform is **CPU: MPI + OpenMP on the ~1000 owned
+   `cpu-g2` cores** (about 7.8 TB of memory). GPU is a secondary target via
+   `ckpt`, where jobs can be preempted, so reliable restarts are a must.
+2. **MPI moves up in priority.** It is still done once, in the framework
+   (Stage E). But the framework spike (C) and the ray-storage rewrite (D)
+   should be judged mainly on CPU MPI+OpenMP performance, with GPU
+   portability kept as a requirement, not the primary target.
+3. Until MPI exists, the largest single-node runs go on `cpu-g2-mem2x` (about
+   1 TB) or one `cpu-g2` node. That is enough for 256³ RT tests.
+
 ## Still open
 
-- The number and type of Hyak GPU nodes (NVIDIA or AMD) owned by the group.
+- The per-node specs of `cpu-g2` and `cpu-g2-mem2x` (cores per node, memory
+  per node): run `scontrol show node n3450`.

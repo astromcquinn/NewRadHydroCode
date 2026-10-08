@@ -89,8 +89,13 @@ follow-up PR.
    | nray_max_factor | 16 |
    | Ngas = Ndm | 128³, or 192³ if the timing table allows |
    | Flags | legacy_rt = legacy_physics = 0 |
-4. Possibly run on the user's cluster: Claude Code installed in user space,
-   `claude remote-control` inside tmux, batch jobs with restarts.
+4. **User's cluster: UW Hyak `klone`, account `astro`.**
+   - Owned: about 1000 `cpu-g2` cores with 7.8 TB of memory, a 64-core,
+     1 TB `cpu-g2-mem2x` slice, and 40 `compute-bigmem` cores.
+   - No owned GPUs: GPUs only via preemptible `ckpt` partitions. No time
+     limits. See `docs/ROADMAP.md` (answers section).
+   - Access: Claude Code installed in user space, `claude remote-control`
+     inside tmux, batch jobs with restarts.
 5. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study, which can start now;
    - framework spike (AMReX vs Parthenon);
