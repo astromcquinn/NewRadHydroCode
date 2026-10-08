@@ -43,9 +43,10 @@ mkdir -p "$OUT"
   numactl -H 2>/dev/null | head -4
   uptime
 } | tee "$OUT/node.txt"
-tools/production/speedup.sh "$PROB" "$CK" "$OUT" $THREADS | tee "$OUT/speedup.log"
+bash tools/production/speedup.sh "$PROB" "$CK" "$OUT" $THREADS | tee "$OUT/speedup.log"
 
 # Identical outputs across thread counts (all files but the timings/logs):
+[ -s "$OUT/t$(echo $THREADS | cut -d" " -f1)/timing.txt" ] || { echo "no timings: speedup.sh failed"; exit 1; }
 base="$(echo $THREADS | awk '{print $1}')"
 for t in $THREADS; do
   [ "$t" = "$base" ] && continue
