@@ -44,6 +44,15 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.legacy_rt = std::stoi(val);
     if (p.legacy_rt != 0 && p.legacy_rt != 1)
       throw std::runtime_error("legacy_rt must be 0 or 1");
+  } else if (key == "deterministic_parallel") {
+    p.deterministic_parallel = std::stoi(val);
+    if (p.deterministic_parallel != 0 && p.deterministic_parallel != 1)
+      throw std::runtime_error("deterministic_parallel must be 0 or 1");
+  } else if (key == "threads") {
+    p.threads = std::stoi(val);
+  } else if (key == "c_reduced") {
+    p.c_reduced = std::stod(val);
+    if (!(p.c_reduced > 0)) throw std::runtime_error("c_reduced must be > 0");
   } else if (key == "legacy_physics") {
     p.legacy_physics = std::stoi(val);
     if (p.legacy_physics != 0 && p.legacy_physics != 1)
