@@ -164,15 +164,22 @@ The ray pool could overflow (F3): merging is triggered by thresholds on the
 photon content, not by the pool size. With `legacy_rt = 0` there is now a
 guard (C++ and both Fortran harnesses, RT harness PATCHES.md 13): from the
 live count, the number of source cells and a histogram of the rays that may
-split this substep, the split threshold is raised so that at most
-3/4·Nray_max rays can be live after the substep, and if even the sources
-do not fit, splitting stops and all but fresh source rays merge. It is an
-integer computation on the histogram, deterministic, and inactive in every
-stored reference. The full harness's legacy problem with
+split this substep, the split threshold is raised (only) if the worst case
+— every candidate splits into 4 and every source cell emits 192 rays —
+could take the live count above 0.9·Nray_max (the remaining tenth covers
+the Fortran-style free buffer, ≤ Nray_max/16); the candidates that may
+still split then fit in a third of the remaining budget. If even the
+sources do not fit, splitting stops and all but fresh source rays merge.
+It is an integer computation on the histogram, deterministic, and inactive
+in every stored reference (all `legacy_rt = 0` references, including the
+nightly N = 32 ones, are unchanged). The full harness's legacy problem with
 nray_max_factor = 1 (which overflowed before) now runs, with the guard
-active in 1011 of 1669 substeps, and Fortran and C++ agree bit for bit
+active in 508 of 1669 substeps, and Fortran and C++ agree bit for bit
 (nightly CTest `full_vs_fortran_live_legacy_poolguard`). With
 `legacy_rt = 1` the original behaviour (error on overflow) is kept.
+(A first version capped at 3/4·Nray_max with a quarter of the budget; it
+acted in the N = 32, factor-4 nightly references during split bursts that
+did not threaten the pool, so it was relaxed to the worst case above.)
 
 `Ray` is now 88 B (int32 links), see `docs/parallel.md` §4.
 
@@ -266,7 +273,8 @@ with ⟨N_ray⟩ = 0.4 Nray_max (the substep-weighted mean seen in the runs;
 the population grows from 0 to 0.5–0.65 Nray_max by z = 5.5). The 4-thread
 column assumes the parallel efficiency measured when two cores were free
 (section 6): ×3.5 for the RT, ×3 for hydro/PM. Memory: grids + 88 B ×
-0.75 Nray_max (the pool guard's cap; the runs peaked at 0.5–0.65).
+0.75 Nray_max (the runs peaked at 0.5–0.65; the pool guard caps the
+worst case at 0.9: then N = 128 needs 3.2 GB and N = 192 10.8 GB).
 
 | N | c_reduced | RT substeps | t (4 threads) | t (1 thread) | peak memory |
 |---|---|---|---|---|---|
@@ -330,8 +338,8 @@ and should be re-measured on an idle machine with the two scripts.
    hour on 4 idle cores (1–1.5 h on this shared machine), 2.8 GB of
    memory. It resolves halos of ≈ 7e8 Msun/h (20 particles), 4.5× better
    than N = 64.
-2. **N = 192, c_reduced = 0.01** fits (9–10 GB peak with the pool guard
-   cap; 1.9 GB without rays) and takes ≈ 2.5–3 h on 4 idle cores, but
+2. **N = 192, c_reduced = 0.01** fits (8–9 GB at the ray populations seen,
+   10.8 GB at the pool guard's cap; 1.9 GB without rays) and takes ≈ 2.5–3 h on 4 idle cores, but
    only if the disk can hold the checkpoints: one checkpoint is 6–9 GB
    and the atomic rewrite needs twice that. Use `restart_every = 2–3` and
    check the free disk space (this sandbox has ≈ 40 GB in total, shared;

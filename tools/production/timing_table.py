@@ -12,7 +12,7 @@ Cost model, fitted to the measured runs (4 threads, deterministic_parallel):
     Nray_max is the substep-weighted mean ray count (the population grows
     from 0 and saturates near 0.6-0.7 Nray_max with the pool guard);
   * memory: m_cell * N^3 (grids, particles with Ndm = N) + 88 B * peak rays
-    (<= 3/4 Nray_max with the pool guard).
+    (the runs peaked at 0.5-0.65 Nray_max; the pool guard caps it at 0.9).
 The fitted constants are set below from the measurements quoted in the doc.
 """
 import argparse
