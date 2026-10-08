@@ -126,6 +126,30 @@ inline std::vector<char> gather_cells(const std::vector<long long>& gidx, const 
   return out;
 }
 
+// Parthenon's command-line parser only understands "-i file" style options
+// and "block/par=value" overrides; it aborts on any other argument that
+// contains '=' (e.g. "--set legacy_rt=0"). Pass it only those.
+struct ParthArgs {
+  std::vector<char*> v;
+  int argc() const { return static_cast<int>(v.size()) - 1; }
+  char** argv() { return v.data(); }
+};
+inline ParthArgs parthenon_args(int argc, char** argv) {
+  ParthArgs a;
+  a.v.push_back(argv[0]);
+  for (int i = 1; i < argc; ++i) {
+    const std::string s = argv[i];
+    if (s.size() == 2 && s[0] == '-' && i + 1 < argc) {  // -i, -r, -d, ... with value
+      a.v.push_back(argv[i]);
+      a.v.push_back(argv[++i]);
+    } else if (s.find('=') != std::string::npos && s.find('/') < s.find('=')) {
+      a.v.push_back(argv[i]);
+    }
+  }
+  a.v.push_back(nullptr);
+  return a;
+}
+
 inline int num_threads() { return Kokkos::DefaultExecutionSpace().concurrency(); }
 
 }  // namespace sp

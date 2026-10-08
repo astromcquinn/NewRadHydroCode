@@ -63,12 +63,13 @@ int main(int argc, char** argv) {
     else if (s == "--mb") mb = std::atoi(next());
     else if (s == "--out") out = next();
     else if (s == "-i") ++a;  // Parthenon input deck
-    else if (s.find('=') != std::string::npos && s.find('/') != std::string::npos) continue;  // block/par=value
+    else if (s.find('=') != std::string::npos && s.find('/') < s.find('=')) continue;  // block/par=value
     else { std::fprintf(stderr, "unknown argument %s\n", s.c_str()); return 2; }
   }
 
+  sp::ParthArgs pargs = sp::parthenon_args(argc, argv);
   ParthenonManager pman;
-  auto st = pman.ParthenonInitEnv(argc, argv);
+  auto st = pman.ParthenonInitEnv(pargs.argc(), pargs.argv());
   if (st != ParthenonStatus::ok) {
     pman.ParthenonFinalize();
     return st == ParthenonStatus::complete ? 0 : 1;

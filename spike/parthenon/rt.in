@@ -1,0 +1,30 @@
+# Parthenon input deck for rt_parthenon. The program overwrites the mesh
+# (N^3 cells from the problem's params.txt, x in [0,N), periodic), the
+# meshblock size (--mb) and nghost (4); the values here only make the deck
+# complete.
+<parthenon/job>
+problem_id = spike_rt
+
+<parthenon/mesh>
+refinement = none
+nghost = 4
+nx1 = 32
+x1min = 0.0
+x1max = 32.0
+ix1_bc = periodic
+ox1_bc = periodic
+nx2 = 32
+x2min = 0.0
+x2max = 32.0
+ix2_bc = periodic
+ox2_bc = periodic
+nx3 = 32
+x3min = 0.0
+x3max = 32.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 16
+nx3 = 16
