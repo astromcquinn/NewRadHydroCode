@@ -282,7 +282,32 @@ with data:
   GPU allocation. Use these benchmarks and the production-run science case
   as the justification, starting at a small allocation tier.
 
+### `cpu-g2` node specs (from `scontrol`, 2026-10-08)
+
+- **Per node:** AMD EPYC Genoa (Zen 4, AVX-512), 2 sockets × 96 cores = 192
+  cores, 1.5 TB of memory, no SMT. The OS is Rocky/RHEL 8.
+- **The owned 992 cores are about 5 nodes' worth.** Hyak allocates in
+  core/memory slices.
+- **One node is already a big machine.** Using the cost model in
+  `docs/full_run.md`, with live rays at about 0.45 × 16 rays per cell and
+  about 140 B per ray:
+  - 512³ RT needs about 1e9 rays ≈ 140 GB of rays plus about 30 GB of
+    cells, which fits in 1.5 TB.
+  - At about 2 µs per ray-substep over roughly 150 effective cores, that is
+    of order 10–15 s per substep.
+  - So single-node OpenMP covers runs up to about 512³ before MPI, if the
+    OpenMP scaling holds.
+- **NUMA:** Genoa has many memory domains (CCDs and NUMA nodes per socket),
+  so pure OpenMP across 192 cores may scale poorly. Expect MPI + OpenMP
+  with about 1 rank per NUMA domain or per CCD to be faster even on one
+  node. That is one more reason to do MPI in the framework.
+- **Revised priority:** MPI matters for speed, for using all ~5 owned nodes
+  plus `ckpt`, and for runs beyond 512³. It is not needed for memory at
+  the near-term sizes.
+- **First single-node target:** benchmark the OpenMP build at 128³ and 256³
+  on one node with 1, 24, 96 and 192 threads, pinned
+  (`OMP_PLACES=cores OMP_PROC_BIND=close`).
+
 ## Still open
 
-- The per-node specs of `cpu-g2` and `cpu-g2-mem2x` (cores per node, memory
-  per node): run `scontrol show node n3450`.
+- Nothing about the cluster; the hardware is now known.
