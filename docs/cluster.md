@@ -289,7 +289,33 @@ step ending at z = 7.8202, 15 RT substeps, 139.59M live rays at the end; peak RS
 In short: at 128³ use 96 threads (192 gives the same time); at 256³ use the
 whole node, 192 threads (RT 94×, step 52× including its output).
 
-ZNVER4_PLACEHOLDER
+### `-march=znver4` (optional; not the default)
+
+A second build with `-DCMAKE_CXX_FLAGS=-march=znver4` (CMakeLists.txt still
+adds `-ffp-contract=off -fno-fast-math`) in `build-znver4/`:
+
+* **Fast suite:** the same 72/80 as the default build, with the same 8
+  platform failures of §3. Every output file of every test (e2e, RT, PM,
+  hydro, full loop, live Fortran comparisons, thread tests; about 10,000
+  files) is byte-identical to the default build's, except the restart
+  tests' checkpoint files, which differ in one byte: the 6 padding bytes
+  after the two `bool`s of `DriverState` (`include/radray/checkpoint.hpp`),
+  written raw by `o.pod(d)` and so uninitialised memory. That is a
+  reproducibility wart of the checkpoint format, not a znver4 effect
+  (restarts read the fields, not the padding; the restart tests pass).
+* **The 128³ scaling step** (same checkpoint; job 41634157 on another idle
+  node) gives byte-identical outputs to the default build at 1, 24, 96 and
+  192 threads, and is **about 3% faster**:
+
+  | threads | default [s] | znver4 [s] |
+  |---|---|---|
+  | 1 | 405.7 | 392.5 |
+  | 24 | 22.7 | 21.9 |
+  | 96 | 10.4 | 10.1 |
+  | 192 | 10.3 | 10.1 |
+
+  The gain is the size of node-to-node variation, so it is not worth a
+  second build configuration. Keep the default build.
 
 ## 7. Runs
 
