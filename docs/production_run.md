@@ -304,7 +304,7 @@ fewer than that (load average up to 14).
 
 | component | N = 64, 2 threads | N = 128, 2 threads | N = 64, 4 threads (shared) | N = 128, 4 threads (shared) |
 |---|---|---|---|---|
-| ray_tracing_1 | 1.88 | 1.88 (RT total) | 1.86 | 1.24 (RT total) |
+| ray_tracing_1 | 1.88 | (RT phases not timed separately) | 1.86 | |
 | ray_tracing_3 | 2.00 | | 1.94 | |
 | radiative_physics | 1.65 | | 1.59 | |
 | calc_ray_1 (histogram) | 1.63 | | 1.53 | |
@@ -312,7 +312,7 @@ fewer than that (load average up to 14).
 | hydro | 1.65 | 1.63 | 1.34 | 2.0 |
 | PM | 1.57 | 2.3 | 1.0 | 2.2 |
 | summaries | 1.29 | 1.8 | 0.89 | 0.84 |
-| FoF | 1.38 | 1.6 | 0.80 | 1.7 |
+| FoF | 1.36 | 1.6 | 0.80 | 1.7 |
 | RT total (one hydro step) | 1.90 | 1.90 | 1.85 | 1.24 |
 
 The ray tracing scales almost perfectly on the cores that were available
