@@ -24,10 +24,15 @@ Problems (see docs/port_notes_hydro.md, section "Test problems"):
   sound_x              small-amplitude (1e-3) travelling sound wave, one
                        wavelength in the box, along x.  Fixed da.
   random3d             3-D log-normal density, compressive random velocity
-                       (Mach ~ 20-40), a few near-empty cells below Dgas_min,
-                       a few low-density fast cells (above c_limit), random
-                       ionisation fractions and metals, non-zero initial
-                       grid velocity.  Fixed (large) da.
+                       (Mach ~ 20-40) plus a large bulk velocity (10,-8,6)
+                       that the moving frame follows (advect sub-cycles),
+                       a few near-empty cells, a few low-density fast cells,
+                       random ionisation fractions and metals, non-zero
+                       initial grid velocity.  Fixed da.
+  random3d_freeze      the same field with a small bulk velocity and very
+                       fast (100,-80) low-density cells: exercises the
+                       c >= c_limit branches of smooth/euler, freeze and
+                       smooth_cells_1/2.  Fixed da.
 
 Bulk velocity: every problem has a uniform velocity with three non-zero
 components.  This is REQUIRED, not cosmetic: in the original advect (MF) the
@@ -117,7 +122,7 @@ def sod(axis, N=32):
 Sod-like shock tube along {'xyz'[axis]} (N={N}, periodic, two interfaces at the
 cell faces 0 and {N // 2}). Left (cells 1..{N // 2}): rho = Dgas_avg = 1/6,
 p = rho*c_L^2/gamma with c_L = {c_L}; right: rho = 0.125*Dgas_avg, p = 0.1 p_L.
-Uniform bulk velocity (vx,vy,vz) = {tuple(bulk)} (needed, see H1 in
+Uniform bulk velocity (vx,vy,vz) = {tuple(float(b) for b in bulk)} (needed, see H1 in
 docs/port_notes_hydro.md); the exact solution is the Riemann solution
 advected with the bulk velocity. v_gas = 0 initially. Neutral w_gas.
 Time step: the code's own Courant step (timestep = courant).
@@ -147,7 +152,7 @@ def sound(N=32, A=1e-3):
 Travelling sound wave along x (N={N}): rho = rho0 (1 + A sin(kx)),
 p = p0 (1 + gamma A sin(kx)), vx = vbx + c0 A sin(kx) with A = {A},
 k = 2 pi/N, rho0 = Dgas_avg, c0 = sqrt(gamma p0/rho0) = {c0}.
-Uniform bulk velocity (vbx,vby,vbz) = {tuple(bulk)}: the wave moves at
+Uniform bulk velocity (vbx,vby,vbz) = {tuple(float(b) for b in bulk)}: the wave moves at
 c0 + vbx. v_gas = 0 initially. Fixed da.
 """
     return rho, vel, eth, readme, bulk
@@ -221,10 +226,10 @@ def random3d(N=32, seed=20121008, bulk=(10.0, -8.0, 6.0), vfast=(70.0, -55.0)):
 delta from {delta.min():.3g} to {delta.max():.3g}), compressive velocity
 (potential flow, rms 2.5 per component, + bulk {bulk}),
 T = 300 K (rho/<rho>)^(2/3) (Mach ~ 20-40), 6 cells at rho = Dgas_min/2
-(smooth_cells), 6 low-density (0.005 Dgas_avg < Dgas_frz) cells moving at
+(raised to Dgas_min by the initial summarize_gas), 6 low-density (0.005 Dgas_avg < Dgas_frz) cells moving at
 {vfast} (x,y) with T ~ 1e8 K (above c_limit -> freezing branches), random
 fHI, fHeI, fHeII and metallicity, v_gas = Gaussian-smoothed (4 cells)
-velocity. Fixed da (large: several sub-cycles per sweep in early steps).
+velocity. Fixed da (euler sub-cycles in some pencils).
 """
     return rho, vel, eth, vg, w, readme
 
