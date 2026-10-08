@@ -420,7 +420,33 @@ possible.
 
 ## 8. Kelvin-Helmholtz instability
 
-KH_PLACEHOLDER
+Two shear layers v_x = ±ΔU/2 (tanh profile, half-width a = N/32 cells) at
+y = N/4 and 3N/4, uniform density and pressure, ΔU = 1, c0 = 2 (Mach 0.5
+across the layer), seeded with a v_y perturbation of amplitude 1e-2 ΔU and
+two wavelengths per box (k a = 0.39); bulk (0.13, 0.07, 0.11) (H1). The
+reference is the linear growth rate of the tanh layer from the
+incompressible Rayleigh equation (solved numerically; σ = 0.48 kΔU/2, cf.
+Michalke 1964); compressibility at this Mach number lowers it by roughly
+10–20 %. Run for six linear e-folding times.
+
+| N | layer half-width [cells] | steps | measured σ / σ_lin | wall |
+|---|---|---|---|---|
+| 32 | 1 | 144 | decays (−0.46) | 20 s |
+| 64 | 2 | 264 | ≈ 0 (−0.06) | 309 s |
+| 128 | 4 | 528 | 0.51 | 5381 s |
+
+![kh](figures/hydro_suite_kh.png)
+
+**The KH instability needs ≳ 4 cells across the shear layer.** At 1–2 cells
+the numerical viscosity of the scheme widens the layer faster than the
+mode grows (the mode decays at N = 32 and stays flat at N = 64); at 4 cells
+it grows, at half the incompressible linear rate. Second-order grid codes
+typically reach 70–90 % of the linear rate with 4–8 cells across the layer
+(e.g. the KH comparisons of Robertson et al. 2010; McNally et al. 2012,
+ApJS 201, 18), so the scheme is on the diffusive side here too, consistent
+with its 5-cell contacts. A converged growth rate would need N ≥ 256 (8+
+cells per layer), which at ~1000 steps of 16.8M cells is beyond this
+machine's budget for an optional test (≈ 1–2 days single-threaded).
 
 ## 9. Where the scheme performs poorly (summary)
 
@@ -437,11 +463,13 @@ KH_PLACEHOLDER
    by ~1e-3 (tubes) and the Sedov blast is 1.9 % (N = 128) – 7.7 % (N = 32)
    faster along the axes than the diagonals; diagonal tubes are 10–15 % less
    accurate. All converge at first order.
-5. **Galilean non-invariance:** +90 % L1 for a profile advected through one
+5. **Shear layers** need ≳ 4 cells to go Kelvin-Helmholtz unstable at all,
+   and then grow at half the linear rate (§8).
+6. **Galilean non-invariance:** +90 % L1 for a profile advected through one
    box length; the Courant step includes |v_lab|.
-6. **Symmetry breaking** of grid-aligned strong shocks (3 % at N = 128) and
+7. **Symmetry breaking** of grid-aligned strong shocks (3 % at N = 128) and
    of the cold pancake (1–2 %).
-7. **H1:** problems with exactly zero velocity in any direction cannot be
+8. **H1:** problems with exactly zero velocity in any direction cannot be
    run at all.
 
 Good: shock positions (±0.5 cell), shock width (2.5 cells), no post-shock
@@ -465,14 +493,14 @@ upper bounds by up to ~2×.
 | pancake (hydro + PM, Ndm = N) | 32 / 64 / 128 | 205 | 48 / 802 / 2289 | 0.24 / 3.9 / 11.2 | 1.2 / 2.5 / 0.89 |
 | cosmological box (Ndm = N/2), da/a ≤ 1/9 | 64 | 42 | 71 | 1.7 | 1.08 |
 | cosmological box, da/a ≤ 0.02 | 32 / 64 | 39 / 202 | 9 / 271 | 0.23 / 1.34 | 1.2 / 0.85 |
-| KH | KH_TIMING |
+| KH | 32 / 64 / 128 | 144 / 264 / 528 | 20 / 309 / 5381 | 0.14 / 1.2 / 10.2 | 0.7 / 0.73 / 0.81 |
 
 Per-step times include the output writes and the analysis-side I/O of the
 driver. The cost is 0.7–1.1 µs per cell per sweep (6 sweeps per step) under
 load; docs/port_notes_hydro.md quotes 0.3 µs on an idle machine at N = 32
 and docs/full_run.md 0.6 µs at N = 64–128. The PM costs 5–15 % on top
-(pancake with Ndm = N). Total CPU time of the full tier: about 4 h (single
-thread per run).
+(pancake with Ndm = N). Total CPU time of the full tier: about 5 h (single
+thread per run), of which KH N = 128 is 1.5 h.
 
 ## 11. Files and CTest
 
@@ -490,7 +518,8 @@ tests/hydro_suite/
 ```
 
 * `ctest -L hydro_suite`: `hydro_suite_{tubes,galilean,sedov,sound,pancake,
-  cosmobox,kh}`, quick tier (N ≤ 64), ~10 min in total on an idle machine.
+  cosmobox,kh}`, quick tier (N ≤ 64), about 6 min in total (measured with two
+  jobs in parallel; each test passes with the tolerances above).
 * `ctest -L nightly`: `hydro_suite_full_*`, the full tier (~3 h).
 * By hand: `python3 tests/hydro_suite/run_suite.py all --tier full` then
   `python3 tests/hydro_suite/analyze.py figures`.
