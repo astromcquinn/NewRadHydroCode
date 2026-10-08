@@ -25,7 +25,9 @@ export CONDA_PKGS_DIRS="$RADRAY_SW/conda-pkgs"
 # Miniforge from klone's conda/Miniforge3-25.9.1-0 module, without the
 # module: it defines `conda` only in interactive shells and refuses to load
 # when an env is already active, so sourcing this file twice would fail.
-type conda >/dev/null 2>&1 || source /mmfs1/sw/miniforge3/25.9.1-0/etc/profile.d/conda.sh
+# Test for the shell function: a conda executable on an exported PATH (sbatch
+# --export=ALL from a shell that sourced this file) cannot activate.
+declare -F conda >/dev/null || source /mmfs1/sw/miniforge3/25.9.1-0/etc/profile.d/conda.sh
 if [ -d "$RADRAY_CONDA_ENV" ]; then
   conda activate "$RADRAY_CONDA_ENV"
 fi
