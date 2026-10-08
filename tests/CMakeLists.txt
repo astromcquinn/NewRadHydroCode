@@ -435,6 +435,36 @@ if(Python3_Interpreter_FOUND)
                      --set zdata1=12 --set fields_every=1)
     set_tests_properties(thread_full_legacy_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # ASan/UBSan builds with OpenMP, thread-count independence (parallel
+    # paths: N = 32)
+    if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
+      file(GLOB RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/*.cpp)
+      add_executable(rt_driver_asan ${PROJECT_SOURCE_DIR}/apps/rt_driver.cpp ${RADRAY_ALL_SRC_RT})
+      target_include_directories(rt_driver_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
+                                 ${FFTW3F_INCLUDE_DIR})
+      target_compile_options(rt_driver_asan PRIVATE -fsanitize=address,undefined
+                             -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g -O1
+                             -Wno-unknown-pragmas)
+      target_link_options(rt_driver_asan PRIVATE -fsanitize=address,undefined)
+      target_link_libraries(rt_driver_asan PRIVATE ${FFTW3F_LIBRARY})
+      if(RADRAY_HAVE_OPENMP)
+        target_link_libraries(rt_driver_asan PRIVATE OpenMP::OpenMP_CXX)
+      endif()
+      add_test(NAME sanitize_thread_rt_det
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                       ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/asan_rt_det
+                       $<TARGET_FILE:rt_driver_asan> ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
+                       --set legacy_rt=0 --set legacy_physics=0 --set deterministic_parallel=1
+                       --set nsteps=3)
+      add_test(NAME sanitize_thread_full_hydro_pm
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                       ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/asan_full $<TARGET_FILE:radhydro_asan>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly --quiet
+                       --set zdata1=30 --set fields_every=4)
+      set_tests_properties(sanitize_thread_rt_det sanitize_thread_full_hydro_pm PROPERTIES
+                           TIMEOUT 1800 LABELS "threads;sanitize" RUN_SERIAL TRUE
+                           ENVIRONMENT "OMP_NUM_THREADS=1;ASAN_OPTIONS=detect_leaks=1:abort_on_error=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
+    endif()
     # bit-identical restart: legacy, and deterministic_parallel + movie frames
     add_test(NAME restart_smoke_legacy
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py

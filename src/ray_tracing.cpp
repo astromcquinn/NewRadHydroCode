@@ -1080,7 +1080,9 @@ void ray_redshifting(Simulation& s) {
     }
   }
 
+  // every ray is redshifted independently
   const std::int64_t top = R.hwm();
+#pragma omp parallel for schedule(static) if (par::worth(top))
   for (std::int64_t ir = 1; ir <= top; ++ir) {
     Ray& ry = R.at(ir);
     if (!(ry.nside > 0)) continue;

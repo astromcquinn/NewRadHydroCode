@@ -703,7 +703,7 @@ void rt_step_1(Simulation& s) {
     }
   }
 
-  // F3 (legacy_rt = 0 only; harness PATCHES.md 11): keep the ray pool from
+  // F3 (legacy_rt = 0 only; RT harness PATCHES.md 13): keep the ray pool from
   // overflowing. Rays are only created by splits (3 per split) and sources
   // (nray_init per source cell). From the live count L, the number of source
   // cells and the histogram of the rays that may split, limit the splits of
