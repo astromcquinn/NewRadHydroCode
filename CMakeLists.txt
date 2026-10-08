@@ -97,5 +97,9 @@ if(RADRAY_WITH_PM)
   endif()
 endif()
 
+# The ~5-minute tests (label nightly) are registered but disabled unless
+# this is ON: cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest -L nightly
+option(RADRAY_NIGHTLY_TESTS "Enable the long (nightly) CTests" OFF)
+
 enable_testing()
 add_subdirectory(tests)

@@ -627,6 +627,9 @@ void rt_step_1(Simulation& s) {
   // nside > 0 (includes freed rays that have not been zeroed yet).
   double ngam_avg = 0;
   std::vector<std::int64_t> ngam_pdf(N_pdf + 1, 0);  // 1-based
+  // F3 guard (legacy_rt = 0): the same histogram for the rays that may split
+  // this substep (dr < 0, nside < nside_max)
+  std::vector<std::int64_t> spl_pdf(N_pdf + 1, 0);
   const std::int64_t top = R.hwm();
   if (!det) {
     for (std::int64_t ir = 1; ir <= top; ++ir) {
@@ -637,6 +640,7 @@ void rt_step_1(Simulation& s) {
         n = f::min(f::max(n, 1), N_pdf);
         ngam_avg = ngam_avg + ntot;
         ngam_pdf[n] = ngam_pdf[n] + 1;
+        if (ry.dr < 0 && ry.nside < rayp::nside_max) spl_pdf[n] = spl_pdf[n] + 1;
       }
     }
   } else {
@@ -646,7 +650,7 @@ void rt_step_1(Simulation& s) {
     __int128 fix = 0;
 #pragma omp parallel if (par::worth(top))
     {
-      std::vector<std::int64_t> pdf_t(N_pdf + 1, 0);
+      std::vector<std::int64_t> pdf_t(N_pdf + 1, 0), spl_t(N_pdf + 1, 0);
       __int128 fix_t = 0;
 #pragma omp for schedule(static)
       for (std::int64_t ir = 1; ir <= top; ++ir) {
@@ -657,11 +661,13 @@ void rt_step_1(Simulation& s) {
           n = f::min(f::max(n, 1), N_pdf);
           fix_t += static_cast<__int128>(std::ldexp(ntot, 40));
           pdf_t[n] = pdf_t[n] + 1;
+          if (ry.dr < 0 && ry.nside < rayp::nside_max) spl_t[n] = spl_t[n] + 1;
         }
       }
 #pragma omp critical(radray_calc_ray_1)
       {
         for (int n = 1; n <= N_pdf; ++n) ngam_pdf[n] += pdf_t[n];
+        for (int n = 1; n <= N_pdf; ++n) spl_pdf[n] += spl_t[n];
         fix += fix_t;
       }
     }
@@ -694,6 +700,49 @@ void rt_step_1(Simulation& s) {
         *s.raylog << " Rays       : " << j << " " << static_cast<float>(R.ngam_ray[j - 1])
                   << " " << static_cast<float>(R.ngam_ray[j - 1] / ngam_avg) << "\n";
     }
+  }
+
+  // F3 (legacy_rt = 0 only; harness PATCHES.md 11): keep the ray pool from
+  // overflowing. Rays are only created by splits (3 per split) and sources
+  // (nray_init per source cell). From the live count L, the number of source
+  // cells and the histogram of the rays that may split, limit the splits of
+  // this substep so that at most (3/4) Nray_max rays can be live after it:
+  // ngam_ray(32) (the split threshold) is raised to the lower edge of the
+  // brightest bins that fit in a quarter of the remaining budget. If even
+  // the sources do not fit, splitting stops and every ray except fresh
+  // source rays is merged (ngam_ray(16) = ngam_ray(32) = 1e30). Integer
+  // arithmetic on the histogram only: deterministic, the same in the
+  // Fortran harness, and inactive unless the pool is close to full.
+  if (!legacy) {
+    std::int64_t L = 0;
+    for (int n = 1; n <= N_pdf; ++n) L += ngam_pdf[n];
+    std::int64_t nsrc = 0;
+    for (std::int64_t c = 0; c < G.ncell; ++c)
+      if (static_cast<double>(G.sfr[c]) > u.sfr_min) ++nsrc;
+    const std::int64_t budget = (3 * R.Nray_max) / 4 - L - rayp::nray_init * nsrc;
+    if (budget <= 0) {
+      R.ngam_ray[16 - 1] = 1e30;
+      R.ngam_ray[32 - 1] = 1e30;
+      R.npool_forced += 1;
+    } else {
+      const std::int64_t smax = budget / 4;
+      std::int64_t nr = 0;
+      int i = N_pdf;
+      for (; i >= 1; --i) {
+        if (nr + spl_pdf[i] > smax) break;
+        nr = nr + spl_pdf[i];
+      }
+      if (i >= 1) {
+        const double thr = std::pow(1e1, i * lgn_del + lgn_min);
+        if (thr > R.ngam_ray[32 - 1]) {
+          R.ngam_ray[32 - 1] = thr;
+          R.npool_limited += 1;
+        }
+      }
+    }
+    if (s.raylog && (R.npool_forced > 0 || R.npool_limited > 0))
+      *s.raylog << " Pool guard : " << L << " " << nsrc << " " << budget << " "
+                << R.npool_limited << " " << R.npool_forced << "\n";
   }
 
   lap(s.timers.calc_ray1);

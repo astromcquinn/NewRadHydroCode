@@ -27,8 +27,9 @@
 // state); the fields u_gas, w_gas, v_gas, xv_dm and the rt_grid fields at
 // the steps selected by fields_every / fields_at_data1 and at the last step;
 // Log/hydro.log (the summarize_gas unit-100 records, byte-identical to the
-// Fortran); Pk/pk.<ztag>; DM/xv_dm.<ztag> (write_data_1/2 with Ncpu = 1
-// write only the particles, see docs/full_run.md); timing.txt.
+// Fortran); Pk/pk.<ztag>; write_data_1/2 with the F1 fix (DM/xv_dm,
+// Gas/{u,v,w}_gas, RT/rt_grid, Ray/{ray,ray_index,htoc_ray} .<ztag>, see
+// write_data_files and docs/full_run.md F1); timing.txt.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -173,6 +174,95 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
   std::ofstream out(path, std::ios::binary);
   if (!out) throw std::runtime_error("cannot write " + path);
   out.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n * sizeof(float)));
+}
+
+// io_tools.f90 write_data_1 / write_data_2 with the F1 fix: all the files
+// the original writes when Ncpu >= 9 (with Ncpu = 1 it writes only xv_dm,
+// docs/full_run.md F1), in the original formats (stream, Fortran layout):
+//   data 2: DM/xv_dm, Gas/u_gas, Gas/v_gas, Gas/w_gas
+//   data 1: the same plus RT/rt_grid (rt_grid_type, 36 real(4) per cell),
+//           and, if Nray > 0, Ray/ray (ray_type, 96 B), Ray/ray_index
+//           (int8), Ray/htoc_ray (int8 (4,Nrt^3)).
+// Differences: Ray/ray and Ray/ray_index stop at the highest slot ever used
+// (the original writes all Nray_max entries; the rest are zeros and the
+// identity); D3D/zreion is not written (calc_gas_3 is not ported). The Ray
+// files are created empty when Nray = 0, as in the original.
+void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
+                      const std::vector<float>& xv, const std::vector<float>& vgas, bool data1) {
+  std::filesystem::create_directories(odir + "/Gas");
+  write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
+  write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
+  write_f32(odir + "/Gas/v_gas." + tag, vgas.data(), vgas.size());
+  write_f32(odir + "/Gas/w_gas." + tag, s.gas.w.data(), s.gas.w.size());
+  if (!data1) return;
+  const RTGrid& G = s.rt;
+  std::filesystem::create_directories(odir + "/RT");
+  {
+    std::vector<float> buf(static_cast<std::size_t>(36 * G.ncell));
+    for (std::int64_t c = 0; c < G.ncell; ++c) {
+      float* b = &buf[static_cast<std::size_t>(36 * c)];
+      b[0] = G.rhog[c];
+      b[1] = G.fHI[c];
+      b[2] = G.fHeI[c];
+      b[3] = G.fHeII[c];
+      b[4] = G.temp[c];
+      b[5] = G.Luv[c];
+      b[6] = G.sfr[c];
+      for (int m = 0; m < 3; ++m) {
+        b[7 + m] = G.dx[c * 3 + m];
+        b[10 + m] = G.gamma[c * 3 + m];
+        b[13 + m] = G.lambda[c * 3 + m];
+      }
+      for (int m = 0; m < kNfreq; ++m) {
+        b[16 + m] = G.nu[c * kNfreq + m];
+        b[21 + m] = G.ngam[c * kNfreq + m];
+        b[26 + m] = G.fgam[c * kNfreq + m];
+        b[31 + m] = G.tau[c * kNfreq + m];
+      }
+    }
+    write_f32(odir + "/RT/rt_grid." + tag, buf.data(), buf.size());
+  }
+  // the original opens (creates) the Ray files and writes them if Nray > 0
+  std::filesystem::create_directories(odir + "/Ray");
+  {
+    struct FRay {  // radhydro_global.f90 ray_type
+      std::int32_t nside, ipix;
+      std::int64_t next, prev;
+      float r, dr, x[3], dx[3], nu[kNfreq], ngam[kNfreq];
+    };
+    static_assert(sizeof(FRay) == 96, "Fortran ray_type layout");
+    std::ofstream out(odir + "/Ray/ray." + tag, std::ios::binary);
+    std::ofstream oix(odir + "/Ray/ray_index." + tag, std::ios::binary);
+    if (!out || !oix) throw std::runtime_error("cannot write Ray/ files");
+    const std::int64_t top = s.rays.Nray > 0 ? s.rays.hwm() : 0;
+    for (std::int64_t ir = 1; ir <= top; ++ir) {
+      const Ray& r = s.rays.at(ir);
+      FRay f{};
+      f.nside = r.nside;
+      f.ipix = r.ipix;
+      f.next = r.next;
+      f.prev = r.prev;
+      f.r = r.r;
+      f.dr = r.dr;
+      for (int m = 0; m < 3; ++m) {
+        f.x[m] = r.x[m];
+        f.dx[m] = r.dx[m];
+      }
+      for (int m = 0; m < kNfreq; ++m) {
+        f.nu[m] = r.nu[m];
+        f.ngam[m] = r.ngam[m];
+      }
+      out.write(reinterpret_cast<const char*>(&f), sizeof f);
+      const std::int64_t idx = ir < static_cast<std::int64_t>(s.rays.ray_index_.size())
+                                   ? s.rays.ray_index_[ir]
+                                   : ir;
+      oix.write(reinterpret_cast<const char*>(&idx), sizeof idx);
+    }
+    std::ofstream oh(odir + "/Ray/htoc_ray." + tag, std::ios::binary);
+    if (s.rays.Nray > 0)
+      oh.write(reinterpret_cast<const char*>(G.htoc.data()),
+             static_cast<std::streamsize>(G.htoc.size() * sizeof(std::int64_t)));
+  }
 }
 
 // Peak resident set size (VmHWM of /proc/self/status) in MB, -1 if unknown
@@ -491,8 +581,8 @@ int main(int argc, char** argv) {
       th = Clock::now();
       const std::string d = step_dir();
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
-      if (data2_out) {  // write_data_2
-        write_f32(odir + "/DM/xv_dm." + pm::ztag(s.clk.redshift), pm.xv.data(), pm.xv.size());
+      if (data2_out) {  // write_data_2 (F1 fix: all files)
+        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false);
         idata2 = idata2 + 1;
         data2_out = false;
       }
@@ -502,8 +592,8 @@ int main(int argc, char** argv) {
         pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
                                  pk_gas);
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
-        // write_data_1
-        write_f32(odir + "/DM/xv_dm." + pm::ztag(s.clk.redshift), pm.xv.data(), pm.xv.size());
+        // write_data_1 (F1 fix: all files)
+        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true);
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
@@ -542,7 +632,9 @@ int main(int argc, char** argv) {
         "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
         s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
         peak_rss_mb());
-    std::printf(" %s\n", format_rt_timers(s.timers).c_str());
+    std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
+                format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
+                static_cast<long long>(s.rays.npool_forced));
     timing << "# " << format_rt_timers(s.timers) << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "

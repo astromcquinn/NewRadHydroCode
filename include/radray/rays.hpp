@@ -100,6 +100,10 @@ struct RayState {
 
   std::array<double, 64> ngam_ray{};  // ngam_ray(1:64) -> [0..63]
 
+  // F3 pool guard (legacy_rt = 0): substeps in which the split threshold was
+  // raised / splitting stopped and merging forced (cumulative)
+  std::int64_t npool_limited = 0, npool_forced = 0;
+
   // deterministic_parallel = 1: shared pool of free slots (beyond the
   // per-thread lists) and the next never-used slot.
   std::mutex pool_mtx;

@@ -118,7 +118,8 @@ int main(int argc, char** argv) {
     const double secs =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     std::cout << "\n Simulation completed in " << secs << " s\n " << format_rt_timers(s.timers)
-              << "\n";
+              << "\n ray pool guard: split limited in " << s.rays.npool_limited
+              << " substeps, merging forced in " << s.rays.npool_forced << "\n";
   } catch (const std::exception& e) {
     std::fprintf(stderr, "rt_driver: error: %s\n", e.what());
     return 1;

@@ -305,8 +305,12 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
       if(p STREQUAL "smoke")
         set_tests_properties(full_ref_${c} PROPERTIES TIMEOUT 600 LABELS "full;reference")
       else()
+        # ~5 minutes each: label nightly, run only with RADRAY_NIGHTLY_TESTS=ON
         set_tests_properties(full_ref_${c} PROPERTIES TIMEOUT 3600
-                             LABELS "full;reference;long")
+                             LABELS "full;reference;nightly")
+        if(NOT RADRAY_NIGHTLY_TESTS)
+          set_tests_properties(full_ref_${c} PROPERTIES DISABLED TRUE)
+        endif()
       endif()
     endif()
   endforeach()
@@ -332,6 +336,23 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
         endforeach()
       endforeach()
     endforeach()
+    # F3 ray pool guard (legacy_rt = 0): legacy problem with
+    # nray_max_factor = 1, which overflows the pool without the guard; the
+    # guard limits splitting in ~1000 of the 1669 RT substeps, identically in
+    # both codes. ~3 minutes: nightly.
+    add_test(NAME full_vs_fortran_live_legacy_poolguard
+             COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
+                     -DPROBLEM=${FULL_PROBLEMS}/legacy
+                     -DSET=source_mode=legacy,${FULL_SET_rt0},nray_max_factor=1
+                     -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                     -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
+                     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/legacy_poolguard
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+    set_tests_properties(full_vs_fortran_live_legacy_poolguard PROPERTIES TIMEOUT 3600
+                         LABELS "full;fortran;nightly" RESOURCE_LOCK harness_full_build)
+    if(NOT RADRAY_NIGHTLY_TESTS)
+      set_tests_properties(full_vs_fortran_live_legacy_poolguard PROPERTIES DISABLED TRUE)
+    endif()
     # Reduced speed of light: c_reduced = 0.1 (both flag sets) and 1e-4,
     # where nstep_rt rounds to 0 and the nstep_rt >= 1 guard is used.
     foreach(cs "legacy;rt1;0.1" "onthefly;rt0;0.1" "legacy;rt0;0.0001")

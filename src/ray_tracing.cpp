@@ -49,6 +49,7 @@ void RayState::init(std::int64_t nray_max, std::int64_t nfree_max) {
   stat = RayStat{};
   save = RayStat{};
   ngam_ray.fill(0.0);
+  npool_limited = npool_forced = 0;
   pool_free.clear();
   next_fresh = 1;
   tl.clear();
