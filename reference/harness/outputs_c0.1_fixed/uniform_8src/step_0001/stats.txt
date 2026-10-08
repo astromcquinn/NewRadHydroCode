@@ -1,0 +1,10 @@
+istep = 1
+redshift =  9.9879132953750887E+000
+scalefactor =  9.1009090909090901E-002
+nstep_rt = 1
+nray_active = 1536
+ncst1 = 1536
+nmrg1 = 0
+nspl1 = 0
+ndel1 = 0
+ngam_rays_total =  9.0148993549402803E+001

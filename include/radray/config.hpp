@@ -52,6 +52,30 @@ struct Config {
   // call calc_atomic_rates(rates, legacy_physics) after changing it.
   bool legacy_physics = true;
 
+  // Reduced speed of light: c_hat = c_reduced * c. Enters only through
+  // calc_timestep (the original's cscale): nstep_rt = nint(dl_c/dl_rt*cscale).
+  // 1 (default) is the original.
+  double c_reduced = 1.0;
+
+  // Deterministic parallel ray tracing (docs/parallel.md). false (default):
+  // the original sweep order (8 domains, one thread) and the Fortran ray
+  // pool, bit-identical to the Fortran harness. true: ray_tracing_1/3 run
+  // over 8^3-cell domains in colour-major order, in parallel within a
+  // colour, with per-thread free lists; bit-identical for any thread count,
+  // but not to the legacy order. Requires legacy_rt = false.
+  bool det_parallel = false;
+
+  // Maximum expansion per hydro step, da/a <= ra_max/(1-ra_max). The
+  // original's real(4) 0.1 (da/a = 1/9) unless set (apps/radhydro allows a
+  // different value only with legacy_rt = 0).
+  double ra_max = static_cast<double>(0.1f);
+
+  // Carry the rounding remainder of nstep_rt = nint(light cells) from one
+  // hydro step to the next, so that the total number of RT substeps (light
+  // travel at c_reduced) is exact over the run even when a hydro step spans
+  // only a few cells of light travel. false: the original rounding.
+  bool rt_substep_carry = false;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

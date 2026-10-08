@@ -154,3 +154,14 @@ and adaptive calculations.
   `docs/ROADMAP.md`.
 * **RT accuracy target:** a few percent in astrophysical outputs. Ray-level
   precision is set empirically against acceptance metrics.
+
+## Phase 1d progress: production readiness (2026-10-08)
+
+Done (`docs/production_run.md`, `docs/parallel.md`): reduced speed of light
+`c_reduced` (C++ and both Fortran harnesses, bit-identical, I-front test);
+OpenMP in RT, hydro, PM, FoF and summaries, bit-identical for any thread
+count; `deterministic_parallel` ray tracing (thread-count independent);
+ray-pool guard for F3 (`legacy_rt = 0`, both codes); 88-byte rays; F1 fix;
+bit-identical restart; movie frames independent of the hydro step;
+nightly test label; measured cost and timing table for the production run.
+

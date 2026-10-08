@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <ostream>
 #include <vector>
 
@@ -33,6 +34,24 @@ struct Domains {
   std::vector<std::array<int, 27>> domain;      // domain_rt(27,n): status + 26 neighbours
 };
 
+// deterministic_parallel ray tracing: cubic domains of d^3 cells (d = 8
+// when possible), n1 = Nrt/d per dimension (even), grouped into 8 colours by
+// the parity of their domain indices. Domains of one colour are at least d
+// cells apart, more than twice the reach of one cell's ray work (<= 3
+// cells, checked at run time), so they can be swept concurrently.
+struct DetDomains {
+  int d = 0, n1 = 0;
+  std::array<std::vector<std::array<int, 6>>, 8> colour;  // boxes per colour
+};
+
+// Wall-clock seconds per RT phase, accumulated over the run (diagnostics).
+struct RTTimers {
+  double prep = 0, calc_rt1 = 0, calc_ray1 = 0, trace1 = 0, physics = 0, trace3 = 0,
+         sync = 0, post = 0;
+  std::int64_t substeps = 0;
+};
+double wall_seconds();
+
 struct Simulation {
   Config cfg;
   SimClock clk;
@@ -44,7 +63,13 @@ struct Simulation {
   RTStat rt_stat;  // rt_stat(1)  (Ncpu = 1)
   RTStat rt_save;
   Domains dom;
+  DetDomains ddom;
+  RTTimers timers;
   std::int64_t Nsource = 0;
+
+  // Called after every RT substep (after the clock update), e.g. for movie
+  // frames; must not change the state.
+  std::function<void(Simulation&)> substep_hook;
 
   // ray.log (Fortran unit 201) and stdout-like summary; may be null.
   std::ostream* raylog = nullptr;

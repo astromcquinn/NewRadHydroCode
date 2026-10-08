@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Bit-identical restart of apps/radhydro.
+
+usage: restart_check.py RADHYDRO PROBLEM WORKDIR STEP [--set key=value ...]
+
+Run A writes a checkpoint after every step (restart_every = 1,
+restart_keep_latest = 0) and all fields every step. Run B restarts from A's
+checkpoint of step STEP into a fresh directory. Every file B writes (step_*
+directories, DM/, Gas/, RT/, Ray/, Pk/, movie frames) must be byte-identical
+to A's file of the same name, and B's Log/hydro.log must equal the tail of
+A's (also movie/frames.txt). Exit 0 on success.
+"""
+import glob
+import os
+import shutil
+import subprocess
+import sys
+
+
+def run(cmd, log):
+    with open(log, "w") as f:
+        r = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT)
+    if r.returncode != 0:
+        print(open(log).read()[-3000:])
+        sys.exit(f"failed: {' '.join(cmd)}")
+
+
+def main():
+    exe, prob, work, step = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+    sets = sys.argv[5:]
+    a, b = os.path.join(work, "A"), os.path.join(work, "B")
+    for d in (a, b):
+        if os.path.isdir(d):
+            shutil.rmtree(d)
+        os.makedirs(d)
+    common = sets + ["--set", "fields_every=1"]
+    run([exe, prob, a, "--quiet", "--set", "restart_every=1", "--set", "restart_keep_latest=0"]
+        + common, a + ".log")
+    ck = os.path.join(a, "restart", f"checkpoint_{step:04d}.bin")
+    run([exe, prob, b, "--quiet", "--restart", ck] + common, b + ".log")
+
+    bad, n = [], 0
+    for f in sorted(glob.glob(os.path.join(b, "**", "*"), recursive=True)):
+        rel = os.path.relpath(f, b)
+        if (os.path.isdir(f) or rel in ("timing.txt", "movie/frames.txt")
+                or rel.startswith("Log/")):
+            continue
+        g = os.path.join(a, rel)
+        n += 1
+        if not os.path.exists(g):
+            bad.append(f"{rel}: not in the uninterrupted run")
+        elif open(f, "rb").read() != open(g, "rb").read():
+            bad.append(f"{rel}: differs")
+    for rel in ("Log/hydro.log", "movie/frames.txt"):
+        fa, fb = os.path.join(a, rel), os.path.join(b, rel)
+        if not os.path.exists(fa):
+            continue
+        ha = open(fa).read().splitlines()
+        hb = [x for x in open(fb).read().splitlines() if not x.startswith("#")]
+        n += 1
+        if hb and ha[-len(hb):] != hb:
+            bad.append(f"{rel}: differs from the tail of the uninterrupted run")
+    nsteps = len(glob.glob(os.path.join(b, "step_*")))
+    print(f"restart from step {step}: {nsteps} steps, {n} files compared")
+    for x in bad[:20]:
+        print("  DIFF", x)
+    if nsteps == 0:
+        bad.append("the restarted run wrote no steps")
+    print("IDENTICAL" if not bad else f"DIFFERENT ({len(bad)} items)")
+    sys.exit(0 if not bad else 1)
+
+
+if __name__ == "__main__":
+    main()

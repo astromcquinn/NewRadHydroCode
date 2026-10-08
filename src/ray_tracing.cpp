@@ -2,7 +2,9 @@
 // undefined). See include/radray/ray_tracing.hpp for conventions.
 #include "radray/ray_tracing.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -11,6 +13,7 @@
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
+#include "radray/parallel.hpp"
 
 namespace radray {
 
@@ -20,34 +23,93 @@ using namespace rayp;
 // RayState (storage)
 // ---------------------------------------------------------------------------
 
+void RayBuffer::reset(std::int64_t n) {
+  std::free(p);
+  p = nullptr;
+  cap = n;
+  // calloc: lazily mapped zero pages; all-zero bits == Ray{}
+  p = static_cast<Ray*>(std::calloc(static_cast<std::size_t>(n), sizeof(Ray)));
+  if (!p) throw std::runtime_error("cannot reserve ray storage (" + std::to_string(n) + " rays)");
+}
+
 void RayState::init(std::int64_t nray_max, std::int64_t nfree_max) {
+  if (nray_max >= (std::int64_t(1) << 31) - 1)
+    throw std::runtime_error("Nray_max >= 2^31: ray links are int32 (see rays.hpp)");
   Nray_max = nray_max;
   Nfree_max = nfree_max;
   Nray = 0;
   Nrbuf = 0;
-  ray.clear();
+  ray.reset(Nray_max + 1);
+  hwm_ = 0;
   ray_index_.clear();
-  ray.reserve(static_cast<std::size_t>(Nray_max) + 1);
+  ray_index_.shrink_to_fit();
   ray_index_.reserve(static_cast<std::size_t>(Nray_max) + 1);
-  ray.resize(1);         // slot 0: dummy
   ray_index_.resize(1);  // position 0 unused
   ray_index_[0] = 0;
   stat = RayStat{};
-  stat.ifree.assign(static_cast<std::size_t>(Nfree_max) + 1, 0);
   save = RayStat{};
   ngam_ray.fill(0.0);
+  npool_limited = npool_forced = 0;
+  pool_free.clear();
+  next_fresh = 1;
+  tl.clear();
 }
 
 void RayState::ensure(std::int64_t i) {
   if (i < 1 || i > Nray_max)
-    throw std::runtime_error("ray storage index out of range: " + std::to_string(i));
+    throw std::runtime_error("ray storage index out of range: " + std::to_string(i) +
+                             " (ray pool overflow, Nray_max = " + std::to_string(Nray_max) + ")");
+  // ifree is sized on first use (Nfree_max = Nray_max/4 entries)
+  if (stat.ifree.empty()) stat.ifree.assign(static_cast<std::size_t>(Nfree_max) + 1, 0);
   const std::int64_t old = static_cast<std::int64_t>(ray_index_.size());
   if (i >= old) {
     ray_index_.resize(static_cast<std::size_t>(i) + 1);
-    for (std::int64_t p = old; p <= i; ++p) ray_index_[p] = p;
+    for (std::int64_t p = old; p <= i; ++p) ray_index_[p] = static_cast<std::int32_t>(p);
   }
-  if (i >= static_cast<std::int64_t>(ray.size()))
-    ray.resize(static_cast<std::size_t>(i) + 1);
+  if (i > hwm_) hwm_ = i;
+}
+
+// deterministic_parallel: take nr free slots for thread t. Slots come from
+// the thread's list, refilled in chunks from the shared pool (freed slots
+// first, then never-used ones). Which slots a ray gets depends on thread
+// timing, but no result depends on storage indices with legacy_rt = 0
+// (docs/parallel.md).
+void RayState::det_take(ThreadRays& t, int nr, std::int64_t* indx) {
+  constexpr std::int64_t kChunk = 4096;
+  if (static_cast<std::int64_t>(t.free.size()) < nr) {
+    std::lock_guard<std::mutex> lk(pool_mtx);
+    while (static_cast<std::int64_t>(t.free.size()) < kChunk && !pool_free.empty()) {
+      t.free.push_back(pool_free.back());
+      pool_free.pop_back();
+    }
+    const std::int64_t want = kChunk - static_cast<std::int64_t>(t.free.size());
+    const std::int64_t avail = Nray_max + 1 - next_fresh;
+    const std::int64_t n = want < avail ? want : avail;
+    for (std::int64_t m = 0; m < n; ++m) t.free.push_back(static_cast<std::int32_t>(next_fresh + m));
+    next_fresh += n > 0 ? n : 0;
+    if (next_fresh - 1 > hwm_) hwm_ = next_fresh - 1;
+    if (static_cast<std::int64_t>(t.free.size()) < nr)
+      throw std::runtime_error("ray pool overflow (Nray_max = " + std::to_string(Nray_max) +
+                               "); raise nray_max_factor");
+  }
+  for (int m = 0; m < nr; ++m) {
+    indx[m] = t.free.back();
+    t.free.pop_back();
+  }
+  t.ncreated += nr;
+}
+
+void RayState::det_give(ThreadRays& t, std::int64_t ir) {
+  constexpr std::size_t kSpill = 16384, kKeep = 8192;
+  t.free.push_back(static_cast<std::int32_t>(ir));
+  t.ndel1 += 1;
+  if (t.free.size() > kSpill) {
+    std::lock_guard<std::mutex> lk(pool_mtx);
+    while (t.free.size() > kKeep) {
+      pool_free.push_back(t.free.back());
+      t.free.pop_back();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +131,30 @@ namespace {
 
 // 1 + mod(int(x),Nrt): RT cell index (1-based) of a position in RT units.
 inline int cell_of(double x, int Nrt) { return 1 + f::mod(f::int4(x), Nrt); }
+
+// deterministic_parallel: the cell being processed by this thread, and the
+// reach check. Every chain insertion must stay within dmax = d/2 - 1 cells
+// (periodic Chebyshev distance) of it, so that a cast from there (one more
+// cell) stays within d/2 and concurrent domains of one colour (>= d cells
+// apart) never touch the same cell or ray chain.
+thread_local int det_cell[3] = {0, 0, 0};
+inline void det_set_cell(int i, int j, int k) {
+  det_cell[0] = i;
+  det_cell[1] = j;
+  det_cell[2] = k;
+}
+void det_check_reach(const Simulation& s, int i, int j, int k) {
+  const int N = s.cfg.Nrt, dmax = s.ddom.d / 2 - 1;
+  const int ijk[3] = {i, j, k};
+  for (int m = 0; m < 3; ++m) {
+    int dd = std::abs(ijk[m] - det_cell[m]);
+    dd = std::min(dd, N - dd);
+    if (dd > dmax)
+      throw std::runtime_error("deterministic_parallel: ray moved " + std::to_string(dd) +
+                               " cells from the cell being processed (limit " +
+                               std::to_string(dmax) + ")");
+  }
+}
 
 inline double sum_ngam_r4(const Ray& r) {
   // sum(ray(ir)%ngam): real(4) sum, then widened
@@ -92,6 +178,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
   constexpr int kMergeCap = 10000;
   static thread_local std::vector<std::vector<std::int64_t>> merge1_ir(192);
   int merge1_nr[192];
+  const bool det = s.cfg.det_parallel;
 
   for (int krt = box[4]; krt <= box[5]; ++krt) {
     for (int jrt = box[2]; jrt <= box[3]; ++jrt) {
@@ -100,6 +187,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
         if (!(G.htoc_ray(1, c) > 0 ||
               static_cast<double>(G.sfr[c]) > u.sfr_min))
           continue;
+        if (det) det_set_cell(irt, jrt, krt);
 
         std::int64_t ncst_tot = 0, nspl_tot = 0, nmrg_tot = 0;
         const int nside_merge = 2;
@@ -194,13 +282,23 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
           }
         }
 
-        // Update ray stat
-        rys.ncst1 = rys.ncst1 + ncst_tot;
-        rys.ncst2 = f::max(rys.ncst2, ncst_tot);
-        rys.nspl1 = rys.nspl1 + nspl_tot;
-        rys.nspl2 = f::max(rys.nspl2, nspl_tot);
-        rys.nmrg1 = rys.nmrg1 + nmrg_tot;
-        rys.nmrg2 = f::max(rys.nmrg2, nmrg_tot);
+        // Update ray stat (deterministic_parallel: the thread's counters)
+        if (det) {
+          ThreadRays& t = R.tl[par::thread_id()];
+          t.ncst1 += ncst_tot;
+          t.ncst2 = f::max(t.ncst2, ncst_tot);
+          t.nspl1 += nspl_tot;
+          t.nspl2 = f::max(t.nspl2, nspl_tot);
+          t.nmrg1 += nmrg_tot;
+          t.nmrg2 = f::max(t.nmrg2, nmrg_tot);
+        } else {
+          rys.ncst1 = rys.ncst1 + ncst_tot;
+          rys.ncst2 = f::max(rys.ncst2, ncst_tot);
+          rys.nspl1 = rys.nspl1 + nspl_tot;
+          rys.nspl2 = f::max(rys.nspl2, nspl_tot);
+          rys.nmrg1 = rys.nmrg1 + nmrg_tot;
+          rys.nmrg2 = f::max(rys.nmrg2, nmrg_tot);
+        }
       }
     }
   }
@@ -526,6 +624,7 @@ void ray_tracing_3(Simulation& s, const std::array<int, 6>& box) {
         if (!(G.htoc_ray(1, c) > 0 ||
               static_cast<double>(G.sfr[c]) > u.sfr_min))
           continue;
+        if (s.cfg.det_parallel) det_set_cell(irt, jrt, krt);
 
         const std::int64_t head = G.htoc_ray(1, c);
         const std::int64_t tail = G.htoc_ray(2, c);
@@ -758,6 +857,10 @@ std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
 // ray_tracing_tools.f90: ray_create
 void ray_create(Simulation& s, int nr, std::int64_t* indx) {
   RayState& R = s.rays;
+  if (s.cfg.det_parallel) {
+    R.det_take(R.tl[par::thread_id()], nr, indx);
+    return;
+  }
   RayStat& st = R.stat;
 
   if (st.nfree < nr) {
@@ -799,7 +902,11 @@ void ray_remove(Simulation& s, std::int64_t ir, int irt, int jrt, int krt,
   if (ir == G.htoc_ray(3, c)) G.htoc_ray(3, c) = id;
   if (ir == G.htoc_ray(4, c)) G.htoc_ray(4, c) = iu;
 
-  if (flag) {
+  if (flag && s.cfg.det_parallel) {
+    // freed slots are always cleared (legacy_rt = 0 is required)
+    R.at(ir) = Ray{};
+    R.det_give(R.tl[par::thread_id()], ir);
+  } else if (flag) {
     // Free buffer full: return a quarter of Nrbuf to ray_index
     if (st.nfree == R.Nfree_max) {
       const std::int64_t n = R.Nrbuf / 4;
@@ -844,6 +951,7 @@ void ray_insert_head(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) 
 void ray_insert_tail(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
   RayState& R = s.rays;
   RTGrid& G = s.rt;
+  if (s.cfg.det_parallel) det_check_reach(s, irt, jrt, krt);
   const std::int64_t c = G.cell(irt, jrt, krt);
   const std::int64_t tail = G.htoc_ray(4, c);
   if (tail == 0) {
@@ -972,7 +1080,9 @@ void ray_redshifting(Simulation& s) {
     }
   }
 
+  // every ray is redshifted independently
   const std::int64_t top = R.hwm();
+#pragma omp parallel for schedule(static) if (par::worth(top))
   for (std::int64_t ir = 1; ir <= top; ++ir) {
     Ray& ry = R.at(ir);
     if (!(ry.nside > 0)) continue;
@@ -1057,6 +1167,7 @@ void ray_redshifting(Simulation& s) {
 void ray_buffer_allocate(Simulation& s) {
   RayState& R = s.rays;
   RayStat& st = R.stat;
+  if (st.ifree.empty()) st.ifree.assign(static_cast<std::size_t>(R.Nfree_max) + 1, 0);
   const std::int64_t i1 = R.Nray + 1;  // + (icpu-1)*nrbuf, icpu = 1
   st.nfree = R.Nrbuf;
   for (std::int64_t m = 0; m < R.Nrbuf; ++m) st.ifree[1 + m] = R.ray_index(i1 + m);

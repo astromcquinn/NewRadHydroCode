@@ -118,6 +118,33 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_fixed_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
+
+  # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
+  # (retarded-time / Shapiro et al. 2006) solution (docs/production_run.md)
+  add_test(NAME ifront_rsla
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/ifront_rsla_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/ifront_rsla)
+  set_tests_properties(ifront_rsla PROPERTIES TIMEOUT 600 LABELS physics)
+
+  # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
+  # recommended flags, against reference/harness/outputs_c0.1_fixed.
+  foreach(p uniform_8src lognormal_16src_smallbuf)
+    set(refdirc ${PROJECT_SOURCE_DIR}/reference/harness/outputs_c0.1_fixed/${p})
+    if(EXISTS ${refdirc})
+      add_test(NAME ref_c01_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ref_runs_c01/${p}
+                 -DREF=${refdirc}
+                 -DSET=c_reduced=0.1,legacy_rt=0,legacy_physics=0
+                 -DPYTHON=${Python3_EXECUTABLE}
+                 -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
+      set_tests_properties(ref_c01_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
+    endif()
+  endforeach()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -233,6 +260,9 @@ if(Python3_Interpreter_FOUND)
                            -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g -O1)
     target_link_options(hydro_driver_asan PRIVATE -fsanitize=address,undefined)
     target_link_libraries(hydro_driver_asan PRIVATE ${FFTW3F_LIBRARY})
+    if(RADRAY_HAVE_OPENMP)
+      target_link_libraries(hydro_driver_asan PRIVATE OpenMP::OpenMP_CXX)
+    endif()
     set(HYDRO_ASAN_DRIVER $<TARGET_FILE:hydro_driver_asan>)
   else()
     set(HYDRO_ASAN_DRIVER $<TARGET_FILE:hydro_driver>)
@@ -275,8 +305,12 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
       if(p STREQUAL "smoke")
         set_tests_properties(full_ref_${c} PROPERTIES TIMEOUT 600 LABELS "full;reference")
       else()
+        # ~5 minutes each: label nightly, run only with RADRAY_NIGHTLY_TESTS=ON
         set_tests_properties(full_ref_${c} PROPERTIES TIMEOUT 3600
-                             LABELS "full;reference;long")
+                             LABELS "full;reference;nightly")
+        if(NOT RADRAY_NIGHTLY_TESTS)
+          set_tests_properties(full_ref_${c} PROPERTIES DISABLED TRUE)
+        endif()
       endif()
     endif()
   endforeach()
@@ -302,6 +336,41 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
         endforeach()
       endforeach()
     endforeach()
+    # F3 ray pool guard (legacy_rt = 0): legacy problem with
+    # nray_max_factor = 1, which overflows the pool without the guard; the
+    # guard limits splitting in ~1000 of the 1669 RT substeps, identically in
+    # both codes. ~3 minutes: nightly.
+    add_test(NAME full_vs_fortran_live_legacy_poolguard
+             COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
+                     -DPROBLEM=${FULL_PROBLEMS}/legacy
+                     -DSET=source_mode=legacy,${FULL_SET_rt0},nray_max_factor=1
+                     -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                     -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
+                     -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/legacy_poolguard
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+    set_tests_properties(full_vs_fortran_live_legacy_poolguard PROPERTIES TIMEOUT 3600
+                         LABELS "full;fortran;nightly" RESOURCE_LOCK harness_full_build)
+    if(NOT RADRAY_NIGHTLY_TESTS)
+      set_tests_properties(full_vs_fortran_live_legacy_poolguard PROPERTIES DISABLED TRUE)
+    endif()
+    # Reduced speed of light: c_reduced = 0.1 (both flag sets) and 1e-4,
+    # where nstep_rt rounds to 0 and the nstep_rt >= 1 guard is used.
+    foreach(cs "legacy;rt1;0.1" "onthefly;rt0;0.1" "legacy;rt0;0.0001")
+      list(GET cs 0 src)
+      list(GET cs 1 m)
+      list(GET cs 2 cr)
+      set(tname full_vs_fortran_live_smoke_${src}_${m}_c${cr})
+      add_test(NAME ${tname}
+               COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
+                       -DPROBLEM=${FULL_PROBLEMS}/smoke
+                       -DSET=source_mode=${src},${FULL_SET_${m}},c_reduced=${cr}
+                       -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                       -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
+                       -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/smoke_${src}_${m}_c${cr}
+                       -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
+      set_tests_properties(${tname} PROPERTIES TIMEOUT 1800 LABELS "full;fortran"
+                           RESOURCE_LOCK harness_full_build)
+    endforeach()
   endif()
 
   # ASan/UBSan build of radhydro (all radray sources) on the smoke problem;
@@ -316,6 +385,9 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
                            -Wno-unknown-pragmas)
     target_link_options(radhydro_asan PRIVATE -fsanitize=address,undefined)
     target_link_libraries(radhydro_asan PRIVATE ${FFTW3F_LIBRARY})
+    if(RADRAY_HAVE_OPENMP)
+      target_link_libraries(radhydro_asan PRIVATE OpenMP::OpenMP_CXX)
+    endif()
     set(FULL_ASAN_DRIVER $<TARGET_FILE:radhydro_asan>)
   else()
     set(FULL_ASAN_DRIVER $<TARGET_FILE:radhydro>)
@@ -333,3 +405,90 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
     endif()
   endforeach()
 endif()
+
+# ---------------------------------------------------------------------------
+# Thread-count independence (docs/parallel.md) and restart
+if(Python3_Interpreter_FOUND)
+  # deterministic_parallel ray tracing, N = 32 (4^3 domains of 8^3 cells)
+  foreach(p lognormal_16src uniform_8src_smallbuf)
+    add_test(NAME thread_rt_det_${p}
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_det_${p} $<TARGET_FILE:rt_driver>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems/${p} --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set nsteps=6)
+    set_tests_properties(thread_rt_det_${p} PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  endforeach()
+  # legacy order (rt_step_2 and the RT grid loops in parallel), vs threads
+  add_test(NAME thread_rt_legacy_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_legacy $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=4)
+  set_tests_properties(thread_rt_legacy_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
+                       ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  if(RADRAY_HAVE_PM)
+    # hydro, PM, summaries, FoF (N = 32, 22 steps before RT)
+    add_test(NAME thread_full_legacy_hydro_pm
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_hydro_pm $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly --quiet
+                     --set zdata1=12 --set fields_every=1)
+    set_tests_properties(thread_full_legacy_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # ASan/UBSan builds with OpenMP, thread-count independence (parallel
+    # paths: N = 32)
+    if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
+      file(GLOB RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/*.cpp)
+      add_executable(rt_driver_asan ${PROJECT_SOURCE_DIR}/apps/rt_driver.cpp ${RADRAY_ALL_SRC_RT})
+      target_include_directories(rt_driver_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
+                                 ${FFTW3F_INCLUDE_DIR})
+      target_compile_options(rt_driver_asan PRIVATE -fsanitize=address,undefined
+                             -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g -O1
+                             -Wno-unknown-pragmas)
+      target_link_options(rt_driver_asan PRIVATE -fsanitize=address,undefined)
+      target_link_libraries(rt_driver_asan PRIVATE ${FFTW3F_LIBRARY})
+      if(RADRAY_HAVE_OPENMP)
+        target_link_libraries(rt_driver_asan PRIVATE OpenMP::OpenMP_CXX)
+      endif()
+      add_test(NAME sanitize_thread_rt_det
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                       ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/asan_rt_det
+                       $<TARGET_FILE:rt_driver_asan> ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
+                       --set legacy_rt=0 --set legacy_physics=0 --set deterministic_parallel=1
+                       --set nsteps=3)
+      add_test(NAME sanitize_thread_full_hydro_pm
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                       ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/asan_full $<TARGET_FILE:radhydro_asan>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly --quiet
+                       --set zdata1=30 --set fields_every=4)
+      set_tests_properties(sanitize_thread_rt_det sanitize_thread_full_hydro_pm PROPERTIES
+                           TIMEOUT 1800 LABELS "threads;sanitize" RUN_SERIAL TRUE
+                           ENVIRONMENT "OMP_NUM_THREADS=1;ASAN_OPTIONS=detect_leaks=1:abort_on_error=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
+    endif()
+    # bit-identical restart: legacy, and deterministic_parallel + movie frames
+    add_test(NAME restart_smoke_legacy
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/legacy 13)
+    add_test(NAME restart_smoke_det_movie
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
+                     --set movie_z0=25)
+    set_tests_properties(restart_smoke_legacy restart_smoke_det_movie PROPERTIES TIMEOUT 600
+                         LABELS restart)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# OpenMP: every test runs with 2 threads unless it sets OMP_NUM_THREADS
+# itself (ctest -j runs several tests at once; results do not depend on the
+# thread count, see docs/parallel.md and the thread_* tests).
+get_property(RADRAY_ALL_TESTS DIRECTORY PROPERTY TESTS)
+foreach(t ${RADRAY_ALL_TESTS})
+  get_test_property(${t} ENVIRONMENT tenv)
+  if(NOT tenv MATCHES "OMP_NUM_THREADS")
+    set_property(TEST ${t} APPEND PROPERTY ENVIRONMENT OMP_NUM_THREADS=2)
+  endif()
+endforeach()

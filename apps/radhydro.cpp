@@ -27,8 +27,9 @@
 // state); the fields u_gas, w_gas, v_gas, xv_dm and the rt_grid fields at
 // the steps selected by fields_every / fields_at_data1 and at the last step;
 // Log/hydro.log (the summarize_gas unit-100 records, byte-identical to the
-// Fortran); Pk/pk.<ztag>; DM/xv_dm.<ztag> (write_data_1/2 with Ncpu = 1
-// write only the particles, see docs/full_run.md); timing.txt.
+// Fortran); Pk/pk.<ztag>; write_data_1/2 with the F1 fix (DM/xv_dm,
+// Gas/{u,v,w}_gas, RT/rt_grid, Ray/{ray,ray_index,htoc_ray} .<ztag>, see
+// write_data_files and docs/full_run.md F1); timing.txt.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -41,11 +42,13 @@
 #include <string>
 #include <vector>
 
+#include "radray/checkpoint.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/fft.hpp"
 #include "radray/halo_sources.hpp"
 #include "radray/hydro.hpp"
 #include "radray/io.hpp"
+#include "radray/parallel.hpp"
 #include "radray/pm.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
@@ -83,6 +86,27 @@ struct RunParams {
   // Switches
   int legacy_rt = 1;
   int legacy_physics = 1;
+  double c_reduced = 1.0;   // reduced speed of light (calc_timestep cscale)
+  int deterministic_parallel = 0;  // parallel ray tracing (docs/parallel.md)
+  int threads = 0;          // OpenMP threads (0: OpenMP default)
+  double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
+  int rt_substep_carry = 0;  // 1: exact total RT substeps (Config::rt_substep_carry)
+  // Restart (docs/production_run.md): checkpoint every n steps (0: never),
+  // keep only the latest one (1) or all (0)
+  int restart_every = 0;
+  int restart_keep_latest = 1;
+  // Movie frames independent of the hydro step: every movie_dz in redshift,
+  // starting at movie_z0 (default: the first zdata1 redshift, where RT
+  // starts), written from inside the RT substeps (0: off)
+  double movie_dz = 0;
+  double movie_z0 = -1;
+  std::string movie_fields = "fHI,temp";
+  // Output volume: the step_* field files to write (comma list; empty: all
+  // 16), and the write_data_1/2 files: all (F1 fix, default), norays
+  // (without Ray/, which holds every ray: 96 B each) or dm (only xv_dm, as
+  // the original with one thread)
+  std::string fields;
+  std::string data_files = "all";
   // Sources
   HaloSourceParams halo;
   std::string ics;          // directory of xv_dm.init/u_gas.init
@@ -112,7 +136,37 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.legacy_rt = std::stoi(val);
   else if (key == "legacy_physics")
     P.legacy_physics = std::stoi(val);
-  else if (key == "ics")
+  else if (key == "ra_max")
+    P.ra_max = to_double(val);
+  else if (key == "rt_substep_carry")
+    P.rt_substep_carry = std::stoi(val);
+  else if (key == "restart_every")
+    P.restart_every = std::stoi(val);
+  else if (key == "restart_keep_latest")
+    P.restart_keep_latest = std::stoi(val);
+  else if (key == "movie_dz")
+    P.movie_dz = to_double(val);
+  else if (key == "movie_z0")
+    P.movie_z0 = to_double(val);
+  else if (key == "movie_fields")
+    P.movie_fields = val;
+  else if (key == "fields")
+    P.fields = val;
+  else if (key == "data_files") {
+    if (val != "all" && val != "norays" && val != "dm")
+      throw std::runtime_error("data_files must be all, norays or dm");
+    P.data_files = val;
+  }
+  else if (key == "deterministic_parallel") {
+    P.deterministic_parallel = std::stoi(val);
+    if (P.deterministic_parallel != 0 && P.deterministic_parallel != 1)
+      throw std::runtime_error("deterministic_parallel must be 0 or 1");
+  } else if (key == "threads")
+    P.threads = std::stoi(val);
+  else if (key == "c_reduced") {
+    P.c_reduced = to_double(val);
+    if (!(P.c_reduced > 0)) throw std::runtime_error("c_reduced must be > 0");
+  } else if (key == "ics")
     P.ics = val;
   else if (key == "fields_every")
     P.fields_every = std::stoi(val);
@@ -162,6 +216,119 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
   out.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n * sizeof(float)));
 }
 
+// io_tools.f90 write_data_1 / write_data_2 with the F1 fix: all the files
+// the original writes when Ncpu >= 9 (with Ncpu = 1 it writes only xv_dm,
+// docs/full_run.md F1), in the original formats (stream, Fortran layout):
+//   data 2: DM/xv_dm, Gas/u_gas, Gas/v_gas, Gas/w_gas
+//   data 1: the same plus RT/rt_grid (rt_grid_type, 36 real(4) per cell),
+//           and, if Nray > 0, Ray/ray (ray_type, 96 B), Ray/ray_index
+//           (int8), Ray/htoc_ray (int8 (4,Nrt^3)).
+// Differences: Ray/ray and Ray/ray_index stop at the highest slot ever used
+// (the original writes all Nray_max entries; the rest are zeros and the
+// identity); D3D/zreion is not written (calc_gas_3 is not ported). The Ray
+// files are created empty when Nray = 0, as in the original.
+void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
+                      const std::vector<float>& xv, const std::vector<float>& vgas, bool data1,
+                      const std::string& which) {
+  write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
+  if (which == "dm") return;
+  std::filesystem::create_directories(odir + "/Gas");
+  write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
+  write_f32(odir + "/Gas/v_gas." + tag, vgas.data(), vgas.size());
+  write_f32(odir + "/Gas/w_gas." + tag, s.gas.w.data(), s.gas.w.size());
+  if (!data1) return;
+  const RTGrid& G = s.rt;
+  std::filesystem::create_directories(odir + "/RT");
+  {
+    std::vector<float> buf(static_cast<std::size_t>(36 * G.ncell));
+    for (std::int64_t c = 0; c < G.ncell; ++c) {
+      float* b = &buf[static_cast<std::size_t>(36 * c)];
+      b[0] = G.rhog[c];
+      b[1] = G.fHI[c];
+      b[2] = G.fHeI[c];
+      b[3] = G.fHeII[c];
+      b[4] = G.temp[c];
+      b[5] = G.Luv[c];
+      b[6] = G.sfr[c];
+      for (int m = 0; m < 3; ++m) {
+        b[7 + m] = G.dx[c * 3 + m];
+        b[10 + m] = G.gamma[c * 3 + m];
+        b[13 + m] = G.lambda[c * 3 + m];
+      }
+      for (int m = 0; m < kNfreq; ++m) {
+        b[16 + m] = G.nu[c * kNfreq + m];
+        b[21 + m] = G.ngam[c * kNfreq + m];
+        b[26 + m] = G.fgam[c * kNfreq + m];
+        b[31 + m] = G.tau[c * kNfreq + m];
+      }
+    }
+    write_f32(odir + "/RT/rt_grid." + tag, buf.data(), buf.size());
+  }
+  if (which == "norays") return;
+  // the original opens (creates) the Ray files and writes them if Nray > 0
+  std::filesystem::create_directories(odir + "/Ray");
+  {
+    struct FRay {  // radhydro_global.f90 ray_type
+      std::int32_t nside, ipix;
+      std::int64_t next, prev;
+      float r, dr, x[3], dx[3], nu[kNfreq], ngam[kNfreq];
+    };
+    static_assert(sizeof(FRay) == 96, "Fortran ray_type layout");
+    std::ofstream out(odir + "/Ray/ray." + tag, std::ios::binary);
+    std::ofstream oix(odir + "/Ray/ray_index." + tag, std::ios::binary);
+    if (!out || !oix) throw std::runtime_error("cannot write Ray/ files");
+    // deterministic_parallel: storage slots depend on thread timing, so the
+    // rays are written renumbered in the canonical order (cells k,j,i, each
+    // chain head to tail): new index n for the n-th ray, ray_index = identity
+    std::vector<std::int64_t> order, newidx;
+    if (s.cfg.det_parallel && s.rays.Nray > 0) {
+      newidx.assign(static_cast<std::size_t>(s.rays.hwm()) + 1, 0);
+      for (std::int64_t c = 0; c < G.ncell; ++c)
+        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = s.rays.at(ir).next) {
+          order.push_back(ir);
+          newidx[ir] = static_cast<std::int64_t>(order.size());
+        }
+    }
+    auto remap = [&](std::int64_t ir) { return newidx.empty() || ir <= 0 ? ir : newidx[ir]; };
+    const std::int64_t top =
+        s.rays.Nray > 0 ? (newidx.empty() ? s.rays.hwm() : static_cast<std::int64_t>(order.size()))
+                        : 0;
+    for (std::int64_t n = 1; n <= top; ++n) {
+      const std::int64_t ir = newidx.empty() ? n : order[n - 1];
+      const Ray& r = s.rays.at(ir);
+      FRay f{};
+      f.nside = r.nside;
+      f.ipix = r.ipix;
+      f.next = remap(r.next);
+      f.prev = remap(r.prev);
+      f.r = r.r;
+      f.dr = r.dr;
+      for (int m = 0; m < 3; ++m) {
+        f.x[m] = r.x[m];
+        f.dx[m] = r.dx[m];
+      }
+      for (int m = 0; m < kNfreq; ++m) {
+        f.nu[m] = r.nu[m];
+        f.ngam[m] = r.ngam[m];
+      }
+      out.write(reinterpret_cast<const char*>(&f), sizeof f);
+      const std::int64_t idx =
+          !newidx.empty() ? n
+                          : (ir < static_cast<std::int64_t>(s.rays.ray_index_.size())
+                                 ? static_cast<std::int64_t>(s.rays.ray_index_[ir])
+                                 : ir);
+      oix.write(reinterpret_cast<const char*>(&idx), sizeof idx);
+    }
+    std::ofstream oh(odir + "/Ray/htoc_ray." + tag, std::ios::binary);
+    if (s.rays.Nray > 0) {
+      std::vector<std::int64_t> h(G.htoc.size());
+      for (std::size_t m = 0; m < h.size(); ++m) h[m] = remap(G.htoc[m]);
+      oh.write(reinterpret_cast<const char*>(h.data()),
+               static_cast<std::streamsize>(h.size() * sizeof(std::int64_t)));
+    }
+  }
+}
+
 // Peak resident set size (VmHWM of /proc/self/status) in MB, -1 if unknown
 double peak_rss_mb() {
   std::ifstream in("/proc/self/status");
@@ -179,7 +346,7 @@ struct Timers {
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--set key=value ...] [--quiet]\n",
+    std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--set key=value ...] [--quiet] [--restart <checkpoint>]\n",
                  argv[0]);
     return 2;
   }
@@ -187,10 +354,13 @@ int main(int argc, char** argv) {
   const std::string odir = argv[2];
   std::vector<std::string> sets;
   bool quiet = false;
+  std::string restart_from;
   for (int a = 3; a < argc; ++a) {
     const std::string s = argv[a];
     if (s == "--set" && a + 1 < argc)
       sets.emplace_back(argv[++a]);
+    else if (s == "--restart" && a + 1 < argc)
+      restart_from = argv[++a];
     else if (s == "--quiet")
       quiet = true;
     else {
@@ -235,8 +405,10 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(odir + "/Log");
     std::filesystem::create_directories(odir + "/Pk");
     std::filesystem::create_directories(odir + "/DM");
-    std::ofstream raylog(odir + "/Log/ray.log");
-    std::ofstream hydrolog(odir + "/Log/hydro.log");
+    // a restart appends to the logs of the run directory
+    const auto logmode = restart_from.empty() ? std::ios::out : std::ios::app;
+    std::ofstream raylog(odir + "/Log/ray.log", logmode);
+    std::ofstream hydrolog(odir + "/Log/hydro.log", logmode);
     std::ofstream nullout;
     std::ostream* out = quiet ? nullptr : &std::cout;
 
@@ -248,6 +420,21 @@ int main(int argc, char** argv) {
     s.cfg = Config::make(P.N, P.nray_max_factor, P.Ndm, P.box);
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
+    s.cfg.c_reduced = P.c_reduced;
+    s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    if (s.cfg.det_parallel && s.cfg.legacy_rt)
+      throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
+    par::set_threads(P.threads);
+    if (P.ra_max > 0) {
+      if (s.cfg.legacy_rt)
+        throw std::runtime_error("ra_max can only be changed with legacy_rt = 0");
+      if (!(P.ra_max < 1)) throw std::runtime_error("ra_max must be in (0,1)");
+      s.cfg.ra_max = P.ra_max;
+    }
+    if (P.rt_substep_carry) {
+      if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
+      s.cfg.rt_substep_carry = true;
+    }
     s.raylog = &raylog;
     s.out = out;
     const Config& cfg = s.cfg;
@@ -272,23 +459,27 @@ int main(int argc, char** argv) {
     for (double z : zdata2) adata2.push_back(1 / (1 + z));
     const int Ndata1 = static_cast<int>(zdata1.size());
     const int Ndata2 = static_cast<int>(zdata2.size());
-    int idata1 = 1, idata2 = 1;
-    bool data1_out = false, data2_out = false;
+    DriverState dst;
+    int& idata1 = dst.idata1;
+    int& idata2 = dst.idata2;
+    bool& data1_out = dst.data1_out;
+    bool& data2_out = dst.data2_out;
     fft::fft_3d('f', cfg.Ngas, cfg.Ngas, cfg.Ngas, pm.density.data());  // init_fft
     calc_sim_var(cfg, s.clk, s.units);
 
-    pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
+    if (restart_from.empty()) pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
 
     if (out)
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
-           << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics
-           << ", sources = "
+           << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
+           << ", deterministic_parallel = " << P.deterministic_parallel
+           << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
            << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
 
     Timers T;
-    std::int64_t Nhalo = 0;
+    std::int64_t& Nhalo = dst.Nhalo;
     auto summaries = [&]() {
       const auto ts = Clock::now();
       pm::summarize_dm(pm, s.units, out);
@@ -356,6 +547,9 @@ int main(int argc, char** argv) {
     auto write_fields = [&](const std::string& d) {
       const RTGrid& G = s.rt;
       auto W = [&](const char* name, const std::vector<float>& v) {
+        if (!P.fields.empty() && ("," + P.fields + ",").find(std::string(",") + name + ",") ==
+                                     std::string::npos)
+          return;
         write_f32(d + "/" + name + ".bin", v.data(), v.size());
       };
       W("fHI", G.fHI);
@@ -384,18 +578,78 @@ int main(int argc, char** argv) {
       return d;
     };
 
-    // Summarize the initial state
-    calc_sim_var(cfg, s.clk, s.units);
-    summaries();
+    // Movie frames (movie_dz > 0): selected rt_grid fields every movie_dz
+    // in redshift, from inside the RT substeps (Simulation::substep_hook),
+    // or at the end of a hydro step without RT.
+    std::vector<std::string> mfields;
     {
+      std::string f = P.movie_fields;
+      for (auto& ch : f)
+        if (ch == ',') ch = ' ';
+      std::istringstream in(f);
+      std::string tok;
+      while (in >> tok) mfields.push_back(tok);
+    }
+    std::ofstream movielog;
+    auto write_frame = [&](const Simulation& ss) {
+      const RTGrid& G = ss.rt;
+      char name[64];
+      for (const std::string& fld : mfields) {
+        const std::vector<float>* v = nullptr;
+        if (fld == "fHI") v = &G.fHI;
+        else if (fld == "fHeI") v = &G.fHeI;
+        else if (fld == "fHeII") v = &G.fHeII;
+        else if (fld == "temp") v = &G.temp;
+        else if (fld == "rhog") v = &G.rhog;
+        else if (fld == "ngam") v = &G.ngam;
+        else if (fld == "gamma") v = &G.gamma;
+        else throw std::runtime_error("movie_fields: unknown field " + fld);
+        std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
+        write_f32(odir + name, v->data(), v->size());
+      }
+      double xv = 0, xm = 0, mass = 0;
+      for (std::int64_t c = 0; c < G.ncell; ++c) {
+        xv = xv + (1 - static_cast<double>(G.fHI[c]));
+        xm = xm + static_cast<double>(G.rhog[c]) * (1 - static_cast<double>(G.fHI[c]));
+        mass = mass + static_cast<double>(G.rhog[c]);
+      }
+      char line[256];
+      std::snprintf(line, sizeof line, "%6d %6d %6d %.8f %.8e %.8e\n", dst.movie_frame,
+                    ss.clk.istep, ss.clk.istep_rt, ss.clk.redshift, xv / cfg.nrtcr, xm / mass);
+      movielog << line << std::flush;
+      dst.movie_frame += 1;
+      dst.movie_next -= P.movie_dz;
+    };
+    if (P.movie_dz > 0) {
+      std::filesystem::create_directories(odir + "/movie");
+      movielog.open(odir + "/movie/frames.txt", logmode);
+      if (restart_from.empty()) {
+        movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
+                    "float32 (N,N,N) rt_grid fields)\n";
+        dst.movie_next = P.movie_z0 > 0 ? P.movie_z0 : zdata1.front();
+      }
+      s.substep_hook = [&](Simulation& ss) {
+        while (ss.clk.redshift <= dst.movie_next) write_frame(ss);
+      };
+    }
+
+    // Restart: the complete state of the end of a step (checkpoint.hpp)
+    if (!restart_from.empty()) {
+      read_checkpoint(restart_from, s, hs, pm, dst);
+      if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
+    } else {
+      // Summarize the initial state
+      calc_sim_var(cfg, s.clk, s.units);
+      summaries();
       const std::string d = step_dir();
       write_stats(d);
       if (P.fields_every > 0) write_fields(d);
     }
 
-    std::ofstream timing(odir + "/timing.txt");
-    timing << "# istep redshift nstep_rt Nsource nray_active t_hydro t_pm t_halos t_rt "
-              "t_summaries t_io t_total [s, this step]\n";
+    std::ofstream timing(odir + "/timing.txt", logmode);
+    if (restart_from.empty())
+      timing << "# istep redshift nstep_rt Nsource nray_active t_hydro t_pm t_halos t_rt "
+                "t_summaries t_io t_total [s, this step]\n";
 
     // ------------------------------------------------------------------
     // Time stepping
@@ -472,8 +726,8 @@ int main(int argc, char** argv) {
       th = Clock::now();
       const std::string d = step_dir();
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
-      if (data2_out) {  // write_data_2
-        write_f32(odir + "/DM/xv_dm." + pm::ztag(s.clk.redshift), pm.xv.data(), pm.xv.size());
+      if (data2_out) {  // write_data_2 (F1 fix: all files)
+        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
         idata2 = idata2 + 1;
         data2_out = false;
       }
@@ -483,8 +737,8 @@ int main(int argc, char** argv) {
         pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
                                  pk_gas);
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
-        // write_data_1
-        write_f32(odir + "/DM/xv_dm." + pm::ztag(s.clk.redshift), pm.xv.data(), pm.xv.size());
+        // write_data_1 (F1 fix: all files)
+        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
@@ -513,6 +767,21 @@ int main(int argc, char** argv) {
         }
       }
 
+      // Frames not reached inside RT substeps (steps without RT)
+      if (P.movie_dz > 0)
+        while (s.clk.redshift <= dst.movie_next) write_frame(s);
+
+      // Checkpoint (complete state at the end of this step)
+      if (P.restart_every > 0 && (s.clk.istep % P.restart_every == 0 || last)) {
+        std::filesystem::create_directories(odir + "/restart");
+        char name[64];
+        if (P.restart_keep_latest)
+          std::snprintf(name, sizeof name, "/restart/checkpoint.bin");
+        else
+          std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
+        write_checkpoint(odir + name, s, hs, pm, dst);
+      }
+
       // Stop
       if (last) break;
     }
@@ -523,6 +792,10 @@ int main(int argc, char** argv) {
         "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
         s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
         peak_rss_mb());
+    std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
+                format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
+                static_cast<long long>(s.rays.npool_forced));
+    timing << "# " << format_rt_timers(s.timers) << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
            << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
