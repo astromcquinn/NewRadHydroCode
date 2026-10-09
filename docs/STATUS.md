@@ -63,10 +63,18 @@ figure.
     after, with a 6-bit dithered photon total and 10-bit offsets. It costs
     230–310 ns to decode and 290–450 ns to encode per ray, against ~2 µs of
     RT per ray-substep.
-- Dithered photon quantisation down to 1–2 mantissa bits meets every
-  accuracy target. Round-to-nearest is biased (≈1 % error at 6 bits).
-- Recommendation: R-struct with dithered photons as the Stage D in-memory
-  format, and rANS for checkpoints and MPI.
+- Dithered photon quantisation: 8 bits is at the 10⁻⁴ level in every
+  test including the 64³ production configuration (0.01c); 1–2 bits pass
+  the 32³ tests but reach 1 % and 15 % per-cell T scatter at 0.01c.
+  Round-to-nearest is biased (≈1 % error at 6 bits).
+- Many sources (128³, up to 1506 sources at the dumps): the source id
+  costs ~3 bits per ray; the spectra diversify and the models must be
+  refit every hydro step (redshifting), after which the size is the same
+  12–14 B per ray as with 17 sources.
+- Recommendation: R-struct with 8 dithered photon bits as the Stage D
+  in-memory format, and rANS for checkpoints and MPI.
+- Not yet run: the 128³ production-configuration precision check
+  (`tools/production/hyak_precision.sbatch`).
 
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
@@ -160,9 +168,8 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    behind a flag, before the plane-parallel science runs.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
-   - ray compression study: done (`docs/ray_compression.md`). Before
-     adopting the format, re-check `d8` and `struct_o10_d4` once on the
-     production configuration (0.01c, factor 16);
+   - ray compression study: done (`docs/ray_compression.md`); 64³
+     production-configuration check done, 128³ job script ready for Hyak;
    - framework spike (AMReX vs Parthenon);
    - ray data-structure rewrite;
    - MPI;

@@ -236,9 +236,11 @@ build/ray_codec TRAIN_STEM TEST_STEM [--mbits m] [--offbits b] [--no-origin] [--
     uses 8-bit histograms (φ conditioned on |θ|);
   * the float exponent of Σngam around a per-nside mode, plus `--mbits`
     raw mantissa bits;
+  * nu as a dictionary index (255 most frequent tuples), with escape to
+    the 5 groups coded in turn, each given the previous group's value
+    (redshifting moves all groups together);
   * the shape tuple as an index into a 255-entry dictionary, with escape to
-    s₀ + successive differences;
-  * nu as a dictionary index, with escape to 5 bytes.
+    s₀ + successive differences, each given the ray's nu in that group.
 * The symbol traversal is written once and used for counting, encoding and
   decoding, so the three cannot drift apart. Every run checks that the
   decoded R-struct values equal the encoded ones (0 mismatches in all runs).
@@ -311,6 +313,75 @@ which ~65 are offsets, ipix low bits and direction offsets that §3.2 shows
 are uniform at their precision. That leaves little for a better model to
 remove, while an NN would add far more than the ~100 ns per ray that is the
 whole decode budget.
+
+
+### 5.3 Many sources
+
+The runs above have 1–17 sources. The production run will have thousands
+(a 10 Mpc/h, 128³ box with only resolved halos) and later runs millions.
+Two full-loop runs at the production configuration (`tools/production/
+make_production.py`: 10 Mpc/h, 0.01c, `nray_max_factor` 16, all fixes on,
+deterministic parallel ray tracing) with the FoF threshold lowered to 8
+particles, dumped at several substeps (`tools/ray_compression/
+many_sources.py`, tables in `docs/data/ray_compression/many_sources_*.json`):
+
+| run | substep | z | x_HII | sources | rays | never merged | sources per cell¹ | same source as previous ray² | H(source id) | B/ray, stale model³ | B/ray, refit⁴ |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 64³ | 35 | 8.10 | 0.46 | 10 | 398k | 100 % | 1.5 | 36 % | 2.7 | 8.7 | |
+| 64³ | 50 | 7.11 | 0.86 | 20 | 1.45M | 81 % | 3.5 | 20 % | 3.9 | 9.5 | |
+| 64³ | 70 | 5.99 | 1.00 | 99 | 2.43M | 31 % | 4.3 | 15 % | 5.3 | 13.9 | |
+| 64³ | 90 | 5.08 | 1.00 | 169 | 3.21M | 16 % | 4.4 | 11 % | 6.2 | 13.9 | |
+| 128³ | 60 | 9.33 | 0.35 | 205 | 11.9M | 66 % | 7.7 | 11 % | 7.1 | 11.3 | |
+| 128³ | 100 | 7.76 | 0.75 | 723 | 17.3M | 25 % | 4.0 | 12 % | 8.6 | 14.8 | 12.1 |
+| 128³ | 150 | 6.23 | 0.997 | 1506 | 22.2M | 10 % | 3.0 | 13 % | 9.7 | 15.6 | 13.7 |
+
+¹ distinct sources among the rays of a cell (cells with unmerged rays).
+² what the coder's "same source" flag sees in chain order. ³ 8-bit total,
+10-bit offsets, models from the previous snapshot. ⁴ the same with the
+models counted on the snapshot itself ("oracle"). The 128³ run reached
+2596 sources at z = 5.3; its last snapshots were not dumped for lack of
+disk.
+
+* **The source id is not the problem.** It costs 2.6–5 bits per ray
+  averaged over all rays, because only the origin-coded (unmerged) rays
+  carry one and most of those share it with a neighbour. H(source id) is
+  close to log₂(sources): the rays of a cell come from 3–8 sources with
+  nearly equal weight, so a rank-by-distance code would save 1–2 bits per
+  unmerged ray at the price of a nearest-source query in the decoder. Not
+  worth it.
+* **More rays stay unmerged at 0.01c:** 10–25 % after overlap, against
+  1–7 % at full c. Origin coding therefore keeps paying in the production
+  configuration.
+* **What does cost bytes is the spectra.** With hundreds of sources emitting
+  at hundreds of epochs, nu and the spectral shape diversify: 28k–43k
+  distinct nu tuples instead of ~100, and the 255-entry dictionaries cover
+  23–39 % of rays instead of 60–95 %. nu went from ≤ 4 to 18 bits and the
+  shape from 11–17 to 28–32 bits per ray: +3–4 B. Their entropies are only
+  6.5–7.7 (nu) and 13.5–15 bits (shape), so the models, not the data, were
+  at fault.
+* **The models go stale within one hydro step.** Redshifting multiplies
+  every ray's nu by (a − da)/a each hydro step, so the nu values of the
+  next snapshot are a shifted set that the previous snapshot's tables do
+  not contain. Refitting on the current population (the oracle column)
+  brings nu to 7–9 bits and the total to **12.1–13.7 B per ray at 723–1506
+  sources, the same as the 17-source run after overlap**. Counting the
+  models is one pass over the rays (~10 ns per ray); a production coder
+  should refit them every hydro step, or code nu relative to the ray's
+  age.
+* The shape still costs 21–25 bits against ~14 of entropy. A larger
+  dictionary (10⁴ entries) or a shape index conditioned on the source's
+  spectrum would recover another ~1 B; not done here.
+
+Where the ray population changes by more than ~10× between snapshots
+(early times, 2k → 2M rays), the stale model also costs: 21.7 B at substep
+30 of the 128³ run against 11 B with a refit. The same cure applies.
+
+The run-level lesson is not about coding: a source emits 192 rays per
+substep whatever its luminosity, so at 10⁶ sources 2·10⁸ rays would be
+created per substep and merged or deleted almost at once. The lever there
+is the number of rays created (initial `nside` per source luminosity, no
+rays from sources inside ionised transparent regions; ROADMAP §4.5), not
+their encoding.
 
 ## 6. Lossy precision (step 6)
 
@@ -420,11 +491,38 @@ Findings:
   **6–8 dithered bits for the photon total**, which costs only 2–4 bits more
   per ray than 1–2 bits.
 
-Caveats: these are small (32³) boxes over ≤ 240 hydro steps. The 64³ full
-run was not repeated with quantisation (71 min per run). The roadmap's
-production box with `c_reduced` has more substeps per hydro step, which only
-helps the averaging. Re-check d4 and `struct_o10` once on the production
-configuration before adopting them.
+### 6.1 The production configuration at 64³
+
+The same instrument on the full loop in the production configuration
+(`make_production.py --N 64`: 10 Mpc/h, 0.01c, `nray_max_factor` 16,
+on-the-fly sources with an 8-particle FoF threshold, 185 sources at the end,
+68 RT substeps from z = 15 to 4.9; `docs/data/ray_compression/
+precision_metrics_prod64.json`). Fields exist at the zdata1 outputs only, so
+τ_es and the photoionisation count are not available here:
+
+| variant | x_HII vol | x_HII mass | T mass | T rms, ionised cells | I-front shift (cells) | photons in rays |
+|---|---|---|---|---|---|---|
+| d8 (8 dithered bits) | 3.5e-5 | 3.0e-5 | 1.5e-4 | 1.1e-2 | 0.039 | 1.1e-5 |
+| struct_o10_d8 | 3.0e-4 | 2.6e-4 | 5.8e-4 | 1.1e-2 | 0.062 | 1.5e-5 |
+| d1 (1 dithered bit) | **7.9e-3** | **7.7e-3** | **1.4e-2** | 3.4e-2 | 0.15 | 2.0e-2 |
+| r6 (6 bits, nearest) | 7.4e-3 | 7.0e-3 | 5.0e-3 | 1.6e-2 | 0.10 | 1.5e-2 |
+
+![slices, production configuration](figures/raycomp_slices_prod64.png)
+
+*Mid-reionisation slice (z = 7.95, x_HII = 0.49).*
+
+**1 bit is no longer comfortable here.** It still meets the targets
+(x_HII 0.8 %, T 1.4 %, front 0.15 cell), but with ten times the error of the
+32³ tests and a 15 % rms temperature scatter in ionised cells (slice,
+second row): at 0.01c a hydro step has only 13–24 substeps to average
+over, against hundreds at full c. **8 dithered bits remain at the 10⁻⁴
+level** (0.5 % T scatter), and the structural round trip adds nothing
+measurable. This is the configuration-dependence the roadmap anticipated,
+and it fixes the production choice at ~8 bits rather than 1–2.
+
+Caveats: 32³ boxes over ≤ 240 hydro steps, and one 64³ run in the
+production configuration. The 128³ check (`tools/production/
+hyak_precision.sbatch`, §9) is set up and not yet run.
 
 ## 7. Bytes per ray, summary
 
@@ -445,9 +543,10 @@ configuration before adopting them.
    * a never-merged flag;
    * an 8+8-bit direction offset for merged rays;
    * 16-bit r with dr dropped;
-   * the photons as a total with ~8 dithered mantissa bits plus 5
-     log-quantised shape values (or the 5 groups directly at ~8 dithered
-     bits each);
+   * the photons as a total with 8 dithered mantissa bits plus 5
+     log-quantised shape values (or the 5 groups directly at 8 dithered
+     bits each). Not fewer: 1–2 bits pass the 32³ tests but give 1 %
+     errors and 15 % per-cell T scatter at 0.01c (§6.1);
    * 8-bit nu, or a per-run nu table.
 
    Decoding costs ~100 ns per ray, dominated by `pix2vec`. Evaluate an
@@ -460,16 +559,20 @@ configuration before adopting them.
 3. **Use rANS only where bytes matter more than ~300–400 ns per ray:**
    checkpoints, MPI ray migration, and cold or bulk storage. There it gives
    another 2.4–5× over R-struct (5–13 B per ray). Keep never-merged rays
-   origin-coded, use dictionaries for shapes and nu, and train models on the
-   previous snapshot.
+   origin-coded, use dictionaries plus per-group conditional models for
+   shapes and nu, and **refit the models every hydro step** (redshifting
+   makes them stale, §5.3). With thousands of sources the source id costs
+   ~3 bits per ray and needs no special treatment; grouping rays by source
+   in the Stage D sort key would make it nearly free.
 4. **Not worth pursuing:** a neural-network model (no structure left that a
    histogram misses, and no decode budget); per-cell conditioning on τ for
    the photon fields (does not generalise).
 5. **Bigger wins are algorithmic** (`docs/ROADMAP.md` §4.5). After overlap
-   93–99 % of rays are merged, and their cost is dominated by incompressible
-   position and direction bits. Reducing the *number* of rays in the
+   most rays are merged, and their cost is dominated by incompressible
+   position and direction bits. Reducing the *number* of rays, in the
    transparent ionised bulk (fewer cones, a moment/background hand-over)
-   saves more than any encoding.
+   and at emission (192 rays per source per substep regardless of
+   luminosity, §5.3), saves more than any encoding.
 
 ## 9. Reproducing
 
@@ -489,4 +592,16 @@ python3 tools/ray_compression/study.py figures --codec codec.json \
   --precision precision.json --det STEM1 STEM2 --outdir docs/figures
 ```
 
-The snapshots themselves (~1.9 GB) are not committed.
+Production-configuration precision check on Hyak (one job array, six
+variants, ~30 min each on 24 cores):
+
+```
+python3 tools/production/make_production.py RUNS/p128 --N 128 --movie-dz 0
+sbatch --export=ALL,ROOT=$PWD/RUNS/p128 tools/production/hyak_precision.sbatch
+python3 tools/ray_compression/precision_metrics.py RUNS/p128/prec --N 128 --json metrics.json
+python3 tools/ray_compression/slices.py RUNS/p128/prec p128 --N 128 --out slices.png
+```
+
+The 64³ version of the same (`make_production.py --N 64`, the variants run
+by hand) is §6.1. The snapshots themselves (~15 GB with the 128³ run) are
+not committed.

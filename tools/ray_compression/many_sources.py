@@ -29,9 +29,8 @@ def H(x):
 
 def analyse(stem, codec, prev):
     a, meta = snap.load(stem)
-    d = snap.derive(a, meta)
     n = len(a)
-    nm = d["never_merged"]
+    nm = (a["flags"] & snap.FLAG_MERGED) == 0  # (no snap.derive: it needs ~10x the snapshot's memory)
     src = a["src"].astype(np.int64)
     cell = a["cell"].astype(np.int64)
     out = {"stem": str(stem), "substep": meta["substep"], "redshift": meta["redshift"],
@@ -52,6 +51,7 @@ def analyse(stem, codec, prev):
         out["frac_same_source_as_prev"] = float(same.sum() / max(known.sum() - 1, 1))
         out["H_src_bits"] = H(src[known])
         out["log2_nsources"] = float(np.log2(max(meta["nsources"], 1)))
+    del a, src, cell, known  # free the snapshot before the codec loads it
     if codec:
         r = json.loads(subprocess.run([codec, prev, str(stem), "--reps", "1", "--mbits", "6",
                                        "--offbits", "10"], check=True, capture_output=True,

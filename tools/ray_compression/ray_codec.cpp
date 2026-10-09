@@ -76,13 +76,21 @@ long long json_int(const std::string& js, const std::string& key) {
 
 Snapshot load(const std::string& stem) {
   Snapshot s;
-  const std::string npy = slurp(stem + ".npy");
-  if (npy.compare(0, 6, "\x93NUMPY") != 0) throw std::runtime_error("not npy");
-  const std::size_t hl = static_cast<unsigned char>(npy[8]) | (static_cast<unsigned char>(npy[9]) << 8);
-  const std::size_t off = 10 + hl;
-  const std::size_t n = (npy.size() - off) / sizeof(RayDumpRecord);
+  // read the records straight into the vector (a snapshot can be gigabytes)
+  std::FILE* f = std::fopen((stem + ".npy").c_str(), "rb");
+  if (!f) throw std::runtime_error("cannot open " + stem + ".npy");
+  unsigned char hdr[10];
+  if (std::fread(hdr, 1, 10, f) != 10 || std::memcmp(hdr, "\x93NUMPY", 6) != 0)
+    throw std::runtime_error("not npy");
+  const std::size_t hl = hdr[8] | (hdr[9] << 8);
+  std::fseek(f, 0, SEEK_END);
+  const long end = std::ftell(f);
+  const std::size_t n = (static_cast<std::size_t>(end) - 10 - hl) / sizeof(RayDumpRecord);
+  std::fseek(f, static_cast<long>(10 + hl), SEEK_SET);
   s.rec.resize(n);
-  std::memcpy(s.rec.data(), npy.data() + off, n * sizeof(RayDumpRecord));
+  if (n && std::fread(s.rec.data(), sizeof(RayDumpRecord), n, f) != n)
+    throw std::runtime_error("short read: " + stem + ".npy");
+  std::fclose(f);
   const std::string js = slurp(stem + ".json");
   s.N = static_cast<int>(json_int(js, "N"));
   s.substep = json_int(js, "substep");
@@ -576,11 +584,11 @@ struct Models {
   Family dth{256, 1, 12};
   Family dph{256, 4, 12};         // ctx |dth| bucket
   Family nexp{64, 12, 12};        // float exponent - base(lside) + 32, 63 = escape
-  Family s0{256, 1, 12};          // first shape value / 8 (0 = zero, 255 = escape)
-  Family sd{256, 8, 12};          // shape step / 4, ctx (group-1, prev zero)
+  Family s0{256, 8, 12};          // first shape value / 8 (0 = zero, 255 = escape), ctx nu0 bucket
+  Family sd{256, 64, 12};         // shape step / 4, ctx (group-1, prev zero, nu_i bucket)
   Family shdict{256, 2, 12};      // shape tuple dictionary index, 255 = escape; ctx O / G
   Family nudict{256, 1, 12};      // nu tuple dictionary index, 255 = escape
-  Family nuraw{256, 5, 12};
+  Family nuraw{256, 160, 12};     // nu_i, ctx (group, nu_{i-1} / 8); the chain captures the common redshifting
   std::unordered_map<std::uint64_t, int> sh_index;  // packed shape tuple -> dictionary index
   std::vector<std::array<int, 5>> sh_tuple;
   std::unordered_map<std::uint64_t, int> nu_index;  // packed nq tuple -> dictionary index
@@ -781,6 +789,25 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
     const std::uint32_t man = io.raw((q.ntot_bits & 0x7fffff) >> drop, g_mbits, gNtot) << drop;
     q.ntot_bits = (static_cast<std::uint32_t>(ee) << 23) | man;
   }
+  // nu: dictionary of frequent tuples, else each group given the previous
+  // one (redshifting moves all groups together)
+  {
+    int idx = 255;
+    if (!IO::decoding) {
+      auto it = M.nu_index.find(pack_nu(q.nq));
+      if (it != M.nu_index.end()) idx = it->second;
+    }
+    idx = io.sym(M.nudict, 0, idx, gNu);
+    if (idx == 255) {
+      for (int n = 0; n < 5; ++n) {
+        const int ctx = n * 32 + (n ? (q.nq[n - 1] >> 3) : 0);
+        q.nq[n] = static_cast<std::uint8_t>(io.sym(M.nuraw, ctx, q.nq[n], gNu));
+      }
+    } else if (IO::decoding) {
+      const std::uint64_t t = M.nu_tuple[idx];
+      for (int n = 0; n < 5; ++n) q.nq[n] = static_cast<std::uint8_t>((t >> (8 * n)) & 0xff);
+    }
+  }
   // shape: dictionary of frequent tuples (fitted on the training snapshot)
   int shidx = 255;
   if (!IO::decoding) {
@@ -802,10 +829,10 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
       if (s == 255) return -static_cast<int>(io.raw(static_cast<std::uint32_t>(-v), 12, gShape));
       return -static_cast<int>(8 * (s - 1) + io.raw(static_cast<std::uint32_t>((-v) & 7), 3, gShape));
     };
-    q.s[0] = code_abs(M.s0, 0, q.s[0]);
+    q.s[0] = code_abs(M.s0, q.nq[0] >> 5, q.s[0]);
     for (int n = 1; n < 5; ++n) {
       const bool pz = q.s[n - 1] == kShapeZero;
-      const int ctx = (n - 1) * 2 + (pz ? 1 : 0);
+      const int ctx = ((n - 1) * 2 + (pz ? 1 : 0)) * 8 + (q.nq[n] >> 5);
       if (pz) {
         q.s[n] = code_abs(M.sd, ctx, q.s[n]);
       } else {
@@ -827,21 +854,6 @@ void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long lon
         else
           q.s[n] = q.s[n - 1] + 4 * (s - 127) + static_cast<int>(io.raw(static_cast<std::uint32_t>(dlt & 3), 2, gShape));
       }
-    }
-  }
-  // nu
-  {
-    int idx = 255;
-    if (!IO::decoding) {
-      auto it = M.nu_index.find(pack_nu(q.nq));
-      if (it != M.nu_index.end()) idx = it->second;
-    }
-    idx = io.sym(M.nudict, 0, idx, gNu);
-    if (idx == 255) {
-      for (int n = 0; n < 5; ++n) q.nq[n] = static_cast<std::uint8_t>(io.sym(M.nuraw, n, q.nq[n], gNu));
-    } else if (IO::decoding) {
-      const std::uint64_t t = M.nu_tuple[idx];
-      for (int n = 0; n < 5; ++n) q.nq[n] = static_cast<std::uint8_t>((t >> (8 * n)) & 0xff);
     }
   }
 }
@@ -1133,10 +1145,12 @@ int main(int argc, char** argv) {
     }
   }
   try {
-    const Snapshot tr = load(argv[1]);
-    const Snapshot te = load(argv[2]);
     Models M;
-    train(M, tr, o);
+    {
+      const Snapshot tr = load(argv[1]);  // freed after training
+      train(M, tr, o);
+    }
+    const Snapshot te = load(argv[2]);
     const Geometry g = make_geometry(te);
     const std::size_t n = te.rec.size();
     if (n == 0) throw std::runtime_error("empty snapshot");
@@ -1154,6 +1168,7 @@ int main(int argc, char** argv) {
       reconstruct(q, te.rec[i].cell, g, rs[i]);
     }
     const Err es = compare(te, rs);
+    std::vector<Recon>().swap(rs);  // free (large snapshots)
     for (std::size_t i = 0; i < n; ++i) {
       qs[i] = quantise(te.rec[i], g, o);
       ++ncls[qs[i].cls];
