@@ -45,6 +45,7 @@ void RayState::init(std::int64_t nray_max, std::int64_t nfree_max) {
   ray_index_.shrink_to_fit();
   ray_index_.reserve(static_cast<std::size_t>(Nray_max) + 1);
   ray_index_.resize(1);  // position 0 unused
+  prov.reset(track_prov ? Nray_max + 1 : 0);
   ray_index_[0] = 0;
   stat = RayStat{};
   save = RayStat{};
@@ -377,6 +378,12 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
       ry.nu[n] = static_cast<float>(nu[n]);
       ry.ngam[n] = static_cast<float>(ngam[n]);
     }
+    if (R.track_prov) {
+      RayProv& pv = R.prov[ir];
+      pv = RayProv{};
+      pv.src = static_cast<std::int32_t>(c);
+      pv.birth = static_cast<std::int32_t>(R.prov_substep);
+    }
     // Insert rays into head of chain
     ray_insert_head(s, ir, irt, jrt, krt);
   }
@@ -426,8 +433,19 @@ void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
   nside = f::min(2 * nside, nside_max);
   const double rmin = rmin_from_nside(nside);
   const double rmax = rmax_from_nside(nside);
+  const double r_parent = r;
   r = f::min(f::max(r, rmin), rmin + 1);
   dr = rmax - r;
+
+  // Ray-dump provenance (not used by the RT)
+  RayProv pv_child;
+  if (R.track_prov) {
+    pv_child = R.prov[ir];
+    if (r != r_parent) {
+      pv_child.flags |= RayProv::kClamped;
+      if (pv_child.nclamp < 255) ++pv_child.nclamp;
+    }
+  }
 
   // Effective origin, position corresponding to r = 0
   double x0[3];
@@ -458,6 +476,7 @@ void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
       x[d] = f::mod(x0[d] + f::mod(r * dx[d], nrtr) + nrtr, nrtr);
 
     const std::int64_t irn = indx[n - 1];
+    if (R.track_prov) R.prov[irn] = pv_child;
     {
       Ray& ry = R.at(irn);
       ry.nside = nside;
@@ -506,6 +525,24 @@ void ray_cast_merge(Simulation& s, int nrc, const std::int64_t* irc, int irt,
   const double hrt = s.cfg.hrtr;
   const int Nrt = s.cfg.Nrt;
   const Units& u = s.units;
+
+  // Ray-dump provenance of the merged ray (not used by the RT)
+  RayProv pv_merged;
+  if (R.track_prov) {
+    pv_merged = R.prov[irc[0]];
+    int nm = pv_merged.nmerge;
+    for (int i = 1; i < nrc; ++i) {
+      const RayProv& q = R.prov[irc[i]];
+      if (q.src != pv_merged.src) pv_merged.src = -1;
+      if (q.birth < pv_merged.birth) pv_merged.birth = q.birth;
+      pv_merged.flags |= q.flags;
+      if (q.nclamp > pv_merged.nclamp) pv_merged.nclamp = q.nclamp;
+      nm = std::max(nm, static_cast<int>(q.nmerge));
+    }
+    pv_merged.nmerge = static_cast<std::uint16_t>(std::min(nm + 1, 65535));
+    pv_merged.flags |= RayProv::kMerged;
+    if (pv_merged.src < 0) pv_merged.flags |= RayProv::kMixedSrc;
+  }
 
   double r = 0, dr = 0, ntot = 0;
   double x[3] = {0, 0, 0}, dx[3] = {0, 0, 0}, xd[3];
@@ -579,6 +616,7 @@ void ray_cast_merge(Simulation& s, int nrc, const std::int64_t* irc, int irt,
 
   const int ipix = healpix::vec2pix_nest(nside, dx);
 
+  if (R.track_prov) R.prov[ir] = pv_merged;
   {
     Ray& ry = R.at(ir);
     ry.nside = nside;

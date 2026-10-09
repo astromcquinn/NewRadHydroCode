@@ -27,6 +27,7 @@
 
 #include "radray/cosmology.hpp"
 #include "radray/hydro.hpp"
+#include "radray/hydro_unsplit.hpp"
 #include "radray/io.hpp"
 
 namespace {
@@ -39,6 +40,7 @@ struct HydroParams {
   int nsteps = 10;
   TimestepMode mode = TimestepMode::Fixed;
   double da_sim = 1e-4;
+  Config hydro;  // hydro_scheme and the unsplit parameters (docs/hydro_unsplit.md)
 };
 
 std::string trim(const std::string& s) {
@@ -79,7 +81,8 @@ HydroParams read_hydro_params(const std::string& path) {
       p.da_sim = std::stod(val);
     else if (key == "nsteps")
       p.nsteps = std::stoi(val);
-    else
+    else if (set_hydro_scheme_param(p.hydro, key, val)) {
+    } else
       std::cerr << "hydro_driver: ignoring parameter " << key << "\n";
   }
   if (p.N <= 0) throw std::runtime_error("params.txt: N missing");
@@ -129,6 +132,7 @@ void write_step_output(const std::string& dir, const SimClock& clk, const Units&
   write_raw_f32(dir + "/u_gas.bin", gas.u);
   write_raw_f32(dir + "/w_gas.bin", gas.w);
   write_raw_f32(dir + "/v_gas.bin", hs.v);
+  if (!gas.e.empty()) write_raw_f32(dir + "/e_gas.bin", gas.e);
 
   // Conserved totals, exactly as hydro_harness.f90: write_step_output
   double mass = 0, mom[3] = {0, 0, 0}, ener = 0, ener_grid = 0, eth_tot = 0;
@@ -222,7 +226,8 @@ int main(int argc, char** argv) {
     if (nsteps_override >= 0) P.nsteps = nsteps_override;
     std::filesystem::create_directories(odir);
 
-    const Config cfg = Config::make(P.N);
+    Config cfg = Config::make(P.N);
+    copy_hydro_scheme(P.hydro, cfg);
     SimClock clk;
     Units un;
     GasGrid gas;
@@ -243,10 +248,12 @@ int main(int argc, char** argv) {
       *out << " Problem    : " << pdir << "\n N          : " << P.N
            << "\n z_init     : " << P.z_init << "\n timestep   : "
            << (P.mode == TimestepMode::Fixed ? "fixed" : "courant")
-           << "\n da_sim     : " << P.da_sim << "\n nsteps     : " << P.nsteps << "\n";
+           << "\n da_sim     : " << P.da_sim << "\n nsteps     : " << P.nsteps << "\n "
+           << hydro_scheme_summary(cfg) << "\n";
 
     std::string sdir = step_dir(odir, clk.istep);
     calc_sim_var(cfg, clk, un);
+    init_unsplit_state(cfg, un, gas, hs);  // hydro_scheme = unsplit only
     write_summary(sdir, summarize_gas(cfg, un, clk, gas, hs, out));
     write_step_output(sdir, clk, un, gas, hs);
 

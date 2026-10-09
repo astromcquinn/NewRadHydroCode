@@ -6,6 +6,12 @@
 
 namespace radray {
 
+// Hydro solver (docs/hydro_unsplit.md): Legacy = the original's split
+// moving-frame TVD scheme (src/hydro.cpp, bit-identical to the Fortran);
+// Unsplit = the unsplit MUSCL-Hancock + HLLC scheme with the dual-energy
+// formulation (src/hydro_unsplit.cpp, kernels/hydro_mh.hpp).
+enum class HydroScheme { Legacy, Unsplit };
+
 struct Config {
   // radhydro_global.f90: Ncpu. The reference is run with ONE thread, and the
   // port is serial; Ncpu enters ray-buffer sizes and the domain
@@ -75,6 +81,44 @@ struct Config {
   // travel at c_reduced) is exact over the run even when a hydro step spans
   // only a few cells of light travel. false: the original rounding.
   bool rt_substep_carry = false;
+
+  // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
+  // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
+  //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled
+  //                unsplit substeps;
+  //   dual_energy: 1 = dual-energy formulation (Bryan et al. 1995), 0 = total
+  //                energy only;
+  //   dual_eta1, dual_eta2: its selection thresholds, the values of Bryan
+  //                et al. 1995 as restated in Bryan et al. 2014 (Enzo, section
+  //                4.1.1, eqs. 44-45); docs/hydro_unsplit.md section 2.
+  HydroScheme hydro_scheme = HydroScheme::Legacy;
+  double unsplit_cfl = 0.8;
+  bool dual_energy = true;
+  double dual_eta1 = 1e-3;
+  double dual_eta2 = 0.1;
+  //   dual_eta1_local: 1 = the eta1 test against the cell's own E (the
+  //                cell-local form); 0 (default) = against the maximum of E
+  //                over the cell and its 6 face neighbours, which is not
+  //                fooled by stagnation cells between fast streams.
+  bool dual_eta1_local = false;
+  //   dual_nb_radius: the neighbourhood of that maximum, +-1 cell (6
+  //                neighbours) or +-2 cells (12) along the axes. 2 (default)
+  //                keeps the eta2 synchronisation from thermalising the
+  //                unresolved velocity dispersion of a stagnation cell
+  //                (docs/hydro_unsplit.md section 2).
+  int dual_nb_radius = 2;
+  //   dual_reset_rule: when the pressure comes from e, E := KE + e always
+  //                (0), only if the change is at most eta1 E (1), as 1 or
+  //                in thermal-dominated cells (2), only if E - KE <= eta1
+  //                max_{+-1} E (3). docs/hydro_unsplit.md section 2.
+  int dual_reset_rule = 0;
+  //   dual_eta2_local: 1 = the eta2 test against the cell's own E (Nyx's
+  //                resync); dual_p_old: 1 = the old-time cell pressure in
+  //                the -p div v work term (Bryan et al. 2014 eq. 43) instead
+  //                of the Hancock half-step pressure. Both for the
+  //                comparison of docs/hydro_unsplit.md section 2.
+  bool dual_eta2_local = false;
+  bool dual_p_old = false;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

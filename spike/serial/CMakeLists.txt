@@ -1,0 +1,28 @@
+# Serial/OpenMP reference of the spike kernels (no framework).
+#   cmake -S spike/serial -B build-spike-serial && cmake --build build-spike-serial
+cmake_minimum_required(VERSION 3.16)
+project(spike_serial CXX)
+set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/radray_core.cmake)
+find_package(OpenMP)
+foreach(app rt_serial hydro_serial)
+  add_executable(${app} ${app}.cpp)
+  target_link_libraries(${app} PRIVATE spike_common)
+  target_compile_options(${app} PRIVATE -Wall -Wextra -ffp-contract=off -fno-fast-math)
+  if(OpenMP_CXX_FOUND)
+    target_link_libraries(${app} PRIVATE OpenMP::OpenMP_CXX)
+  endif()
+endforeach()
+
+# Round-off sensitivity variant: coarser fixed-point deposits (2^-36).
+add_executable(rt_serial_fx36 rt_serial.cpp)
+target_link_libraries(rt_serial_fx36 PRIVATE spike_common)
+target_compile_definitions(rt_serial_fx36 PRIVATE RRK_FX_BITS=36)
+target_compile_options(rt_serial_fx36 PRIVATE -ffp-contract=off -fno-fast-math)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(rt_serial_fx36 PRIVATE OpenMP::OpenMP_CXX)
+endif()

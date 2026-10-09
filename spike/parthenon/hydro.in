@@ -1,0 +1,29 @@
+# Parthenon input deck for hydro_parthenon. Mesh size, meshblock size,
+# nghost, extent and periodic BCs are overwritten by the program from
+# --n / --mb; the values here only make the deck complete.
+<parthenon/job>
+problem_id = spike_hydro
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+nx1 = 64
+x1min = 0.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+nx2 = 64
+x2min = 0.0
+x2max = 1.0
+ix2_bc = periodic
+ox2_bc = periodic
+nx3 = 64
+x3min = 0.0
+x3max = 1.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 16
+nx3 = 16

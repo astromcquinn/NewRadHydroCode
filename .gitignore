@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 build/
 build-*/
+/out/
+/out_*/
+/runs/
