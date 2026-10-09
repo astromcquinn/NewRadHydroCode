@@ -302,7 +302,7 @@ was dropped for `tools/movies/make_movie.py` of PR #12;
 `framework-spike`, `hydro-unsplit`, `ray-compression`, `hyak-setup`,
 `movies`, `production-run`, `claude/hopeful-thompson-w5m60t`,
 `claude/relaxed-brahmagupta-9v7xb5`, `claude/lucid-brahmagupta-85vs76`.
-They can be deleted; none has been (the user decides). Each merge was
+All nine were deleted by the user on 2026-10-09. Each merge was
 preceded by a merge of `main` into the branch and a full test run in the
 cloud container (gfortran 13.3, FFTW 3): fast suite (including the live
 Fortran, restart and thread tests) and nightly label, all passing.
