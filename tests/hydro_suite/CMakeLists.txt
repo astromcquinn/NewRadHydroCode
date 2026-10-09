@@ -21,5 +21,17 @@ if(Python3_Interpreter_FOUND)
                      --rundir ${CMAKE_CURRENT_BINARY_DIR}/runs_full
                      --results ${CMAKE_CURRENT_BINARY_DIR}/results_full)
     set_tests_properties(hydro_suite_full_${sec} PROPERTIES TIMEOUT 14400 LABELS nightly)
+    # the unsplit scheme (docs/hydro_unsplit.md), its own tolerances
+    add_test(NAME hydro_suite_unsplit_${sec}
+             COMMAND ${HS_RUN} ${sec} --tier quick --scheme unsplit --check --jobs 2
+                     --driver $<TARGET_FILE:hydro_suite_driver>
+                     --rundir ${CMAKE_CURRENT_BINARY_DIR}/runs_quick_unsplit)
+    set_tests_properties(hydro_suite_unsplit_${sec} PROPERTIES TIMEOUT 1800 LABELS hydro_suite)
+    add_test(NAME hydro_suite_full_unsplit_${sec}
+             COMMAND ${HS_RUN} ${sec} --tier full --scheme unsplit --check --jobs 3
+                     --driver $<TARGET_FILE:hydro_suite_driver>
+                     --rundir ${CMAKE_CURRENT_BINARY_DIR}/runs_full_unsplit
+                     --results ${CMAKE_CURRENT_BINARY_DIR}/results_full)
+    set_tests_properties(hydro_suite_full_unsplit_${sec} PROPERTIES TIMEOUT 14400 LABELS nightly)
   endforeach()
 endif()

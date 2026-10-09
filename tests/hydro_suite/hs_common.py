@@ -76,13 +76,20 @@ def outputs(run):
 
 
 def read_state(d, N):
-    """rho, lab velocity (3,...), pressure, info of one output directory."""
+    """rho, lab velocity (3,...), pressure, info of one output directory.
+    With hydro_scheme = unsplit the pressure comes from the internal-energy
+    field e_gas.bin (the dual-energy temperature, docs/hydro_unsplit.md),
+    which the driver writes only for that scheme."""
     u = read_f32(os.path.join(d, "u_gas.bin"), 5, N)
     v = read_f32(os.path.join(d, "v_gas.bin"), 3, N)
     rho = u[0]
     dv = u[1:4] / rho
     vel = dv + v
-    eth = u[4] - 0.5 * rho * (dv ** 2).sum(axis=0)
+    ef = os.path.join(d, "e_gas.bin")
+    if os.path.exists(ef):
+        eth = read_f32(ef, 1, N)[0]
+    else:
+        eth = u[4] - 0.5 * rho * (dv ** 2).sum(axis=0)
     return rho, vel, (GAMMA - 1) * eth, read_info(d)
 
 

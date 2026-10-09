@@ -131,7 +131,10 @@ table, the standard-output formatting of `hydro_step` and `calc_timestep`
 ## 5. Bugs and quirks in the original (all preserved unless noted)
 
 * **H1. `advect`/`euler` never terminate when the signal speed of a whole
-  pencil is exactly zero.** The sub-step count is
+  pencil is exactly zero.** (Legacy scheme only: the lab-frame unsplit
+  scheme of `docs/hydro_unsplit.md` has no grid velocity and no pencil
+  loop, so a problem with exactly zero velocity in a direction runs; the
+  suite's zero-bulk Sod tube checks it.) The sub-step count is
   `nt = ceiling(amax*dt/cfl)` and the loop exits on `it == nt`; with
   `amax = 0` (advect: the grid velocity `v(1,:)` of the pencil is exactly
   zero; euler: no pressure and no velocity) `nt = 0` and the loop runs
@@ -243,3 +246,17 @@ smoothing and `summarize_gas`.
 * `hydro_step`/`calc_timestep` standard output is not reproduced
   character for character; the unit-100 `summarize_gas` record is.
 * The harness's first Courant step uses the `istep > 0` formula (see §4.2).
+
+## 9. The unsplit scheme (`hydro_scheme = unsplit`)
+
+`src/hydro_unsplit.cpp` and `include/radray/kernels/hydro_mh.hpp` are not a
+port: they are the new unsplit MUSCL-Hancock + HLLC solver with the
+dual-energy formulation, described and validated in `docs/hydro_unsplit.md`.
+It has no Fortran counterpart and is not part of the bit-for-bit
+validation. Of the quirks above, H1 (zero-velocity pencils), H2 (sweep-order
+orientation dependence), H3 (MF temperature weighting), H7, H8 (passive
+scalars not conserved by `smooth_cells`), H9 (frame source terms not in
+conservation form) and H13 (`c_limit` smoothing) do not apply to it; H6
+(`summarize_gas` clamps the state) and H10 (real(4) `gamma_ideal` in the
+summaries and the RT) still do, and H4/H5 are print-only. Its own quirks
+carry the IDs U1–U5 in `docs/hydro_unsplit.md` §7.

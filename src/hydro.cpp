@@ -18,6 +18,7 @@
 //     with FFTW_ESTIMATE plans on an aligned n+2 buffer, exactly like the
 //     MKL_DFTI shim of reference/harness_hydro, so both agree bit for bit.
 #include "radray/hydro.hpp"
+#include "radray/hydro_unsplit.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -1026,6 +1027,8 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
           double vel[3];
           for (int m = 0; m < 3; ++m) vel[m] = u[1 + m] / rho + v[m];
           double eth = u[4] - static_cast<double>(sumsq3(u + 1)) / rho / 2;
+          // hydro_scheme = unsplit: the dual-energy field (empty otherwise)
+          if (!gas.e.empty()) eth = gas.e[c];
           eth = gmax(eth, 0.0);
           const double cs = std::sqrt(g * (g - 1) * eth / rho);
 
@@ -1192,14 +1195,9 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
 // --------------------------------------------------------------------------
 void radhydro_hydro_step(const Config& cfg, SimClock& clk, Units& un, GasGrid& gas,
                          HydroState& hs) {
-  // Forward hydro step with transposes in between
-  transpose_ij(gas, hs);  // x,y,z -> y,x,z
-  transpose_ik(gas, hs);  // y,x,z -> z,x,y
-  hydro_step(cfg, un, clk, SweepOrder::Forward, gas, hs);
-  transpose_ik(gas, hs);  // z,x,y -> y,x,z
-  hydro_step(cfg, un, clk, SweepOrder::Forward, gas, hs);
-  transpose_ij(gas, hs);  // y,x,z -> x,y,z
-  hydro_step(cfg, un, clk, SweepOrder::Forward, gas, hs);
+  // Forward hydro step with transposes in between (legacy), or one unsplit
+  // step over dt_sim/2
+  hydro_half_step(cfg, un, clk, HydroHalf::First, gas, hs);
 
   clk.year = clk.year + clk.dt_yr / 2;
   clk.scalefactor = clk.scalefactor + clk.da_sim / 2;
@@ -1208,14 +1206,9 @@ void radhydro_hydro_step(const Config& cfg, SimClock& clk, Units& un, GasGrid& g
 
   // particle_mesh: not part of this port (no gravity)
 
-  // Reverse hydro step with transposes in between
-  hydro_step(cfg, un, clk, SweepOrder::Reverse, gas, hs);
-  transpose_ij(gas, hs);  // x,y,z -> y,x,z
-  hydro_step(cfg, un, clk, SweepOrder::Reverse, gas, hs);
-  transpose_ik(gas, hs);  // y,x,z -> z,x,y
-  hydro_step(cfg, un, clk, SweepOrder::Reverse, gas, hs);
-  transpose_ik(gas, hs);  // z,x,y -> y,x,z
-  transpose_ij(gas, hs);  // y,x,z -> x,y,z
+  // Reverse hydro step with transposes in between (legacy), or the second
+  // unsplit step over dt_sim/2
+  hydro_half_step(cfg, un, clk, HydroHalf::Second, gas, hs);
 
   clk.year = clk.year + clk.dt_yr / 2;
   clk.scalefactor = clk.scalefactor + clk.da_sim / 2;

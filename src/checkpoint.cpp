@@ -12,7 +12,10 @@ namespace radray {
 namespace {
 
 constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
-constexpr std::int32_t kVersion = 1;
+// Version 2 (hydro_scheme = unsplit, docs/hydro_unsplit.md): the internal
+// energy density gas.e (empty with the legacy scheme) and the unsplit
+// counters after the hydro scalars. Version 1 files are still read (e empty).
+constexpr std::int32_t kVersion = 2;
 
 struct Out {
   std::ofstream f;
@@ -93,6 +96,8 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.pod(hs.dt_hy);
     o.pod(hs.vmax_last);
     o.pod(hs.counters);
+    o.vec(s.gas.e);
+    o.pod(hs.ucounters);
     // rays: storage up to the high-water mark, pool and thresholds
     const RayState& R = s.rays;
     o.pod(R.Nray);
@@ -144,7 +149,8 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.pod(Ngas);
   in.pod(Ndm);
   in.pod(nrmax);
-  if (ver != kVersion) throw std::runtime_error("checkpoint version mismatch: " + path);
+  if (ver != 1 && ver != kVersion)
+    throw std::runtime_error("checkpoint version mismatch: " + path);
   if (Ngas != s.cfg.Ngas || Ndm != s.cfg.Ndm || nrmax != s.cfg.Nray_max)
     throw std::runtime_error("checkpoint is for N = " + std::to_string(Ngas) + ", Ndm = " +
                              std::to_string(Ndm) + ", Nray_max = " + std::to_string(nrmax) +
@@ -162,6 +168,15 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.pod(hs.dt_hy);
   in.pod(hs.vmax_last);
   in.pod(hs.counters);
+  if (ver >= 2) {
+    in.vec(s.gas.e);
+    if (!s.gas.e.empty() && static_cast<std::int64_t>(s.gas.e.size()) != s.gas.ncell)
+      throw std::runtime_error("checkpoint: internal-energy field of the wrong size: " + path);
+    in.pod(hs.ucounters);
+  } else {
+    s.gas.e.clear();
+    hs.ucounters = UnsplitCounters{};
+  }
   RayState& R = s.rays;
   in.pod(R.Nray);
   in.pod(R.Nrbuf);

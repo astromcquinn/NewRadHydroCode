@@ -381,7 +381,8 @@ def analyze_pancake(run, meta, ref=None):
                               "l1_v": float(np.mean(np.abs(v - v_ex)) / np.abs(v_ex).max()),
                               "max_v": float(np.max(np.abs(v - v_ex)) / np.abs(v_ex).max()),
                               "l1_T": float(np.mean(np.abs(T / T_ex - 1))),
-                              "max_T": float(np.max(np.abs(T / T_ex - 1)))}
+                              "max_T": float(np.max(np.abs(T / T_ex - 1))),
+                              "med_T": float(np.median(T / T_ex))}
             o["profile"].update(rho_ex=(rho_ex / fb).tolist(), v_ex=v_ex.tolist(),
                                 T_ex=T_ex.tolist())
             o["K_dev_max"] = float(np.max(np.abs(K - 1)))
@@ -499,9 +500,12 @@ def _plt():
     return plt
 
 
+FIG_SUFFIX = ""  # "_unsplit" for the unsplit scheme's figures (figures())
+
+
 def _save(fig, figdir, name):
     os.makedirs(figdir, exist_ok=True)
-    p = os.path.join(figdir, f"hydro_suite_{name}.png")
+    p = os.path.join(figdir, f"hydro_suite_{name}{FIG_SUFFIX}.png")
     fig.savefig(p, bbox_inches="tight")
     print("wrote", p)
 
@@ -802,11 +806,13 @@ def fig_kh(R, figdir):
     plt.close(fig)
 
 
-def figures(results_dir, figdir, tier="full"):
+def figures(results_dir, figdir, tier="full", scheme="legacy"):
+    global FIG_SUFFIX
+    FIG_SUFFIX = "" if scheme == "legacy" else "_" + scheme
     for name, fn in (("tubes", fig_tubes), ("galilean", fig_galilean), ("sedov", fig_sedov),
                      ("sound", fig_sound), ("pancake", fig_pancake),
                      ("cosmobox", fig_cosmobox), ("kh", fig_kh)):
-        p = os.path.join(results_dir, f"{name}_{tier}.json")
+        p = os.path.join(results_dir, f"{name}_{tier}{FIG_SUFFIX}.json")
         if os.path.exists(p):
             fn(hc.load_json(p), figdir)
 
@@ -816,6 +822,7 @@ if __name__ == "__main__":
         rd = sys.argv[2] if len(sys.argv) > 2 else os.path.join(hc.HERE, "results")
         fd = sys.argv[3] if len(sys.argv) > 3 else os.path.join(hc.ROOT, "docs", "figures")
         tier = sys.argv[4] if len(sys.argv) > 4 else "full"
-        figures(rd, fd, tier)
+        scheme = sys.argv[5] if len(sys.argv) > 5 else "legacy"
+        figures(rd, fd, tier, scheme)
     else:
-        print("usage: analyze.py figures [results_dir] [figure_dir] [tier]")
+        print("usage: analyze.py figures [results_dir] [figure_dir] [tier] [scheme]")
