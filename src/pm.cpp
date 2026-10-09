@@ -3,6 +3,7 @@
 // io_tools.f90. Every expression keeps the Fortran operation order and
 // precision; see docs/port_notes_pm.md.
 #include "radray/pm.hpp"
+#include "radray/kernels/hydro_mh.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -307,16 +308,16 @@ void calc_gravity_field(PMState& s, double scalefactor) {
   fft::fft_3d('b', N, N, N, s.density.data());
 }
 
-// pm_tools.f90: calc_kick (accelerate_dm for all slabs, then accelerate_gas)
-void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u) {
-  const double dt_sim = clk.dt_sim;
+namespace {
+
+// calc_kick, DM part: accelerate_dm(k) for all slabs. Particles are
+// independent; the double sums arms and vrms are recorded per plane and
+// added in plane order afterwards (same addends, same order as the serial
+// loop), amax/vmax are maxima.
+void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, double& vmax,
+                       double& vrms) {
   const int N = s.pc.Ngas;
   const double xdg = s.pc.x_dm_gas;
-  double amax = 0, arms = 0, vmax = 0, vrms = 0;
-
-  // accelerate_dm(k). Particles are independent; the double sums arms and
-  // vrms are recorded per plane and added in plane order afterwards (same
-  // addends, same order as the serial loop), amax/vmax are maxima.
   const int nth = par::worth(s.pc.Ncell) ? par::max_threads() : 1;
   const int batch = nth > 1 ? std::min(N, 4 * nth) : 1;
   std::vector<std::vector<double>> add_a(batch), add_v(batch);
@@ -378,6 +379,27 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Unit
   }
   for (double a : amax_t) amax = f::max(amax, a);
   for (double v : vmax_t) vmax = f::max(vmax, v);
+}
+
+// Update global variables in PM grid units (end of calc_kick)
+void set_kick_globals(const PMState& s, SimClock& clk, double amax, double arms, double vmax,
+                      double vrms) {
+  const double npart = static_cast<double>(s.pc.Npart);
+  clk.amax_dm = amax;
+  clk.arms_dm = std::sqrt(arms / npart);
+  clk.vmax_dm = vmax;
+  clk.vrms_dm = std::sqrt(vrms / npart);
+}
+
+}  // namespace
+
+// pm_tools.f90: calc_kick (accelerate_dm for all slabs, then accelerate_gas)
+void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u) {
+  const double dt_sim = clk.dt_sim;
+  const int N = s.pc.Ngas;
+  double amax = 0, arms = 0, vmax = 0, vrms = 0;
+  accelerate_dm_all(s, dt_sim, amax, arms, vmax, vrms);
+  const int nth = par::worth(s.pc.Ncell) ? par::max_threads() : 1;
 
   // accelerate_gas(k): cells are independent
 #pragma omp parallel for schedule(static) if (nth > 1)
@@ -407,12 +429,7 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Unit
         }
       }
 
-  // Update global variables in PM grid units
-  const double npart = static_cast<double>(s.pc.Npart);
-  clk.amax_dm = amax;
-  clk.arms_dm = std::sqrt(arms / npart);
-  clk.vmax_dm = vmax;
-  clk.vrms_dm = std::sqrt(vrms / npart);
+  set_kick_globals(s, clk, amax, arms, vmax, vrms);
 }
 
 // pm_tools.f90: particle_mesh
@@ -422,6 +439,49 @@ void particle_mesh(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const 
   calc_density_field(s, u_gas);
   calc_gravity_field(s, clk.scalefactor);
   calc_kick(s, u_gas, v_gas, clk, u);
+  calc_drift(s, clk.dt_sim);
+}
+
+// hydro_scheme = unsplit (docs/hydro_unsplit.md section 3): the DM part of
+// calc_kick unchanged; the gas kick acts on the conserved variables of the
+// lab frame (v_gas = 0): rho v += rho g dt and E = KE_new + e, where e is
+// the thermal energy selected by the dual-energy rule (E - KE when it is a
+// reliable fraction of E, else the internal-energy field, which gravity
+// does not change). Computed in double from the float state.
+void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1, SimClock& clk,
+                       const Units& u) {
+  const double dt_sim = clk.dt_sim;
+  const int N = s.pc.Ngas;
+  double amax = 0, arms = 0, vmax = 0, vrms = 0;
+  accelerate_dm_all(s, dt_sim, amax, arms, vmax, vrms);
+  const int nth = par::worth(s.pc.Ncell) ? par::max_threads() : 1;
+#pragma omp parallel for schedule(static) if (nth > 1)
+  for (int k = 1; k <= N; ++k)
+    for (int j = 1; j <= N; ++j)
+      for (int i = 1; i <= N; ++i) {
+        double F[3];
+        force(s, i, j, k, F);
+        const std::int64_t c = s.gcell(i, j, k);
+        float* ug = &u_gas[c * 5];
+        double U[5];
+        for (int m = 0; m < 5; ++m) U[m] = ug[m];
+        const double eD = e_gas ? static_cast<double>(e_gas[c]) : 0.0;
+        const double eth = rrh::thermal_energy(U, eD, eta1);
+        const double rho = f::max(U[0], u.Dgas_min);
+        for (int m = 0; m < 3; ++m) U[1 + m] = U[1 + m] + rho * F[m] * dt_sim;
+        U[4] = rrh::kinetic_energy(U) + eth;
+        for (int m = 1; m < 5; ++m) ug[m] = static_cast<float>(U[m]);
+      }
+  set_kick_globals(s, clk, amax, arms, vmax, vrms);
+}
+
+void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1,
+                           SimClock& clk, const Units& u) {
+  calc_drift(s, clk.dt_sim);
+  link_dm(s);
+  calc_density_field(s, u_gas);
+  calc_gravity_field(s, clk.scalefactor);
+  calc_kick_unsplit(s, u_gas, e_gas, eta1, clk, u);
   calc_drift(s, clk.dt_sim);
 }
 

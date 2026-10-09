@@ -331,8 +331,11 @@ struct GasState {
   double rhog, nH, nHe, nHI, nHeI, nHeII, nHII, nHeIII, ne, neff, tmp;
 };
 
+// es: the averaged internal-energy density of hydro_scheme = unsplit (the
+// dual-energy temperature, docs/hydro_unsplit.md section 4), or < 0 with
+// the legacy scheme (the arithmetic below is then the original's).
 GasState gas_state_from_avg(const double us_in[5], const double ws[4],
-                            const Units& u, bool clamp_density) {
+                            const Units& u, bool clamp_density, double es = -1) {
   GasState g;
   double us1 = us_in[0];
   if (clamp_density) us1 = f::max(us1, u.Dgas_min);
@@ -348,7 +351,8 @@ GasState gas_state_from_avg(const double us_in[5], const double ws[4],
   g.neff = g.nH + g.nHe + g.ne;
   // eth = (us(5)-sum(us(2:4)**2)/us(1)/2)*eden_unit   (real(8))
   const double ksum = ((0.0 + us_in[1] * us_in[1]) + us_in[2] * us_in[2]) + us_in[3] * us_in[3];
-  const double eth = (us_in[4] - ksum / us1 / 2) * u.eden_unit;
+  double eth = (us_in[4] - ksum / us1 / 2) * u.eden_unit;
+  if (es >= 0) eth = es * u.eden_unit;
   g.tmp = f::max((gamma_ideal - 1) * eth / k_cgs / g.neff, u.temp_min);
   return g;
 }
@@ -362,10 +366,13 @@ void store_gas_state(RTGrid& G, std::int64_t c, const GasState& g, const Units& 
 }
 
 // Sum u_gas/w_gas over the Eulerian cells of RT cell (irt,jrt,krt) and
-// normalise (us = us/N_rt_gas_c, us(1) = max(us(1),Dgas_min)).
-void average_gas(const Simulation& s, int irt, int jrt, int krt, double us[5],
-                 double ws[4]) {
+// normalise (us = us/N_rt_gas_c, us(1) = max(us(1),Dgas_min)). Returns the
+// averaged internal-energy density of hydro_scheme = unsplit, or -1.
+double average_gas(const Simulation& s, int irt, int jrt, int krt, double us[5],
+                   double ws[4]) {
   const int Nr = s.cfg.N_rt_gas;
+  const bool has_e = !s.gas.e.empty();
+  double es = 0;
   for (int m = 0; m < 5; ++m) us[m] = 0;
   for (int m = 0; m < 4; ++m) ws[m] = 0;
   for (int k = 1 + (krt - 1) * Nr; k <= krt * Nr; ++k)
@@ -376,10 +383,12 @@ void average_gas(const Simulation& s, int irt, int jrt, int krt, double us[5],
         const float* ww = &s.gas.w[gc * 4];
         for (int m = 0; m < 5; ++m) us[m] = us[m] + static_cast<double>(uu[m]);
         for (int m = 0; m < 4; ++m) ws[m] = ws[m] + static_cast<double>(ww[m]);
+        if (has_e) es = es + static_cast<double>(s.gas.e[gc]);
       }
   for (int m = 0; m < 5; ++m) us[m] = us[m] / s.cfg.N_rt_gas_c;
   for (int m = 0; m < 4; ++m) ws[m] = ws[m] / s.cfg.N_rt_gas_c;
   us[0] = f::max(us[0], s.units.Dgas_min);
+  return has_e ? es / s.cfg.N_rt_gas_c : -1.0;
 }
 
 }  // namespace
@@ -406,8 +415,8 @@ void prep_rt(Simulation& s) {
     for (int jrt = 1; jrt <= Nrt; ++jrt)
       for (int irt = 1; irt <= Nrt; ++irt) {
         double us[5], ws[4];
-        average_gas(s, irt, jrt, krt, us, ws);
-        const GasState g = gas_state_from_avg(us, ws, s.units, false);
+        const double es = average_gas(s, irt, jrt, krt, us, ws);
+        const GasState g = gas_state_from_avg(us, ws, s.units, false, es);
         store_gas_state(G, G.cell(irt, jrt, krt), g, s.units);
       }
 
@@ -468,8 +477,8 @@ void post_rt(Simulation& s) {
       for (int irt = 1; irt <= Nrt; ++irt) {
         const std::int64_t c = G.cell(irt, jrt, krt);
         double us[5], ws[4];
-        average_gas(s, irt, jrt, krt, us, ws);
-        const GasState g = gas_state_from_avg(us, ws, s.units, false);
+        const double es = average_gas(s, irt, jrt, krt, us, ws);
+        const GasState g = gas_state_from_avg(us, ws, s.units, false, es);
         store_gas_state(G, c, g, s.units);
         float* tau = G.tau_p(c);
         for (int i = 0; i < kNfreq; ++i) {
@@ -1011,7 +1020,7 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
       }
 
       // ---- photo_cell ----
-      double us[5] = {0, 0, 0, 0, 0}, ws[4] = {0, 0, 0, 0};
+      double us[5] = {0, 0, 0, 0, 0}, ws[4] = {0, 0, 0, 0}, es = 0;
       std::array<double, kNfreq> nu;
       double nrad[kNfreq];
       for (int n = 0; n < kNfreq; ++n) {
@@ -1044,6 +1053,11 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
             (((0.0f + uu[1] * uu[1]) + uu[2] * uu[2]) + uu[3] * uu[3]) / uu[0] / 2.0f;
         const double kin = static_cast<double>(kin_f);
         double eth = (static_cast<double>(uu[4]) - kin) * u.eden_unit;
+        // hydro_scheme = unsplit (docs/hydro_unsplit.md section 4): the
+        // thermal energy is the dual-energy field, which gets the same
+        // heating/cooling as u(5). Empty with the legacy scheme: no-op.
+        float* ee = s.gas.e.empty() ? nullptr : &s.gas.e[gc];
+        if (ee) eth = static_cast<double>(*ee) * u.eden_unit;
         double tmp = (g - 1) * eth / k_cgs / neff;
         if (tmp < u.temp_min) {
           tmp = u.temp_min;
@@ -1225,6 +1239,10 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
 
         // Update u_gas and w_gas
         uu[4] = static_cast<float>(kin + eth / u.eden_unit);
+        if (ee) {
+          *ee = static_cast<float>(eth / u.eden_unit);
+          es = es + static_cast<double>(*ee);
+        }
         ww[0] = static_cast<float>(f::min(f::max(nHI, 0.0), nH) / u.H_unit);
         ww[1] = static_cast<float>(f::min(f::max(nHeI, 0.0), nHe) / u.He_unit);
         ww[2] = static_cast<float>(f::min(f::max(nHeII, 0.0), nHe) / u.He_unit);
@@ -1261,7 +1279,7 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
       // Update gas on RT grid (no Dgas_min clamp here, as in the original)
       for (int m = 0; m < 5; ++m) us[m] = us[m] / Nc;
       for (int m = 0; m < 4; ++m) ws[m] = ws[m] / Nc;
-      const GasState gs = gas_state_from_avg(us, ws, u, false);
+      const GasState gs = gas_state_from_avg(us, ws, u, false, s.gas.e.empty() ? -1.0 : es / Nc);
       store_gas_state(G, c, gs, u);
       // ---- end photo_cell ----
 

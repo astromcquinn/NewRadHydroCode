@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09 (after PR #10, the ray compression study and the framework spike, PR #11).*
+*Last updated: 2026-10-09 (after PR #10, the ray compression study, the hydro solver thread (PR #15) and the framework spike (PR #11)).*
 
 ## Done (merged into `main`)
 
@@ -118,6 +118,41 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   entropy formulation for cold supersonic gas behind a flag, is a candidate
   next task.
 
+**Unsplit hydro scheme with dual energy (branch `hydro-unsplit`;
+`docs/hydro_unsplit.md`, `docs/hydro_tests.md` §12):**
+- `hydro_scheme = legacy | unsplit` (default `legacy`, bit-identical to the
+  Fortran; every stored-reference, live-Fortran, restart and thread test
+  passes unchanged). `unsplit` is the spike's MUSCL-Hancock + HLLC kernel
+  (`include/radray/kernels/hydro_mh.hpp`, header-only, the AMReX thread
+  takes it from here) with the dual-energy formulation of Bryan et al.
+  1995 (`GasGrid::e`, η₁/η₂ against the ±2-cell maximum, a total-energy
+  reset) and the species advected with the mass flux. Two sub-cycled
+  unsplit steps around the PM kick, same call sites, same `calc_timestep`.
+- **The spurious heating of cold supersonic gas is fixed**: pancake infall
+  median T/T_adiabatic 1.000 at every N (legacy 7–20 at N = 64), box
+  median 2–9 K at z = 10 (legacy 6500 K), coupled 64³ run 2.7 K at z = 14
+  (legacy 133 K). Also: energy conserved to round-off except ahead of
+  strong shocks in Mach ≫ 1 gas (U4, ≤ 0.6 %), contacts 3.4 cells, exact
+  symmetry and orientation independence for 1-D problems, 2–3× less
+  dissipative sound waves, KH grows at 1 cell per layer, half the cost per
+  hydro step. Worse: Sedov at 128³ (radius +1.5 % vs +0.9 %, slower
+  convergence), two hot stagnation cells before a caustic (U2), the
+  cold-gas temperature depends on the hydro step (use `ra_max` ≈ 0.02).
+- The RT's `photo_cell` reads and writes the field (the one physics
+  coupling point); the RT grid temperature and `summarize_gas` read it for
+  diagnostics. Checkpoint format version 2 (version 1 still readable).
+- **Constants confirmed** against the Enzo (Bryan et al. 2014 §4.1.1) and
+  Nyx (Almgren et al. 2013 §3.2) method papers: η₁ = 10⁻³, η₂ = 0.1, the
+  total-energy reset, and tested: the exact Enzo form reproduces the
+  cold-gas results (energy to round-off, but 28× stagnation cells at z = 10
+  in the pancake); the Nyx resync rule does not work in this kernel (box
+  underdense gas at 5000 K). Deliberate deviations (the ±2 all-axis
+  neighbourhood, the time-centred pressure in the work term) are measured
+  and documented in `docs/hydro_unsplit.md` §2; all are parameters.
+- Suite: `run_suite.py --scheme unsplit`, tolerances per scheme,
+  `hydro_suite_unsplit_*` (fast) and `hydro_suite_full_unsplit_*`
+  (nightly), `restart_smoke_unsplit`, `thread_full_unsplit_hydro_pm`.
+
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
 Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
@@ -187,8 +222,10 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    Possibly related: the 32³ `uniform_1src` baseline shows a 12-fold ring of
    isolated neutral cells inside the ionised sphere
    (`docs/figures/raycomp_slices_uniform_1src.png`).
-6. **Hydro fix for cold supersonic gas** (see the hydro-suite finding above),
-   behind a flag, before the plane-parallel science runs.
+6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
+   branch `hydro-unsplit`; η₁/η₂ confirmed against the Enzo and Nyx
+   papers). Open: convergence check of the Sedov radius bias and the
+   cold-gas time-step sensitivity at 128³.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study: done (`docs/ray_compression.md`); 64³

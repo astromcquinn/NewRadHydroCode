@@ -59,6 +59,11 @@ struct GasGrid {
   std::vector<float> u;
   // w_gas(1:4,i,j,k): rho_HI, rho_HeI, rho_HeII, rho_Z
   std::vector<float> w;
+  // Internal (thermal) energy density of the dual-energy formulation, in
+  // the units of u(5). Allocated (N^3) only with hydro_scheme = unsplit
+  // (init_unsplit_state); empty with the legacy scheme, whose code never
+  // reads it. docs/hydro_unsplit.md section 2.
+  std::vector<float> e;
 
   void allocate(int n) {
     N = n;
