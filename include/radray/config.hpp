@@ -97,6 +97,17 @@ struct Config {
   bool dual_energy = true;
   double dual_eta1 = 1e-3;
   double dual_eta2 = 0.1;
+  //   dual_eta1_local: 1 = the eta1 test against the cell's own E (the
+  //                cell-local form); 0 (default) = against the maximum of E
+  //                over the cell and its 6 face neighbours, which is not
+  //                fooled by stagnation cells between fast streams.
+  bool dual_eta1_local = false;
+  //   dual_nb_radius: the neighbourhood of that maximum, +-1 cell (6
+  //                neighbours) or +-2 cells (12) along the axes. 2 (default)
+  //                keeps the eta2 synchronisation from thermalising the
+  //                unresolved velocity dispersion of a stagnation cell
+  //                (docs/hydro_unsplit.md section 2).
+  int dual_nb_radius = 2;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

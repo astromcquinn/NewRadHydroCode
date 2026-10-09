@@ -48,13 +48,21 @@ constexpr double kSmallRho = 1e-10, kSmallP = 1e-12;
 // Dual-energy selection (Bryan et al. 1995; see docs/hydro_unsplit.md for
 // the provenance of the defaults). eta1 <= 0 turns the formulation off
 // (the thermal energy is always E - KE).
-//   eta1: the pressure comes from E - KE when (E - KE)/E > eta1, else from
-//         the separately evolved internal energy;
+//   eta1: the pressure comes from E - KE when (E - KE)/E_ref > eta1, else
+//         from the separately evolved internal energy. E_ref is the
+//         maximum of E over the cell and its 6 face neighbours (the
+//         truncation error of E comes from the fluxes, i.e. from the
+//         neighbours' energies, so a stagnation cell between fast streams
+//         is not fooled by its own small E), or the cell's E alone with
+//         eta1_local (the cell-local form as commonly stated for Bryan et
+//         al. 1995; unconfirmed, see the doc);
 //   eta2: the internal energy is synchronised to E - KE when
 //         (E - KE)/max_neighbours(E) > eta2.
 struct DualEnergy {
   double eta1 = 1e-3;
   double eta2 = 0.1;
+  bool eta1_local = false;
+  int nb_radius = 2;  // neighbourhood of the E maximum: +-1 (6 cells) or +-2 (12) along the axes
 };
 
 RR_HD double kinetic_energy(const double U[NV]) {
@@ -63,24 +71,32 @@ RR_HD double kinetic_energy(const double U[NV]) {
 }
 
 // Thermal energy density of a cell: E - KE, or the evolved internal energy
-// eD when E - KE is not a reliable fraction (eta1) of E. Written so that a
-// NaN or non-positive E - KE selects eD when the formulation is on.
-RR_HD double thermal_energy(const double U[NV], double eD, double eta1) {
+// eD when E - KE is not a reliable fraction (eta1) of the reference energy
+// Eref. Written so that a NaN or non-positive E - KE selects eD when the
+// formulation is on.
+RR_HD double select_thermal(const double U[NV], double eD, double Eref, double eta1) {
   const double eT = U[4] - kinetic_energy(U);
-  if (eta1 > 0 && !(eT > eta1 * U[4])) return eD;
+  if (eta1 > 0 && !(eT > eta1 * Eref)) return eD;
   return eT;
 }
+// Cell-local form (Eref = the cell's own E); used by the gravity kick
+RR_HD double thermal_energy(const double U[NV], double eD, double eta1) {
+  return select_thermal(U, eD, U[4], eta1);
+}
 
-RR_HD void cons_to_prim(const double U[NV], double eD, double eta1, double W[NV]) {
+// Primitives from U and the (already selected) thermal energy density e
+RR_HD void cons_to_prim(const double U[NV], double e, double W[NV]) {
   const double rho = rrf::max(U[0], kSmallRho);
   W[0] = rho;
   W[1] = U[1] / rho;
   W[2] = U[2] / rho;
   W[3] = U[3] / rho;
-  W[4] = rrf::max((kGamma - 1) * thermal_energy(U, eD, eta1), kSmallP);
+  W[4] = rrf::max((kGamma - 1) * e, kSmallP);
 }
 // Total-energy form (no dual energy), as in the spike
-RR_HD void cons_to_prim(const double U[NV], double W[NV]) { cons_to_prim(U, 0.0, 0.0, W); }
+RR_HD void cons_to_prim(const double U[NV], double W[NV]) {
+  cons_to_prim(U, U[4] - kinetic_energy(U), W);
+}
 
 RR_HD void prim_to_cons(const double W[NV], double U[NV]) {
   U[0] = W[0];
@@ -193,24 +209,24 @@ RR_HD void hancock(const double Wc[NV], const double Wn[3][2][NV], double dtdx,
 }
 
 // Per-cell predictor: Q = (W_half(5), dW_x(5), dW_y(5), dW_z(5)), from U
-// (and the internal energy density eD) at the cell and its 6 face
-// neighbours. U(i,j,k,m) and E(i,j,k) are the caller's accessors (local
-// index space, ghosts included). Computed on the interior plus one ghost
-// layer, it needs 2 ghost cells of U.
+// and the selected thermal energy density (select_thermal) at the cell and
+// its 6 face neighbours. U(i,j,k,m) and E(i,j,k) are the caller's
+// accessors (local index space, ghosts included). Computed on the interior
+// plus one ghost layer, it needs 2 ghost cells of U and E.
 constexpr int NQ = 4 * NV;
 template <class UA, class EA>
-RR_HD void predict_cell(const UA& U, const EA& E, double eta1, int i, int j, int k, double dtdx,
+RR_HD void predict_cell(const UA& U, const EA& E, int i, int j, int k, double dtdx,
                         double Q[NQ]) {
   double Uc[NV], Wc[NV], Wn[3][2][NV];
   for (int m = 0; m < NV; ++m) Uc[m] = U(i, j, k, m);
-  cons_to_prim(Uc, E(i, j, k), eta1, Wc);
+  cons_to_prim(Uc, E(i, j, k), Wc);
   for (int e = 0; e < 3; ++e) {
     const int ei = e == 0, ej = e == 1, ek = e == 2;
     for (int s = 0; s < 2; ++s) {
       const int o = 2 * s - 1;
       double Un[NV];
       for (int m = 0; m < NV; ++m) Un[m] = U(i + o * ei, j + o * ej, k + o * ek, m);
-      cons_to_prim(Un, E(i + o * ei, j + o * ej, k + o * ek), eta1, Wn[e][s]);
+      cons_to_prim(Un, E(i + o * ei, j + o * ej, k + o * ek), Wn[e][s]);
     }
   }
   double dW[3][NV];
@@ -218,13 +234,19 @@ RR_HD void predict_cell(const UA& U, const EA& E, double eta1, int i, int j, int
   for (int d = 0; d < 3; ++d)
     for (int m = 0; m < NV; ++m) Q[NV * (1 + d) + m] = dW[d][m];
 }
-// Total-energy form, as in the spike
-struct ZeroField {
-  RR_HD double operator()(int, int, int) const { return 0.0; }
+// Total-energy form (E - KE from U), as in the spike
+template <class UA>
+struct TotalEnergyField {
+  const UA& U;
+  RR_HD double operator()(int i, int j, int k) const {
+    double Uc[NV];
+    for (int m = 0; m < NV; ++m) Uc[m] = U(i, j, k, m);
+    return Uc[4] - kinetic_energy(Uc);
+  }
 };
 template <class UA>
 RR_HD void predict_cell(const UA& U, int i, int j, int k, double dtdx, double Q[NQ]) {
-  predict_cell(U, ZeroField(), 0.0, i, j, k, dtdx, Q);
+  predict_cell(U, TotalEnergyField<UA>{U}, i, j, k, dtdx, Q);
 }
 
 // HLLC flux through the face between cell L (below) and cell R (above) in
@@ -296,22 +318,28 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, const Du
   const double emin = U[0] * Tmin;
   double eT = U[4] - ke;
   if (!(eT >= emin)) {
+    // E - KE below the floor (in a cold supersonic cell this is the
+    // truncation error of E, discarded below when the pressure comes
+    // from e)
     eT = emin;
     U[4] = ke + emin;
     f.floor_T = true;
   }
   if (de.eta1 > 0) {
-    if (!(eD >= emin)) {
-      eD = emin;
-      f.floor_T = true;
-    }
     if (eT > de.eta2 * Enb_max) {
       eD = eT;
       f.synced = true;
     }
-    if (!(eT > de.eta1 * U[4])) {
+    if (!(eD >= emin)) {
+      eD = emin;
+      f.floor_T = true;
+    }
+    if (!(eT > de.eta1 * (de.eta1_local ? U[4] : Enb_max))) {
+      // pressure from e: E carries e (the floor of E - KE above does not
+      // count, E - KE is not used in this cell)
       U[4] = ke + eD;
       f.from_e = true;
+      if (eT < emin) f.floor_T = false;
     }
   } else {
     eD = eT;
@@ -322,9 +350,10 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, const Du
 // Signal speed of a cell for the CFL condition: sum over the directions of
 // |v_d| + c (RAMSES-style; the unsplit MUSCL-Hancock scheme without
 // transverse corrections is stable for dt * sum_d(|v_d| + c)/dx < 1).
-RR_HD double signal_sum(const double U[NV], double eD, double eta1) {
+// e is the selected thermal energy density.
+RR_HD double signal_sum(const double U[NV], double e) {
   double W[NV];
-  cons_to_prim(U, eD, eta1, W);
+  cons_to_prim(U, e, W);
   const double c = sound_speed(W);
   return ((std::fabs(W[1]) + std::fabs(W[2])) + std::fabs(W[3])) + 3 * c;
 }

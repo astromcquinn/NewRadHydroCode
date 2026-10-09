@@ -165,3 +165,41 @@ ray-pool guard for F3 (`legacy_rt = 0`, both codes); 88-byte rays; F1 fix;
 bit-identical restart; movie frames independent of the hydro step;
 nightly test label; measured cost and timing table for the production run.
 
+
+## Hydro solver thread (2026-10-09): the unsplit scheme behind `hydro_scheme`
+
+Decided with the hydro-suite finding that the original moving-frame TVD
+scheme spuriously heats cold supersonic gas (`docs/hydro_tests.md` §6, §7,
+§9); details and results in `docs/hydro_unsplit.md`.
+
+* **`hydro_scheme = legacy | unsplit`** (default `legacy`, which stays
+  bit-identical to the Fortran in every test). `unsplit` is the unsplit
+  MUSCL-Hancock + HLLC solver of the framework spike
+  (`include/radray/kernels/hydro_mh.hpp`, header-only and
+  framework-independent so the AMReX thread compiles the same file), with
+  the **dual-energy formulation** of Bryan et al. 1995: a separately
+  advected internal-energy field (`GasGrid::e`), updated with the −p∇·v
+  work from the Riemann solver's interface velocities, and the η₁/η₂
+  selection (`dual_eta1`, `dual_eta2`; `dual_energy = 0` turns it off).
+  The entropy-conserving variant (Ryu et al. 1993) was not built: the
+  dual-energy version passed the tests.
+* **Loop placement:** the six sweeps around `particle_mesh` become one
+  sub-cycled unsplit step over `dt_sim/2`, the PM kick, and a second one;
+  same call sites, same `calc_timestep` (so the same `nstep_rt`). The PM
+  kick of the gas acts on the conserved lab-frame variables with the
+  thermal energy unchanged (`pm::particle_mesh_unsplit`).
+* **RT coupling rule:** the RT's `photo_cell` takes the thermal energy from
+  the internal-energy field when it exists and writes its heating/cooling
+  back to both `u(5)` and the field; this is the only RT edit and it is a
+  no-op (same arithmetic) with the legacy scheme. The hydro step resets
+  `u(5) = KE + e` in cells whose pressure comes from the field, so every
+  diagnostic that reads `u` (`summarize_gas`, the RT grid temperature, the
+  step fields) sees the dual-energy temperature.
+* **Validation:** the hydro suite with `--scheme unsplit` and its own
+  tolerances, the restart and thread-count tests, and one coupled 64³ run
+  per scheme. No Fortran harness copy (new physics beyond the original
+  needs none).
+* **Constants:** the thresholds η₁ = 10⁻³ and η₂ = 0.1 are the values
+  commonly quoted for Bryan et al. 1995 but could not be checked against
+  the paper from the cloud session (arXiv/ADS unreachable); they are
+  marked unconfirmed in `docs/hydro_unsplit.md` and exposed as parameters.
