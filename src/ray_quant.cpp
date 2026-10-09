@@ -135,9 +135,14 @@ void ray_quantise(Simulation& s, const RayQuantConfig& qc) {
   for (std::int64_t c = 0; c < G.ncell; ++c) {
     std::int64_t ir = G.htoc_ray(3, c);
     const std::int64_t tail = G.htoc_ray(4, c);
+    std::uint64_t pos = 0;
     while (ir > 0) {
       Ray& ry = R.at(ir);
-      const std::uint64_t key = splitmix64(step_key ^ (static_cast<std::uint64_t>(ir) * 0x100000001b3ull));
+      // Keyed on (cell, position in the chain), not the storage slot: with
+      // deterministic_parallel the slot depends on thread timing, the chain
+      // order does not.
+      const std::uint64_t key = splitmix64(step_key ^ (static_cast<std::uint64_t>(c) * 0x100000001b3ull) ^
+                                           ((pos++) << 48));
       if (qc.structural) structural_round_trip(ry, s.cfg.Nrt, qc.dither, qc.offbits, key);
       if (qc.bits > 0) {
         for (int n = 0; n < kNfreq; ++n) {

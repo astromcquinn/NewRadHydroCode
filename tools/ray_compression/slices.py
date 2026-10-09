@@ -33,7 +33,8 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     pdir = Path(args.precdir) / args.problem
-    step = args.step or len(list((pdir / "base").glob("step_*")))
+    # default: the last step with fields (radhydro writes them at zdata1 steps only)
+    step = args.step or max(int(p.name[5:]) for p in (pdir / "base").glob("step_*") if (p / "fHI.bin").exists())
     N = args.N
     xb, Tb = load(pdir / "base", step, N)
     # array index order: file is Fortran (i fastest) -> numpy [k, j, i]

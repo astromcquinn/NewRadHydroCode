@@ -8,8 +8,8 @@
 //  * bits > 0: every photon group ngam(i) is rounded to `bits` mantissa bits
 //    (relative step 2^-bits), stochastically (dither = true: unbiased,
 //    E[q] = ngam) or to nearest (dither = false). The dither is a hash of
-//    (hydro step, RT substep, storage slot, group), so runs are
-//    deterministic.
+//    (hydro step, RT substep, cell, position in the cell's chain, group), so
+//    runs are deterministic and independent of the thread count.
 //  * structural = true: the "R-struct" round trip of
 //    tools/ray_compression/ray_codec.cpp: position as an `offbits`-bit
 //    (default 16) offset in its

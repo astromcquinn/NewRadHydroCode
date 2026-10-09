@@ -44,16 +44,23 @@ def read_kv(path):
 
 
 def load_run(d, N):
+    """Steps of an rt_driver or radhydro run. rt_driver writes fields at
+    every step plus rt_stats.txt; radhydro writes fields only at the zdata1
+    outputs and no rt_stats.txt (tau_es and the photoionisation count are
+    then unavailable: NaN). Steps without fields are skipped."""
     steps = sorted(Path(d).glob("step_*"))
     out = []
     for s in steps:
+        if not (s / "fHI.bin").exists():
+            continue
         st = read_kv(s / "stats.txt")
-        rs = read_kv(s / "rt_stats.txt")
+        rs = read_kv(s / "rt_stats.txt") if (s / "rt_stats.txt").exists() else {}
         fHI = np.fromfile(s / "fHI.bin", dtype=np.float32).reshape(N, N, N).astype(np.float64)
         T = np.fromfile(s / "temp.bin", dtype=np.float32).reshape(N, N, N).astype(np.float64)
         rho = np.fromfile(s / "rhog.bin", dtype=np.float32).reshape(N, N, N).astype(np.float64)
-        out.append(dict(z=st["redshift"], fHI=fHI, T=T, rho=rho, tau=rs["tau"],
-                        nion=rs["nion"][0], ngam_rays=st["ngam_rays_total"]))
+        nion = rs["nion"][0] if "nion" in rs else float("nan")
+        out.append(dict(z=st["redshift"], fHI=fHI, T=T, rho=rho, tau=rs.get("tau", float("nan")),
+                        nion=nion, ngam_rays=st.get("ngam_rays_total", float("nan"))))
     return out
 
 
@@ -102,7 +109,7 @@ def metrics(base, run):
         xb = 1 - b["fHI"][ion]
         xr = 1 - r["fHI"][ion]
         m["xHII_ion_cell_rms"] = float(np.sqrt(np.mean((xr / xb - 1) ** 2)))
-    m["tau_es"] = abs(r["tau"] / b["tau"] - 1) if b["tau"] else 0.0
+    m["tau_es"] = abs(r["tau"] / b["tau"] - 1) if b["tau"] else 0.0  # NaN if unavailable
     m["photons_ionisations"] = abs(cum / cum_b - 1) if cum_b else 0.0
     m["photons_in_rays"] = abs(r["ngam_rays"] / b["ngam_rays"] - 1) if b["ngam_rays"] else 0.0
     m["xHII_vol_final_base"] = hist["xv_b"][-1]
@@ -119,7 +126,7 @@ def main():
     res = {}
     hists = {}
     for pdir in sorted(Path(args.outdir).iterdir()):
-        if not (pdir / "base" / "done").exists():
+        if not (pdir / "base").is_dir():
             continue
         base = load_run(pdir / "base", args.N)
         res[pdir.name] = {}
