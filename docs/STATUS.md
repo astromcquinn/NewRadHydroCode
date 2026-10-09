@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09, merge of `hyak-setup` into `main` (after the repository survey of branch `claude/lucid-brahmagupta-85vs76`): branch and PR state, merge order, Hyak threads and next steps are in the two sections before "Next".*
+*Last updated: 2026-10-09, merge of `hyak-setup` (PR #17) and `movies` (PR #12) into `main` (after the repository survey of branch `claude/lucid-brahmagupta-85vs76`): branch and PR state, merge order, Hyak threads and next steps are in the two sections before "Next".*
 
 ## Done (merged into `main`)
 
@@ -188,6 +188,33 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   restart from the newest checkpoint); the `hyak-setup` versions are the
   ones to keep when #7 is merged.
 
+**Movie tooling (branch `movies`; `docs/movies.md`):**
+- `tools/movies/make_movie.py` renders an `apps/radhydro` run directory to an
+  MP4 (ffmpeg, piped raw frames) and a few PNG stills.
+- Style `cosmo` shows slices or thin projections of x_HII (or log x_HI), T
+  and ρ_gas, with fixed scales and perceptually uniform colour maps. The time
+  panel has x_HII,V/M(z), τ_es accumulated, the total τ_es if the IGM were
+  ionised below z, and a Planck band. Labels give z, cosmic time and the box.
+- Style `planar` shows a slice along the ray direction and the I-front
+  position against time, for the future plane-parallel mode.
+- Options for zoom, slice axis, position and thickness. Memory is bounded:
+  frames are memory-mapped one slab at a time.
+- `make_production.py` now writes `rhog` in the movie frames as well.
+- Test: CTest `movie_tool` (synthetic run).
+- Test movie: `docs/movies/reion64_test.mp4` (0.9 MB), from a 64³ production
+  run (90 s run, 16 s render).
+- Finding (B16, `docs/port_notes.md`): the original ray tracer leaves a
+  photon deficit along ±x/±y from every source. Its HEALPix frame is fixed
+  to the grid, so those axes are pixel vertices and the rays around them
+  are symmetric. In the movies this shows as grid-aligned neutral streaks
+  and "+" crosses on sources. The deficit is up to 0.25 in x_HII near the
+  front in the uniform test, and present in the legacy (= Fortran) runs.
+  **Look into it and fix it behind a flag (frame rotation) before any
+  science run.**
+- Finding: frames written before the first RT step have an uninitialised
+  rt_grid (fHI = rhog = 0). The tool skips them; a C++ fix that skips them at
+  write time is optional.
+
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
 Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
@@ -324,7 +351,9 @@ the stored-reference policy on klone; deleting the merged branches.
    - Calibrate f_esc to Planck τ_es.
    - No sub-grid sources for unresolved halos (user decision).
 3. **Production reionisation run and movie.** The box is decided; the
-   resolution waits on the timing table.
+   resolution waits on the timing table. The movie tool is ready
+   (`docs/movies.md`): run `tools/movies/make_movie.py RUN/run --jobs 4` on
+   the 128³/192³ Hyak runs.
 
    | Setting | Value |
    |---|---|

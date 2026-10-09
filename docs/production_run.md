@@ -222,6 +222,12 @@ at the end of the hydro step). Disk: 2·4N³ B per frame: 0.4 GB (N = 64),
 3.2 GB (N = 128), 10.8 GB (N = 192) for 190 frames; use
 `movie_fields = fHI` or a larger `movie_dz` at N = 192.
 
+`make_production.py` now also writes `rhog` in the frames
+(`--movie-fields`, default `fHI,temp,rhog`: 1.5× the disk above) for the
+movie tool, `tools/movies/make_movie.py` (`docs/movies.md`). Frames
+written before the first RT step carry an uninitialised rt_grid (fHI =
+rhog = 0, x_HII,M = nan in frames.txt); the movie tool skips them.
+
 ## 5. Measured runs, cost and timing table
 
 ### Production-configuration runs

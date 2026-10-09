@@ -17,7 +17,8 @@ The configuration: all fixes on (legacy_rt = legacy_physics = 0), the
 deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5.5, movie frames of
-x_HI and T every movie_dz, a checkpoint after every hydro step.
+x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
+docs/movies.md), a checkpoint after every hydro step.
 """
 import argparse
 import os
@@ -37,6 +38,9 @@ def main():
     ap.add_argument("--c-reduced", type=float, default=0.01)
     ap.add_argument("--nray-max-factor", type=int, default=16)
     ap.add_argument("--movie-dz", type=float, default=0.05)
+    ap.add_argument("--movie-fields", default="fHI,temp,rhog",
+                    help="rt_grid fields per movie frame (tools/movies/make_movie.py uses "
+                         "fHI, temp, rhog); 4N^3 B each per frame")
     ap.add_argument("--ra-max", type=float, default=0.0,
                     help="max da/a per hydro step as ra_max/(1-ra_max); 0: original 0.1")
     ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5")
@@ -66,7 +70,7 @@ def main():
         f"c_reduced = {a.c_reduced:g}",
         "rt_substep_carry = 1",
         f"movie_dz = {a.movie_dz:g}",
-        "movie_fields = fHI,temp",
+        f"movie_fields = {a.movie_fields}",
         "restart_every = 1",
         "fields_at_data1 = 1",
         "fields = fHI,fHeI,fHeII,temp,rhog,gamma",

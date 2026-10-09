@@ -142,6 +142,13 @@ if(Python3_Interpreter_FOUND)
     endif()
   endforeach()
 
+  # Movie tool (tools/movies, docs/movies.md) on a synthetic run directory;
+  # skipped (77) without matplotlib
+  add_test(NAME movie_tool
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/movies/test_make_movie.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/movie_tool)
+  set_tests_properties(movie_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+
   # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
   # (retarded-time / Shapiro et al. 2006) solution (docs/production_run.md)
   add_test(NAME ifront_rsla
