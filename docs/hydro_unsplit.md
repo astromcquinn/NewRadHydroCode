@@ -216,6 +216,246 @@ call, the smallest CFL step, cell-substeps whose pressure came from `e`,
 cell-substeps synchronised, floor hits); `apps/radhydro` also writes them
 to `timing.txt`.
 
+## 6. Results of the hydro suite, both schemes side by side
+
+Everything below is from the full tier (`run_suite.py all --tier full
+--scheme unsplit`, results in `tests/hydro_suite/results/*_full_unsplit.json`,
+figures `docs/figures/hydro_suite_*_unsplit.png`) against the legacy numbers
+of `docs/hydro_tests.md` (`*_full.json`); the problems, references and
+analysis are identical for both schemes (`docs/hydro_tests.md` §1). The
+unsplit scheme ran with the defaults of §5 (η₁ = 10⁻³ and η₂ = 0.1 against
+the ±2-cell maximum, `dual_reset_rule = 0`, CFL 0.8). "Steps" are hydro
+steps of the unchanged `calc_timestep`; U1 explains why the unsplit scheme
+takes more of them in fast bulk flows. Tolerances: `tolerances.py`,
+`check_*_unsplit`.
+
+### Shock tubes (`docs/hydro_tests.md` §2)
+
+Sod, γ = 5/3, L1 over the period normalised by ρ_L, c_L, p_L; positions in
+cells (+ = ahead), widths 10–90 %:
+
+| tube | N | steps legacy / unsplit | L1 ρ legacy / unsplit | L1 u | L1 p | shock pos. | contact pos. | contact width | shock width |
+|---|---|---|---|---|---|---|---|---|---|
+| x | 32 | 6 / 9 | 0.0378 / 0.0227 | 0.0401 / 0.0242 | 0.0323 / 0.0196 | +0.32 / −0.21 | −0.44 / −0.21 | – | – |
+| x | 64 | 12 / 19 | 0.0243 / 0.0120 | 0.0280 / 0.0142 | 0.0203 / 0.0090 | +0.47 / +0.26 | −0.33 / −0.26 | – / 3.2 | 3.3 / 1.8 |
+| x | 128 | 23 / 38 | 0.0127 / 0.0060 | 0.0148 / 0.0080 | 0.0106 / 0.0046 | +0.32 / +0.20 | −0.11 / +0.02 | 5.3 / 3.4 | 2.5 / 2.3 |
+| y, z | 128 | 23, 29 / 38, 38 | 0.0127, 0.0128 / 0.0060, 0.0060 | | | | | 5.3 / 3.4 | |
+| (1,1,0) | 128 | 16 / 24 | 0.0142 / 0.0075 | 0.0148 / 0.0076 | 0.0116 / 0.0058 | +0.24 / +0.19 | −0.33 / −0.18 | 5.5 / 3.4 | 2.6 / 2.1 |
+| (1,1,1) | 128 | 15 / 25 | 0.0146 / 0.0075 | 0.0153 / 0.0076 | 0.0122 / 0.0061 | +0.37 / +0.32 | −0.40 / −0.24 | 5.7 / 3.4 | 2.8 / 2.2 |
+
+Convergence orders (L1, N = 32–128): Sod x 0.79 / **0.96** (ρ), 0.72 / 0.80
+(u), 0.80 / 1.04 (p); (1,1,0) 0.74 / 0.90; (1,1,1) 0.69 / 0.86. The L1
+errors of the unsplit scheme are half the legacy ones at every N, the
+contact is spread over 3.2–3.4 cells instead of 5.3–5.7, the shock over
+1.8–2.3 instead of 2.5–3.3; positions are within 0.3 cells. Overshoots:
+≤ 4×10⁻⁴ (N = 32, the diagonals), 3×10⁻⁸ otherwise.
+
+**Orientation (H2) and symmetry.** x, y and z tubes are identical to the
+last bit at every N (the legacy z tube differs by 10⁻³ and takes 29 steps
+instead of 23), and the profile is exactly uniform across the tube in every
+case (spread 0.0; legacy 3×10⁻⁷ for Sod, 3 % for the strong shock at
+N = 128). The diagonal tubes are 25 % less accurate than the axis-aligned
+ones per cell along the normal (legacy 10–15 %), the same 3.4-cell contact.
+
+**Conservation.** Mass to 5×10⁻⁸, momentum to 2×10⁻⁸, energy to 4×10⁻⁸
+(Sod, 123; legacy energy −10⁻⁴ to −3×10⁻⁴), except the strong shock: U4.
+
+Strong shock (p_L/p_R = 10⁵, Mach 140 pre-shock gas):
+
+| N | steps | L1 ρ legacy / unsplit | L1 u | L1 p | min p (exact 0.01) | peak ρ/ρ_post | transverse spread | ΔE |
+|---|---|---|---|---|---|---|---|---|
+| 32 | 7 / 9 | 0.232 / 0.159 | 0.037 / 0.026 | 0.036 / 0.025 | 0.019 / 0.0100 | 0.56 / 0.58 | 10⁻⁷ / 0 | −1.4×10⁻⁴ |
+| 64 | 14 / 19 | 0.177 / 0.114 | 0.023 / 0.014 | 0.022 / 0.014 | 0.0031 / 0.0100 | 0.77 / 0.77 | 5×10⁻⁵ / 0 | −1.5×10⁻⁴ |
+| 128 | 27 / 38 | 0.116 / 0.082 | 0.012 / 0.0076 | 0.012 / 0.0067 | 0.0025 / 0.0100 | 0.90 / 0.93 | 3×10⁻² / 0 | −1.6×10⁻⁴ |
+
+The cold pre-shock gas stays at exactly p_R = 0.01 (the legacy scheme
+heats and cools it by factors of 2–100 at N = 32 and undershoots to
+0.25 p_R at N ≥ 64: the same defect as §6/§7 of `hydro_tests.md`), the
+planar symmetry is not broken, and the lab-frame energy drops by 1.5×10⁻⁴:
+the total-energy reset (U4) discards the numerical precursor of the shock
+in the Mach-140 gas, where the thermal energy is 10⁻⁴ of the total.
+
+123 problem (double rarefaction, near vacuum):
+
+| N | steps | L1 ρ legacy / unsplit | L1 u | L1 p | min ρ (exact 0.0062) | min p (exact 8.3×10⁻⁵) |
+|---|---|---|---|---|---|---|
+| 32 | 6 / 7 | 0.071 / 0.033 | 0.169 / 0.065 | 0.252 / 0.279 | 0.035 / 0.083 | 6.5×10⁻³ / 1.5×10⁻² |
+| 64 | 10 / 14 | 0.046 / 0.025 | 0.077 / 0.023 | 0.196 / 0.052 | 0.017 / 0.046 | 2.6×10⁻³ / 5.5×10⁻³ |
+| 128 | 20 / 27 | 0.030 / 0.018 | 0.047 / 0.021 | 0.155 / 0.053 | 0.015 / 0.030 | 2.3×10⁻³ / 2.7×10⁻³ |
+
+Positivity holds; the spurious central heating of a conservative scheme at
+a double rarefaction is still there (p at the centre 28× too high for the
+legacy scheme at N = 128; the unsplit L1 p of 0.053 is 3× smaller), and the
+velocity error is 2–3× smaller. Energy is conserved to 4×10⁻⁸ (legacy
+−3×10⁻³ to −10⁻²).
+
+### Galilean invariance (`docs/hydro_tests.md` §3)
+
+Sod along x at N = 64, profile advected through 1, 16, 32, 64 cells:
+
+| shift [cells] | steps legacy / unsplit | L1 ρ legacy / unsplit | max \|Δρ\| vs 1 cell, legacy / unsplit | L1 \|Δρ\| |
+|---|---|---|---|---|
+| 1 | 12 / 18 | 0.0235 / 0.0114 | – | – |
+| 16 | 23 / 33 | 0.0315 / 0.0181 | 0.020 / 0.030 | 0.0091 / 0.0086 |
+| 32 | 39 / 49 | 0.0377 / 0.0223 | 0.034 / 0.045 | 0.0158 / 0.0128 |
+| 64 | 71 / 81 | 0.0443 / 0.0283 | 0.047 / 0.062 | 0.0222 / 0.0191 |
+
+The lab-frame scheme is **not worse in absolute terms**: its error after one
+box length of advection (0.028) is below the legacy error after one cell
+(0.0235). Relative to its own 1-cell result it degrades more (×2.5 against
+×1.9), as expected for a scheme that advects through the grid at the full
+bulk speed where the moving frame only advects the residual: the moving
+frame does buy something, but the HLLC + MC reconstruction is the more
+accurate operator. The transverse bulk velocity (|v_⊥| = 0.18 vs 3.6)
+changes ρ by ≤ 1.0×10⁻² (legacy ≤ 9×10⁻⁴): U3, a time-step effect. The
+zero-bulk tube (v_x = 0, which the legacy scheme cannot run: H1) agrees
+with the slowly moving one to 1.3×10⁻² (max), 1.2×10⁻³ (L1). At N = 32 the
+same series gives L1 0.0227 → 0.0409 (legacy N = 64: 0.0235 → 0.0443); the
+resolution at which the Galilean error is acceptable is therefore the same
+as for the legacy scheme, and the scheme is acceptable wherever the legacy
+one was.
+
+### Sedov–Taylor blast (`docs/hydro_tests.md` §4)
+
+| N | steps legacy / unsplit | R/R_exact − 1 at t = 10 | R ∝ t^α | aniso rms | R_axes/R_diag − 1 | peak ρ/ρ₂ | L1 ρ / p / v | ΔE (lab) |
+|---|---|---|---|---|---|---|---|---|
+| 32 | 23 / 30 | +10.7 % / +5.9 % | 0.341 / 0.363 | 1.85 % / 2.69 % | +7.7 % / +10.0 % | 0.46 / 0.49 | 0.087, 0.093, 0.133 / 0.061, 0.077, 0.099 | −0.86 % / −0.11 % |
+| 64 | 70 / 97 | +4.1 % / +3.0 % | 0.364 / 0.382 | 0.98 % / 1.02 % | +3.9 % / +3.9 % | 0.58 / 0.63 | 0.051, 0.051, 0.065 / 0.041, 0.047, 0.065 | −2.4 % / −0.30 % |
+| 128 | 207 / 240 | +0.9 % / +1.5 % | 0.381 / 0.391 | 0.50 % / 0.37 % | +1.9 % / +1.1 % | 0.71 / 0.75 | 0.020, 0.025, 0.028 / 0.025, 0.027, 0.040 | −4.9 % / −0.59 % |
+
+Orders (t = 10): L1 ρ 1.07 / 0.63, p 0.95 / 0.74, v 1.13 / 0.65; radius
+error 1.8 / 1.0; anisotropy 0.95 / 1.4. The unsplit blast is better at
+N ≤ 64 and slightly worse at N = 128 (L1 ρ 0.025 against 0.020, radius
++1.5 % against +0.9 %: **the 1 % target at 128³ is missed by 0.5 %**), i.e.
+it converges more slowly; the density peak is sharper (0.75 of 4ρ₀) and the
+sphericity better at N = 128 (U6 at N = 32). Energy: −0.1 %, −0.3 %,
+−0.6 % instead of −0.9 %, −2.4 %, −4.9 %, but not round-off: the
+total-energy reset ahead of the shock (U4; `dual_reset_rule = 1` gives
+−9×10⁻⁶ at N = 32 and the same radius, at the price of the stagnation
+cells of §2). The mass is conserved to 4×10⁻⁹.
+
+### Sound waves (`docs/hydro_tests.md` §5)
+
+| N (cells / λ) | steps legacy / unsplit | phase speed error | amplitude loss / period | k = 1 error / A | L1 / A |
+|---|---|---|---|---|---|
+| 16 | 24 / 24 | +5.6×10⁻³ / +2.3×10⁻³ | 0.146 / 0.060 | 0.149 / 0.061 | 0.108 / 0.050 |
+| 32 | 40 / 40 | +1.7×10⁻³ / +8.6×10⁻⁴ | 0.024 / 6.4×10⁻³ | 0.027 / 8.4×10⁻³ | 0.031 / 0.015 |
+| 64 | 72 / 80 | +2.4×10⁻⁴ / +2.9×10⁻⁴ | 1.8×10⁻³ / 6.7×10⁻⁴ | 2.9×10⁻³ / 2.0×10⁻³ | 7.4×10⁻³ / 4.4×10⁻³ |
+| 128 | 136 / 152 | +7.9×10⁻⁵ / +9.9×10⁻⁵ | 2.9×10⁻⁴ / −7.7×10⁻⁵ | 9.1×10⁻⁴ / 5.2×10⁻⁴ | 3.2×10⁻³ / 2.9×10⁻³ |
+| (1,1,0), 64 | 48 / 56 | +7.3×10⁻⁵ / +1.1×10⁻⁴ | 2.6×10⁻³ / 5.0×10⁻⁴ | 3.0×10⁻³ / 7.5×10⁻⁴ | 7.3×10⁻³ / 4.1×10⁻³ |
+
+Orders (16–128): k = 1 error 2.5 / 2.3 (**second order**), damping 3.1 /
+3.2, phase speed 2.1 / 1.5, L1 1.7 / 1.4. The unsplit scheme is 2–3× less
+dissipative at 16–32 cells per wavelength (a 16-cell wave loses 6 % per
+period instead of 15 %) and equally dispersive; at N = 128 both sit on the
+float storage floor and the physical second harmonic (`hydro_tests.md` §5),
+where the unsplit damping is −8×10⁻⁵ (round-off growth). Energy is
+conserved to 5×10⁻⁸. This is also the measure of the **float round trip**:
+two per step for both schemes, and the sound-wave floor is the same.
+
+### Zel'dovich pancake (`docs/hydro_tests.md` §6)
+
+Before the caustic (z_c = 5); T/T_adiabatic of the infall, all cells of the
+profile:
+
+| N | z | L1 ρ/ρ_ZA − 1 legacy / unsplit | L1 v / v_max | median T/T_ad legacy / unsplit | mean \|T/T_ad − 1\| legacy / unsplit | max T/T_ad − 1 (unsplit) |
+|---|---|---|---|---|---|---|
+| 32 | 20 / 10 / 7 | 0.009, 0.026, 0.031 / 0.008, 0.017, 0.015 | 0.011, 0.007, 0.011 / 0.012, 0.007, 0.010 | 7.5, 85, 400 / **1.000, 1.000, 1.001** | 9.6, 190, 1100 / 0.005, 0.012, 39 | 0.016, 0.055, 618 |
+| 64 | 20 / 10 / 7 | 0.005, 0.009, 0.016 / 0.005, 0.010, 0.011 | 0.003, 0.002, 0.003 / 0.004, 0.002, 0.003 | 1.3, 7.0, 20 / **1.000, 1.000, 1.001** | 0.65, 14, 112 / 0.003, 0.007, 4.7 | 0.016, 0.055, 149 |
+| 128 | 20 / 10 / 7 | 0.003, 0.005, 0.007 / 0.003, 0.006, 0.006 | 0.001, 0.0006, 0.0008 / 0.001, 0.0007, 0.0007 | 1.01, 1.25, 2.0 / **1.000, 1.000, 1.000** | 0.05, 0.75, 10 / 0.002, 0.004, 0.34 | 0.017, 0.055, 21 |
+| 64, T_i = 10⁴ K | 20 / 10 / 7 | same | same | 1.03, 1.55, 3.3 / 0.9995, 0.9994, 0.9998 | 0.11, 1.5, 11 / 0.013, 0.32, 1.9 | 0.11, 5.6, 59 |
+
+**The cold infall stays adiabatic**: the median T/T_adiabatic is 1.000 at
+every N and z (the acceptance was a factor of 2 at N = 64, against the
+legacy 7–20), and at z = 10 every cell of the profile is within 5.5 % of
+the adiabat (figure). The mean deviation at z = 7 (4.7 at N = 64) is the
+two centre cells, where the converging streams meet within the ±2-cell
+neighbourhood as the caustic approaches (U2; 9×10³ K at N = 64, 1.4×10³ K
+at N = 128 against 62 K): the same stagnation effect that the ±1
+neighbourhood shows already at z = 10. The density and velocity are as
+accurate as the legacy ones (first-to-second order). The T_i = 10⁴ K run
+(sound speed 3× higher, Mach 3× lower) is slightly less accurate in the
+mean at z = 10 (0.32, a few cells near the centre at 5.6×) but its median
+is 0.9994.
+
+After the caustic (accretion shock; position from the 10 %-of-T_max rule
+of `hydro_tests.md`, shock half-width in cells, reference in brackets;
+entropy of the unshocked infall = median |K/K₀ − 1| of the cells more than
+3 cells outside the shock):
+
+| N | z | shock half-width legacy / unsplit (ref) | T_max legacy / unsplit (ref) [K] | ρ_max/ρ̄ legacy / unsplit | infall entropy error legacy / unsplit |
+|---|---|---|---|---|---|
+| 64 | 4 | 2.62 / 0.68 (0.44) | 6.0×10⁶ / 4.1×10⁶ (1.9×10⁷) | 12.1 / 12.6 | 77 / 1.1×10⁻⁴ |
+| 64 | 3 | 3.56 / 0.66 (1.30) | 1.0×10⁷ / 8.2×10⁶ (2.7×10⁷) | 14.3 / 16.2 | 109 / 1.0×10⁻⁴ |
+| 64 | 2 | 2.95 / 0.65 (2.45) | 1.2×10⁷ / 9.3×10⁶ (2.7×10⁷) | 14 / 19.7 | 272 / 1.0×10⁻⁴ |
+| 64 | 1 | 3.84 / 1.58 (3.74) | 1.3×10⁷ / 7.1×10⁶ (1.9×10⁷) | 14.2 / 22.7 | floor / floor |
+| 64 | 0 | 4.72 / 4.64 (4.61) | 9.6×10⁶ / 1.2×10⁷ (8.2×10⁶) | 16 / 16.0 | floor / floor |
+| 128 | 4 | 3.57 / 0.68 (0.89) | 6.0×10⁶ / 4.9×10⁶ (1.9×10⁷) | 21.5 / 23.2 | 1.1 / 2.5×10⁻⁴ |
+| 128 | 3 | 2.93 / 0.66 (2.59) | 1.3×10⁷ / 8.7×10⁶ (2.7×10⁷) | 21.3 / 31.3 | 1.8 / 2.6×10⁻⁴ |
+| 128 | 2 | 4.95 / 4.58 (4.90) | 2.2×10⁷ / 3.7×10⁷ (2.7×10⁷) | 19 / 20.5 | 6.9 / 2.1×10⁻⁴ |
+| 128 | 1 | 7.92 / 8.63 (7.48) | 2.2×10⁷ / 1.9×10⁷ (1.9×10⁷) | 21 / 25.9 | floor / floor |
+| 128 | 0 | 9.72 / 8.63 (9.22) | 8.0×10⁶ / 6.9×10⁶ (8.2×10⁶) | 24 / 31.1 | floor / floor |
+
+**Entropy away from the shock is conserved to 10⁻⁴** (legacy 1–300 before
+z = 1; at z ≤ 1 the adiabatic temperature of the infall is below the 1 K
+floor for both schemes, where the measure is meaningless). The post-shock
+plateau (10⁷ K) and the z = 0 shock position (4.64 vs 4.61 cells at N = 64,
+8.6 vs 9.2 at 128) are reproduced; the unsplit scheme's shock is sharper,
+its central density higher (31 vs 24 ρ̄ at N = 128, the reference's spike
+is unresolved) and at z = 2–0.5 it shows the **wall-heating spike** of a
+Godunov scheme at the collision centre (T_max 3.7×10⁷ K at N = 128, z = 2;
+2.2×10⁷ at N = 64, z = 0.5, against 1.4–2.7×10⁷), which the 10 %-of-T_max
+shock detector then places 1.6–2.6 cells from the centre at N = 64 for
+z = 1–0.5 (the shock half-width column), 2 cells inside the reference; at
+N = 128 the detector works and the shock is within 1.15 cells. The
+plane-parallel symmetry is kept to 10⁻⁴ before and just after the caustic
+(legacy 3×10⁻³ to 2×10⁻²) and to 4×10⁻³ at z = 0.
+
+### Adiabatic cosmological box (`docs/hydro_tests.md` §7)
+
+N_gas = 64, N_dm = 32, 64 Mpc/h, T_i = 47 K at z = 50:
+
+| run | z | T_mw [K] legacy / unsplit | T_vw [K] | median T [K] legacy / unsplit | adiabatic T(δ = 1) | median log T of δ < 0.8 cells, legacy / unsplit | f_mass(T > 10⁵ K) | P_gas/P_dm (k = 0.1, 0.2, 0.3) |
+|---|---|---|---|---|---|---|---|---|
+| N64 (orig. step, 44 steps) | 10 | 1.2×10⁴ / 1.1×10³ | 1.0×10⁴ / 661 | 6.5×10³ / **8.8** | 2.2 | 3.9 / 0.27 | 0.004 / 0.001 | 1.00 0.99 0.98 / 0.99 0.99 0.98 |
+| | 3 | 1.1×10⁵ / 5.4×10⁴ | 4.6×10⁴ / 8.9×10³ | 2.3×10⁴ / 331 | 0.29 | 4.3 / 0.65 | 0.23 / 0.08 | 1.00 0.98 0.96 / 0.99 0.98 0.96 |
+| | 1 | 1.1×10⁶ / 9.5×10⁵ | 1.5×10⁵ / 5.5×10⁴ | 3.0×10⁴ / 1.1×10³ | 0.07 | 4.3 / 2.5 | 0.54 / 0.35 | 1.00 0.98 0.95 / 0.98 0.98 0.96 |
+| | 0 | 3.0×10⁶ / 2.7×10⁶ | 2.4×10⁵ / 1.4×10⁵ | 1.9×10⁴ / 1.1×10³ | 0.02 | 4.1 / 2.8 | 0.67 / 0.55 | 0.99 0.96 0.93 / 0.98 0.97 0.95 |
+| N64, da/a ≤ 0.02 (202 steps) | 10 | 1.2×10⁴ / 589 | 9.8×10³ / 286 | 6.4×10³ / **2.1** | 2.2 | 3.9 / 0.22 | 0.004 / 0.001 | same |
+| | 3 | 1.1×10⁵ / 4.9×10⁴ | 4.5×10⁴ / 6.8×10³ | 2.2×10⁴ / **0.99** | 0.29 | 4.3 / 0.00 | 0.23 / 0.08 | 1.00 0.98 0.96 / 0.98 0.98 0.96 |
+| | 0 | 2.9×10⁶ / 2.7×10⁶ | 2.4×10⁵ / 1.4×10⁵ | 1.8×10⁴ / 5.7 | 0.02 | 4.1 / 0.72 | 0.67 / 0.54 | 0.99 0.96 0.93 / 0.97 0.96 0.95 |
+| N32 (orig. step) | 10 | 1.7×10⁴ / 1.4×10³ | 1.4×10⁴ / 851 | 7.8×10³ / 2.2 | 2.2 | 4.0 / 0.24 | 0.016 / 0.004 | 0.98 0.94 0.93 / 0.98 0.94 0.93 |
+| | 0 | 3.5×10⁶ / 3.4×10⁶ | 4.0×10⁵ / 1.7×10⁵ | 5.4×10⁴ / 852 | 0.02 | 4.6 / 2.1 | 0.69 / 0.47 | 0.95 0.88 0.82 / 0.94 0.92 0.88 |
+
+* **The underdense IGM sits at its adiabat or the 1 K floor, not at
+  10⁴ K**: at z = 10 the median temperature is 2–9 K (adiabatic 2.2 K at
+  δ = 1; the underdense bins of the T–ρ relation are at log T = 0.2–0.3,
+  i.e. 1.7–2 K, with 25 % of the cells at the floor where the adiabat is
+  below 1 K) against 6500 K for the legacy scheme (figure
+  `hydro_suite_cosmobox_unsplit.png`). The median temperature of the
+  underdense gas converges with resolution (N = 32 and 64 agree) and does
+  not depend on the time step at z = 10.
+* **Time-step sensitivity of the cold gas (new).** With the original step
+  (da/a ≤ 1/9) the underdense gas warms slowly to 30–700 K by z ≤ 2
+  (median log T 1.5–2.8 at δ < 0.8), with da/a ≤ 0.02 it stays at the floor
+  until z = 0.5 (0.0–0.3). The mass-weighted temperature, the hot fraction
+  and the power spectra are the same for both steps. The legacy scheme is
+  insensitive because its cold gas is at 10⁴ K anyway. For production
+  runs, where the RT substeps are set by the light travel and not by the
+  hydro step (`rt_substep_carry`), a smaller `ra_max` (0.02–0.03) costs
+  only hydro steps (< 1 % of the time, §9) and keeps the cold IGM on its
+  adiabat; this is the recommendation of §10.
+* **Shock-heated gas.** The mass-weighted temperature at z ≤ 1 (10⁶ K) and
+  the hot-gas fraction converge to the legacy values (which are dominated
+  by real shock heating there), but at z = 10–3 the unsplit T_mw is 2–10×
+  lower and the mass above 10⁵ K 3× smaller (0.08 vs 0.23 at z = 3): the
+  legacy values at those redshifts include the spurious heating. The DM
+  grows as linear theory and the gas traces it to 1–4 % at k ≤ 0.3 h/Mpc
+  for both schemes (the dynamics of the cold gas are pressure-free, so the
+  temperature error of the legacy scheme never fed back into the density).
+* Mass is conserved to 10⁻⁹.
+
+
 ## 7. Quirks of the unsplit scheme (U1–U6)
 
 Flagged like the legacy quirks (`docs/port_notes_hydro.md` §5); none of

@@ -9,7 +9,15 @@ not. The solver was not modified for any of these tests.
 Contents: 1. how the tests are run; 2. shock tubes; 3. Galilean invariance;
 4. Sedov-Taylor; 5. sound waves; 6. Zel'dovich pancake; 7. adiabatic
 cosmological box (and Santa Barbara); 8. Kelvin-Helmholtz; 9. summary of the
-scheme's weaknesses; 10. timings; 11. files and CTest.
+scheme's weaknesses; 10. timings; 11. files and CTest; 12. the unsplit
+scheme (`hydro_scheme = unsplit`) on the same tests.
+
+**Two schemes.** §2–§10 are the legacy scheme (the default). Since the
+hydro solver thread (2026-10-09) the suite also runs the unsplit
+MUSCL-Hancock + HLLC scheme with the dual-energy formulation
+(`--scheme unsplit`, `docs/hydro_unsplit.md`); §12 summarises its results
+test by test next to the legacy numbers, and `docs/hydro_unsplit.md` §6 has
+the full tables.
 
 ## 1. Set-up
 
@@ -450,11 +458,18 @@ machine's budget for an optional test (≈ 1–2 days single-threaded).
 
 ## 9. Where the scheme performs poorly (summary)
 
+*Status (2026-10-09): item 1 is fixed by the unsplit scheme with dual energy
+behind `hydro_scheme = unsplit` (`docs/hydro_unsplit.md`, §12 below), which
+also removes items 2, 4 (exactly), 7 and 8, halves 3, and improves 5 and
+6 in absolute terms. The legacy scheme and these numbers are unchanged.*
+
 1. **Spurious heating of cold, supersonic gas** (§6, §7, §2 strong shock):
    the dominant defect. Entropy of cold gas in converging or shearing flows
    is not conserved; errors scale ∝ Mach² and fall steeply with resolution
    only when the flow is smooth on scales ≫ rmf = 8 cells. In the cosmological
-   box the underdense IGM sits at ~10^4 K instead of a few K.
+   box the underdense IGM sits at ~10^4 K instead of a few K. *Fixed with
+   `hydro_scheme = unsplit`: pancake infall median T/T_adiabatic 1.000 at
+   every N, box median 2–9 K at z = 10.*
 2. **Energy (and momentum) non-conservation (H9):** −0.01 to −0.3 % in
    tubes, −1 % (123), up to −5 % in the Sedov blast; momentum ≤ 2e-4.
 3. **Contact smearing:** ~5 cells (10–90 %), not growing with time, typical
@@ -519,12 +534,40 @@ tests/hydro_suite/
 
 * `ctest -L hydro_suite`: `hydro_suite_{tubes,galilean,sedov,sound,pancake,
   cosmobox,kh}`, quick tier (N ≤ 64), about 6 min in total (measured with two
-  jobs in parallel; each test passes with the tolerances above).
-* `ctest -L nightly`: `hydro_suite_full_*`, the full tier (~3 h).
-* By hand: `python3 tests/hydro_suite/run_suite.py all --tier full` then
-  `python3 tests/hydro_suite/analyze.py figures`.
+  jobs in parallel; each test passes with the tolerances above), and the
+  same for the unsplit scheme as `hydro_suite_unsplit_*` (its own
+  tolerances, `check_*_unsplit`).
+* `ctest -L nightly`: `hydro_suite_full_*` and `hydro_suite_full_unsplit_*`,
+  the full tier (~3 h per scheme).
+* By hand: `python3 tests/hydro_suite/run_suite.py all --tier full
+  [--scheme unsplit]` then `python3 tests/hydro_suite/analyze.py figures
+  [results_dir figure_dir full unsplit]` (figures
+  `hydro_suite_*_unsplit.png`). `hs_common.read_state` takes the pressure
+  from `e_gas.bin` (the dual-energy field) when the driver wrote it.
 
 The tolerances (`tolerances.py`) are the measured values with a 25–50 %
 margin (or a band around a measured value); known defects (energy drift,
 symmetry breaking) are regression guards, the spurious heating of cold gas is
 documented but not tested against physics.
+
+## 12. The unsplit scheme on the same tests (summary)
+
+`hydro_scheme = unsplit` (`docs/hydro_unsplit.md`; full tables in its §6,
+quirks U1–U6 in its §7). Same problems, references, analysis and tiers;
+numbers from `results/*_full_unsplit.json`, legacy from `results/*_full.json`.
+
+| test | legacy | unsplit | verdict |
+|---|---|---|---|
+| Sod tubes (§2), N = 128 | L1 ρ 0.0127, order 0.79; contact 5.3 cells, shock 2.5; z tube differs by 10⁻³ | L1 ρ 0.0060, order 0.96; contact 3.4, shock 2.3; x = y = z to the bit, spread 0 | better |
+| Strong shock, N = 128 | L1 ρ 0.116; pre-shock p 0.25 p_R; symmetry broken at 3 % | L1 ρ 0.082; pre-shock p = p_R exactly; symmetry exact; energy −1.6×10⁻⁴ (U4) | better |
+| 123 problem, N = 128 | L1 ρ/u/p 0.030/0.047/0.155 | 0.018/0.021/0.053; positive | better |
+| Galilean (§3), N = 64, 1 → 64 cells | L1 0.0235 → 0.0443 (×1.9) | 0.0114 → 0.0283 (×2.5); transverse-speed effect 1.0×10⁻² (U3); zero-velocity tube runs (no H1) | better in absolute terms, degrades faster |
+| Sedov (§4), N = 128 | R +0.9 %, aniso 0.50 %, L1 ρ 0.020, energy −4.9 % | R +1.5 %, aniso 0.37 %, L1 ρ 0.025, energy −0.6 % (U4) | better at N ≤ 64, slightly worse at 128 (slower convergence); 1 % radius target missed by 0.5 % |
+| Sound waves (§5) | k = 1 order 2.5; 15 % loss per period at 16 cells/λ | order 2.3; 6 % loss; same phase error | better |
+| Pancake (§6), infall median T/T_ad at N = 64, z = 10/7 | 7.0 / 20 | 1.000 / 1.001 (every N, z); centre cells hot near the caustic (U2) | fixed |
+| Pancake, post-caustic | shock within 0.5 cells, entropy of the infall off by 1–300 | shock within 1.15 cells at N = 128 (wall-heating spike confuses the detector at N = 64), entropy 10⁻⁴, symmetry 10⁻⁴ | better (entropy), equal (shock) |
+| Cosmological box (§7), N = 64, z = 10 | median T 6.5×10³ K, underdense gas at 10⁴ K | median 8.8 K (2.1 K with da/a ≤ 0.02), underdense at 2 K; P_gas/P_dm unchanged | fixed; cold gas warms slowly with the original time step (see the doc) |
+| Kelvin–Helmholtz (§8) | decays at N = 32, 0.51 of linear at N = 128 | see `docs/hydro_unsplit.md` §6 | |
+| Energy conservation | −10⁻⁴ to −5 % (H9) | round-off, except the U4 leak in cold Mach ≫ 1 gas ahead of strong shocks (≤ 0.6 %) | better |
+| Orientation / symmetry (H2) | 10⁻³ tubes, 2–8 % Sedov axes/diag, 0.3–2 % pancake | exact for 1-D problems; Sedov 10 % (N = 32) to 1.1 % (128); pancake 10⁻⁴ | better except Sedov at N = 32 (U6) |
+| Cost | 6 sweeps per step, 0.6–0.9 µs/cell/sweep | 2–4 substeps per step, see the doc §9 | |
