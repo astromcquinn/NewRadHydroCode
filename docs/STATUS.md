@@ -1,7 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09 (after PR #10, the ray compression study and the
-hydro solver thread, branch `hydro-unsplit`).*
+*Last updated: 2026-10-09 (after PR #10, the ray compression study, the hydro solver thread (PR #15) and the framework spike (PR #11)).*
 
 ## Done (merged into `main`)
 
@@ -166,6 +165,29 @@ Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
 
 At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
+## Framework spike (Stage C), branch `framework-spike`
+
+- `spike/`: AMReX and Parthenon prototypes of (a) an unsplit MUSCL-Hancock
+  hydro step and (b) the sorted-ray-array RT substep with HEALPix split and
+  merge, int64 fixed-point deposits and ray migration between ranks, all
+  built on shared host/device kernels (`spike/common`).
+- Validation:
+  - the serial sorted-array reference `rt_serial` matches `rt_driver
+    --set legacy_rt=0` with identical ray statistics on all five RT
+    problems, fields to round-off (the explained exceptions are in
+    `docs/framework_decision.md` §2);
+  - both prototypes are bitwise identical to `rt_serial`/`hydro_serial`
+    for 1–8 ranks, several block sizes and 1–2 threads.
+- Local 4-core timings: the RT on one core costs serial 19.6 s, AMReX
+  26.6 s, Parthenon 35.7 s (64³, 400k rays, 32³ blocks).
+- **Recommendation: AMReX** (`docs/framework_decision.md`). Parthenon swarms
+  do not support AMR, there is no sub-cycling, and the mesh overhead was
+  higher. **Pending the user's decision** and the Hyak runs
+  (`spike/hyak/README.md`: single-node layouts, 1–4 nodes).
+- GPU: the shared kernels and the Parthenon prototype compile with CUDA
+  (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
+  `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
+
 ## Next
 
 1. Check the halo mass function at production resolution against Sheth–Tormen/Tinker.
@@ -208,7 +230,9 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 8. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study: done (`docs/ray_compression.md`); 64³
      production-configuration check done, 128³ job script ready for Hyak;
-   - framework spike (AMReX vs Parthenon);
+   - framework spike (AMReX vs Parthenon): done, AMReX chosen
+     (`docs/framework_decision.md`); Hyak benchmarks to run
+     (`spike/hyak/README.md`);
    - ray data-structure rewrite;
    - MPI;
    - AMR for gas, then RT;
