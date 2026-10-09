@@ -172,6 +172,8 @@ analysis as §6):
 | strong tube N = 64: energy | −1.5×10⁻⁴ | −2×10⁻⁸ | −2×10⁻⁸ | −1.5×10⁻⁴ |
 | Sod N = 64 | identical | identical | identical | identical |
 
+![variants](figures/hydro_unsplit_variants.png)
+
 * The **Enzo constants work** in this scheme: with the paper's exact form
   the pre-caustic median is still on the adiabat and the box's underdense
   gas is at 1–2 K, and energy is conserved to round-off because E is
