@@ -237,3 +237,13 @@ scheme spuriously heats cold supersonic gas (`docs/hydro_tests.md` §6, §7,
   tolerances, the restart and thread-count tests, and one coupled 64³ run
   per scheme. No Fortran harness copy (new physics beyond the original
   needs none, see the Fortran harness scope above).
+
+## Merge thread (2026-10-09): no decisions
+
+The survey (PR #16) and the merges of `hyak-setup` (PR #17), `movies`
+(PR #12) and `production-run` (PR #7) into `main` followed the survey's
+plan in `docs/STATUS.md`. **No decisions were taken in this thread.** The
+open ones are listed in `docs/STATUS.md` ("Decisions needed from the
+user"): AMReX for Stage D, the production `c_reduced` (0.1 recommended)
+and N (256), `hydro_scheme` for production, the stored-RT-reference
+policy on klone, and deleting the merged branches.
