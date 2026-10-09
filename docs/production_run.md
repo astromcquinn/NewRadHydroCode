@@ -433,3 +433,179 @@ are superseded by the table above.
    (the production params do): the first makes the light travel exact, the
    second is the only way the ray tracing runs on more than one core, and
    it makes the run reproducible and restartable bit for bit.
+
+## 8. Source calibration: f_esc to τ_es (production-run thread, 2026-10-09)
+
+*Folded in from the production-run thread's `docs/reionization_production.md`
+when PR #7 was merged. The sources are `sfr_model = abundance`
+(`docs/abundance_matching.md`), the mass function check is
+`docs/hmf_validation.md`, the movie tool is `docs/movies.md` and the Hyak
+runs are `docs/cluster.md`.*
+
+**Read with section 7:** every calibration run below used **c_reduced =
+0.01 at 128³**, before the Hyak runs showed that 0.01c delays reionization by
+Δz ≈ 2–2.5 and lowers τ_es by 20 % against 0.1c. The calibrated f_esc is
+therefore biased high, as the bias list below already anticipated, and
+**must be redone at 0.1c** (and at 256³) before the production run.
+
+The configuration of the calibration runs:
+
+| Setting | Value |
+|---|---|
+| Box | 10 Mpc/h |
+| Resolution | Ngas = Ndm = 128 |
+| c_reduced | 0.01 (superseded, see above) |
+| nray_max_factor | 16 |
+| Flags | `legacy_rt = legacy_physics = 0`, `deterministic_parallel`, `rt_substep_carry` |
+| Sources | on-the-fly FoF (≥ 20 particles), `sfr_model = abundance`, log ξ_ion = 25.38, one f_esc |
+| Sub-grid sources | none |
+
+
+`tools/production/calibrate_fesc.py` runs the production configuration for
+a list of f_esc values, sharing one set of ICs. Each run computes the
+reionization history and τ_es (`tools/analysis/reion.py`) from the movie
+log. The script then interpolates, in log f_esc, the value that gives the
+Planck τ.
+
+**How τ_es is computed:**
+* σ_T c n_e integrated over dt, with n_e from the mass-weighted x_HII
+  (this includes clumping);
+* He I ionized along with H, and He II ionized below z = 3, which is
+  assumed (HeII reionization is not in the run);
+* full ionization assumed below the last frame;
+* the simulation cosmology.
+
+As a check, instantaneous reionization at z = 6 gives 0.039.
+
+**Planck 2018:** τ = 0.054 ± 0.007 (Planck Collaboration VI 2020).
+
+**Resolution.** At N = 64, only halos of 20 particles or more emit, i.e.
+above 8×10⁹ M☉. Then even f_esc = 1 reaches only x_HII = 0.88 by
+z = 4.9, with τ = 0.040. So the calibration is done **at the production
+resolution, N = 128**, where each run takes 13–16 min on 4 threads.
+
+```
+build/am_fit --lf data/uv_lf/lf_params.txt --out runs/am
+python3 tools/production/calibrate_fesc.py runs/cal128 --N 128 \
+    --am-params runs/am/am_params.txt --fesc 0.2 0.4 0.5 0.8
+python3 tools/analysis/plot_calibration.py runs/cal128
+```
+
+Results with the draft L_UV(M) fit (Tinker HMF, Donnan+24 at z ≥ 9,
+Bouwens+21 at z ≈ 6–8, unconfirmed):
+
+| f_esc | τ_es | z(x_V = 0.1) | z(x_V = 0.5) | z(x_V = 0.99) | x_HII,M at the end (z ≈ 5.3) | wall time, 4 threads |
+|---|---|---|---|---|---|---|
+| 0.2 | 0.0464 | 8.11 | 6.09 | — | 0.781 | 13 min |
+| 0.4 | 0.0521 | 8.79 | 6.81 | — | 0.963 | 15 min |
+| **0.5** | **0.0540** | 9.05 | 7.01 | — | 0.985 | 15 min |
+| 0.8 | 0.0578 | 9.46 | 7.40 | 5.67 | 0.9995 | 16 min |
+
+**τ_es constrains f_esc only weakly here.** A factor of 4 in f_esc moves
+τ from 0.046 to 0.058, most of the Planck 1σ band (0.047–0.061). The end
+of reionization is the sharper constraint: only f_esc ≳ 0.8 completes it
+(x_V = 0.99) by z ≈ 5.7. A Lyα-forest end point (z ≈ 5.3–6) would select
+f_esc ≈ 0.6–0.8 within the Planck band.
+
+![calibration](figures/fesc_calibration_128.png)
+
+**The calibrated value is f_esc = 0.50** (f_esc ξ_ion = 10^25.08). The
+interpolation gives 0.4997, and the run at 0.5 gives τ = 0.0540. The
+midpoint is z = 7.0. The box is 98.5% ionized by mass at z ≈ 5.3, but not
+completely; that is a late end, partly reflecting the biases below.
+
+### After switching to the simulated mass function (2026-10-09)
+
+With L(M) matched to the simulated FoF halos (`docs/abundance_matching.md`
+§3b), the box's bright halos are fainter than with Tinker.
+
+| f_esc | τ_es | z(x_V = 0.1) | z(x_V = 0.5) | x_HII,M at the end (z ≈ 5.3) |
+|---|---|---|---|---|
+| **0.5** | **0.0511** | 8.78 | 6.65 | 0.912 |
+
+With **all LFs from the papers** (`docs/abundance_matching.md` §3c),
+f_esc = 0.5 gives τ_es = 0.0516, x_V = 0.5 at z = 6.72, and x_M = 0.967
+at z ≈ 5.3.
+
+**The production run starts with f_esc = 0.5** (user decision). Its τ is
+within the Planck 1σ range, 0.3σ below the central value. The box is not
+fully ionized by z ≈ 5.3, so the end of reionization is late. Raising
+f_esc toward 0.7–0.8 would centre τ and end reionization earlier.
+
+### Biases of this calibration (to be read with the number)
+
+* **Reduced speed of light, 0.01c.** Light crosses only about 16 Mpc/h
+  between z = 15 and 5.5, and 1.6–2.4 Mpc/h per hydro step.
+  * I-fronts cannot move faster than ĉ, so ionized regions grow late and
+    overlap is delayed.
+  * After overlap the photon field responds on the light-crossing time
+    at ĉ.
+  * Both delay reionization at fixed f_esc and lower τ_es, so the
+    calibrated f_esc is **biased high**.
+  * Deparis et al. 2019 and Ocvirk et al. 2019 recommend ĉ ≳ 0.1–0.2c for
+    the timing of reionization. A 0.1c run at N = 128 takes about 4.4 h on
+    4 cores (`docs/production_run.md` §5) and would measure this bias.
+* **No sub-grid sources.** Halos below 20 particles (1.0×10⁹ M☉ at
+  N = 128) do not emit at all. The FoF mass function is also 2–4× below
+  ST/Tinker at 20–60 particles (`docs/hmf_validation.md`).
+  * The faint galaxies, which by the extrapolated LF carry much of the
+    ionizing emissivity, are missing.
+  * The resolved halos must compensate, which again biases f_esc
+    **high**.
+  * It also makes the sources more biased and the ionized regions larger
+    and fewer than with the full population.
+* **Late first halos.** The first FoF halo forms at z ≈ 11.3
+  (Zel'dovich ICs at z = 100; none at z = 12.6, where ST predicts a few
+  dozen). Early τ is lost, biasing f_esc high.
+* **The box LF vs the observed LF.** L(M) is matched to the analytic
+  Tinker HMF, but the FoF halos lie 1.3–2.2× above Tinker at
+  ≳ 5×10⁹ M☉. So the box's own UV LF is 1.3–2× above the observed LF
+  brighter than M_UV ≈ −16, and below it at the faint end
+  (`tools/analysis/box_lf.py`, `figures/box_lf_128.png`). This biases f_esc
+  **low**.
+* **Small box.** 10 Mpc/h has large sample variance in the halo
+  abundance at z ≳ 8.
+* **τ_es convention.** τ assumes full ionization below the last frame
+  (z ≈ 5.3) and He II reionization at z = 3. Each is uncertain by about
+  ±0.001.
+
+So f_esc ≈ 0.5 is an **effective** parameter of this setup. It absorbs
+the speed of light, the resolution and the source model, and should not
+be compared with physical escape fractions without these caveats.
+
+### Commands with abundance-matched sources
+
+On klone (`docs/cluster.md` §2–5 for the environment, build and job
+submission):
+
+```
+source tools/hyak/env.sh
+R=/gscratch/astro/$USER/runs
+# 1. sources: the fitted L_UV(M, z) for 128^3 / 10 Mpc/h is committed as
+#    data/uv_lf/am_params_128_10mpc.txt; to refit (seconds):
+#    build/am_fit --lf data/uv_lf/lf_params.txt --hmf st \
+#        --sim-hmf data/hmf/fof_128_10mpc.txt --out $R/am
+# 2. the production problem (ICs + params.txt)
+N=256
+python3 tools/production/make_production.py $R/reion$N --N $N --c-reduced 0.1 \
+    --am-params data/uv_lf/am_params_128_10mpc.txt --f-esc 0.5 --xi-ion 25.38 \
+    --movie-dz 0.025 --movie-fields fHI,temp,rhog --restart-every 4
+# 3. run on a whole node (resubmit the same command after any interruption)
+sbatch --exclusive -c 192 --mem=256G --time=1-00:00:00 \
+       --export=ALL,PROB=$R/reion$N,THREADS=192 tools/hyak/reion_production.slurm
+# 4. results: $R/reion$N/run/reion.txt (x_HII(z), tau_es), run/stills/,
+#    run/movie/reion.mp4 (written by the job when the run finishes)
+```
+
+For N = 256, first refit the simulated mass function from a no-source 256³
+run (`docs/hmf_validation.md`; minutes on a node), refit L(M) with it, then
+recalibrate f_esc at the production c_reduced:
+
+```
+python3 tools/production/calibrate_fesc.py $R/cal$N --N $N \
+    --am-params $R/am/am_params.txt --fesc 0.2 0.35 0.5
+```
+
+`calibrate_fesc.py` writes one problem directory per f_esc value sharing the
+ICs; run them as jobs with `reion_production.slurm` (about 16 min each at
+128³ and 0.1c on a shared node, about 1.5 h at 256³ on a whole node).

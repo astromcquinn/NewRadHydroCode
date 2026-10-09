@@ -69,5 +69,9 @@ if [ $rc -eq 0 ]; then
   if ls "$RUN"/movie/frame_*_rhog.bin >/dev/null 2>&1; then
     python3 tools/movies/stills.py "$RUN" "$RUN/stills" || true
   fi
+  # Reionization history and tau_es (docs/production_run.md section 8), and
+  # the movie (docs/movies.md); both cheap next to the run
+  python3 tools/analysis/reion.py "$RUN" --out "$RUN/reion.txt" || true
+  python3 tools/movies/make_movie.py "$RUN" --jobs "$OMP_NUM_THREADS" || true
 fi
 exit $rc
