@@ -315,7 +315,8 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
 
   # Strict comparison with the stored Fortran full-harness outputs (stats of
   # every step, SHA-256 of every field file, hydro.log, P(k), particles).
-  # smoke_*: seconds; legacy_* / onthefly_*: ~4 minutes each (label long).
+  # smoke_*: seconds; legacy_* / onthefly_*: ~4 minutes each (label nightly,
+  # built only with RADRAY_NIGHTLY_TESTS=ON).
   foreach(c smoke_rt1 smoke_rt0 legacy_rt1 legacy_rt0 onthefly_rt1 onthefly_rt0)
     string(REGEX REPLACE "_rt[01]$" "" p ${c})
     string(REGEX REPLACE "^.*_" "" m ${c})

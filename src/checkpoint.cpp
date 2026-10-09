@@ -126,7 +126,19 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.vec(pm.xv);
     o.pod(pm.dm_cpu);
     // driver
-    o.pod(d);
+    // Copy d into a zeroed struct first: DriverState has padding bytes, and a
+    // raw write of d would copy whatever the stack held there, so identical
+    // runs would give checkpoints that differ in those bytes.
+    DriverState dz;
+    std::memset(&dz, 0, sizeof dz);
+    dz.idata1 = d.idata1;
+    dz.idata2 = d.idata2;
+    dz.data1_out = d.data1_out;
+    dz.data2_out = d.data2_out;
+    dz.Nhalo = d.Nhalo;
+    dz.movie_frame = d.movie_frame;
+    dz.movie_next = d.movie_next;
+    o.pod(dz);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }

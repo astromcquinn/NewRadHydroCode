@@ -83,7 +83,7 @@ At the start of a session, read:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build -j4 -LE "long|nightly"   # fast suite
-ctest --test-dir build -L long                   # ~5 min each, full-loop references
+cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~5 min each: full-loop references, pool guard, full hydro tiers
 ```
 
 - Needs `g++`, `gfortran` (for the live Fortran comparison tests), `libfftw3-dev`
