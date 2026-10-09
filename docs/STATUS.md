@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09, merge of `hyak-setup` (PR #17) and `movies` (PR #12) into `main` (after the repository survey of branch `claude/lucid-brahmagupta-85vs76`): branch and PR state, merge order, Hyak threads and next steps are in the two sections before "Next".*
+*Last updated: 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`; no branch carries unmerged work.*
 
 ## Done (merged into `main`)
 
@@ -49,8 +49,8 @@ overcooling suppression, the rho_source photon consumption, SN heating.
 (`tools/analysis/test_gallery.py` → `docs/figures/tests_*.png`), and the cooling
 figure.
 
-**Ray compression study (ROADMAP §4, Stage B): done** on branch
-`ray-compression`; see `docs/ray_compression.md`.
+**Ray compression study (ROADMAP §4, Stage B): done** (PR #13, branch
+`ray-compression`); see `docs/ray_compression.md`.
 
 - Optional ray snapshots (`ray_dump_*`) and a research-only lossy-precision
   instrument (`ray_quant_*`). Both are off by default, and the C++ stays
@@ -118,7 +118,7 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   entropy formulation for cold supersonic gas behind a flag, is a candidate
   next task.
 
-**Unsplit hydro scheme with dual energy (branch `hydro-unsplit`;
+**Unsplit hydro scheme with dual energy (PR #15, branch `hydro-unsplit`;
 `docs/hydro_unsplit.md`, `docs/hydro_tests.md` §12):**
 - `hydro_scheme = legacy | unsplit` (default `legacy`, bit-identical to the
   Fortran; every stored-reference, live-Fortran, restart and thread test
@@ -153,7 +153,7 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   `hydro_suite_unsplit_*` (fast) and `hydro_suite_full_unsplit_*`
   (nightly), `restart_smoke_unsplit`, `thread_full_unsplit_hydro_pm`.
 
-**Hyak klone setup (branch `hyak-setup`, 2026-10-08; `docs/cluster.md`):**
+**Hyak klone setup (PR #17, branch `hyak-setup`, 2026-10-08; `docs/cluster.md`):**
 
 - **Environment:** gcc/g++/gfortran 13.2.0 (module `gcc/13.2.0`), FFTW
   3.3.10 float built SSE2-only in user space (AVX2 / no-SIMD builds break 5–6
@@ -188,7 +188,7 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   restart from the newest checkpoint); the `hyak-setup` versions are the
   ones to keep when #7 is merged.
 
-**Movie tooling (branch `movies`; `docs/movies.md`):**
+**Movie tooling (PR #12, branch `movies`; `docs/movies.md`):**
 - `tools/movies/make_movie.py` renders an `apps/radhydro` run directory to an
   MP4 (ffmpeg, piped raw frames) and a few PNG stills.
 - Style `cosmo` shows slices or thin projections of x_HII (or log x_HI), T
@@ -266,7 +266,7 @@ Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
 
 At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
-## Framework spike (Stage C), branch `framework-spike`
+## Framework spike (Stage C), PR #11 (branch `framework-spike`)
 
 - `spike/`: AMReX and Parthenon prototypes of (a) an unsplit MUSCL-Hancock
   hydro step and (b) the sorted-ray-array RT substep with HEALPix split and
@@ -289,7 +289,7 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
   (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
   `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
 
-## Branches and PRs (survey, 2026-10-09; all merged the same day)
+## Branches and PRs (merged on 2026-10-09)
 
 The survey found three branches off `main`; they were merged in the order
 `hyak-setup` (PR #17), `movies` (PR #12), `production-run` (PR #7), with
@@ -302,6 +302,10 @@ was dropped for `tools/movies/make_movie.py` of PR #12;
 `framework-spike`, `hydro-unsplit`, `ray-compression`, `hyak-setup`,
 `movies`, `production-run`, `claude/hopeful-thompson-w5m60t`,
 `claude/relaxed-brahmagupta-9v7xb5`, `claude/lucid-brahmagupta-85vs76`.
+All nine were deleted by the user on 2026-10-09. Each merge was
+preceded by a merge of `main` into the branch and a full test run in the
+cloud container (gfortran 13.3, FFTW 3): fast suite (including the live
+Fortran, restart and thread tests) and nightly label, all passing.
 
 **Facts from these branches that change the plan:**
 - One klone node runs 128³ at 0.01c in 3 min and 256³ at 0.1c with a
@@ -310,7 +314,7 @@ was dropped for `tools/movies/make_movie.py` of PR #12;
 - **c_reduced = 0.01 delays reionisation by Δz ≈ 2–2.5 and lowers τ_es by
   20 %** against 0.1c (same ICs). Use 0.1c; check convergence with one
   0.3c or 1c run at 128³.
-- The f_esc = 0.5 calibration on `production-run` was done at 128³ and
+- The f_esc = 0.5 calibration of PR #7 was done at 128³ and
   0.01c; it has to be redone at 0.1c (and at 256³, whose HMF has not been
   checked).
 - On klone 8 RT stored-reference tests fail by 1 ulp in double sums and by
@@ -318,7 +322,7 @@ was dropped for `tools/movies/make_movie.py` of PR #12;
   the same differences and agrees with the C++ byte for byte. The stored RT
   references are platform-dependent (libm). Decision needed: regenerate
   them per platform, or compare the double sums with a tolerance.
-- B16 (`movies` branch): the fixed HEALPix frame leaves a photon deficit
+- B16 (PR #12, `docs/port_notes.md`): the fixed HEALPix frame leaves a photon deficit
   along ±x/±y from every source, up to 0.25 in x_HII near the front; it is
   the "+" crosses and streaks in the stills. Fix behind a flag (a global
   frame rotation first) before any science run.
@@ -403,25 +407,26 @@ the stored-reference policy on klone; deleting the merged branches.
      limits. See `docs/ROADMAP.md` (answers section).
    - Access: Claude Code installed in user space, `claude remote-control`
      inside tmux, batch jobs with restarts.
-5. **Investigate grid-aligned RT artifacts.** The 64³ stills
-   (`docs/figures/stills64_*.png`, `tools/movies/stills.py`) show straight
-   neutral streaks and "+"-shaped crosses centred on sources, aligned with the
-   grid axes, plus faint radial spokes inside bubbles. A suspect is rays moving
-   exactly along grid planes (B10, positions on cell faces). Check this before
-   science runs, and see whether it also happens with legacy_rt = 1.
-   Possibly related: the 32³ `uniform_1src` baseline shows a 12-fold ring of
-   isolated neutral cells inside the ionised sphere
-   (`docs/figures/raycomp_slices_uniform_1src.png`).
+5. **B16 fix before any science run.** The grid-aligned neutral streaks
+   and "+"-shaped crosses on sources in the 64³ stills
+   (`docs/figures/stills64_*.png`) are B16 (`docs/port_notes.md`, PR #12):
+   the HEALPix frame is fixed to the grid, so ±x/±y are pixel vertices and
+   leave a photon deficit (up to 0.25 in x_HII near the front), also in
+   legacy (= Fortran) runs. Fix behind a flag, a global frame rotation
+   first, checked with `tools/analysis/axis_deficit.py` and the 64³
+   movie. Then see whether the faint radial spokes inside bubbles and the
+   12-fold ring of neutral cells in the 32³ `uniform_1src` baseline
+   (`docs/figures/raycomp_slices_uniform_1src.png`) go with it.
 6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
-   branch `hydro-unsplit`; η₁/η₂ confirmed against the Enzo and Nyx
+   PR #15; η₁/η₂ confirmed against the Enzo and Nyx
    papers). Open: convergence check of the Sedov radius bias and the
    cold-gas time-step sensitivity at 128³.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study: done (`docs/ray_compression.md`); 64³
      production-configuration check done, 128³ job script ready for Hyak;
-   - framework spike (AMReX vs Parthenon): done, AMReX chosen
-     (`docs/framework_decision.md`); Hyak benchmarks to run
+   - framework spike (AMReX vs Parthenon): done, AMReX recommended
+     (`docs/framework_decision.md`), pending the user's confirmation; Hyak benchmarks to run
      (`spike/hyak/README.md`);
    - ray data-structure rewrite;
    - MPI;
