@@ -132,7 +132,7 @@ def main():
         res[pdir.name] = {}
         hists[pdir.name] = {}
         for vdir in sorted(pdir.iterdir()):
-            if vdir.name == "base" or not (vdir / "done").exists():
+            if vdir.name == "base" or not any((p / "fHI.bin").exists() for p in vdir.glob("step_*")):
                 continue
             run = load_run(vdir, args.N)
             m, h = metrics(base, run)
