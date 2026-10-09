@@ -4,7 +4,7 @@ Result and recommendation: `docs/framework_decision.md`.
 
 | dir | what |
 |---|---|
-| `common/` | framework-independent, header-only host/device kernels: rays (`ray_kernels.hpp`), per-cell RT physics (`rt_cell.hpp`), MUSCL-Hancock hydro (`hydro_mh.hpp`), host driver logic (`rt_host.hpp`) |
+| `common/` | framework-independent, header-only host/device kernels: rays (`ray_kernels.hpp`), per-cell RT physics (`rt_cell.hpp`), MUSCL-Hancock hydro (`hydro_mh.hpp`), host driver logic (`rt_host.hpp`). The hydro kernel's maintained copy is now `include/radray/kernels/hydro_mh.hpp` (PR #15, with dual energy); the copy here is frozen as what the prototypes validated against |
 | `serial/` | `rt_serial`, `hydro_serial`: the reference (OpenMP, no framework); `rt_serial_fx36` round-off sensitivity build |
 | `amrex/` | AMReX prototype (`rt_amrex`, `hydro_amrex`, `validate.sh`, README with notes) |
 | `parthenon/` | Parthenon prototype (`rt_parthenon`, `hydro_parthenon`, input decks, README with notes) |

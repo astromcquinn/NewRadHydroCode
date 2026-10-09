@@ -287,7 +287,11 @@ legacy reference, and every new behaviour is behind a flag.
 1. Promote `spike/common` to `include/radray/kernels/` and make the serial
    port call the same per-cell physics and per-ray functions, so each piece
    of physics has a single implementation. The serial port's bit-for-bit
-   tests must stay green.
+   tests must stay green. **Partly done by PR #15:** the hydro kernel and
+   `rr_hd.hpp` already live in `include/radray/kernels/`, extended with the
+   dual-energy formulation, and are maintained there; `spike/common/`
+   keeps the frozen copies the prototypes were validated against. The ray
+   and RT-cell kernels still have to move.
 2. Turn `rt_amrex` into a library component (`src/amrex/rt_level.cpp`).
    It should work on one `AmrLevel`-like object: a ray container per level,
    cell `FabArray`s, deposits as int64 with `SumBoundary`, 2 ghost layers
@@ -307,9 +311,13 @@ legacy reference, and every new behaviour is behind a flag.
    in §2.
 
 **Stage E: full uniform-grid code on AMReX with MPI (production platform).**
-1. Hydro: the MUSCL-Hancock kernel, validated with the hydro test suite
-   (Sod, Sedov, Zel'dovich pancake, sound waves). It is a new scheme behind
-   a flag; the legacy split scheme stays in the serial code.
+1. Hydro: the library's unsplit MUSCL-Hancock kernel
+   (`include/radray/kernels/hydro_mh.hpp`, `hydro_scheme = unsplit`,
+   PR #15, `docs/hydro_unsplit.md`), already validated with the hydro
+   test suite and coupled to RT and PM on the uniform grid. On AMReX
+   patches it needs only the `FillBoundary`/flux pattern of
+   `spike/amrex/hydro_amrex.cpp`. The legacy split scheme stays in the
+   serial code.
 2. PM gravity: DM particles in an AMReX `ParticleContainer`, CIC deposit,
    and the Poisson solve with the `amrex::FFT` module (or MLMG). Validate
    against `pm_driver` to round-off on the PM problems.
