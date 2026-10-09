@@ -91,26 +91,44 @@ The dual-energy formulation of Bryan et al. (1995, Comput. Phys. Commun.
   Riemann interface velocities v* (time-centred, so the work term is
   second order). The species `w` are advected by the same mass flux.
 * **Selection (η₁).** The pressure of a cell is (γ−1)e_T if
-  e_T / E > η₁, else (γ−1)ρe. This is what every reconstruction uses
-  (`thermal_energy` in the kernel), and what `pm::particle_mesh_unsplit`
-  keeps fixed during the gravity kick.
+  e_T > η₁ E_ref, else (γ−1)ρe, with E_ref the maximum of E over the cell
+  and its neighbours within ±`dual_nb_radius` cells along the axes
+  (default 2, i.e. 12 neighbours; `dual_eta1_local = 1` uses the cell's own
+  E, the form in which the rule is usually stated). The selected thermal
+  energy is computed once per substep for every cell (`select_pass`) and
+  is what every reconstruction and the CFL speed use; the gravity kick
+  (`pm::particle_mesh_unsplit`) uses the cell-local form on the stored
+  state. The neighbourhood matters at a **stagnation cell** between two
+  converging supersonic streams: its own E is almost all thermal, so the
+  cell-local test accepts an E − KE that is nothing but its neighbours'
+  kinetic-energy fluxes (the two centre cells of the N = 32 pancake reach
+  82× the adiabatic temperature at z = 10 with the local test).
 * **Synchronisation (η₂).** After the update, ρe := e_T when
-  e_T / max_nb(E) > η₂, the maximum being over the cell and its six face
-  neighbours. Shocks, where the internal-energy equation misses the
-  entropy production, thereby re-synchronise the field from the
-  conservative total energy; cold cells next to energetic ones keep
-  their own value.
-* **Total-energy reset.** In cells whose pressure comes from ρe
-  (e_T / E ≤ η₁) the stored total energy is reset to E := ρv²/2 + ρe
-  (as Nyx does). So `u(5)` always carries the dual-energy temperature and
-  every diagnostic that reads `u` (`summarize_gas`, the RT grid
-  temperature, the step fields, the stats) is consistent with the hydro,
-  at the cost of exact energy conservation in those cells only: the
-  change is |e_T − ρe| ≤ η₁E per cell and step, i.e. the thermalised
-  truncation error that a total-energy scheme would have put into heat.
-  Cells with e_T / E > η₁ are never touched, so hot or subsonic flows
-  (the Sedov blast, the tubes, the sound waves) conserve energy to
-  round-off (§6).
+  e_T > η₂ max_nb(E), the same neighbourhood. Shocks, where the
+  internal-energy equation misses the entropy production, thereby
+  re-synchronise the field from the conservative total energy; cold cells
+  next to energetic ones keep their own value. The radius matters here
+  too: the unresolved velocity dispersion inside a stagnation cell is
+  about a quarter of its ±1 neighbours' kinetic energy, above η₂ = 0.1, so
+  the ±1 neighbourhood thermalises it (37× at the pancake centre); with
+  ±2 the ratio is below 1/48 and the centre stays adiabatic (1.05×).
+* **Total-energy reset (`dual_reset_rule`).** In cells whose pressure
+  comes from ρe the stored total energy is reset to E := ρv²/2 + ρe (rule
+  0, the default, as Nyx does). This keeps a stagnation cell's E from
+  accumulating the inflowing kinetic energy until the η₂ rule would
+  thermalise it, and keeps E − KE equal to ρe wherever the float `u` can
+  hold it. It costs exact energy conservation in those cells: the change
+  is |e_T − ρe| ≤ η₁ E_ref per cell and substep, i.e. the thermalised
+  truncation error that a total-energy scheme would have put into heat,
+  and ahead of a strong shock the numerical precursor of the shock, which
+  is thereby lost (U4: −1.5×10⁻⁴ in the strong tube, −0.1 to −0.6 % in the
+  Sedov blast at N = 32–128). Cells with e_T > η₁ E_ref are never touched,
+  so hot or subsonic flows (Sod, 123, the sound waves) conserve energy to
+  round-off (§6). Rule 1 bounds the change by η₁ E of the cell itself
+  (Sedov −9×10⁻⁶, but the N = 32 pancake centre reaches 77×, since its
+  polluted E is then kept and eventually synchronised); rules 2 and 3 are
+  intermediate (measured in §7, U2/U4). Rule 0 was chosen because the cold
+  gas is the point of this scheme.
 * **Floors.** ρ ≥ `Dgas_min`; e/ρ ≥ 1 K (`check_temp`'s floor,
   `1/temp1_unit`) applied to both e_T and ρe. Floor hits are counted
   (`UnsplitCounters::floor_T`, `floor_rho`) and printed at the end of a
@@ -126,7 +144,7 @@ The dual-energy formulation of Bryan et al. (1995, Comput. Phys. Commun.
 | Constant | Value | Where | Provenance |
 |---|---|---|---|
 | η₁ | 10⁻³ | `dual_eta1` | **Unconfirmed.** The value commonly quoted for Bryan et al. 1995 (and Enzo's default), written from memory: the cloud session cannot reach arXiv/ADS and the user has not yet supplied the paper. To be checked against the paper. |
-| η₂ | 0.1 | `dual_eta2` | **Unconfirmed**, same source. The neighbour set (the six face neighbours) is this implementation's choice; Bryan et al. may use the sweep neighbours only. |
+| η₂ | 0.1 | `dual_eta2` | **Unconfirmed**, same source. The neighbourhood (±2 cells along the axes, for η₁ as well) is this implementation's choice from the measurements of §2/§7; Bryan et al. may use the sweep neighbours only and the cell-local η₁. |
 | CFL | 0.8 against Σ_d(\|v_d\| + c) | `unsplit_cfl` | RAMSES's `courant_factor` default for its unsplit MUSCL scheme (from memory; the stability limit itself, Σ_d(\|v_d\| + c) dt/dx < 1, is standard). |
 | γ | 5/3 (double) | kernel | The supercomoving equations have no expansion terms for γ = 5/3 (`docs/hydro_tests.md` §1); the legacy scheme uses the real(4) 5./3 (H10), the summaries and the RT still do. |
 | ρ_min, p_min | 10⁻¹⁰, 10⁻¹² (code units) | kernel | Positivity guards of the spike kernel, never reached in the tests (the `Dgas_min` floor is far above). |
@@ -191,13 +209,18 @@ stats, the RT, the data files) reads lab-frame values without change.
   (checked by every stored-reference and live-Fortran test, §8). The RT
   thus sees the dual-energy temperature exactly, and the hydro sees the RT's
   heating through both variables.
-* **Everything else** (`summarize_gas`, `calc_timestep`, the RT grid
-  temperature `rt_grid%temp`, the movie frames, the P(k)) reads `u`, which
-  carries the dual-energy temperature through the total-energy reset of
-  §2 to float precision: E − KE in float has a relative error 6×10⁻⁸·E/e,
-  i.e. 0.03 % at e/E = 2×10⁻⁴ (Mach 100) and 6 % at e/E = 10⁻⁶ (Mach
-  1300, below the 1 K floor in practice). The analysis of the suite reads
-  `e_gas.bin` where it exists for that reason (`hs_common.read_state`).
+* **Diagnostics.** The float `u` cannot hold a cold supersonic cell's
+  thermal energy: E − KE from `u` has a relative error 6×10⁻⁸·E/e, i.e.
+  0.03 % at e/E = 2×10⁻⁴ (Mach 100) but 10–100× e in the cold IGM of the
+  box (e/E ~ 10⁻⁷), whatever the reset does. So the two diagnostics that
+  derive a temperature from `u` read the field when it exists: the RT grid
+  temperature `rt_grid%temp` (gathered by `average_gas` /
+  `gas_state_from_avg` in `src/rt_tools.cpp`: the second, diagnostic, RT
+  edit, a no-op with the legacy scheme) and `summarize_gas`'s temperature
+  (`src/hydro.cpp`, same no-op). `summarize_gas`'s sound speed for
+  `cmax_gas` still comes from `u` (harmless: |v| dominates where it is
+  wrong), the stats' `T_V`/`T_M` come from the RT grid, and the suite's
+  analysis reads `e_gas.bin` (`hs_common.read_state`).
 
 ## 5. Parameters
 
@@ -208,6 +231,9 @@ stats, the RT, the data files) reads lab-frame values without change.
 | `dual_energy` | 1 | 0: total energy only (the kernel without the formulation; for comparison) |
 | `dual_eta1` | 10⁻³ | pressure from E − KE when (E − KE)/E > η₁ (unconfirmed, §2) |
 | `dual_eta2` | 0.1 | ρe := E − KE when (E − KE)/max_nb E > η₂ (unconfirmed, §2) |
+| `dual_nb_radius` | 2 | the neighbourhood of max_nb E: ±1 (6 cells) or ±2 (12) along the axes (§2) |
+| `dual_eta1_local` | 0 | 1: the η₁ test against the cell's own E (the cell-local form; stagnation cells heat, §2) |
+| `dual_reset_rule` | 0 | when the pressure comes from ρe: 0 reset E := KE + ρe always; 1 only if that changes E by ≤ η₁E; 2 as 1 or in thermal-dominated cells; 3 only if E − KE ≤ η₁ max_{±1} E (§2) |
 
 All drivers (`apps/radhydro`, `apps/hydro_driver`, the suite driver) take
 them in `params.txt` and with `--set`. The run summary prints the
