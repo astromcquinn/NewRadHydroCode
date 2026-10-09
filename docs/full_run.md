@@ -83,6 +83,7 @@ do
 | `add_metals` | 1 | the add_halo_to_rt metal injection |
 | `fields_every`, `fields_at_data1` | 0, 1 | field output schedule |
 | `max_steps` | 1000 | the original's `timing(1000)` |
+| `run_steps` | 0 | > 0: stop (normally) after this many hydro steps of this invocation, e.g. one step from a checkpoint for timing (`tools/production/speedup.sh`) |
 
 `N`, `Ndm`, `box` and `nray_max_factor` are compile-time parameters in the
 original; the C++ takes them at run time and the Fortran harness checks that

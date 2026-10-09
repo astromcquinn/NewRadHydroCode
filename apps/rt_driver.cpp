@@ -3,7 +3,10 @@
 // usage: rt_driver <problem_dir> <outdir> [--nsteps n] [--set key=value ...]
 //
 // --set overrides (or adds) one params.txt entry, e.g. --set legacy_rt=0 or
-// --set legacy_physics=0.
+// --set legacy_physics=0. Ray snapshots for the compression study:
+// --set ray_dump_dir=DIR --set ray_dump_every=K (or ray_dump_at="k1 k2").
+// Lossy-precision experiment (changes results; research only):
+// --set ray_quant_bits=m [--set ray_quant_dither=0] [--set ray_quant_struct=1].
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -24,6 +27,7 @@
 
 #include "radray/cosmology.hpp"
 #include "radray/io.hpp"
+#include "radray/ray_dump.hpp"
 #include "radray/parallel.hpp"
 #include "radray/rt.hpp"
 #include "radray/simulation.hpp"
@@ -76,6 +80,19 @@ int main(int argc, char** argv) {
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
     s.raylog = &raylog;
+    RayDumpConfig dump;
+    dump.dir = P.ray_dump_dir;
+    dump.every = P.ray_dump_every;
+    dump.at = parse_substep_list(P.ray_dump_at);
+    ray_dump_enable(s, dump);
+    s.ray_quant.bits = P.ray_quant_bits;
+    s.ray_quant.dither = (P.ray_quant_dither != 0);
+    s.ray_quant.structural = (P.ray_quant_struct != 0);
+    s.ray_quant.offbits = P.ray_quant_offbits;
+    if (s.ray_quant.enabled())
+      std::cout << " RESEARCH: ray_quant bits=" << P.ray_quant_bits << " dither="
+                << P.ray_quant_dither << " struct=" << P.ray_quant_struct
+                << " (results differ from the original on purpose)\n";
     s.out = &std::cout;
 
     read_gas(pdir + "/gas.bin", s.gas);

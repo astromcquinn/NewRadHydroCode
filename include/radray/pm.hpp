@@ -85,6 +85,14 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Unit
 // drift, link, density, gravity, kick, drift (uses clk.dt_sim and
 // clk.scalefactor, which the caller has advanced by half a step).
 void particle_mesh(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u);
+// hydro_scheme = unsplit (docs/hydro_unsplit.md section 3): the same, with
+// the gas kick on the conserved lab-frame variables (momentum and total
+// energy; the thermal energy, selected by the dual-energy rule with eta1
+// from the internal-energy field e_gas, is unchanged). v_gas is not used.
+void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1, SimClock& clk,
+                       const Units& u);
+void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1,
+                           SimClock& clk, const Units& u);
 
 // pm_tools.f90: calc_power_spectrum. Fills pk_dm(5,Ngas) and pk_gas(5,Ngas)
 // (Fortran layout pk[(k-1)*5 + c]) and leaves density/linked lists as the

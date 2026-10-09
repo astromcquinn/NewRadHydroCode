@@ -26,6 +26,8 @@ add_library(radray
   src/rt_rates.cpp
   src/ray_tracing.cpp
   src/rt_tools.cpp
+  src/ray_dump.cpp
+  src/ray_quant.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
@@ -64,6 +66,11 @@ target_link_libraries(find_halos PRIVATE radray_halos)
 add_executable(rt_driver apps/rt_driver.cpp)
 target_link_libraries(rt_driver PRIVATE radray)
 
+# Ray-compression study prototype (docs/ray_compression.md); reads ray dumps
+add_executable(ray_codec tools/ray_compression/ray_codec.cpp)
+target_link_libraries(ray_codec PRIVATE radray)
+target_compile_options(ray_codec PRIVATE -O3 -fno-math-errno)
+
 # PM gravity (pm_tools.f90 / fft_tools.f90) needs FFTW3 single precision.
 # Optional: without it only the RT part is built.
 option(RADRAY_WITH_PM "Build the PM gravity and hydro ports (need FFTW3f)" ON)
@@ -80,7 +87,7 @@ if(RADRAY_WITH_PM)
     target_link_libraries(radray_fft PUBLIC radray ${FFTW3F_LIBRARY})
     # Hydro solver (hydro_tools.f90 -DMF), summarize_gas and the gas
     # domains, see docs/port_notes_hydro.md.
-    add_library(radray_hydro src/hydro.cpp src/domain_gas.cpp)
+    add_library(radray_hydro src/hydro.cpp src/hydro_unsplit.cpp src/domain_gas.cpp)
     target_link_libraries(radray_hydro PUBLIC radray_fft)
     add_executable(hydro_driver apps/hydro_driver.cpp)
     target_link_libraries(hydro_driver PRIVATE radray_hydro)

@@ -137,8 +137,10 @@ substeps, every `movie_dz` in redshift, independent of the hydro step
 (`docs/production_run.md` §4). The run writes `movie_fields =
 fHI,temp,rhog`.
 
-**Rendering.** `tools/movie/make_movie.py RUN` renders one PNG per frame,
-in parallel, and assembles an MP4 with ffmpeg (libx264, yuv420p, crf 18).
+**Rendering.** `tools/movies/make_movie.py RUN` (`docs/movies.md`)
+renders the frames in parallel and pipes them to ffmpeg (libx264). It
+replaces the first renderer of this thread, `tools/movie/make_movie.py`,
+which made the test movies below and was removed when PR #7 was merged.
 Each frame has:
 * slices of x_HII, log T and log(1+δ_gas), with colour ranges fixed over
   the movie;
@@ -152,7 +154,7 @@ exists, the rt_grid is not initialised, so these frames read x_V = 1 and
 x_M = NaN. The analysis treats them as neutral.
 
 ```
-python3 tools/movie/make_movie.py RUN [--fps 15] [--slice-axis z] [--thick 1] [--jobs 4]
+python3 tools/movies/make_movie.py RUN [--fps 12] [--axis z] [--thick 1] [--jobs 4]
 ```
 
 **Test movies made here:**
@@ -172,6 +174,19 @@ z = 5.5, or 15–20 s at 15 fps.
   needed. It is not implemented yet.
 
 ## 3. Hyak (`klone`, `cpu-g2`, account `astro`)
+
+> **Merge note (2026-10-09).** When PR #7 was merged, its `tools/hyak/`
+> scripts were replaced by the tested versions from `hyak-setup` (PR #17;
+> `docs/cluster.md` §2–5 for the environment, build and submission). The
+> differences from the description below: `build_hyak.sh` sources
+> `tools/hyak/env.sh` (`HYAK_MODULES` only adds modules), the production
+> job has a 4-day limit and also resumes from the newest
+> `checkpoint_NNNN.bin`, and after `DONE` it makes stills
+> (`tools/movies/stills.py`) instead of running `reion.py` and the movie.
+> Run those by hand: `python3 tools/analysis/reion.py RUN` and
+> `python3 tools/movies/make_movie.py RUN --jobs N` (`docs/movies.md`).
+> Measured klone costs (which replace the estimate below) are in
+> `docs/cluster.md` §6–7. Pull `main` instead of `production-run`.
 
 **Scripts in `tools/hyak/`:**
 * `build_hyak.sh`: builds with CMake and runs the fast suite. Set

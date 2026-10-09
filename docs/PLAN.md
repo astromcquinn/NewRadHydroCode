@@ -183,3 +183,57 @@ ray-pool guard for F3 (`legacy_rt = 0`, both codes); 88-byte rays; F1 fix;
 bit-identical restart; movie frames independent of the hydro step;
 nightly test label; measured cost and timing table for the production run.
 
+
+## Fortran harness scope (decided 2026-10-08)
+
+* The Fortran harnesses only have to reproduce the **original** code, so the
+  C++ can be compared with it at the default settings.
+* New C++ options that change results (fixes, research instruments such as
+  the `ray_quant_*` lossy-precision options of the ray-compression study)
+  go behind a flag whose default is the original behaviour. They need **no**
+  mirrored implementation in Fortran. The already mirrored `legacy_rt` and
+  `legacy_physics` stay as they are.
+
+## Hydro solver thread (2026-10-09): the unsplit scheme behind `hydro_scheme`
+
+Decided with the hydro-suite finding that the original moving-frame TVD
+scheme spuriously heats cold supersonic gas (`docs/hydro_tests.md` §6, §7,
+§9); details and results in `docs/hydro_unsplit.md`.
+
+* **`hydro_scheme = legacy | unsplit`** (default `legacy`, which stays
+  bit-identical to the Fortran in every test). `unsplit` is the unsplit
+  MUSCL-Hancock + HLLC solver of the framework spike
+  (`include/radray/kernels/hydro_mh.hpp`, header-only and
+  framework-independent so the AMReX thread compiles the same file), with
+  the **dual-energy formulation** of Bryan et al. 1995: a separately
+  advected internal-energy field (`GasGrid::e`), updated with the −p∇·v
+  work from the Riemann solver's interface velocities, and the η₁/η₂
+  selection (`dual_eta1`, `dual_eta2`; `dual_energy = 0` turns it off).
+  The entropy-conserving variant (Ryu et al. 1993) was not built: the
+  dual-energy version passed the tests.
+* **Loop placement:** the six sweeps around `particle_mesh` become one
+  sub-cycled unsplit step over `dt_sim/2`, the PM kick, and a second one;
+  same call sites, same `calc_timestep` (so the same `nstep_rt`). The PM
+  kick of the gas acts on the conserved lab-frame variables with the
+  thermal energy unchanged (`pm::particle_mesh_unsplit`).
+* **RT coupling rule:** the RT's `photo_cell` takes the thermal energy from
+  the internal-energy field when it exists and writes its heating/cooling
+  back to both `u(5)` and the field (the physics coupling point). A second,
+  diagnostic RT edit reads the field for the RT grid temperature
+  (`average_gas`/`gas_state_from_avg`), as does `summarize_gas`, because
+  the float `u` cannot hold a cold supersonic cell's thermal energy; both
+  are no-ops (same arithmetic) with the legacy scheme. **Approved by the
+  user (2026-10-09).**
+* **Constants:** η₁ = 10⁻³ and η₂ = 0.1 confirmed against the Enzo method
+  paper (Bryan et al. 2014, §4.1.1, eqs. 44–45) and the total-energy reset
+  against the Nyx paper (Almgren et al. 2013, §3.2), both supplied by the
+  user on 2026-10-09 (Bryan et al. 1995 itself is not accessible to the
+  user either), and their exact forms tested on the suite problems
+  (`docs/hydro_unsplit.md` §2). Deliberate deviations, measured there: the
+  η₁ test and the η₂ maximum use the ±2 neighbourhood along all axes
+  (Enzo: cell-local η₁, ±1 along the sweep for η₂), and the work term uses
+  the time-centred pressure (Enzo: old time). All are parameters.
+* **Validation:** the hydro suite with `--scheme unsplit` and its own
+  tolerances, the restart and thread-count tests, and one coupled 64³ run
+  per scheme. No Fortran harness copy (new physics beyond the original
+  needs none, see the Fortran harness scope above).

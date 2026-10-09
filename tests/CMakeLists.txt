@@ -123,6 +123,36 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_fixed_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
+  # Ray dump (compression study) on: still bit-identical to the Fortran, and
+  # the codec prototype round-trips the snapshots (docs/ray_compression.md).
+  foreach(cfg "legacy;outputs;" "fixed;outputs_legacy_rt0_phys0;legacy_rt=0,legacy_physics=0")
+    list(GET cfg 0 tag)
+    list(GET cfg 1 refsub)
+    list(GET cfg 2 sets)
+    set(p lognormal_16src_smallbuf)
+    set(refdir ${PROJECT_SOURCE_DIR}/reference/harness/${refsub}/${p})
+    if(EXISTS ${refdir})
+      add_test(NAME ray_dump_${tag}_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DCODEC=$<TARGET_FILE:ray_codec>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ray_dump_runs/${tag}_${p}
+                 -DREF=${refdir}
+                 -DSET=${sets}
+                 -DPYTHON=${Python3_EXECUTABLE}
+                 -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_ray_dump.cmake)
+      set_tests_properties(ray_dump_${tag}_${p} PROPERTIES TIMEOUT 1800 LABELS "reference;raycomp")
+    endif()
+  endforeach()
+
+  # Movie tool (tools/movies, docs/movies.md) on a synthetic run directory;
+  # skipped (77) without matplotlib
+  add_test(NAME movie_tool
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/movies/test_make_movie.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/movie_tool)
+  set_tests_properties(movie_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
   # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
   # (retarded-time / Shapiro et al. 2006) solution (docs/production_run.md)
@@ -297,7 +327,8 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
 
   # Strict comparison with the stored Fortran full-harness outputs (stats of
   # every step, SHA-256 of every field file, hydro.log, P(k), particles).
-  # smoke_*: seconds; legacy_* / onthefly_*: ~4 minutes each (label long).
+  # smoke_*: seconds; legacy_* / onthefly_*: ~4 minutes each (label nightly,
+  # built only with RADRAY_NIGHTLY_TESTS=ON).
   foreach(c smoke_rt1 smoke_rt0 legacy_rt1 legacy_rt0 onthefly_rt1 onthefly_rt0)
     string(REGEX REPLACE "_rt[01]$" "" p ${c})
     string(REGEX REPLACE "^.*_" "" m ${c})
@@ -440,6 +471,14 @@ if(Python3_Interpreter_FOUND)
                      --set zdata1=12 --set fields_every=1)
     set_tests_properties(thread_full_legacy_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # the unsplit hydro scheme with dual energy (docs/hydro_unsplit.md)
+    add_test(NAME thread_full_unsplit_hydro_pm
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_unsplit $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly --quiet
+                     --set zdata1=12 --set fields_every=1 --set hydro_scheme=unsplit)
+    set_tests_properties(thread_full_unsplit_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     # ASan/UBSan builds with OpenMP, thread-count independence (parallel
     # paths: N = 32)
     if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
@@ -481,8 +520,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det 14 --set legacy_rt=0
                      --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
                      --set movie_z0=25)
-    set_tests_properties(restart_smoke_legacy restart_smoke_det_movie PROPERTIES TIMEOUT 600
-                         LABELS restart)
+    # the unsplit hydro scheme: the internal-energy field through the
+    # checkpoint and the RT coupling (docs/hydro_unsplit.md)
+    add_test(NAME restart_smoke_unsplit
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/unsplit 13 --set hydro_scheme=unsplit)
+    set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
+                         PROPERTIES TIMEOUT 600 LABELS restart)
   endif()
 endif()
 

@@ -222,6 +222,12 @@ at the end of the hydro step). Disk: 2·4N³ B per frame: 0.4 GB (N = 64),
 3.2 GB (N = 128), 10.8 GB (N = 192) for 190 frames; use
 `movie_fields = fHI` or a larger `movie_dz` at N = 192.
 
+`make_production.py` now also writes `rhog` in the frames
+(`--movie-fields`, default `fHI,temp,rhog`: 1.5× the disk above) for the
+movie tool, `tools/movies/make_movie.py` (`docs/movies.md`). Frames
+written before the first RT step carry an uninitialised rt_grid (fHI =
+rhog = 0, x_HII,M = nan in frames.txt); the movie tool skips them.
+
 ## 5. Measured runs, cost and timing table
 
 ### Production-configuration runs
@@ -309,6 +315,38 @@ N = 192 ≈ 6–9 GB, 10–60 s each on this disk) and movie frames (section 4).
 
 ## 6. Speedups
 
+### On an idle Hyak node (2026-10-08; full tables in `docs/cluster.md` §6)
+
+One hydro step restarted from a production checkpoint on a whole `cpu-g2`
+node (AMD EPYC 9654, 2 × 96 cores), `OMP_PLACES=cores OMP_PROC_BIND=close`,
+`tools/hyak/scaling_test.slurm`. **All outputs byte-identical** for 1, 8, 24,
+48, 96 and 192 threads at both sizes.
+
+| component | 128³, 96 thr | 128³, 192 thr | 256³, 96 thr | 256³, 192 thr |
+|---|---|---|---|---|
+| ray_tracing_1 | 52.8 | 57.3 | 78.3 | 116 |
+| ray_tracing_3 | 53.0 | 57.7 | 78.8 | 114 |
+| calc_ray_1 (histogram) | 50.0 | 19.5 | 67.7 | 92.0 |
+| radiative_physics | 34.8 | 44.8 | 34.1 | 39.6 |
+| post_rt (redshifting, PDFs) | 81.2 | 141 | 74.4 | 131 |
+| hydro | 35.7 | 37.8 | 49.0 | 79.8 |
+| PM (serial FFTW) | 11.0 | 10.1 | 12.6 | 11.7 |
+| summaries | 3.9 | 4.3 | 4.2 | 4.2 |
+| FoF + sources | 6.0 | 5.6 | 7.4 | 7.3 |
+| **RT total** | **50.3** | **53.7** | **67.8** | **94.1** |
+| step (with its output) | 39.2 | 39.4 | 45.7 | 52.2 |
+| step time [s] (1 thread: 406 s at 128³, 2507 s at 256³) | 10.4 | 10.3 | 54.8 | 48.0 |
+
+(128³: step 25, z = 7.30 → 6.70, 19 substeps, 17–19M rays; 256³: step 31,
+z = 8.09 → 7.82, 15 substeps, 136–140M rays.) The colour-swept ray tracing
+flattens at 128³ between 96 and 192 threads (512 domains per colour) and keeps
+scaling at 256³ (4096 per colour), as expected. Per thread, one ray-substep
+(`ray_tracing_1` + `ray_tracing_3` + `calc_ray_1` + `post_rt`) costs
+1.0–1.05 µs on one Genoa core, and `radiative_physics` 1.05–1.2 µs per cell per substep,
+against 2.0 and 1.7 µs on the old VM. The 4-thread entries below are therefore superseded.
+
+### On the shared 4-core VM (first thread)
+
 Measured by restarting the same checkpoint for one hydro step with 1, 2 and
 4 threads (`tools/production/speedup.sh`) and from the first steps of the
 runs (`speedup_hydro.sh`). The outputs of the 1-, 2- and 4-thread runs are
@@ -336,10 +374,36 @@ to 512 (N = 128) independent domains per colour and two barriers per
 colour. Hydro, PM and `radiative_physics` reach 1.6–1.7 on two threads
 (memory-bound sweeps; batched ordered replay). On four free cores we
 expect ≈ 3.5 for the RT and ≈ 3 for hydro/PM (the projection used in the
-timing table); the 4-thread numbers above are limited by the other job
-and should be re-measured on an idle machine with the two scripts.
+timing table); the 4-thread numbers above are limited by the other job.
+The idle-node measurement on Hyak is at the top of this section.
 
 ## 7. Recommendations for the production run
+
+**Update after the Hyak runs (2026-10-08; `docs/cluster.md` §7–8).** The
+cost estimates below were made for 4 cores of a shared VM. On one klone node:
+
+| run | measured |
+|---|---|
+| 128³, 0.01c | 3 min 08 s (32 threads, shared node), 3.5 GB |
+| 128³, 0.1c | 16 min (48 threads, shared node), 3.2 GB |
+| 256³, 0.01c | 26 min (96 threads, shared node; 8 min of it checkpoints), 23 GB |
+| 256³, 0.1c, movie | **1 h 32 min (whole node, 192 threads)**, 27 GB, 25 GB of frames |
+
+So:
+1. Resolution is no longer the constraint: **256³** is cheap on one node.
+   192³ is not needed as an intermediate step.
+2. **c_reduced = 0.01 is strongly biased:** against 0.1c it delays
+   reionization by Δz ≈ 2–2.5 (z(50%) = 8.5–9.0 against 10.4; z(99%) = 6.2–6.5
+   against 8.8) and lowers τ_es by 20% (same ICs at each N; the 128³ and 256³ ICs
+   are different realisations, so they are not a resolution test). Use **0.1c** as the baseline, and test its convergence with a
+   0.3c or 1c run at 128³ (hours).
+3. Run on a whole node with 192 threads at 256³; 96 threads at 128³.
+4. At 256³ the checkpoints are 12–17 GB: `restart_every` ≥ 2 (4 for short
+   runs) and `restart_keep_latest = 1`. `data_files = norays` and the short
+   `fields` list (as in `make_production.py`) still apply.
+
+The items below are the original recommendations, kept for reference; 1–3
+are superseded by the table above.
 
 1. **N = 128, c_reduced = 0.01** is the run to do first: about half an
    hour on 4 idle cores (it took 69 min on this shared machine), 2.8 GB

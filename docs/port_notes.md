@@ -296,6 +296,39 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
   `parallel do`, which is non-conforming OpenMP. The harness removed it, and
   the C++ is serial.
 
+* **B16. Grid-aligned photon deficit along ±x and ±y from each source.**
+  `ray_source` emits the `nside_init = 4` HEALPix directions
+  (`pix2vec_nest`) in a frame fixed to the grid, from the source cell
+  centre. Directions ±x and ±y are pixel vertices at every nside. The
+  rays around each of these axes are therefore mirror-symmetric about the
+  grid planes through the source, and they leave the column of cells along
+  the axis at the same distance. Those cells get too few photons. At ±z
+  (the poles) the surrounding rays are diagonal, and the effect is about
+  100× weaker.
+  * **Uniform single-source test** (30 steps): axis cells near the front
+    fall short of their shell mean by up to 0.25 in x_HII (0.45 with
+    `c_reduced = 0.1`). This is identical for the legacy flags (= gfortran),
+    the fixed flags and `deterministic_parallel`.
+  * **Cosmological runs:** visible as one-cell streaks and "+" crosses on
+    sources (`docs/movies.md`).
+  * **Not fixed yet** (on hold, user decision 2026-10-08). The fix options
+    and their costs:
+    1. One fixed global rotation of the HEALPix frame: a 3×3 rotation
+       after `pix2vec_nest` and its transpose before `vec2pix_nest`, at
+       emission, split and merge. Well under 1% of the RT cost, with no
+       change to the ray size, and cross-source merging stays consistent.
+       It does not average out the radial spokes. This is the one to try
+       first.
+    2. Emit from the luminosity-weighted sub-cell source position instead
+       of the cell centre. Also nearly free (about 3 floats per source cell).
+    3. A rotation per substep or per source, as in Abel & Wandelt 2002.
+       This also smooths the spokes, but costs more:
+       - per substep: every live ray needs a new pixel index (one
+         `vec2pix` per ray per substep, an estimated 5–10% of the RT);
+       - per source: a frame id on each ray (+4 B), and a frame rule for
+         rays merged from different sources.
+    Check any fix with `tools/analysis/axis_deficit.py` and the 64³ movie.
+
 ## 5a. The `legacy_rt` switch (phase 1b)
 
 `legacy_rt` is a `params.txt` key, default 1. Both drivers also accept

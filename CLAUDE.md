@@ -20,13 +20,19 @@ At the start of a session, read:
    (`reference/harness*/src`) as documented patches in that harness's
    `PATCHES.md`.
 2. **Bit-for-bit validation.**
-   - The C++ must stay byte-identical to the gfortran harnesses on every
-     validation problem and in every flag combination.
+   - The gfortran harnesses hold the original specification, for
+     comparison. With the default (original) settings the C++ must stay
+     byte-identical to them on every validation problem.
+   - The existing mirrored flags (`legacy_rt`, `legacy_physics`) are also
+     in the Fortran harnesses; keep the C++ byte-identical in every
+     combination of them.
    - Check with `tools/compare/compare.py REF NEW --rtol 0 --atol-frac 0`.
      `--rtol 0` alone still allows absolute differences.
-   - Changing results on purpose requires two things: a flag that keeps the
-     old behaviour, and the same change in the Fortran harness. After that,
-     regenerate the stored references.
+   - Changing results on purpose requires a C++ flag whose default keeps
+     the original behaviour. New flags do **not** need a mirrored
+     implementation in the Fortran harness (user decision, 2026-10-08):
+     the Fortran only has to provide the original for comparison. Example:
+     the research-only `ray_quant_*` options (`docs/ray_compression.md`).
 3. **Legacy flags always reproduce the original.**
    - `legacy_rt = 1` and `legacy_physics = 1` (the defaults) give the
      original behaviour.
@@ -68,6 +74,8 @@ At the start of a session, read:
 | `tools/compare` | field/stat comparison (with self-tests) |
 | `tools/ics` | Zel'dovich ICs |
 | `tools/analysis` | figures |
+| `tools/ray_compression` | ray dumps → entropy, codec prototype, precision runs (`docs/ray_compression.md`) |
+| `tools/hyak` | UW Hyak `klone` environment, build, production and scaling jobs (`docs/cluster.md`) |
 | `docs/` | plan, status, port notes per component, design doc, figures |
 
 ## Build and test
@@ -76,7 +84,7 @@ At the start of a session, read:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build -j4 -LE "long|nightly"   # fast suite
-ctest --test-dir build -L long                   # ~5 min each, full-loop references
+cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~5 min each: full-loop references, pool guard, full hydro tiers
 ```
 
 - Needs `g++`, `gfortran` (for the live Fortran comparison tests), `libfftw3-dev`
