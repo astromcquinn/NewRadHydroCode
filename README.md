@@ -4,20 +4,25 @@ A C++ cosmological radiative-transfer (RT) code built on the adaptive
 ray-tracing algorithm of Hy Trac's RadHydro (Trac & Cen 2007; Trac, Cen &
 Loeb 2008). The roadmap is in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: phase 1c, the full radhydro loop.** `apps/radhydro` runs the
-complete `radhydro.f90` time loop (hydro + PM gravity + halos/sources + RT)
-and is bit-identical to a gfortran build of the original program
-(`reference/harness_full`), with legacy halo catalogs and with on-the-fly
-friends-of-friends sources; see [docs/full_run.md](docs/full_run.md).
+**Status (2026-10-09).** The port is complete and bit-identical to the
+gfortran references: `apps/radhydro` runs the full `radhydro.f90` loop
+(hydro + PM gravity + on-the-fly FoF halos and sources + RT), and the RT,
+hydro and PM parts have their own drivers and Fortran harnesses. On top of
+the port: optional RT and physics fixes behind `legacy_rt` / `legacy_physics`,
+a reduced speed of light, OpenMP with thread-count-independent results,
+restarts, an unsplit MUSCL-Hancock + HLLC hydro scheme with dual energy
+(`hydro_scheme = unsplit`), a hydro test suite, a ray-compression study and
+the AMReX-vs-Parthenon framework spike. What is done, in progress and next
+is in [docs/STATUS.md](docs/STATUS.md); the decisions are in
+[docs/PLAN.md](docs/PLAN.md) and the long-term plan in
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
-**Phase 1, the faithful port.** `radray` is a serial C++17 port of the
-RT part of `reference/Radhydro`. That covers ray tracing, HEALPix ray
-splitting and merging, photo-ionisation and heating chemistry, and the
-cosmology and units the RT uses. On every validation problem it reproduces
-the gfortran reference harness (`reference/harness`) **bit for bit**: all
-output fields are byte-identical and all ray and RT statistics are identical.
-This holds for the original code and with the optional RT and physics fixes
-(`legacy_rt`, `legacy_physics`) switched on in both codes.
+**Phase 1, the faithful port.** `radray` is a C++17 port of
+`reference/Radhydro`. On every validation problem it reproduces the gfortran
+reference harnesses **bit for bit**: all output fields are byte-identical
+and all ray and RT statistics are identical. This holds for the original
+code and with the optional RT and physics fixes (`legacy_rt`,
+`legacy_physics`) switched on in both codes.
 
 ## Layout
 
@@ -32,22 +37,32 @@ include/radray/   headers (namespace radray)
   rays.hpp        ray storage pool (ray_index, free buffers)
   ray_tracing.hpp ray_tracing_tools.f90
   rt.hpp          rt_tools.f90 (+ domains, sources)
+  hydro.hpp, pm.hpp, fft.hpp   hydro_tools.f90, pm_tools.f90, fft_tools.f90 (FFTW)
+  kernels/hydro_mh.hpp         unsplit MUSCL-Hancock + HLLC kernel (hydro_scheme = unsplit)
+  halos.hpp, halo_sources.hpp  FoF halo finder, source model, legacy catalogs
+  checkpoint.hpp  restart files
   simulation.hpp  all state, in explicit structs
   io.hpp          problem input, validation output
 src/              implementation
-apps/rt_driver.cpp   RT-only driver implementing docs/validation_spec.md
-tests/            unit tests, end-to-end checks, comparison with the reference
-  problems/       validation problems (made by reference/harness/make_test_problem.py)
-reference/        original Fortran (read-only) and the gfortran harness
-tools/compare/    field and stats comparison tool
-tools/plot_cooling.py  cooling-function figure (docs/figures/cooling_rates.png)
-docs/             plan, validation spec, design notes, port notes
+apps/             rt_driver (RT only), hydro_driver, pm_driver, radhydro (full
+                  loop), find_halos (FoF on a snapshot)
+tests/            unit tests, end-to-end checks, comparison with the references
+  problems*/      validation problems per component; hydro_suite/ (docs/hydro_tests.md)
+reference/        original Fortran (read-only) and the gfortran harnesses
+                  (harness: RT, harness_hydro, harness_pm, harness_full, harness_common)
+tools/            compare/ (field and stats comparison), ics/ (Zel'dovich ICs),
+                  analysis/ (figures), production/ (production parameters, timing),
+                  movies/ (stills), ray_compression/ (ray dumps, codec, precision)
+spike/            framework spike: AMReX and Parthenon prototypes (docs/framework_decision.md)
+docs/             plan, status, roadmap, validation spec, port notes, design docs, figures
 ```
 
 ## Build
 
-You need CMake 3.16 or newer and a C++17 compiler (tested with g++ 13.3). It
-has no other dependencies.
+You need CMake 3.16 or newer, a C++17 compiler (tested with g++ 13.3) and
+FFTW3 in single precision (`libfftw3-dev`; the PM gravity uses it, and both
+codes use it in place of MKL). The live Fortran comparison tests need
+`gfortran`; the Python tools need numpy (and matplotlib for figures).
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release     # -O2

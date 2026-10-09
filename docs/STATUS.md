@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09 (after PR #10, the ray compression study, the hydro solver thread (PR #15) and the framework spike (PR #11)).*
+*Last updated: 2026-10-09, repository survey (branch `claude/lucid-brahmagupta-85vs76`): branch and PR state, merge order, Hyak threads and next steps are in the two sections before "Next". `main` is at PR #11 (after PRs #10, #13, #15).*
 
 ## Done (merged into `main`)
 
@@ -188,6 +188,99 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
   (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
   `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
 
+## Branches and PRs (survey, 2026-10-09)
+
+`main` holds PRs #1–#6, #8–#11, #13–#15. Three branches carry work that
+is **not** on `main`; each was test-merged against `main` and against the
+others (worktrees, 2026-10-09):
+
+| Branch | PR | What it adds | Conflicts with `main` | Conflicts with the others |
+|---|---|---|---|---|
+| `hyak-setup` (11 commits, 67 behind) | none yet | `docs/cluster.md` (klone environment, FFTW SSE2-only finding, scaling on an idle node, four 128³/256³ runs, 0.01c vs 0.1c, P(k)/growth check), `tools/hyak/` (env, setup, build, auto-restart production job, scaling test), `run_steps` parameter, `reion_history.py`, `pk_growth.py`, `compare_stills.py` | `docs/STATUS.md`; `apps/radhydro.cpp` (the `run_steps` lines against the parameter if-chain fix of PR #15) | `tools/hyak/{build_hyak.sh, reion_production.slurm, scaling_test.slurm}` also exist on `production-run` (older, shorter versions): keep the `hyak-setup` ones |
+| `movies` (3 commits, 71 behind) | #12 | `tools/movies/make_movie.py` (609 lines, CTest `movie_tool`), `docs/movies.md`, 64³ test movie, the **B16** finding (grid-aligned photon deficit) in `port_notes.md`, `axis_deficit.py` | `docs/STATUS.md` only | `tools/production/make_production.py`: both add `--movie-fields` (merge by hand) |
+| `production-run` (10 commits, 71 behind) | #7 (draft) | `sfr_model = abundance` (abundance matching to the UV LFs read from Bouwens+22, Atek+26, Donnan+24; `apps/am_fit`, `apps/hmf_table`, Tinker HMF), HMF validation at 128³ (`docs/hmf_validation.md`), f_esc calibration (`calibrate_fesc.py`), `docs/reionization_production.md`, `docs/abundance_matching.md`, `data/uv_lf/` | `docs/STATUS.md` only (textual) | `tools/movie/make_movie.py` (177 lines) is superseded by the `movies` tool: drop it and keep `tools/analysis/reion.py`; `tools/hyak/` as above |
+
+Merged and deletable remote branches (0 commits ahead of `main`):
+`framework-spike`, `hydro-unsplit`, `ray-compression`,
+`claude/hopeful-thompson-w5m60t`, `claude/relaxed-brahmagupta-9v7xb5`.
+
+**Recommended merge order:** `hyak-setup` (open a PR; smallest code change,
+largest measured content), then `movies` (#12), then `production-run` (#7).
+After each merge: rebuild, run the fast suite with the live Fortran tests
+(needs gfortran and FFTW; the cloud container has neither, so only the RT
+third of the suite runs there), and on Hyak the nightly label.
+
+**Facts from the unmerged branches that change the plan:**
+- One klone node runs 128³ at 0.01c in 3 min and 256³ at 0.1c with a
+  movie in 1.5 h (192 threads, RT 94× over one core). Resolution is no
+  longer the constraint; 256³ is the production size.
+- **c_reduced = 0.01 delays reionisation by Δz ≈ 2–2.5 and lowers τ_es by
+  20 %** against 0.1c (same ICs). Use 0.1c; check convergence with one
+  0.3c or 1c run at 128³.
+- The f_esc = 0.5 calibration on `production-run` was done at 128³ and
+  0.01c; it has to be redone at 0.1c (and at 256³, whose HMF has not been
+  checked).
+- On klone 8 RT stored-reference tests fail by 1 ulp in double sums and by
+  rays at the removal threshold; the live gfortran harness built there shows
+  the same differences and agrees with the C++ byte for byte. The stored RT
+  references are platform-dependent (libm). Decision needed: regenerate
+  them per platform, or compare the double sums with a tolerance.
+- B16 (`movies` branch): the fixed HEALPix frame leaves a photon deficit
+  along ±x/±y from every source, up to 0.25 in x_HII near the front; it is
+  the "+" crosses and streaks in the stills. Fix behind a flag (a global
+  frame rotation first) before any science run.
+- `make_ics.py` draws different phases for different N with the same seed,
+  so 128³ against 256³ mixes resolution with cosmic variance.
+- The linear growth of the fundamental mode is 2 % low in power by z = 5.4
+  at both N and both c (not resolution); cause unchecked.
+
+**Repository cleanup done in this survey:** `tools/compare/compare.py.orig`
+removed; `ctest -L long` in CLAUDE.md replaced by the nightly label (no test
+carried `long`); README status, layout and dependencies brought up to date;
+`.gitignore` covers `out*/` and `runs/`; checkpoint files no longer contain
+uninitialised padding bytes (`DriverState` is written from a zeroed copy;
+format unchanged).
+
+## Threads to launch (2026-10-09)
+
+On Hyak (`claude remote-control` in tmux, or batch jobs):
+
+1. **Merge and validate.** Merge the three branches in the order above,
+   resolve the conflicts listed, run the fast and nightly suites on klone,
+   update this file. Can run in the cloud, with the klone test run after.
+2. **Production run at 256³, 0.1c, abundance-matched sources.** Recalibrate
+   f_esc at 0.1c (four 128³ runs of about 16 min, `calibrate_fesc.py`),
+   check the 256³ HMF (`hmf_compare.py`), then the 256³ 0.1c run with
+   movie on a whole node (1.5 h), and one 0.3c or 1c run at 128³ for the
+   c convergence. Decide `hydro_scheme = unsplit` for it (the legacy scheme
+   overheats cold gas; `make_production.py` does not set it yet).
+3. **Framework-spike benchmarks** (`spike/hyak/README.md`): `bench_node`
+   (MPI × OpenMP layouts on one node), `bench_scale` on 1–4 nodes, and the
+   GPU build on `ckpt` (`build_gpu.sh`, nvcc ≥ 12.2). Copy the CSVs into
+   `spike/bench/results/` and update `docs/framework_decision.md`. These
+   numbers confirm the AMReX choice and feed the NSF ACCESS decision rule.
+4. **Ray-compression 128³ precision check**
+   (`tools/production/hyak_precision.sbatch`), the one unrun item of the
+   compression study.
+
+In the cloud (branch + PR each):
+
+5. **B16 fix behind a flag** (frame rotation; `tools/analysis/axis_deficit.py`
+   and the 64³ movie as the checks). Blocks science runs.
+6. **Stage D: sorted-ray-array RT in AMReX** on a uniform grid, with the
+   R-struct encoding (8 dithered photon bits), validated against
+   `rt_driver --set legacy_rt=0` as the spike was. Needs the user's AMReX
+   confirmation first.
+7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
+8. Smaller: the stored-RT-reference platform policy; the 2 % growth
+   deficit; the unsplit open items (Sedov radius convergence, cold-gas
+   time-step sensitivity at 128³); merge `docs/production_run.md` and
+   `docs/reionization_production.md` once #7 lands.
+
+**Decisions needed from the user:** confirm AMReX (Stage D); production
+`c_reduced` (0.1 recommended) and N (256); `hydro_scheme` for production;
+the stored-reference policy on klone; deleting the merged branches.
+
 ## Next
 
 1. Check the halo mass function at production resolution against Sheth–Tormen/Tinker.
@@ -201,9 +294,9 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    | Setting | Value |
    |---|---|
    | Box | 10 Mpc/h |
-   | c_reduced | 0.01 (the user accepts slow light) |
+   | c_reduced | 0.1 recommended (was 0.01; the Hyak runs on `hyak-setup` show 0.01 delays reionisation by Δz ≈ 2–2.5) |
    | nray_max_factor | 16 |
-   | Ngas = Ndm | 128³, or 192³ if the timing table allows |
+   | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on one klone node; was 128³/192³) |
    | Flags | legacy_rt = legacy_physics = 0 |
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
    - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
@@ -249,7 +342,7 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
 ## Known limits
 
-- **OpenMP only.** MPI/GPU is Phase 2. Thread scaling on Genoa is still to be measured on Hyak.
+- **OpenMP only.** MPI/GPU is Phase 2. On one Genoa node the RT reaches 94× on 192 threads at 256³ and about 50× at 128³ (`docs/cluster.md` on `hyak-setup`).
 - **RT dominates the cost.** Hydro+PM take under 1%. At full c, z=12→6 at
   128³ would take days on one core, hence `c_reduced`.
 - **Network access from cloud sessions.** arXiv, ADS and journal sites are
