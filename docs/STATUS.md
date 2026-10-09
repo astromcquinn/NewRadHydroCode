@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-08, after the Hyak cluster-setup thread (branch `hyak-setup`). The rest of this file predates PRs #7, #11, #12 and #13.*
+*Last updated: 2026-10-09, merge of `hyak-setup` into `main` (after the repository survey of branch `claude/lucid-brahmagupta-85vs76`): branch and PR state, merge order, Hyak threads and next steps are in the two sections before "Next".*
 
 ## Done (merged into `main`)
 
@@ -49,6 +49,33 @@ overcooling suppression, the rho_source photon consumption, SN heating.
 (`tools/analysis/test_gallery.py` → `docs/figures/tests_*.png`), and the cooling
 figure.
 
+**Ray compression study (ROADMAP §4, Stage B): done** on branch
+`ray-compression`; see `docs/ray_compression.md`.
+
+- Optional ray snapshots (`ray_dump_*`) and a research-only lossy-precision
+  instrument (`ray_quant_*`). Both are off by default, and the C++ stays
+  bit-identical to the Fortran (`ctest -L raycomp`).
+- Never-merged rays are determined by (source, age, nside, ipix) to
+  float32 precision.
+- Ray size:
+  - fixed-width "R-struct": 29–31 B per ray (80 B of ray data, 88 B per slot);
+  - rANS prototype (`build/ray_codec`): 5–9 B before overlap and 12.7 B
+    after, with a 6-bit dithered photon total and 10-bit offsets. It costs
+    230–310 ns to decode and 290–450 ns to encode per ray, against ~2 µs of
+    RT per ray-substep.
+- Dithered photon quantisation: 8 bits is at the 10⁻⁴ level in every
+  test including the 64³ production configuration (0.01c); 1–2 bits pass
+  the 32³ tests but reach 1 % and 15 % per-cell T scatter at 0.01c.
+  Round-to-nearest is biased (≈1 % error at 6 bits).
+- Many sources (128³, up to 1506 sources at the dumps): the source id
+  costs ~3 bits per ray; the spectra diversify and the models must be
+  refit every hydro step (redshifting), after which the size is the same
+  12–14 B per ray as with 17 sources.
+- Recommendation: R-struct with 8 dithered photon bits as the Stage D
+  in-memory format, and rANS for checkpoints and MPI.
+- Not yet run: the 128³ production-configuration precision check
+  (`tools/production/hyak_precision.sbatch`).
+
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 
@@ -91,7 +118,42 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   entropy formulation for cold supersonic gas behind a flag, is a candidate
   next task.
 
-## Hyak (branch `hyak-setup`, 2026-10-08; `docs/cluster.md`)
+**Unsplit hydro scheme with dual energy (branch `hydro-unsplit`;
+`docs/hydro_unsplit.md`, `docs/hydro_tests.md` §12):**
+- `hydro_scheme = legacy | unsplit` (default `legacy`, bit-identical to the
+  Fortran; every stored-reference, live-Fortran, restart and thread test
+  passes unchanged). `unsplit` is the spike's MUSCL-Hancock + HLLC kernel
+  (`include/radray/kernels/hydro_mh.hpp`, header-only, the AMReX thread
+  takes it from here) with the dual-energy formulation of Bryan et al.
+  1995 (`GasGrid::e`, η₁/η₂ against the ±2-cell maximum, a total-energy
+  reset) and the species advected with the mass flux. Two sub-cycled
+  unsplit steps around the PM kick, same call sites, same `calc_timestep`.
+- **The spurious heating of cold supersonic gas is fixed**: pancake infall
+  median T/T_adiabatic 1.000 at every N (legacy 7–20 at N = 64), box
+  median 2–9 K at z = 10 (legacy 6500 K), coupled 64³ run 2.7 K at z = 14
+  (legacy 133 K). Also: energy conserved to round-off except ahead of
+  strong shocks in Mach ≫ 1 gas (U4, ≤ 0.6 %), contacts 3.4 cells, exact
+  symmetry and orientation independence for 1-D problems, 2–3× less
+  dissipative sound waves, KH grows at 1 cell per layer, half the cost per
+  hydro step. Worse: Sedov at 128³ (radius +1.5 % vs +0.9 %, slower
+  convergence), two hot stagnation cells before a caustic (U2), the
+  cold-gas temperature depends on the hydro step (use `ra_max` ≈ 0.02).
+- The RT's `photo_cell` reads and writes the field (the one physics
+  coupling point); the RT grid temperature and `summarize_gas` read it for
+  diagnostics. Checkpoint format version 2 (version 1 still readable).
+- **Constants confirmed** against the Enzo (Bryan et al. 2014 §4.1.1) and
+  Nyx (Almgren et al. 2013 §3.2) method papers: η₁ = 10⁻³, η₂ = 0.1, the
+  total-energy reset, and tested: the exact Enzo form reproduces the
+  cold-gas results (energy to round-off, but 28× stagnation cells at z = 10
+  in the pancake); the Nyx resync rule does not work in this kernel (box
+  underdense gas at 5000 K). Deliberate deviations (the ±2 all-axis
+  neighbourhood, the time-centred pressure in the work term) are measured
+  and documented in `docs/hydro_unsplit.md` §2; all are parameters.
+- Suite: `run_suite.py --scheme unsplit`, tolerances per scheme,
+  `hydro_suite_unsplit_*` (fast) and `hydro_suite_full_unsplit_*`
+  (nightly), `restart_smoke_unsplit`, `thread_full_unsplit_hydro_pm`.
+
+**Hyak klone setup (branch `hyak-setup`, 2026-10-08; `docs/cluster.md`):**
 
 - **Environment:** gcc/g++/gfortran 13.2.0 (module `gcc/13.2.0`), FFTW
   3.3.10 float built SSE2-only in user space (AVX2 / no-SIMD builds break 5–6
@@ -117,16 +179,14 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   different realisations (make_ics.py phases depend on N), so N = 128 vs 256
   is not a clean resolution test. Both c reionize too early with the uncalibrated global model
   (τ_es = 0.07–0.09).
-- **Findings for later:** checkpoint files hold 6 uninitialised padding bytes
-  (`DriverState`), so identical runs give checkpoints that differ in one byte
-  (restarts are unaffected); `ctest -L long` (CLAUDE.md, README) selects no
-  test, since all long tests are labelled `nightly`; movie frames written
-  before the RT starts log x_HII,V = 1 and x_HII,M = nan.
+- **Findings for later:** movie frames written before the RT starts log
+  x_HII,V = 1 and x_HII,M = nan. (The other two findings of this thread,
+  uninitialised checkpoint padding bytes and the `ctest -L long` label that
+  selected no test, were fixed in the 2026-10-09 survey.)
 - **Open PRs touched:** #7 (`production-run`, draft): its `tools/hyak/`
   scripts were copied into `hyak-setup` and adapted (env, time limits,
-  restart from the newest checkpoint; the post-run analysis scripts it calls
-  are not on `main`); nothing else from it was merged. #11 (`framework-spike`):
-  SPIKE_PLACEHOLDER
+  restart from the newest checkpoint); the `hyak-setup` versions are the
+  ones to keep when #7 is merged.
 
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
@@ -139,6 +199,122 @@ Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
 | 192 | 0.01 | about 2.5–3 h on 4 cores | 8–11 GB; checkpoints of 6–9 GB each |
 
 At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
+
+## Framework spike (Stage C), branch `framework-spike`
+
+- `spike/`: AMReX and Parthenon prototypes of (a) an unsplit MUSCL-Hancock
+  hydro step and (b) the sorted-ray-array RT substep with HEALPix split and
+  merge, int64 fixed-point deposits and ray migration between ranks, all
+  built on shared host/device kernels (`spike/common`).
+- Validation:
+  - the serial sorted-array reference `rt_serial` matches `rt_driver
+    --set legacy_rt=0` with identical ray statistics on all five RT
+    problems, fields to round-off (the explained exceptions are in
+    `docs/framework_decision.md` §2);
+  - both prototypes are bitwise identical to `rt_serial`/`hydro_serial`
+    for 1–8 ranks, several block sizes and 1–2 threads.
+- Local 4-core timings: the RT on one core costs serial 19.6 s, AMReX
+  26.6 s, Parthenon 35.7 s (64³, 400k rays, 32³ blocks).
+- **Recommendation: AMReX** (`docs/framework_decision.md`). Parthenon swarms
+  do not support AMR, there is no sub-cycling, and the mesh overhead was
+  higher. **Pending the user's decision** and the Hyak runs
+  (`spike/hyak/README.md`: single-node layouts, 1–4 nodes).
+- GPU: the shared kernels and the Parthenon prototype compile with CUDA
+  (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
+  `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
+
+## Branches and PRs (survey, 2026-10-09)
+
+`main` holds PRs #1–#6, #8–#11, #13–#15. Three branches carry work that
+is **not** on `main`; each was test-merged against `main` and against the
+others (worktrees, 2026-10-09):
+
+| Branch | PR | What it adds | Conflicts with `main` | Conflicts with the others |
+|---|---|---|---|---|
+| `hyak-setup` (11 commits, 67 behind) | none yet | `docs/cluster.md` (klone environment, FFTW SSE2-only finding, scaling on an idle node, four 128³/256³ runs, 0.01c vs 0.1c, P(k)/growth check), `tools/hyak/` (env, setup, build, auto-restart production job, scaling test), `run_steps` parameter, `reion_history.py`, `pk_growth.py`, `compare_stills.py` | `docs/STATUS.md`; `apps/radhydro.cpp` (the `run_steps` lines against the parameter if-chain fix of PR #15) | `tools/hyak/{build_hyak.sh, reion_production.slurm, scaling_test.slurm}` also exist on `production-run` (older, shorter versions): keep the `hyak-setup` ones |
+| `movies` (3 commits, 71 behind) | #12 | `tools/movies/make_movie.py` (609 lines, CTest `movie_tool`), `docs/movies.md`, 64³ test movie, the **B16** finding (grid-aligned photon deficit) in `port_notes.md`, `axis_deficit.py` | `docs/STATUS.md` only | `tools/production/make_production.py`: both add `--movie-fields` (merge by hand) |
+| `production-run` (10 commits, 71 behind) | #7 (draft) | `sfr_model = abundance` (abundance matching to the UV LFs read from Bouwens+22, Atek+26, Donnan+24; `apps/am_fit`, `apps/hmf_table`, Tinker HMF), HMF validation at 128³ (`docs/hmf_validation.md`), f_esc calibration (`calibrate_fesc.py`), `docs/reionization_production.md`, `docs/abundance_matching.md`, `data/uv_lf/` | `docs/STATUS.md` only (textual) | `tools/movie/make_movie.py` (177 lines) is superseded by the `movies` tool: drop it and keep `tools/analysis/reion.py`; `tools/hyak/` as above |
+
+Merged and deletable remote branches (0 commits ahead of `main`):
+`framework-spike`, `hydro-unsplit`, `ray-compression`,
+`claude/hopeful-thompson-w5m60t`, `claude/relaxed-brahmagupta-9v7xb5`.
+
+**Recommended merge order:** `hyak-setup` (open a PR; smallest code change,
+largest measured content), then `movies` (#12), then `production-run` (#7).
+After each merge: rebuild, run the fast suite with the live Fortran tests
+(needs gfortran and FFTW; the cloud container has neither, so only the RT
+third of the suite runs there), and on Hyak the nightly label.
+
+**Facts from the unmerged branches that change the plan:**
+- One klone node runs 128³ at 0.01c in 3 min and 256³ at 0.1c with a
+  movie in 1.5 h (192 threads, RT 94× over one core). Resolution is no
+  longer the constraint; 256³ is the production size.
+- **c_reduced = 0.01 delays reionisation by Δz ≈ 2–2.5 and lowers τ_es by
+  20 %** against 0.1c (same ICs). Use 0.1c; check convergence with one
+  0.3c or 1c run at 128³.
+- The f_esc = 0.5 calibration on `production-run` was done at 128³ and
+  0.01c; it has to be redone at 0.1c (and at 256³, whose HMF has not been
+  checked).
+- On klone 8 RT stored-reference tests fail by 1 ulp in double sums and by
+  rays at the removal threshold; the live gfortran harness built there shows
+  the same differences and agrees with the C++ byte for byte. The stored RT
+  references are platform-dependent (libm). Decision needed: regenerate
+  them per platform, or compare the double sums with a tolerance.
+- B16 (`movies` branch): the fixed HEALPix frame leaves a photon deficit
+  along ±x/±y from every source, up to 0.25 in x_HII near the front; it is
+  the "+" crosses and streaks in the stills. Fix behind a flag (a global
+  frame rotation first) before any science run.
+- `make_ics.py` draws different phases for different N with the same seed,
+  so 128³ against 256³ mixes resolution with cosmic variance.
+- The linear growth of the fundamental mode is 2 % low in power by z = 5.4
+  at both N and both c (not resolution); cause unchecked.
+
+**Repository cleanup done in this survey:** `tools/compare/compare.py.orig`
+removed; `ctest -L long` in CLAUDE.md replaced by the nightly label (no test
+carried `long`); README status, layout and dependencies brought up to date;
+`.gitignore` covers `out*/` and `runs/`; checkpoint files no longer contain
+uninitialised padding bytes (`DriverState` is written from a zeroed copy;
+format unchanged).
+
+## Threads to launch (2026-10-09)
+
+On Hyak (`claude remote-control` in tmux, or batch jobs):
+
+1. **Merge and validate.** Merge the three branches in the order above,
+   resolve the conflicts listed, run the fast and nightly suites on klone,
+   update this file. Can run in the cloud, with the klone test run after.
+2. **Production run at 256³, 0.1c, abundance-matched sources.** Recalibrate
+   f_esc at 0.1c (four 128³ runs of about 16 min, `calibrate_fesc.py`),
+   check the 256³ HMF (`hmf_compare.py`), then the 256³ 0.1c run with
+   movie on a whole node (1.5 h), and one 0.3c or 1c run at 128³ for the
+   c convergence. Decide `hydro_scheme = unsplit` for it (the legacy scheme
+   overheats cold gas; `make_production.py` does not set it yet).
+3. **Framework-spike benchmarks** (`spike/hyak/README.md`): `bench_node`
+   (MPI × OpenMP layouts on one node), `bench_scale` on 1–4 nodes, and the
+   GPU build on `ckpt` (`build_gpu.sh`, nvcc ≥ 12.2). Copy the CSVs into
+   `spike/bench/results/` and update `docs/framework_decision.md`. These
+   numbers confirm the AMReX choice and feed the NSF ACCESS decision rule.
+4. **Ray-compression 128³ precision check**
+   (`tools/production/hyak_precision.sbatch`), the one unrun item of the
+   compression study.
+
+In the cloud (branch + PR each):
+
+5. **B16 fix behind a flag** (frame rotation; `tools/analysis/axis_deficit.py`
+   and the 64³ movie as the checks). Blocks science runs.
+6. **Stage D: sorted-ray-array RT in AMReX** on a uniform grid, with the
+   R-struct encoding (8 dithered photon bits), validated against
+   `rt_driver --set legacy_rt=0` as the spike was. Needs the user's AMReX
+   confirmation first.
+7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
+8. Smaller: the stored-RT-reference platform policy; the 2 % growth
+   deficit; the unsplit open items (Sedov radius convergence, cold-gas
+   time-step sensitivity at 128³); merge `docs/production_run.md` and
+   `docs/reionization_production.md` once #7 lands.
+
+**Decisions needed from the user:** confirm AMReX (Stage D); production
+`c_reduced` (0.1 recommended) and N (256); `hydro_scheme` for production;
+the stored-reference policy on klone; deleting the merged branches.
 
 ## Next
 
@@ -153,9 +329,9 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    | Setting | Value |
    |---|---|
    | Box | 10 Mpc/h |
-   | c_reduced | 0.01 (the user accepts slow light) |
+   | c_reduced | 0.1 recommended (was 0.01; the Hyak runs on `hyak-setup` show 0.01 delays reionisation by Δz ≈ 2–2.5) |
    | nray_max_factor | 16 |
-   | Ngas = Ndm | 128³, or 192³ if the timing table allows |
+   | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on one klone node; was 128³/192³) |
    | Flags | legacy_rt = legacy_physics = 0 |
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
    - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
@@ -171,12 +347,20 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    grid axes, plus faint radial spokes inside bubbles. A suspect is rays moving
    exactly along grid planes (B10, positions on cell faces). Check this before
    science runs, and see whether it also happens with legacy_rt = 1.
-6. **Hydro fix for cold supersonic gas** (see the hydro-suite finding above),
-   behind a flag, before the plane-parallel science runs.
+   Possibly related: the 32³ `uniform_1src` baseline shows a 12-fold ring of
+   isolated neutral cells inside the ionised sphere
+   (`docs/figures/raycomp_slices_uniform_1src.png`).
+6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
+   branch `hydro-unsplit`; η₁/η₂ confirmed against the Enzo and Nyx
+   papers). Open: convergence check of the Sedov radius bias and the
+   cold-gas time-step sensitivity at 128³.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
-   - ray compression study, which can start now;
-   - framework spike (AMReX vs Parthenon);
+   - ray compression study: done (`docs/ray_compression.md`); 64³
+     production-configuration check done, 128³ job script ready for Hyak;
+   - framework spike (AMReX vs Parthenon): done, AMReX chosen
+     (`docs/framework_decision.md`); Hyak benchmarks to run
+     (`spike/hyak/README.md`);
    - ray data-structure rewrite;
    - MPI;
    - AMR for gas, then RT;
@@ -193,7 +377,7 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
 ## Known limits
 
-- **OpenMP only.** MPI/GPU is Phase 2. On one Genoa node the RT scales to 94× (256³, 192 threads; `docs/cluster.md` §6).
+- **OpenMP only.** MPI/GPU is Phase 2. On one Genoa node the RT reaches 94× on 192 threads at 256³ and about 50× at 128³ (`docs/cluster.md` §6).
 - **RT dominates the cost.** Hydro+PM take under 1%. At full c, z=12→6 at
   128³ would take days on one core, hence `c_reduced`.
 - **Network access from cloud sessions.** arXiv, ADS and journal sites are

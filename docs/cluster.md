@@ -85,7 +85,7 @@ no fast-math, no `-march`).
 |---|---|
 | fast (`-LE "long\|nightly"`) | **72/80 passed, 8 failed** (below) |
 | nightly (`-DRADRAY_NIGHTLY_TESTS=ON -L nightly`) | **12/12 passed** (the four ~5-min full-loop references, the live pool-guard comparison, the seven full hydro-suite tiers; 27 min with 8 in parallel) |
-| `long` label | no test carries it any more: `ctest -L long` (CLAUDE.md, README) selects nothing; all long tests are `nightly` |
+| `long` label | no test carried it: `ctest -L long` selected nothing (fixed on `main` 2026-10-09: CLAUDE.md and README now use the `nightly` label) |
 | skipped | none (`healpix_vs_healpy` runs: healpy is in the env) |
 
 The 8 failures are all RT stored references (`tests/problems`, compared with

@@ -1,0 +1,62 @@
+{
+ "metrics": {
+  "p64": {
+   "d1": {
+    "xHII_vol": 0.007872868277527645,
+    "xHII_mass": 0.007660526114839583,
+    "T_mass": 0.014205230328891538,
+    "front_shift": 0.14964675658317278,
+    "R_front": 0.08197170129872333,
+    "T_ion_cell_rms": 0.03370998136692204,
+    "xHII_ion_cell_rms": 2.117267837154036e-05,
+    "tau_es": NaN,
+    "photons_ionisations": NaN,
+    "photons_in_rays": 0.020396984025494613,
+    "xHII_vol_final_base": 0.9999489997913952,
+    "nsteps": 10.0
+   },
+   "d8": {
+    "xHII_vol": 3.497539326069443e-05,
+    "xHII_mass": 3.0349107027483058e-05,
+    "T_mass": 0.00014957164321538485,
+    "front_shift": 0.038856775850995506,
+    "R_front": 0.0006758631370402668,
+    "T_ion_cell_rms": 0.01053441989348494,
+    "xHII_ion_cell_rms": 1.1731925535424216e-05,
+    "tau_es": NaN,
+    "photons_ionisations": NaN,
+    "photons_in_rays": 1.0592719523083716e-05,
+    "xHII_vol_final_base": 0.9999489997913952,
+    "nsteps": 10.0
+   },
+   "r6": {
+    "xHII_vol": 0.007437284849477477,
+    "xHII_mass": 0.007026952732505309,
+    "T_mass": 0.00499803691034062,
+    "front_shift": 0.10179833012202955,
+    "R_front": 0.09490453545264188,
+    "T_ion_cell_rms": 0.015556279135449862,
+    "xHII_ion_cell_rms": 1.4794884877448172e-05,
+    "tau_es": NaN,
+    "photons_ionisations": NaN,
+    "photons_in_rays": 0.014584891929778188,
+    "xHII_vol_final_base": 0.9999489997913952,
+    "nsteps": 10.0
+   },
+   "struct_o10_d8": {
+    "xHII_vol": 0.0002952938063067734,
+    "xHII_mass": 0.00025856790223000026,
+    "T_mass": 0.0005829008529937285,
+    "front_shift": 0.06165703275529865,
+    "R_front": 0.0037167264376698483,
+    "T_ion_cell_rms": 0.01098046613349254,
+    "xHII_ion_cell_rms": 1.5366959262128567e-05,
+    "tau_es": NaN,
+    "photons_ionisations": NaN,
+    "photons_in_rays": 1.4946629133927303e-05,
+    "xHII_vol_final_base": 0.9999489997913952,
+    "nsteps": 10.0
+   }
+  }
+ }
+}
