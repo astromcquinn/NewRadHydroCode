@@ -1037,6 +1037,11 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
             (((0.0f + uu[1] * uu[1]) + uu[2] * uu[2]) + uu[3] * uu[3]) / uu[0] / 2.0f;
         const double kin = static_cast<double>(kin_f);
         double eth = (static_cast<double>(uu[4]) - kin) * u.eden_unit;
+        // hydro_scheme = unsplit (docs/hydro_unsplit.md section 4): the
+        // thermal energy is the dual-energy field, which gets the same
+        // heating/cooling as u(5). Empty with the legacy scheme: no-op.
+        float* ee = s.gas.e.empty() ? nullptr : &s.gas.e[gc];
+        if (ee) eth = static_cast<double>(*ee) * u.eden_unit;
         double tmp = (g - 1) * eth / k_cgs / neff;
         if (tmp < u.temp_min) {
           tmp = u.temp_min;
@@ -1218,6 +1223,7 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
 
         // Update u_gas and w_gas
         uu[4] = static_cast<float>(kin + eth / u.eden_unit);
+        if (ee) *ee = static_cast<float>(eth / u.eden_unit);
         ww[0] = static_cast<float>(f::min(f::max(nHI, 0.0), nH) / u.H_unit);
         ww[1] = static_cast<float>(f::min(f::max(nHeI, 0.0), nHe) / u.He_unit);
         ww[2] = static_cast<float>(f::min(f::max(nHeII, 0.0), nHe) / u.He_unit);

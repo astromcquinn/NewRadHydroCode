@@ -53,6 +53,7 @@
 #include "radray/cosmology.hpp"
 #include "radray/fft.hpp"
 #include "radray/hydro.hpp"
+#include "radray/hydro_unsplit.hpp"
 #include "radray/io.hpp"
 #include "radray/pm.hpp"
 
@@ -90,6 +91,7 @@ struct Params {
   int max_steps = 100000;
   int write_fields = 1;
   int pk = 1;
+  Config hydro;  // hydro_scheme and the unsplit parameters (docs/hydro_unsplit.md)
 };
 
 void set_param(Params& p, const std::string& k, const std::string& v) {
@@ -108,7 +110,8 @@ void set_param(Params& p, const std::string& k, const std::string& v) {
   else if (k == "max_steps") p.max_steps = std::stoi(v);
   else if (k == "write_fields") p.write_fields = std::stoi(v);
   else if (k == "pk") p.pk = std::stoi(v);
-  else std::cerr << "hydro_suite_driver: ignoring parameter " << k << "\n";
+  else if (set_hydro_scheme_param(p.hydro, k, v)) {
+  } else std::cerr << "hydro_suite_driver: ignoring parameter " << k << "\n";
 }
 
 void read_f32(const std::string& path, std::vector<float>& a) {
@@ -122,7 +125,7 @@ void read_f32(const std::string& path, std::vector<float>& a) {
 }
 
 struct Totals {
-  double mass = 0, mom[3] = {0, 0, 0}, energy = 0, thermal = 0;
+  double mass = 0, mom[3] = {0, 0, 0}, energy = 0, thermal = 0, thermal_e = 0;
 };
 
 // Lab-frame totals (as hydro_driver's stats.txt)
@@ -142,6 +145,7 @@ Totals totals(const GasGrid& gas, const HydroState& hs) {
     t.mass += d;
     t.thermal += u[4] - ekg / d / 2;
     t.energy += u[4] - ekg / d / 2 + ekl / d / 2;
+    if (!gas.e.empty()) t.thermal_e += gas.e[c];
   }
   return t;
 }
@@ -192,7 +196,9 @@ int main(int argc, char** argv) {
     std::ostream* out = quiet ? nullptr : &std::cout;
     std::filesystem::create_directories(odir);
 
-    const Config cfg = Config::make(P.N, 1, P.Ndm, P.box);
+    Config cfg = Config::make(P.N, 1, P.Ndm, P.box);
+    copy_hydro_scheme(P.hydro, cfg);
+    const bool unsplit = cfg.hydro_scheme == HydroScheme::Unsplit;
     SimClock clk;
     Units un;
     GasGrid gas;
@@ -240,6 +246,7 @@ int main(int argc, char** argv) {
       if (P.write_fields) {
         write_raw_f32(d + "/u_gas.bin", gas.u);
         write_raw_f32(d + "/v_gas.bin", hs.v);
+        if (!gas.e.empty()) write_raw_f32(d + "/e_gas.bin", gas.e);
         if (P.cosmo) write_raw_f32(d + "/xv_dm.bin", pms.xv);
       }
       if (P.cosmo && P.pk) {
@@ -264,6 +271,16 @@ int main(int argc, char** argv) {
       std::fprintf(fp, "momentum = %.17g %.17g %.17g\n", T.mom[0], T.mom[1], T.mom[2]);
       w("energy", T.energy);
       w("thermal", T.thermal);
+      if (unsplit) {
+        w("thermal_e", T.thermal_e);
+        const UnsplitCounters& U = hs.ucounters;
+        std::fprintf(fp, "unsplit_substeps = %lld\nunsplit_max_substeps = %lld\n"
+                         "unsplit_cells_from_e = %lld\nunsplit_cells_synced = %lld\n"
+                         "unsplit_floor_T = %lld\nunsplit_floor_rho = %lld\n",
+                     static_cast<long long>(U.substeps), static_cast<long long>(U.max_substeps),
+                     static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_synced),
+                     static_cast<long long>(U.floor_T), static_cast<long long>(U.floor_rho));
+      }
       w("wall", wall);
       w("wall_hydro", wall_hydro);
       w("wall_pm", wall_pm);
@@ -273,6 +290,7 @@ int main(int argc, char** argv) {
 
     // Initial state: summaries as the apps do (summarize_gas clamps the state)
     calc_sim_var(cfg, clk, un);
+    init_unsplit_state(cfg, un, gas, hs);  // hydro_scheme = unsplit: lab frame, gas.e
     if (P.cosmo) pm::summarize_dm(pms, un, nullptr);
     summarize_gas(cfg, un, clk, gas, hs, nullptr);
     write_output(0);
@@ -324,30 +342,23 @@ int main(int argc, char** argv) {
         radhydro_hydro_step(cfg, clk, un, gas, hs);
         wall_hydro += std::chrono::duration<double>(Clock::now() - th).count();
       } else {
-        // radhydro.f90 radhydro without RT
-        transpose_ij(gas, hs);
-        transpose_ik(gas, hs);
-        hydro_step(cfg, un, clk, SweepOrder::Forward, gas, hs);
-        transpose_ik(gas, hs);
-        hydro_step(cfg, un, clk, SweepOrder::Forward, gas, hs);
-        transpose_ij(gas, hs);
-        hydro_step(cfg, un, clk, SweepOrder::Forward, gas, hs);
+        // radhydro.f90 radhydro without RT (apps/radhydro: hydro_half_step
+        // routes to the legacy sweeps or to the unsplit step)
+        hydro_half_step(cfg, un, clk, HydroHalf::First, gas, hs);
         auto t1 = Clock::now();
         wall_hydro += std::chrono::duration<double>(t1 - th).count();
         clk.year = clk.year + clk.dt_yr / 2;
         clk.scalefactor = clk.scalefactor + clk.da_sim / 2;
         clk.redshift = 1 / clk.scalefactor - 1;
         calc_sim_var(cfg, clk, un);
-        pm::particle_mesh(pms, gas.u.data(), hs.v.data(), clk, un);
+        if (unsplit)
+          pm::particle_mesh_unsplit(pms, gas.u.data(), gas.e.data(),
+                                    cfg.dual_energy ? cfg.dual_eta1 : 0.0, clk, un);
+        else
+          pm::particle_mesh(pms, gas.u.data(), hs.v.data(), clk, un);
         auto t2 = Clock::now();
         wall_pm += std::chrono::duration<double>(t2 - t1).count();
-        hydro_step(cfg, un, clk, SweepOrder::Reverse, gas, hs);
-        transpose_ij(gas, hs);
-        hydro_step(cfg, un, clk, SweepOrder::Reverse, gas, hs);
-        transpose_ik(gas, hs);
-        hydro_step(cfg, un, clk, SweepOrder::Reverse, gas, hs);
-        transpose_ik(gas, hs);
-        transpose_ij(gas, hs);
+        hydro_half_step(cfg, un, clk, HydroHalf::Second, gas, hs);
         wall_hydro += std::chrono::duration<double>(Clock::now() - t2).count();
         clk.year = clk.year + clk.dt_yr / 2;
         clk.scalefactor = clk.scalefactor + clk.da_sim / 2;

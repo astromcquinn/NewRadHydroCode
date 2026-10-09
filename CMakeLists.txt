@@ -79,7 +79,7 @@ if(RADRAY_WITH_PM)
     target_link_libraries(radray_fft PUBLIC radray ${FFTW3F_LIBRARY})
     # Hydro solver (hydro_tools.f90 -DMF), summarize_gas and the gas
     # domains, see docs/port_notes_hydro.md.
-    add_library(radray_hydro src/hydro.cpp src/domain_gas.cpp)
+    add_library(radray_hydro src/hydro.cpp src/hydro_unsplit.cpp src/domain_gas.cpp)
     target_link_libraries(radray_hydro PUBLIC radray_fft)
     add_executable(hydro_driver apps/hydro_driver.cpp)
     target_link_libraries(hydro_driver PRIVATE radray_hydro)

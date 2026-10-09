@@ -48,6 +48,20 @@ struct HydroCounters {
   std::int64_t advect_pencils = 0, advect_subcycled = 0, advect_max_nt = 0;
 };
 
+// Counters of the unsplit scheme (hydro_unsplit.hpp), whole run. POD (it
+// goes through the checkpoint).
+struct UnsplitCounters {
+  std::int64_t calls = 0;            // hydro_step_unsplit calls (2 per step)
+  std::int64_t substeps = 0;         // CFL substeps
+  std::int64_t max_substeps = 0;     // largest number of substeps of one call
+  std::int64_t cells_from_e = 0;     // cell-substeps with the pressure from e
+  std::int64_t cells_synced = 0;     // cell-substeps with e := E - KE
+  std::int64_t floor_T = 0;          // temperature floor hits
+  std::int64_t floor_rho = 0;        // density floor hits
+  double dt_cfl_min = 1e300;         // smallest CFL step seen [code time]
+  double frame_shift = 0;            // 1 if a moving-frame state was folded in
+};
+
 // Hydro variables of radhydro_global.f90 plus v_gas.
 struct HydroState {
   int N = 0;
@@ -56,6 +70,7 @@ struct HydroState {
   double dt_hy = 0;                                 // set by hydro_step
   std::array<double, 2> vmax_last{};  // hydro_step's local vmax (log only)
   HydroCounters counters;
+  UnsplitCounters ucounters;  // hydro_scheme = unsplit only
 
   void allocate(int n) {
     N = n;
@@ -101,7 +116,9 @@ std::string format_gas_record(const std::vector<double>& rec);
 
 // radhydro.f90: radhydro without particle_mesh and radiative transfer:
 // transposes + 3 forward sweeps, half clock step (calc_sim_var), 3 reverse
-// sweeps + transposes, half clock step (calc_sim_var).
+// sweeps + transposes, half clock step (calc_sim_var). With
+// cfg.hydro_scheme = Unsplit each group of sweeps is one unsplit step over
+// dt_sim/2 (hydro_half_step in hydro_unsplit.hpp).
 void radhydro_hydro_step(const Config& cfg, SimClock& clk, Units& un, GasGrid& gas,
                          HydroState& hs);
 

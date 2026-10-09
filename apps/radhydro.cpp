@@ -47,6 +47,7 @@
 #include "radray/fft.hpp"
 #include "radray/halo_sources.hpp"
 #include "radray/hydro.hpp"
+#include "radray/hydro_unsplit.hpp"
 #include "radray/io.hpp"
 #include "radray/parallel.hpp"
 #include "radray/pm.hpp"
@@ -114,6 +115,9 @@ struct RunParams {
   int fields_every = 0;     // write fields every n steps (0: never)
   int fields_at_data1 = 1;  // write fields at the zdata1 output steps
   int max_steps = 1000;     // the original's timing(1000) array
+  // hydro_scheme = legacy | unsplit and the unsplit parameters
+  // (docs/hydro_unsplit.md), parsed by set_hydro_scheme_param
+  Config hydro;
 };
 
 void set_run_param(RunParams& P, const std::string& key_in, const std::string& val_in) {
@@ -174,7 +178,9 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.fields_at_data1 = std::stoi(val);
   else if (key == "max_steps")
     P.max_steps = std::stoi(val);
-  else if (!set_halo_param(P.halo, key, val))
+  else if (set_hydro_scheme_param(P.hydro, key, val)) {
+    // hydro scheme (docs/hydro_unsplit.md)
+  } else if (!set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
       (key == "legacy_physics" && P.legacy_physics != 0 && P.legacy_physics != 1))
@@ -236,6 +242,8 @@ void write_data_files(const std::string& odir, const std::string& tag, const Sim
   write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
   write_f32(odir + "/Gas/v_gas." + tag, vgas.data(), vgas.size());
   write_f32(odir + "/Gas/w_gas." + tag, s.gas.w.data(), s.gas.w.size());
+  if (!s.gas.e.empty())  // hydro_scheme = unsplit: the internal energy density
+    write_f32(odir + "/Gas/e_gas." + tag, s.gas.e.data(), s.gas.e.size());
   if (!data1) return;
   const RTGrid& G = s.rt;
   std::filesystem::create_directories(odir + "/RT");
@@ -422,6 +430,7 @@ int main(int argc, char** argv) {
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    copy_hydro_scheme(P.hydro, s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);
@@ -473,6 +482,7 @@ int main(int argc, char** argv) {
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
+           << "\n " << hydro_scheme_summary(cfg)
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
@@ -567,6 +577,7 @@ int main(int argc, char** argv) {
       W("u_gas", s.gas.u);
       W("w_gas", s.gas.w);
       W("v_gas", hs.v);
+      if (!s.gas.e.empty()) W("e_gas", s.gas.e);
       W("xv_dm", pm.xv);
     };
 
@@ -637,9 +648,12 @@ int main(int argc, char** argv) {
     if (!restart_from.empty()) {
       read_checkpoint(restart_from, s, hs, pm, dst);
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
+      calc_sim_var(cfg, s.clk, s.units);
+      init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
     } else {
       // Summarize the initial state
       calc_sim_var(cfg, s.clk, s.units);
+      init_unsplit_state(cfg, s.units, s.gas, hs);  // hydro_scheme = unsplit: gas.e
       summaries();
       const std::string d = step_dir();
       write_stats(d);
@@ -669,15 +683,10 @@ int main(int argc, char** argv) {
       if (idata2 <= Ndata2)
         if (ti.a2 >= adata2[idata2 - 1]) data2_out = true;
 
-      // radhydro: forward hydro step with transposes in between
+      // radhydro: forward hydro step with transposes in between (legacy),
+      // or one unsplit step over dt_sim/2 (hydro_scheme = unsplit)
       auto th = Clock::now();
-      transpose_ij(s.gas, hs);  // x,y,z -> y,x,z
-      transpose_ik(s.gas, hs);  // y,x,z -> z,x,y
-      hydro_step(cfg, s.units, s.clk, SweepOrder::Forward, s.gas, hs);
-      transpose_ik(s.gas, hs);  // z,x,y -> y,x,z
-      hydro_step(cfg, s.units, s.clk, SweepOrder::Forward, s.gas, hs);
-      transpose_ij(s.gas, hs);  // y,x,z -> x,y,z
-      hydro_step(cfg, s.units, s.clk, SweepOrder::Forward, s.gas, hs);
+      hydro_half_step(cfg, s.units, s.clk, HydroHalf::First, s.gas, hs);
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 
       s.clk.year = s.clk.year + s.clk.dt_yr / 2;
@@ -687,18 +696,17 @@ int main(int argc, char** argv) {
 
       // Gravity for gas and dark matter (gas ordered x,y,z, same as DM)
       th = Clock::now();
-      pm::particle_mesh(pm, s.gas.u.data(), hs.v.data(), s.clk, s.units);
+      if (cfg.hydro_scheme == HydroScheme::Unsplit)
+        pm::particle_mesh_unsplit(pm, s.gas.u.data(), s.gas.e.data(),
+                                  cfg.dual_energy ? cfg.dual_eta1 : 0.0, s.clk, s.units);
+      else
+        pm::particle_mesh(pm, s.gas.u.data(), hs.v.data(), s.clk, s.units);
       T.pm += std::chrono::duration<double>(Clock::now() - th).count();
 
-      // Reverse hydro step with transposes in between
+      // Reverse hydro step with transposes in between (legacy), or the
+      // second unsplit step over dt_sim/2
       th = Clock::now();
-      hydro_step(cfg, s.units, s.clk, SweepOrder::Reverse, s.gas, hs);
-      transpose_ij(s.gas, hs);  // x,y,z -> y,x,z
-      hydro_step(cfg, s.units, s.clk, SweepOrder::Reverse, s.gas, hs);
-      transpose_ik(s.gas, hs);  // y,x,z -> z,x,y
-      hydro_step(cfg, s.units, s.clk, SweepOrder::Reverse, s.gas, hs);
-      transpose_ik(s.gas, hs);  // z,x,y -> y,x,z
-      transpose_ij(s.gas, hs);  // y,x,z -> x,y,z
+      hydro_half_step(cfg, s.units, s.clk, HydroHalf::Second, s.gas, hs);
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 
       s.clk.year = s.clk.year + s.clk.dt_yr / 2;
@@ -795,6 +803,18 @@ int main(int argc, char** argv) {
     std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
                 format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
                 static_cast<long long>(s.rays.npool_forced));
+    if (cfg.hydro_scheme == HydroScheme::Unsplit) {
+      const UnsplitCounters& U = hs.ucounters;
+      std::printf(" unsplit hydro: %lld calls, %lld substeps (max %lld per call), dt_cfl min %.4g; "
+                  "cell-substeps with p from e %lld, synced %lld; floors T %lld, rho %lld\n",
+                  static_cast<long long>(U.calls), static_cast<long long>(U.substeps),
+                  static_cast<long long>(U.max_substeps), U.dt_cfl_min,
+                  static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_synced),
+                  static_cast<long long>(U.floor_T), static_cast<long long>(U.floor_rho));
+      timing << "# unsplit calls " << U.calls << " substeps " << U.substeps << " max_substeps "
+             << U.max_substeps << " cells_from_e " << U.cells_from_e << " cells_synced "
+             << U.cells_synced << " floor_T " << U.floor_T << " floor_rho " << U.floor_rho << "\n";
+    }
     timing << "# " << format_rt_timers(s.timers) << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "

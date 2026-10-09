@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """Runner of the hydro accuracy suite (docs/hydro_tests.md).
 
-usage: run_suite.py <test> [--tier quick|full] [--rundir DIR] [--check]
-                    [--jobs n] [--driver PATH] [--results DIR] [--reuse]
+usage: run_suite.py <test> [--tier quick|full] [--scheme legacy|unsplit]
+                    [--rundir DIR] [--check] [--jobs n] [--driver PATH]
+                    [--results DIR] [--reuse]
 
   test   tubes | galilean | sedov | sound | pancake | cosmobox | kh | all
   tier   quick: the small cases used by CTest (label hydro_suite);
          full:  everything (label nightly, and the numbers in the docs)
-  --check   apply the pass/fail tolerances (exit status 1 on failure)
+  scheme legacy (default): the original moving-frame TVD scheme;
+         unsplit: the unsplit MUSCL-Hancock + HLLC scheme with dual energy
+         (docs/hydro_unsplit.md; the driver gets --set hydro_scheme=unsplit)
+  --check   apply the pass/fail tolerances (exit status 1 on failure); they
+            are per scheme (tolerances.py)
   --reuse   do not re-run cases whose output already exists
-Results go to <results>/<test>_<tier>.json (default tests/hydro_suite/results
-for the full tier, <rundir>/results for quick); runs to <rundir>/<case>.
-Figures: analyze.py figures.
+Results go to <results>/<test>_<tier>[_unsplit].json (default
+tests/hydro_suite/results for the full tier, <rundir>/results for quick);
+runs to <rundir>/<case>. Figures: analyze.py figures [... scheme].
 """
 import argparse
 import json
@@ -32,10 +37,18 @@ import tolerances as tol  # noqa: E402
 class Ctx:
     def __init__(self, args):
         self.args = args
+        self.scheme = args.scheme
         self.rundir = os.path.abspath(args.rundir)
         self.driver = args.driver or hc.driver_path()
         self.fails = []
         os.makedirs(self.rundir, exist_ok=True)
+
+    def sets(self, extra=None):
+        """driver --set list: the scheme (legacy runs stay exactly as before)"""
+        out = list(extra or ())
+        if self.scheme != "legacy":
+            out.append(f"hydro_scheme={self.scheme}")
+        return out
 
     def case(self, name, genfun, **kw):
         """generate (always, cheap) and return (problem dir, run dir)"""
@@ -52,7 +65,7 @@ class Ctx:
             if self.args.reuse and done:
                 return name, read_wall(odir)
             print(f"  running {name} ...", flush=True)
-            w = hc.run_driver(pdir, odir, sets or (), driver=self.driver)
+            w = hc.run_driver(pdir, odir, self.sets(sets), driver=self.driver)
             print(f"  {name}: {w:.1f} s", flush=True)
             return name, w
         with ThreadPoolExecutor(max_workers=self.args.jobs) as ex:
@@ -153,17 +166,25 @@ def test_galilean(ctx, tier):
         print(f"  {name:28s} vb=({r['bulk'][0]:6.3f},{r['bulk'][1]:5.2f},{r['bulk'][2]:4.2f}) "
               f"steps {r['nsteps']:3d} L1 rho {r['l1']['rho']:.4f}  max|drho| vs ref "
               f"{r['diff_vs_ref']['rho']:.2e}  {r['wall']:.1f}s")
-    # H1 demonstration: zero bulk velocity along the tube
+    # H1 demonstration: zero bulk velocity along the tube (the legacy scheme
+    # stops with the H1 error; the lab-frame unsplit scheme runs it, and its
+    # result is compared with the moving reference)
     name = f"gal_N{N}_zero_bulk_x"
-    pdir, odir, _ = ctx.case(name, gen.gen_tube, kind="sod", direction="x", N=N,
-                             bulk=(0.0, -0.15, 0.1))
+    pdir, odir, meta = ctx.case(name, gen.gen_tube, kind="sod", direction="x", N=N,
+                                bulk=(0.0, -0.15, 0.1))
+    zero = None
     try:
-        hc.run_driver(pdir, odir, driver=ctx.driver)
-        h1 = "ran (unexpected)"
+        hc.run_driver(pdir, odir, ctx.sets(), driver=ctx.driver)
+        h1 = "ran" + (" (unexpected)" if ctx.scheme == "legacy" else "")
+        zero = an.analyze_tube(odir, meta)
+        zero["bulk"] = meta["bulk"]
+        zero["diff_vs_ref"] = an.compare_profiles(ref, zero)
+        print(f"  {name:28s} vb=(0,-0.15,0.1) steps {zero['nsteps']:3d} L1 rho "
+              f"{zero['l1']['rho']:.4f}  max|drho| vs ref {zero['diff_vs_ref']['rho']:.2e}")
     except RuntimeError as e:
         h1 = str(e).split("error:")[-1].strip()
     print(f"  zero bulk vx: {h1}")
-    out = {"cases": res, "N": N, "t_end": t_end, "h1_zero_bulk": h1}
+    out = {"cases": res, "N": N, "t_end": t_end, "h1_zero_bulk": h1, "zero_bulk": zero}
     tol.check_galilean(ctx, out, tier)
     return out
 
@@ -174,6 +195,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("test")
     ap.add_argument("--tier", default="quick", choices=("quick", "full"))
+    ap.add_argument("--scheme", default="legacy", choices=("legacy", "unsplit"))
     ap.add_argument("--rundir", default=None)
     ap.add_argument("--results", default=None)
     ap.add_argument("--driver", default=None)
@@ -181,8 +203,9 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--reuse", action="store_true")
     args = ap.parse_args()
+    suffix = "" if args.scheme == "legacy" else "_" + args.scheme
     if args.rundir is None:
-        args.rundir = os.path.join(hc.ROOT, "build", "hydro_suite_runs", args.tier)
+        args.rundir = os.path.join(hc.ROOT, "build", "hydro_suite_runs", args.tier + suffix)
     if args.results is None:
         args.results = (os.path.join(hc.HERE, "results") if args.tier == "full"
                         else os.path.join(args.rundir, "results"))
@@ -195,11 +218,12 @@ def main():
         pass
     names = list(tests) if args.test == "all" else args.test.split(",")
     for name in names:
-        print(f"== {name} ({args.tier})", flush=True)
+        print(f"== {name} ({args.tier}, {args.scheme})", flush=True)
         t0 = time.time()
         res = tests[name](ctx, args.tier)
         res["suite_wall"] = time.time() - t0
-        hc.save_json(os.path.join(args.results, f"{name}_{args.tier}.json"), res)
+        res["scheme"] = args.scheme
+        hc.save_json(os.path.join(args.results, f"{name}_{args.tier}{suffix}.json"), res)
         print(f"== {name}: {res['suite_wall']:.1f} s", flush=True)
     if ctx.fails:
         print("FAILED:\n  " + "\n  ".join(ctx.fails))

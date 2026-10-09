@@ -435,6 +435,14 @@ if(Python3_Interpreter_FOUND)
                      --set zdata1=12 --set fields_every=1)
     set_tests_properties(thread_full_legacy_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # the unsplit hydro scheme with dual energy (docs/hydro_unsplit.md)
+    add_test(NAME thread_full_unsplit_hydro_pm
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_unsplit $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly --quiet
+                     --set zdata1=12 --set fields_every=1 --set hydro_scheme=unsplit)
+    set_tests_properties(thread_full_unsplit_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     # ASan/UBSan builds with OpenMP, thread-count independence (parallel
     # paths: N = 32)
     if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
@@ -476,8 +484,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det 14 --set legacy_rt=0
                      --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
                      --set movie_z0=25)
-    set_tests_properties(restart_smoke_legacy restart_smoke_det_movie PROPERTIES TIMEOUT 600
-                         LABELS restart)
+    # the unsplit hydro scheme: the internal-energy field through the
+    # checkpoint and the RT coupling (docs/hydro_unsplit.md)
+    add_test(NAME restart_smoke_unsplit
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/unsplit 13 --set hydro_scheme=unsplit)
+    set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
+                         PROPERTIES TIMEOUT 600 LABELS restart)
   endif()
 endif()
 

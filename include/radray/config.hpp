@@ -6,6 +6,12 @@
 
 namespace radray {
 
+// Hydro solver (docs/hydro_unsplit.md): Legacy = the original's split
+// moving-frame TVD scheme (src/hydro.cpp, bit-identical to the Fortran);
+// Unsplit = the unsplit MUSCL-Hancock + HLLC scheme with the dual-energy
+// formulation (src/hydro_unsplit.cpp, kernels/hydro_mh.hpp).
+enum class HydroScheme { Legacy, Unsplit };
+
 struct Config {
   // radhydro_global.f90: Ncpu. The reference is run with ONE thread, and the
   // port is serial; Ncpu enters ray-buffer sizes and the domain
@@ -75,6 +81,22 @@ struct Config {
   // travel at c_reduced) is exact over the run even when a hydro step spans
   // only a few cells of light travel. false: the original rounding.
   bool rt_substep_carry = false;
+
+  // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
+  // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
+  //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled
+  //                unsplit substeps;
+  //   dual_energy: 1 = dual-energy formulation (Bryan et al. 1995), 0 = total
+  //                energy only;
+  //   dual_eta1, dual_eta2: its selection thresholds (docs/hydro_unsplit.md
+  //                section 2 for their provenance; the defaults are the
+  //                values commonly quoted for Bryan et al. 1995, unconfirmed
+  //                against the paper).
+  HydroScheme hydro_scheme = HydroScheme::Legacy;
+  double unsplit_cfl = 0.8;
+  bool dual_energy = true;
+  double dual_eta1 = 1e-3;
+  double dual_eta2 = 0.1;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
