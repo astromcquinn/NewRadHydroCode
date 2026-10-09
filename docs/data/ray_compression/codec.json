@@ -31,9 +31,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 1580.0,
-  "decode_ns_per_ray": 653.4,
-  "reconstruct_ns_per_ray": 106.4,
+  "encode_ns_per_ray": 1090.9,
+  "decode_ns_per_ray": 573.8,
+  "reconstruct_ns_per_ray": 61.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -103,9 +103,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 1600.6,
-  "decode_ns_per_ray": 671.2,
-  "reconstruct_ns_per_ray": 106.8,
+  "encode_ns_per_ray": 1077.6,
+  "decode_ns_per_ray": 542.3,
+  "reconstruct_ns_per_ray": 61.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -175,9 +175,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 1141.4,
-  "decode_ns_per_ray": 568.3,
-  "reconstruct_ns_per_ray": 69.7,
+  "encode_ns_per_ray": 1208.5,
+  "decode_ns_per_ray": 607.6,
+  "reconstruct_ns_per_ray": 63.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -247,9 +247,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 1064.8,
-  "decode_ns_per_ray": 563.2,
-  "reconstruct_ns_per_ray": 70.1,
+  "encode_ns_per_ray": 1415.9,
+  "decode_ns_per_ray": 636.1,
+  "reconstruct_ns_per_ray": 91.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -319,9 +319,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 1144.6,
-  "decode_ns_per_ray": 591.6,
-  "reconstruct_ns_per_ray": 49.2,
+  "encode_ns_per_ray": 1413.3,
+  "decode_ns_per_ray": 574.2,
+  "reconstruct_ns_per_ray": 71.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -391,9 +391,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 682.1,
-  "decode_ns_per_ray": 416.4,
-  "reconstruct_ns_per_ray": 71.3,
+  "encode_ns_per_ray": 703.5,
+  "decode_ns_per_ray": 403.9,
+  "reconstruct_ns_per_ray": 62.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -463,9 +463,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 867.5,
-  "decode_ns_per_ray": 474.3,
-  "reconstruct_ns_per_ray": 72.2,
+  "encode_ns_per_ray": 1141.1,
+  "decode_ns_per_ray": 531.2,
+  "reconstruct_ns_per_ray": 61.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -535,9 +535,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 731.6,
-  "decode_ns_per_ray": 480.9,
-  "reconstruct_ns_per_ray": 70.1,
+  "encode_ns_per_ray": 740.0,
+  "decode_ns_per_ray": 498.6,
+  "reconstruct_ns_per_ray": 63.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -607,9 +607,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 665.0,
-  "decode_ns_per_ray": 406.5,
-  "reconstruct_ns_per_ray": 70.0,
+  "encode_ns_per_ray": 804.0,
+  "decode_ns_per_ray": 401.3,
+  "reconstruct_ns_per_ray": 61.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -679,9 +679,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 669.0,
-  "decode_ns_per_ray": 412.1,
-  "reconstruct_ns_per_ray": 49.3,
+  "encode_ns_per_ray": 694.5,
+  "decode_ns_per_ray": 406.0,
+  "reconstruct_ns_per_ray": 44.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -751,9 +751,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 557.3,
-  "decode_ns_per_ray": 342.3,
-  "reconstruct_ns_per_ray": 70.8,
+  "encode_ns_per_ray": 579.1,
+  "decode_ns_per_ray": 334.9,
+  "reconstruct_ns_per_ray": 62.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -823,9 +823,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 555.6,
-  "decode_ns_per_ray": 335.3,
-  "reconstruct_ns_per_ray": 71.9,
+  "encode_ns_per_ray": 635.8,
+  "decode_ns_per_ray": 338.6,
+  "reconstruct_ns_per_ray": 63.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -895,9 +895,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 544.1,
-  "decode_ns_per_ray": 345.1,
-  "reconstruct_ns_per_ray": 71.9,
+  "encode_ns_per_ray": 614.8,
+  "decode_ns_per_ray": 340.4,
+  "reconstruct_ns_per_ray": 63.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -967,9 +967,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 529.3,
-  "decode_ns_per_ray": 335.0,
-  "reconstruct_ns_per_ray": 71.5,
+  "encode_ns_per_ray": 599.9,
+  "decode_ns_per_ray": 321.5,
+  "reconstruct_ns_per_ray": 69.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -1023,7 +1023,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 29.0,
-  "bytes_entropy": 21.046,
+  "bytes_entropy": 21.047,
   "bytes_entropy_model": 21.042,
   "bits_by_group": {
    "count": 2.498,
@@ -1039,9 +1039,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 655.5,
-  "decode_ns_per_ray": 421.0,
-  "reconstruct_ns_per_ray": 49.9,
+  "encode_ns_per_ray": 1305.9,
+  "decode_ns_per_ray": 469.3,
+  "reconstruct_ns_per_ray": 45.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1111,9 +1111,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 469.3,
-  "decode_ns_per_ray": 319.2,
-  "reconstruct_ns_per_ray": 70.7,
+  "encode_ns_per_ray": 546.3,
+  "decode_ns_per_ray": 303.9,
+  "reconstruct_ns_per_ray": 62.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1183,9 +1183,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 501.6,
-  "decode_ns_per_ray": 310.9,
-  "reconstruct_ns_per_ray": 72.1,
+  "encode_ns_per_ray": 532.2,
+  "decode_ns_per_ray": 303.4,
+  "reconstruct_ns_per_ray": 62.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1255,9 +1255,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 473.2,
-  "decode_ns_per_ray": 317.0,
-  "reconstruct_ns_per_ray": 72.9,
+  "encode_ns_per_ray": 476.5,
+  "decode_ns_per_ray": 312.1,
+  "reconstruct_ns_per_ray": 64.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1327,9 +1327,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 527.2,
-  "decode_ns_per_ray": 339.1,
-  "reconstruct_ns_per_ray": 79.1,
+  "encode_ns_per_ray": 469.5,
+  "decode_ns_per_ray": 305.1,
+  "reconstruct_ns_per_ray": 67.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -1399,9 +1399,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 464.0,
-  "decode_ns_per_ray": 322.4,
-  "reconstruct_ns_per_ray": 50.7,
+  "encode_ns_per_ray": 540.9,
+  "decode_ns_per_ray": 331.7,
+  "reconstruct_ns_per_ray": 48.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1471,9 +1471,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 519.5,
-  "decode_ns_per_ray": 330.4,
-  "reconstruct_ns_per_ray": 69.4,
+  "encode_ns_per_ray": 511.3,
+  "decode_ns_per_ray": 309.7,
+  "reconstruct_ns_per_ray": 60.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1543,9 +1543,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 515.6,
-  "decode_ns_per_ray": 320.7,
-  "reconstruct_ns_per_ray": 72.5,
+  "encode_ns_per_ray": 476.0,
+  "decode_ns_per_ray": 301.4,
+  "reconstruct_ns_per_ray": 68.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1615,9 +1615,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 561.2,
-  "decode_ns_per_ray": 319.2,
-  "reconstruct_ns_per_ray": 83.9,
+  "encode_ns_per_ray": 476.5,
+  "decode_ns_per_ray": 306.9,
+  "reconstruct_ns_per_ray": 62.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1687,9 +1687,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 570.6,
-  "decode_ns_per_ray": 312.5,
-  "reconstruct_ns_per_ray": 70.0,
+  "encode_ns_per_ray": 485.8,
+  "decode_ns_per_ray": 316.8,
+  "reconstruct_ns_per_ray": 61.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -1759,9 +1759,9 @@
    "nu": 0.093
   },
   "nblocks": 1,
-  "encode_ns_per_ray": 507.0,
-  "decode_ns_per_ray": 312.0,
-  "reconstruct_ns_per_ray": 49.1,
+  "encode_ns_per_ray": 503.4,
+  "decode_ns_per_ray": 310.0,
+  "reconstruct_ns_per_ray": 47.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1831,9 +1831,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 493.0,
-  "decode_ns_per_ray": 309.3,
-  "reconstruct_ns_per_ray": 70.5,
+  "encode_ns_per_ray": 514.2,
+  "decode_ns_per_ray": 304.1,
+  "reconstruct_ns_per_ray": 63.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1903,9 +1903,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 521.1,
-  "decode_ns_per_ray": 338.1,
-  "reconstruct_ns_per_ray": 70.7,
+  "encode_ns_per_ray": 489.9,
+  "decode_ns_per_ray": 347.7,
+  "reconstruct_ns_per_ray": 64.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -1975,9 +1975,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 476.9,
-  "decode_ns_per_ray": 302.2,
-  "reconstruct_ns_per_ray": 71.2,
+  "encode_ns_per_ray": 560.2,
+  "decode_ns_per_ray": 311.9,
+  "reconstruct_ns_per_ray": 65.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2047,9 +2047,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 462.1,
-  "decode_ns_per_ray": 310.5,
-  "reconstruct_ns_per_ray": 73.0,
+  "encode_ns_per_ray": 585.5,
+  "decode_ns_per_ray": 378.7,
+  "reconstruct_ns_per_ray": 63.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -2119,9 +2119,9 @@
    "nu": 0.093
   },
   "nblocks": 2,
-  "encode_ns_per_ray": 543.1,
-  "decode_ns_per_ray": 367.3,
-  "reconstruct_ns_per_ray": 56.6,
+  "encode_ns_per_ray": 493.4,
+  "decode_ns_per_ray": 306.5,
+  "reconstruct_ns_per_ray": 48.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2175,7 +2175,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 29.0,
-  "bytes_entropy": 7.606,
+  "bytes_entropy": 7.607,
   "bytes_entropy_model": 7.602,
   "bits_by_group": {
    "count": 1.28,
@@ -2191,9 +2191,9 @@
    "nu": 1.147
   },
   "nblocks": 5,
-  "encode_ns_per_ray": 439.5,
-  "decode_ns_per_ray": 293.6,
-  "reconstruct_ns_per_ray": 77.0,
+  "encode_ns_per_ray": 431.2,
+  "decode_ns_per_ray": 319.3,
+  "reconstruct_ns_per_ray": 68.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2263,9 +2263,9 @@
    "nu": 1.147
   },
   "nblocks": 5,
-  "encode_ns_per_ray": 415.1,
-  "decode_ns_per_ray": 301.6,
-  "reconstruct_ns_per_ray": 74.6,
+  "encode_ns_per_ray": 444.8,
+  "decode_ns_per_ray": 285.0,
+  "reconstruct_ns_per_ray": 66.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2335,9 +2335,9 @@
    "nu": 1.147
   },
   "nblocks": 5,
-  "encode_ns_per_ray": 418.3,
-  "decode_ns_per_ray": 294.3,
-  "reconstruct_ns_per_ray": 75.5,
+  "encode_ns_per_ray": 418.9,
+  "decode_ns_per_ray": 305.8,
+  "reconstruct_ns_per_ray": 74.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2407,9 +2407,9 @@
    "nu": 1.147
   },
   "nblocks": 5,
-  "encode_ns_per_ray": 417.4,
-  "decode_ns_per_ray": 290.1,
-  "reconstruct_ns_per_ray": 75.7,
+  "encode_ns_per_ray": 407.6,
+  "decode_ns_per_ray": 294.9,
+  "reconstruct_ns_per_ray": 69.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -2479,9 +2479,9 @@
    "nu": 1.147
   },
   "nblocks": 5,
-  "encode_ns_per_ray": 410.2,
-  "decode_ns_per_ray": 291.2,
-  "reconstruct_ns_per_ray": 55.4,
+  "encode_ns_per_ray": 461.1,
+  "decode_ns_per_ray": 297.3,
+  "reconstruct_ns_per_ray": 52.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2551,9 +2551,9 @@
    "nu": 1.614
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 399.4,
-  "decode_ns_per_ray": 285.4,
-  "reconstruct_ns_per_ray": 101.0,
+  "encode_ns_per_ray": 413.7,
+  "decode_ns_per_ray": 275.1,
+  "reconstruct_ns_per_ray": 72.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2623,9 +2623,9 @@
    "nu": 1.614
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 393.4,
-  "decode_ns_per_ray": 280.9,
-  "reconstruct_ns_per_ray": 94.3,
+  "encode_ns_per_ray": 396.5,
+  "decode_ns_per_ray": 274.2,
+  "reconstruct_ns_per_ray": 75.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2695,9 +2695,9 @@
    "nu": 1.614
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 399.7,
-  "decode_ns_per_ray": 298.7,
-  "reconstruct_ns_per_ray": 109.8,
+  "encode_ns_per_ray": 372.0,
+  "decode_ns_per_ray": 275.8,
+  "reconstruct_ns_per_ray": 80.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2767,9 +2767,9 @@
    "nu": 1.614
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 404.3,
-  "decode_ns_per_ray": 277.8,
-  "reconstruct_ns_per_ray": 107.1,
+  "encode_ns_per_ray": 423.2,
+  "decode_ns_per_ray": 283.5,
+  "reconstruct_ns_per_ray": 86.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -2823,7 +2823,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 29.0,
-  "bytes_entropy": 14.182,
+  "bytes_entropy": 14.183,
   "bytes_entropy_model": 14.179,
   "bits_by_group": {
    "count": 0.634,
@@ -2839,9 +2839,9 @@
    "nu": 1.614
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 384.3,
-  "decode_ns_per_ray": 279.3,
-  "reconstruct_ns_per_ray": 76.0,
+  "encode_ns_per_ray": 381.2,
+  "decode_ns_per_ray": 282.1,
+  "reconstruct_ns_per_ray": 50.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2911,9 +2911,9 @@
    "nu": 1.096
   },
   "nblocks": 41,
-  "encode_ns_per_ray": 419.4,
-  "decode_ns_per_ray": 277.6,
-  "reconstruct_ns_per_ray": 105.1,
+  "encode_ns_per_ray": 407.6,
+  "decode_ns_per_ray": 286.0,
+  "reconstruct_ns_per_ray": 78.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -2983,9 +2983,9 @@
    "nu": 1.096
   },
   "nblocks": 41,
-  "encode_ns_per_ray": 376.0,
-  "decode_ns_per_ray": 264.6,
-  "reconstruct_ns_per_ray": 97.5,
+  "encode_ns_per_ray": 385.9,
+  "decode_ns_per_ray": 260.0,
+  "reconstruct_ns_per_ray": 81.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3055,9 +3055,9 @@
    "nu": 1.096
   },
   "nblocks": 41,
-  "encode_ns_per_ray": 367.3,
-  "decode_ns_per_ray": 264.7,
-  "reconstruct_ns_per_ray": 93.3,
+  "encode_ns_per_ray": 365.1,
+  "decode_ns_per_ray": 255.2,
+  "reconstruct_ns_per_ray": 89.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3128,8 +3128,8 @@
   },
   "nblocks": 41,
   "encode_ns_per_ray": 367.8,
-  "decode_ns_per_ray": 268.6,
-  "reconstruct_ns_per_ray": 99.9,
+  "decode_ns_per_ray": 258.5,
+  "reconstruct_ns_per_ray": 78.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -3199,9 +3199,9 @@
    "nu": 1.096
   },
   "nblocks": 41,
-  "encode_ns_per_ray": 372.3,
-  "decode_ns_per_ray": 297.0,
-  "reconstruct_ns_per_ray": 79.2,
+  "encode_ns_per_ray": 362.1,
+  "decode_ns_per_ray": 258.2,
+  "reconstruct_ns_per_ray": 65.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3271,9 +3271,9 @@
    "nu": 1.075
   },
   "nblocks": 50,
-  "encode_ns_per_ray": 362.7,
-  "decode_ns_per_ray": 266.0,
-  "reconstruct_ns_per_ray": 92.7,
+  "encode_ns_per_ray": 419.1,
+  "decode_ns_per_ray": 268.8,
+  "reconstruct_ns_per_ray": 88.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3343,9 +3343,9 @@
    "nu": 1.075
   },
   "nblocks": 50,
-  "encode_ns_per_ray": 364.8,
-  "decode_ns_per_ray": 271.9,
-  "reconstruct_ns_per_ray": 98.0,
+  "encode_ns_per_ray": 352.5,
+  "decode_ns_per_ray": 262.2,
+  "reconstruct_ns_per_ray": 78.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3415,9 +3415,9 @@
    "nu": 1.075
   },
   "nblocks": 50,
-  "encode_ns_per_ray": 363.1,
-  "decode_ns_per_ray": 276.1,
-  "reconstruct_ns_per_ray": 94.7,
+  "encode_ns_per_ray": 351.1,
+  "decode_ns_per_ray": 256.7,
+  "reconstruct_ns_per_ray": 79.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3487,9 +3487,9 @@
    "nu": 1.075
   },
   "nblocks": 50,
-  "encode_ns_per_ray": 357.2,
-  "decode_ns_per_ray": 264.1,
-  "reconstruct_ns_per_ray": 92.8,
+  "encode_ns_per_ray": 354.4,
+  "decode_ns_per_ray": 252.7,
+  "reconstruct_ns_per_ray": 78.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -3559,9 +3559,9 @@
    "nu": 1.075
   },
   "nblocks": 50,
-  "encode_ns_per_ray": 350.9,
-  "decode_ns_per_ray": 262.4,
-  "reconstruct_ns_per_ray": 80.7,
+  "encode_ns_per_ray": 356.3,
+  "decode_ns_per_ray": 266.0,
+  "reconstruct_ns_per_ray": 69.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3631,9 +3631,9 @@
    "nu": 1.186
   },
   "nblocks": 57,
-  "encode_ns_per_ray": 360.0,
-  "decode_ns_per_ray": 285.4,
-  "reconstruct_ns_per_ray": 94.8,
+  "encode_ns_per_ray": 371.6,
+  "decode_ns_per_ray": 277.7,
+  "reconstruct_ns_per_ray": 80.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3703,9 +3703,9 @@
    "nu": 1.186
   },
   "nblocks": 57,
-  "encode_ns_per_ray": 361.1,
-  "decode_ns_per_ray": 266.3,
-  "reconstruct_ns_per_ray": 95.6,
+  "encode_ns_per_ray": 354.7,
+  "decode_ns_per_ray": 296.5,
+  "reconstruct_ns_per_ray": 81.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3775,9 +3775,9 @@
    "nu": 1.186
   },
   "nblocks": 57,
-  "encode_ns_per_ray": 368.2,
-  "decode_ns_per_ray": 263.4,
-  "reconstruct_ns_per_ray": 97.2,
+  "encode_ns_per_ray": 362.7,
+  "decode_ns_per_ray": 267.6,
+  "reconstruct_ns_per_ray": 89.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3847,9 +3847,9 @@
    "nu": 1.186
   },
   "nblocks": 57,
-  "encode_ns_per_ray": 355.4,
-  "decode_ns_per_ray": 268.8,
-  "reconstruct_ns_per_ray": 96.0,
+  "encode_ns_per_ray": 375.3,
+  "decode_ns_per_ray": 256.2,
+  "reconstruct_ns_per_ray": 83.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -3919,9 +3919,9 @@
    "nu": 1.186
   },
   "nblocks": 57,
-  "encode_ns_per_ray": 362.6,
-  "decode_ns_per_ray": 303.0,
-  "reconstruct_ns_per_ray": 85.3,
+  "encode_ns_per_ray": 357.6,
+  "decode_ns_per_ray": 267.2,
+  "reconstruct_ns_per_ray": 76.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -3991,9 +3991,9 @@
    "nu": 1.267
   },
   "nblocks": 63,
-  "encode_ns_per_ray": 355.3,
-  "decode_ns_per_ray": 272.3,
-  "reconstruct_ns_per_ray": 96.9,
+  "encode_ns_per_ray": 368.5,
+  "decode_ns_per_ray": 274.2,
+  "reconstruct_ns_per_ray": 81.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4063,9 +4063,9 @@
    "nu": 1.267
   },
   "nblocks": 63,
-  "encode_ns_per_ray": 352.5,
-  "decode_ns_per_ray": 267.1,
-  "reconstruct_ns_per_ray": 96.8,
+  "encode_ns_per_ray": 352.9,
+  "decode_ns_per_ray": 259.0,
+  "reconstruct_ns_per_ray": 81.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4135,9 +4135,9 @@
    "nu": 1.267
   },
   "nblocks": 63,
-  "encode_ns_per_ray": 354.3,
-  "decode_ns_per_ray": 273.0,
-  "reconstruct_ns_per_ray": 101.2,
+  "encode_ns_per_ray": 542.7,
+  "decode_ns_per_ray": 413.0,
+  "reconstruct_ns_per_ray": 121.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4207,9 +4207,9 @@
    "nu": 1.267
   },
   "nblocks": 63,
-  "encode_ns_per_ray": 353.5,
-  "decode_ns_per_ray": 277.0,
-  "reconstruct_ns_per_ray": 99.5,
+  "encode_ns_per_ray": 342.6,
+  "decode_ns_per_ray": 262.1,
+  "reconstruct_ns_per_ray": 81.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -4279,9 +4279,9 @@
    "nu": 1.267
   },
   "nblocks": 63,
-  "encode_ns_per_ray": 377.6,
-  "decode_ns_per_ray": 265.9,
-  "reconstruct_ns_per_ray": 95.2,
+  "encode_ns_per_ray": 367.2,
+  "decode_ns_per_ray": 265.0,
+  "reconstruct_ns_per_ray": 75.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4335,7 +4335,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.48,
-  "bytes_entropy": 13.863,
+  "bytes_entropy": 13.862,
   "bytes_entropy_model": 13.859,
   "bits_by_group": {
    "count": 0.418,
@@ -4347,13 +4347,13 @@
    "offset": 35.529,
    "dev": 10.327,
    "ntot": 25.31,
-   "shape": 16.686,
+   "shape": 16.685,
    "nu": 1.512
   },
   "nblocks": 76,
-  "encode_ns_per_ray": 359.4,
-  "decode_ns_per_ray": 262.9,
-  "reconstruct_ns_per_ray": 99.1,
+  "encode_ns_per_ray": 360.6,
+  "decode_ns_per_ray": 250.5,
+  "reconstruct_ns_per_ray": 81.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4407,7 +4407,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.48,
-  "bytes_entropy": 12.238,
+  "bytes_entropy": 12.237,
   "bytes_entropy_model": 12.234,
   "bits_by_group": {
    "count": 0.418,
@@ -4419,13 +4419,13 @@
    "offset": 35.529,
    "dev": 10.327,
    "ntot": 12.31,
-   "shape": 16.686,
+   "shape": 16.685,
    "nu": 1.512
   },
   "nblocks": 76,
-  "encode_ns_per_ray": 355.8,
-  "decode_ns_per_ray": 278.7,
-  "reconstruct_ns_per_ray": 100.6,
+  "encode_ns_per_ray": 383.2,
+  "decode_ns_per_ray": 253.6,
+  "reconstruct_ns_per_ray": 81.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4479,7 +4479,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.48,
-  "bytes_entropy": 11.738,
+  "bytes_entropy": 11.737,
   "bytes_entropy_model": 11.734,
   "bits_by_group": {
    "count": 0.418,
@@ -4491,13 +4491,13 @@
    "offset": 35.529,
    "dev": 10.327,
    "ntot": 8.311,
-   "shape": 16.686,
+   "shape": 16.685,
    "nu": 1.512
   },
   "nblocks": 76,
-  "encode_ns_per_ray": 367.4,
-  "decode_ns_per_ray": 272.4,
-  "reconstruct_ns_per_ray": 99.9,
+  "encode_ns_per_ray": 378.3,
+  "decode_ns_per_ray": 258.1,
+  "reconstruct_ns_per_ray": 83.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4551,7 +4551,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.48,
-  "bytes_entropy": 10.075,
+  "bytes_entropy": 10.074,
   "bytes_entropy_model": 10.071,
   "bits_by_group": {
    "count": 0.418,
@@ -4563,13 +4563,13 @@
    "offset": 22.205,
    "dev": 10.327,
    "ntot": 8.311,
-   "shape": 16.686,
+   "shape": 16.685,
    "nu": 1.512
   },
   "nblocks": 76,
-  "encode_ns_per_ray": 364.3,
-  "decode_ns_per_ray": 279.2,
-  "reconstruct_ns_per_ray": 95.9,
+  "encode_ns_per_ray": 372.2,
+  "decode_ns_per_ray": 256.8,
+  "reconstruct_ns_per_ray": 84.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -4623,7 +4623,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.48,
-  "bytes_entropy": 15.594,
+  "bytes_entropy": 15.593,
   "bytes_entropy_model": 15.59,
   "bits_by_group": {
    "count": 0.418,
@@ -4635,13 +4635,13 @@
    "offset": 48.0,
    "dev": 10.327,
    "ntot": 25.31,
-   "shape": 16.872,
+   "shape": 16.87,
    "nu": 1.512
   },
   "nblocks": 76,
-  "encode_ns_per_ray": 355.8,
-  "decode_ns_per_ray": 265.4,
-  "reconstruct_ns_per_ray": 98.4,
+  "encode_ns_per_ray": 439.7,
+  "decode_ns_per_ray": 273.4,
+  "reconstruct_ns_per_ray": 78.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4696,7 +4696,7 @@
   "bytes_raw": 80,
   "bytes_structural": 30.785,
   "bytes_entropy": 15.978,
-  "bytes_entropy_model": 15.974,
+  "bytes_entropy_model": 15.975,
   "bits_by_group": {
    "count": 0.406,
    "class": 0.475,
@@ -4708,12 +4708,12 @@
    "dev": 12.659,
    "ntot": 26.31,
    "shape": 18.216,
-   "nu": 2.5
+   "nu": 2.503
   },
   "nblocks": 83,
-  "encode_ns_per_ray": 356.1,
-  "decode_ns_per_ray": 260.8,
-  "reconstruct_ns_per_ray": 100.4,
+  "encode_ns_per_ray": 366.5,
+  "decode_ns_per_ray": 260.2,
+  "reconstruct_ns_per_ray": 81.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4767,8 +4767,8 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.785,
-  "bytes_entropy": 14.353,
-  "bytes_entropy_model": 14.349,
+  "bytes_entropy": 14.354,
+  "bytes_entropy_model": 14.35,
   "bits_by_group": {
    "count": 0.406,
    "class": 0.475,
@@ -4780,12 +4780,12 @@
    "dev": 12.659,
    "ntot": 13.311,
    "shape": 18.216,
-   "nu": 2.5
+   "nu": 2.503
   },
   "nblocks": 83,
-  "encode_ns_per_ray": 364.3,
-  "decode_ns_per_ray": 256.7,
-  "reconstruct_ns_per_ray": 103.5,
+  "encode_ns_per_ray": 389.5,
+  "decode_ns_per_ray": 279.5,
+  "reconstruct_ns_per_ray": 84.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4839,8 +4839,8 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.785,
-  "bytes_entropy": 13.853,
-  "bytes_entropy_model": 13.849,
+  "bytes_entropy": 13.854,
+  "bytes_entropy_model": 13.85,
   "bits_by_group": {
    "count": 0.406,
    "class": 0.475,
@@ -4852,12 +4852,12 @@
    "dev": 12.659,
    "ntot": 9.311,
    "shape": 18.216,
-   "nu": 2.5
+   "nu": 2.503
   },
   "nblocks": 83,
-  "encode_ns_per_ray": 365.3,
-  "decode_ns_per_ray": 260.2,
-  "reconstruct_ns_per_ray": 97.6,
+  "encode_ns_per_ray": 384.2,
+  "decode_ns_per_ray": 265.4,
+  "reconstruct_ns_per_ray": 88.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -4912,7 +4912,7 @@
   "bytes_raw": 80,
   "bytes_structural": 30.785,
   "bytes_entropy": 11.847,
-  "bytes_entropy_model": 11.843,
+  "bytes_entropy_model": 11.844,
   "bits_by_group": {
    "count": 0.406,
    "class": 0.475,
@@ -4924,12 +4924,12 @@
    "dev": 12.659,
    "ntot": 9.311,
    "shape": 18.216,
-   "nu": 2.5
+   "nu": 2.503
   },
   "nblocks": 83,
-  "encode_ns_per_ray": 351.0,
-  "decode_ns_per_ray": 257.9,
-  "reconstruct_ns_per_ray": 103.1,
+  "encode_ns_per_ray": 360.8,
+  "decode_ns_per_ray": 264.8,
+  "reconstruct_ns_per_ray": 85.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -4983,7 +4983,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.785,
-  "bytes_entropy": 16.716,
+  "bytes_entropy": 16.717,
   "bytes_entropy_model": 16.713,
   "bits_by_group": {
    "count": 0.406,
@@ -4996,12 +4996,12 @@
    "dev": 12.659,
    "ntot": 26.31,
    "shape": 18.338,
-   "nu": 2.5
+   "nu": 2.503
   },
   "nblocks": 83,
-  "encode_ns_per_ray": 356.2,
-  "decode_ns_per_ray": 257.2,
-  "reconstruct_ns_per_ray": 100.4,
+  "encode_ns_per_ray": 362.8,
+  "decode_ns_per_ray": 259.5,
+  "reconstruct_ns_per_ray": 80.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5067,13 +5067,13 @@
    "offset": 44.585,
    "dev": 13.253,
    "ntot": 27.058,
-   "shape": 19.397,
-   "nu": 3.623
+   "shape": 19.394,
+   "nu": 3.628
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 358.6,
-  "decode_ns_per_ray": 257.0,
-  "reconstruct_ns_per_ray": 98.0,
+  "encode_ns_per_ray": 367.5,
+  "decode_ns_per_ray": 258.5,
+  "reconstruct_ns_per_ray": 81.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5128,7 +5128,7 @@
   "bytes_raw": 80,
   "bytes_structural": 30.858,
   "bytes_entropy": 15.375,
-  "bytes_entropy_model": 15.371,
+  "bytes_entropy_model": 15.372,
   "bits_by_group": {
    "count": 0.384,
    "class": 0.326,
@@ -5139,13 +5139,13 @@
    "offset": 44.585,
    "dev": 13.253,
    "ntot": 14.059,
-   "shape": 19.397,
-   "nu": 3.623
+   "shape": 19.394,
+   "nu": 3.628
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 355.2,
-  "decode_ns_per_ray": 255.0,
-  "reconstruct_ns_per_ray": 100.2,
+  "encode_ns_per_ray": 377.2,
+  "decode_ns_per_ray": 282.2,
+  "reconstruct_ns_per_ray": 92.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5211,13 +5211,13 @@
    "offset": 44.585,
    "dev": 13.253,
    "ntot": 10.051,
-   "shape": 19.397,
-   "nu": 3.623
+   "shape": 19.394,
+   "nu": 3.628
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 362.2,
-  "decode_ns_per_ray": 254.4,
-  "reconstruct_ns_per_ray": 101.3,
+  "encode_ns_per_ray": 363.1,
+  "decode_ns_per_ray": 258.1,
+  "reconstruct_ns_per_ray": 83.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5283,13 +5283,13 @@
    "offset": 27.866,
    "dev": 13.253,
    "ntot": 10.051,
-   "shape": 19.397,
-   "nu": 3.623
+   "shape": 19.394,
+   "nu": 3.628
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 354.1,
-  "decode_ns_per_ray": 255.8,
-  "reconstruct_ns_per_ray": 101.6,
+  "encode_ns_per_ray": 376.4,
+  "decode_ns_per_ray": 287.2,
+  "reconstruct_ns_per_ray": 82.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -5344,7 +5344,7 @@
   "bytes_raw": 80,
   "bytes_structural": 30.858,
   "bytes_entropy": 17.487,
-  "bytes_entropy_model": 17.483,
+  "bytes_entropy_model": 17.484,
   "bits_by_group": {
    "count": 0.384,
    "class": 0.326,
@@ -5355,13 +5355,13 @@
    "offset": 48.0,
    "dev": 13.253,
    "ntot": 27.058,
-   "shape": 19.503,
-   "nu": 3.623
+   "shape": 19.501,
+   "nu": 3.628
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 357.6,
-  "decode_ns_per_ray": 254.7,
-  "reconstruct_ns_per_ray": 97.4,
+  "encode_ns_per_ray": 434.2,
+  "decode_ns_per_ray": 260.0,
+  "reconstruct_ns_per_ray": 83.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5431,9 +5431,9 @@
    "nu": 0.093
   },
   "nblocks": 8,
-  "encode_ns_per_ray": 532.9,
-  "decode_ns_per_ray": 339.6,
-  "reconstruct_ns_per_ray": 87.6,
+  "encode_ns_per_ray": 492.1,
+  "decode_ns_per_ray": 331.2,
+  "reconstruct_ns_per_ray": 66.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5503,9 +5503,9 @@
    "nu": 0.093
   },
   "nblocks": 8,
-  "encode_ns_per_ray": 501.6,
-  "decode_ns_per_ray": 353.4,
-  "reconstruct_ns_per_ray": 88.4,
+  "encode_ns_per_ray": 534.5,
+  "decode_ns_per_ray": 343.4,
+  "reconstruct_ns_per_ray": 69.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5575,9 +5575,9 @@
    "nu": 0.093
   },
   "nblocks": 8,
-  "encode_ns_per_ray": 541.8,
-  "decode_ns_per_ray": 350.7,
-  "reconstruct_ns_per_ray": 85.1,
+  "encode_ns_per_ray": 587.5,
+  "decode_ns_per_ray": 333.7,
+  "reconstruct_ns_per_ray": 68.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5647,9 +5647,9 @@
    "nu": 0.093
   },
   "nblocks": 8,
-  "encode_ns_per_ray": 500.5,
-  "decode_ns_per_ray": 349.5,
-  "reconstruct_ns_per_ray": 84.7,
+  "encode_ns_per_ray": 495.2,
+  "decode_ns_per_ray": 334.6,
+  "reconstruct_ns_per_ray": 73.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -5719,9 +5719,9 @@
    "nu": 0.093
   },
   "nblocks": 8,
-  "encode_ns_per_ray": 506.5,
-  "decode_ns_per_ray": 351.1,
-  "reconstruct_ns_per_ray": 67.3,
+  "encode_ns_per_ray": 505.2,
+  "decode_ns_per_ray": 347.0,
+  "reconstruct_ns_per_ray": 52.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5791,9 +5791,9 @@
    "nu": 0.093
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 448.1,
-  "decode_ns_per_ray": 309.5,
-  "reconstruct_ns_per_ray": 94.7,
+  "encode_ns_per_ray": 476.0,
+  "decode_ns_per_ray": 315.1,
+  "reconstruct_ns_per_ray": 84.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5863,9 +5863,9 @@
    "nu": 0.093
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 439.0,
-  "decode_ns_per_ray": 309.1,
-  "reconstruct_ns_per_ray": 92.9,
+  "encode_ns_per_ray": 429.5,
+  "decode_ns_per_ray": 300.2,
+  "reconstruct_ns_per_ray": 69.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -5935,9 +5935,9 @@
    "nu": 0.093
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 439.1,
-  "decode_ns_per_ray": 312.7,
-  "reconstruct_ns_per_ray": 95.0,
+  "encode_ns_per_ray": 491.7,
+  "decode_ns_per_ray": 321.4,
+  "reconstruct_ns_per_ray": 72.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6007,9 +6007,9 @@
    "nu": 0.093
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 448.7,
-  "decode_ns_per_ray": 311.8,
-  "reconstruct_ns_per_ray": 95.8,
+  "encode_ns_per_ray": 478.8,
+  "decode_ns_per_ray": 310.5,
+  "reconstruct_ns_per_ray": 80.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -6079,9 +6079,9 @@
    "nu": 0.093
   },
   "nblocks": 21,
-  "encode_ns_per_ray": 448.4,
-  "decode_ns_per_ray": 315.9,
-  "reconstruct_ns_per_ray": 82.1,
+  "encode_ns_per_ray": 451.4,
+  "decode_ns_per_ray": 345.0,
+  "reconstruct_ns_per_ray": 57.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6151,9 +6151,9 @@
    "nu": 0.093
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 406.7,
-  "decode_ns_per_ray": 286.3,
-  "reconstruct_ns_per_ray": 99.6,
+  "encode_ns_per_ray": 411.9,
+  "decode_ns_per_ray": 311.9,
+  "reconstruct_ns_per_ray": 85.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6223,9 +6223,9 @@
    "nu": 0.093
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 404.4,
-  "decode_ns_per_ray": 285.7,
-  "reconstruct_ns_per_ray": 100.0,
+  "encode_ns_per_ray": 412.5,
+  "decode_ns_per_ray": 321.0,
+  "reconstruct_ns_per_ray": 85.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6295,9 +6295,9 @@
    "nu": 0.093
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 395.9,
-  "decode_ns_per_ray": 284.9,
-  "reconstruct_ns_per_ray": 98.0,
+  "encode_ns_per_ray": 397.0,
+  "decode_ns_per_ray": 279.9,
+  "reconstruct_ns_per_ray": 82.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6351,7 +6351,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 29.158,
-  "bytes_entropy": 6.154,
+  "bytes_entropy": 6.153,
   "bytes_entropy_model": 6.15,
   "bits_by_group": {
    "count": 0.635,
@@ -6367,9 +6367,9 @@
    "nu": 0.093
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 395.5,
-  "decode_ns_per_ray": 285.2,
-  "reconstruct_ns_per_ray": 96.4,
+  "encode_ns_per_ray": 416.3,
+  "decode_ns_per_ray": 287.4,
+  "reconstruct_ns_per_ray": 84.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -6439,9 +6439,9 @@
    "nu": 0.093
   },
   "nblocks": 86,
-  "encode_ns_per_ray": 409.7,
-  "decode_ns_per_ray": 306.8,
-  "reconstruct_ns_per_ray": 82.4,
+  "encode_ns_per_ray": 395.1,
+  "decode_ns_per_ray": 290.1,
+  "reconstruct_ns_per_ray": 68.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6511,9 +6511,9 @@
    "nu": 0.093
   },
   "nblocks": 115,
-  "encode_ns_per_ray": 416.3,
-  "decode_ns_per_ray": 298.0,
-  "reconstruct_ns_per_ray": 98.2,
+  "encode_ns_per_ray": 501.6,
+  "decode_ns_per_ray": 315.1,
+  "reconstruct_ns_per_ray": 84.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6583,9 +6583,9 @@
    "nu": 0.093
   },
   "nblocks": 115,
-  "encode_ns_per_ray": 394.7,
-  "decode_ns_per_ray": 295.1,
-  "reconstruct_ns_per_ray": 97.8,
+  "encode_ns_per_ray": 430.3,
+  "decode_ns_per_ray": 347.2,
+  "reconstruct_ns_per_ray": 85.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6655,9 +6655,9 @@
    "nu": 0.093
   },
   "nblocks": 115,
-  "encode_ns_per_ray": 398.9,
-  "decode_ns_per_ray": 303.4,
-  "reconstruct_ns_per_ray": 94.3,
+  "encode_ns_per_ray": 443.6,
+  "decode_ns_per_ray": 339.4,
+  "reconstruct_ns_per_ray": 89.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6727,9 +6727,9 @@
    "nu": 0.093
   },
   "nblocks": 115,
-  "encode_ns_per_ray": 406.5,
-  "decode_ns_per_ray": 298.2,
-  "reconstruct_ns_per_ray": 100.6,
+  "encode_ns_per_ray": 391.5,
+  "decode_ns_per_ray": 296.2,
+  "reconstruct_ns_per_ray": 83.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -6799,9 +6799,9 @@
    "nu": 0.093
   },
   "nblocks": 115,
-  "encode_ns_per_ray": 390.8,
-  "decode_ns_per_ray": 300.1,
-  "reconstruct_ns_per_ray": 91.4,
+  "encode_ns_per_ray": 388.2,
+  "decode_ns_per_ray": 309.7,
+  "reconstruct_ns_per_ray": 77.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6871,9 +6871,9 @@
    "nu": 0.093
   },
   "nblocks": 130,
-  "encode_ns_per_ray": 382.7,
-  "decode_ns_per_ray": 291.4,
-  "reconstruct_ns_per_ray": 96.9,
+  "encode_ns_per_ray": 401.0,
+  "decode_ns_per_ray": 312.5,
+  "reconstruct_ns_per_ray": 81.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -6943,9 +6943,9 @@
    "nu": 0.093
   },
   "nblocks": 130,
-  "encode_ns_per_ray": 385.1,
-  "decode_ns_per_ray": 299.3,
-  "reconstruct_ns_per_ray": 97.4,
+  "encode_ns_per_ray": 407.7,
+  "decode_ns_per_ray": 325.0,
+  "reconstruct_ns_per_ray": 83.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7015,9 +7015,9 @@
    "nu": 0.093
   },
   "nblocks": 130,
-  "encode_ns_per_ray": 378.5,
-  "decode_ns_per_ray": 295.5,
-  "reconstruct_ns_per_ray": 98.2,
+  "encode_ns_per_ray": 382.8,
+  "decode_ns_per_ray": 314.4,
+  "reconstruct_ns_per_ray": 81.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7087,9 +7087,9 @@
    "nu": 0.093
   },
   "nblocks": 130,
-  "encode_ns_per_ray": 397.6,
-  "decode_ns_per_ray": 293.4,
-  "reconstruct_ns_per_ray": 101.3,
+  "encode_ns_per_ray": 409.4,
+  "decode_ns_per_ray": 296.9,
+  "reconstruct_ns_per_ray": 80.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -7159,9 +7159,9 @@
    "nu": 0.093
   },
   "nblocks": 130,
-  "encode_ns_per_ray": 409.9,
-  "decode_ns_per_ray": 295.5,
-  "reconstruct_ns_per_ray": 94.7,
+  "encode_ns_per_ray": 382.0,
+  "decode_ns_per_ray": 290.2,
+  "reconstruct_ns_per_ray": 75.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7231,9 +7231,9 @@
    "nu": 0.093
   },
   "nblocks": 151,
-  "encode_ns_per_ray": 380.5,
-  "decode_ns_per_ray": 289.5,
-  "reconstruct_ns_per_ray": 98.9,
+  "encode_ns_per_ray": 397.0,
+  "decode_ns_per_ray": 341.4,
+  "reconstruct_ns_per_ray": 83.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7303,9 +7303,9 @@
    "nu": 0.093
   },
   "nblocks": 151,
-  "encode_ns_per_ray": 379.2,
-  "decode_ns_per_ray": 303.3,
-  "reconstruct_ns_per_ray": 98.7,
+  "encode_ns_per_ray": 385.0,
+  "decode_ns_per_ray": 302.9,
+  "reconstruct_ns_per_ray": 84.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7375,9 +7375,9 @@
    "nu": 0.093
   },
   "nblocks": 151,
-  "encode_ns_per_ray": 366.6,
-  "decode_ns_per_ray": 288.1,
-  "reconstruct_ns_per_ray": 97.0,
+  "encode_ns_per_ray": 403.8,
+  "decode_ns_per_ray": 305.1,
+  "reconstruct_ns_per_ray": 84.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7447,9 +7447,9 @@
    "nu": 0.093
   },
   "nblocks": 151,
-  "encode_ns_per_ray": 376.6,
-  "decode_ns_per_ray": 288.0,
-  "reconstruct_ns_per_ray": 106.3,
+  "encode_ns_per_ray": 396.3,
+  "decode_ns_per_ray": 290.8,
+  "reconstruct_ns_per_ray": 85.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -7519,9 +7519,9 @@
    "nu": 0.093
   },
   "nblocks": 151,
-  "encode_ns_per_ray": 381.0,
-  "decode_ns_per_ray": 291.5,
-  "reconstruct_ns_per_ray": 120.3,
+  "encode_ns_per_ray": 413.6,
+  "decode_ns_per_ray": 306.1,
+  "reconstruct_ns_per_ray": 94.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7591,9 +7591,9 @@
    "nu": 0.093
   },
   "nblocks": 164,
-  "encode_ns_per_ray": 385.7,
-  "decode_ns_per_ray": 283.0,
-  "reconstruct_ns_per_ray": 101.0,
+  "encode_ns_per_ray": 436.3,
+  "decode_ns_per_ray": 302.4,
+  "reconstruct_ns_per_ray": 90.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7663,9 +7663,9 @@
    "nu": 0.093
   },
   "nblocks": 164,
-  "encode_ns_per_ray": 362.7,
-  "decode_ns_per_ray": 284.4,
-  "reconstruct_ns_per_ray": 99.1,
+  "encode_ns_per_ray": 393.8,
+  "decode_ns_per_ray": 313.4,
+  "reconstruct_ns_per_ray": 81.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7735,9 +7735,9 @@
    "nu": 0.093
   },
   "nblocks": 164,
-  "encode_ns_per_ray": 378.0,
-  "decode_ns_per_ray": 280.8,
-  "reconstruct_ns_per_ray": 97.9,
+  "encode_ns_per_ray": 406.9,
+  "decode_ns_per_ray": 283.2,
+  "reconstruct_ns_per_ray": 83.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7807,9 +7807,9 @@
    "nu": 0.093
   },
   "nblocks": 164,
-  "encode_ns_per_ray": 358.9,
-  "decode_ns_per_ray": 281.3,
-  "reconstruct_ns_per_ray": 99.9,
+  "encode_ns_per_ray": 382.8,
+  "decode_ns_per_ray": 282.5,
+  "reconstruct_ns_per_ray": 84.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -7879,9 +7879,9 @@
    "nu": 0.093
   },
   "nblocks": 164,
-  "encode_ns_per_ray": 375.0,
-  "decode_ns_per_ray": 290.0,
-  "reconstruct_ns_per_ray": 94.6,
+  "encode_ns_per_ray": 382.1,
+  "decode_ns_per_ray": 282.1,
+  "reconstruct_ns_per_ray": 79.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -7951,9 +7951,9 @@
    "nu": 0.093
   },
   "nblocks": 178,
-  "encode_ns_per_ray": 370.9,
-  "decode_ns_per_ray": 276.9,
-  "reconstruct_ns_per_ray": 102.5,
+  "encode_ns_per_ray": 362.8,
+  "decode_ns_per_ray": 271.8,
+  "reconstruct_ns_per_ray": 80.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8023,9 +8023,9 @@
    "nu": 0.093
   },
   "nblocks": 178,
-  "encode_ns_per_ray": 375.5,
-  "decode_ns_per_ray": 280.8,
-  "reconstruct_ns_per_ray": 100.7,
+  "encode_ns_per_ray": 372.5,
+  "decode_ns_per_ray": 277.4,
+  "reconstruct_ns_per_ray": 82.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8095,9 +8095,9 @@
    "nu": 0.093
   },
   "nblocks": 178,
-  "encode_ns_per_ray": 350.2,
-  "decode_ns_per_ray": 277.7,
-  "reconstruct_ns_per_ray": 100.7,
+  "encode_ns_per_ray": 356.8,
+  "decode_ns_per_ray": 274.6,
+  "reconstruct_ns_per_ray": 84.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8167,9 +8167,9 @@
    "nu": 0.093
   },
   "nblocks": 178,
-  "encode_ns_per_ray": 349.4,
-  "decode_ns_per_ray": 277.1,
-  "reconstruct_ns_per_ray": 96.9,
+  "encode_ns_per_ray": 363.2,
+  "decode_ns_per_ray": 287.4,
+  "reconstruct_ns_per_ray": 86.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -8239,9 +8239,9 @@
    "nu": 0.093
   },
   "nblocks": 178,
-  "encode_ns_per_ray": 354.5,
-  "decode_ns_per_ray": 276.7,
-  "reconstruct_ns_per_ray": 100.2,
+  "encode_ns_per_ray": 369.4,
+  "decode_ns_per_ray": 287.0,
+  "reconstruct_ns_per_ray": 83.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8311,9 +8311,9 @@
    "nu": 0.093
   },
   "nblocks": 196,
-  "encode_ns_per_ray": 348.7,
-  "decode_ns_per_ray": 272.1,
-  "reconstruct_ns_per_ray": 100.4,
+  "encode_ns_per_ray": 338.0,
+  "decode_ns_per_ray": 276.9,
+  "reconstruct_ns_per_ray": 84.3,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8383,9 +8383,9 @@
    "nu": 0.093
   },
   "nblocks": 196,
-  "encode_ns_per_ray": 333.9,
-  "decode_ns_per_ray": 267.5,
-  "reconstruct_ns_per_ray": 103.0,
+  "encode_ns_per_ray": 362.2,
+  "decode_ns_per_ray": 280.5,
+  "reconstruct_ns_per_ray": 90.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8455,9 +8455,9 @@
    "nu": 0.093
   },
   "nblocks": 196,
-  "encode_ns_per_ray": 331.6,
-  "decode_ns_per_ray": 270.9,
-  "reconstruct_ns_per_ray": 98.5,
+  "encode_ns_per_ray": 344.4,
+  "decode_ns_per_ray": 267.3,
+  "reconstruct_ns_per_ray": 83.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8527,9 +8527,9 @@
    "nu": 0.093
   },
   "nblocks": 196,
-  "encode_ns_per_ray": 350.3,
-  "decode_ns_per_ray": 268.9,
-  "reconstruct_ns_per_ray": 98.1,
+  "encode_ns_per_ray": 351.3,
+  "decode_ns_per_ray": 265.1,
+  "reconstruct_ns_per_ray": 81.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -8599,9 +8599,9 @@
    "nu": 0.093
   },
   "nblocks": 196,
-  "encode_ns_per_ray": 344.9,
-  "decode_ns_per_ray": 276.5,
-  "reconstruct_ns_per_ray": 107.6,
+  "encode_ns_per_ray": 357.3,
+  "decode_ns_per_ray": 290.2,
+  "reconstruct_ns_per_ray": 81.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8671,9 +8671,9 @@
    "nu": 0.093
   },
   "nblocks": 203,
-  "encode_ns_per_ray": 325.6,
-  "decode_ns_per_ray": 256.3,
-  "reconstruct_ns_per_ray": 99.7,
+  "encode_ns_per_ray": 328.9,
+  "decode_ns_per_ray": 272.9,
+  "reconstruct_ns_per_ray": 83.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8743,9 +8743,9 @@
    "nu": 0.093
   },
   "nblocks": 203,
-  "encode_ns_per_ray": 331.3,
-  "decode_ns_per_ray": 271.7,
-  "reconstruct_ns_per_ray": 101.8,
+  "encode_ns_per_ray": 320.2,
+  "decode_ns_per_ray": 294.1,
+  "reconstruct_ns_per_ray": 95.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8815,9 +8815,9 @@
    "nu": 0.093
   },
   "nblocks": 203,
-  "encode_ns_per_ray": 318.8,
-  "decode_ns_per_ray": 269.3,
-  "reconstruct_ns_per_ray": 108.8,
+  "encode_ns_per_ray": 338.3,
+  "decode_ns_per_ray": 290.9,
+  "reconstruct_ns_per_ray": 83.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -8887,9 +8887,9 @@
    "nu": 0.093
   },
   "nblocks": 203,
-  "encode_ns_per_ray": 330.6,
-  "decode_ns_per_ray": 266.3,
-  "reconstruct_ns_per_ray": 99.8,
+  "encode_ns_per_ray": 357.3,
+  "decode_ns_per_ray": 260.8,
+  "reconstruct_ns_per_ray": 82.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -8959,9 +8959,9 @@
    "nu": 0.093
   },
   "nblocks": 203,
-  "encode_ns_per_ray": 339.0,
-  "decode_ns_per_ray": 261.6,
-  "reconstruct_ns_per_ray": 99.0,
+  "encode_ns_per_ray": 380.4,
+  "decode_ns_per_ray": 260.9,
+  "reconstruct_ns_per_ray": 84.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9031,9 +9031,9 @@
    "nu": 0.093
   },
   "nblocks": 176,
-  "encode_ns_per_ray": 312.1,
-  "decode_ns_per_ray": 246.6,
-  "reconstruct_ns_per_ray": 100.6,
+  "encode_ns_per_ray": 376.9,
+  "decode_ns_per_ray": 250.4,
+  "reconstruct_ns_per_ray": 82.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9103,9 +9103,9 @@
    "nu": 0.093
   },
   "nblocks": 176,
-  "encode_ns_per_ray": 312.7,
-  "decode_ns_per_ray": 248.3,
-  "reconstruct_ns_per_ray": 99.5,
+  "encode_ns_per_ray": 301.3,
+  "decode_ns_per_ray": 241.7,
+  "reconstruct_ns_per_ray": 83.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9175,9 +9175,9 @@
    "nu": 0.093
   },
   "nblocks": 176,
-  "encode_ns_per_ray": 307.0,
-  "decode_ns_per_ray": 245.8,
-  "reconstruct_ns_per_ray": 100.0,
+  "encode_ns_per_ray": 308.4,
+  "decode_ns_per_ray": 262.7,
+  "reconstruct_ns_per_ray": 91.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9247,9 +9247,9 @@
    "nu": 0.093
   },
   "nblocks": 176,
-  "encode_ns_per_ray": 311.0,
-  "decode_ns_per_ray": 250.0,
-  "reconstruct_ns_per_ray": 100.3,
+  "encode_ns_per_ray": 305.7,
+  "decode_ns_per_ray": 244.0,
+  "reconstruct_ns_per_ray": 86.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -9319,9 +9319,9 @@
    "nu": 0.093
   },
   "nblocks": 176,
-  "encode_ns_per_ray": 322.6,
-  "decode_ns_per_ray": 258.2,
-  "reconstruct_ns_per_ray": 100.8,
+  "encode_ns_per_ray": 314.6,
+  "decode_ns_per_ray": 268.3,
+  "reconstruct_ns_per_ray": 91.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9375,7 +9375,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.986,
-  "bytes_entropy": 17.144,
+  "bytes_entropy": 17.145,
   "bytes_entropy_model": 17.141,
   "bits_by_group": {
    "count": 1.102,
@@ -9391,9 +9391,9 @@
    "nu": 0.093
   },
   "nblocks": 162,
-  "encode_ns_per_ray": 326.6,
-  "decode_ns_per_ray": 242.2,
-  "reconstruct_ns_per_ray": 99.3,
+  "encode_ns_per_ray": 336.1,
+  "decode_ns_per_ray": 255.1,
+  "reconstruct_ns_per_ray": 84.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9463,9 +9463,9 @@
    "nu": 0.093
   },
   "nblocks": 162,
-  "encode_ns_per_ray": 329.9,
-  "decode_ns_per_ray": 295.0,
-  "reconstruct_ns_per_ray": 105.8,
+  "encode_ns_per_ray": 336.4,
+  "decode_ns_per_ray": 239.2,
+  "reconstruct_ns_per_ray": 83.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9535,9 +9535,9 @@
    "nu": 0.093
   },
   "nblocks": 162,
-  "encode_ns_per_ray": 309.9,
-  "decode_ns_per_ray": 242.6,
-  "reconstruct_ns_per_ray": 108.9,
+  "encode_ns_per_ray": 308.2,
+  "decode_ns_per_ray": 265.2,
+  "reconstruct_ns_per_ray": 90.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9607,9 +9607,9 @@
    "nu": 0.093
   },
   "nblocks": 162,
-  "encode_ns_per_ray": 300.8,
-  "decode_ns_per_ray": 242.9,
-  "reconstruct_ns_per_ray": 101.7,
+  "encode_ns_per_ray": 301.2,
+  "decode_ns_per_ray": 232.2,
+  "reconstruct_ns_per_ray": 81.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -9679,9 +9679,9 @@
    "nu": 0.093
   },
   "nblocks": 162,
-  "encode_ns_per_ray": 318.0,
-  "decode_ns_per_ray": 260.1,
-  "reconstruct_ns_per_ray": 103.5,
+  "encode_ns_per_ray": 319.0,
+  "decode_ns_per_ray": 237.8,
+  "reconstruct_ns_per_ray": 82.6,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9735,7 +9735,7 @@
   ],
   "bytes_raw": 80,
   "bytes_structural": 30.987,
-  "bytes_entropy": 17.069,
+  "bytes_entropy": 17.07,
   "bytes_entropy_model": 17.066,
   "bits_by_group": {
    "count": 1.123,
@@ -9751,9 +9751,9 @@
    "nu": 0.093
   },
   "nblocks": 157,
-  "encode_ns_per_ray": 298.2,
-  "decode_ns_per_ray": 238.2,
-  "reconstruct_ns_per_ray": 98.9,
+  "encode_ns_per_ray": 302.5,
+  "decode_ns_per_ray": 235.4,
+  "reconstruct_ns_per_ray": 83.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9823,9 +9823,9 @@
    "nu": 0.093
   },
   "nblocks": 157,
-  "encode_ns_per_ray": 312.3,
-  "decode_ns_per_ray": 243.6,
-  "reconstruct_ns_per_ray": 101.2,
+  "encode_ns_per_ray": 316.2,
+  "decode_ns_per_ray": 239.8,
+  "reconstruct_ns_per_ray": 100.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9895,9 +9895,9 @@
    "nu": 0.093
   },
   "nblocks": 157,
-  "encode_ns_per_ray": 301.6,
-  "decode_ns_per_ray": 244.0,
-  "reconstruct_ns_per_ray": 97.8,
+  "encode_ns_per_ray": 303.6,
+  "decode_ns_per_ray": 238.0,
+  "reconstruct_ns_per_ray": 82.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -9967,9 +9967,9 @@
    "nu": 0.093
   },
   "nblocks": 157,
-  "encode_ns_per_ray": 330.3,
-  "decode_ns_per_ray": 253.8,
-  "reconstruct_ns_per_ray": 101.2,
+  "encode_ns_per_ray": 297.9,
+  "decode_ns_per_ray": 232.6,
+  "reconstruct_ns_per_ray": 81.4,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -10039,9 +10039,9 @@
    "nu": 0.093
   },
   "nblocks": 157,
-  "encode_ns_per_ray": 295.0,
-  "decode_ns_per_ray": 239.3,
-  "reconstruct_ns_per_ray": 100.3,
+  "encode_ns_per_ray": 329.5,
+  "decode_ns_per_ray": 228.9,
+  "reconstruct_ns_per_ray": 83.5,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10111,9 +10111,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 296.7,
-  "decode_ns_per_ray": 237.9,
-  "reconstruct_ns_per_ray": 101.3,
+  "encode_ns_per_ray": 325.4,
+  "decode_ns_per_ray": 234.9,
+  "reconstruct_ns_per_ray": 80.2,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10183,9 +10183,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 302.9,
-  "decode_ns_per_ray": 245.5,
-  "reconstruct_ns_per_ray": 106.4,
+  "encode_ns_per_ray": 296.8,
+  "decode_ns_per_ray": 226.7,
+  "reconstruct_ns_per_ray": 80.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10255,9 +10255,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 301.2,
-  "decode_ns_per_ray": 235.6,
-  "reconstruct_ns_per_ray": 99.1,
+  "encode_ns_per_ray": 291.4,
+  "decode_ns_per_ray": 227.2,
+  "reconstruct_ns_per_ray": 81.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10327,9 +10327,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 290.2,
-  "decode_ns_per_ray": 232.9,
-  "reconstruct_ns_per_ray": 97.7,
+  "encode_ns_per_ray": 297.6,
+  "decode_ns_per_ray": 226.6,
+  "reconstruct_ns_per_ray": 82.1,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -10399,9 +10399,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 343.9,
-  "decode_ns_per_ray": 243.6,
-  "reconstruct_ns_per_ray": 101.3,
+  "encode_ns_per_ray": 348.6,
+  "decode_ns_per_ray": 253.7,
+  "reconstruct_ns_per_ray": 83.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10471,9 +10471,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 311.7,
-  "decode_ns_per_ray": 235.2,
-  "reconstruct_ns_per_ray": 100.9,
+  "encode_ns_per_ray": 299.4,
+  "decode_ns_per_ray": 229.0,
+  "reconstruct_ns_per_ray": 83.7,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10543,9 +10543,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 290.3,
-  "decode_ns_per_ray": 234.7,
-  "reconstruct_ns_per_ray": 99.9,
+  "encode_ns_per_ray": 298.0,
+  "decode_ns_per_ray": 228.3,
+  "reconstruct_ns_per_ray": 82.8,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10615,9 +10615,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 297.6,
-  "decode_ns_per_ray": 244.0,
-  "reconstruct_ns_per_ray": 111.8,
+  "encode_ns_per_ray": 336.1,
+  "decode_ns_per_ray": 262.4,
+  "reconstruct_ns_per_ray": 83.9,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
@@ -10687,9 +10687,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 309.9,
-  "decode_ns_per_ray": 240.6,
-  "reconstruct_ns_per_ray": 100.4,
+  "encode_ns_per_ray": 308.0,
+  "decode_ns_per_ray": 261.6,
+  "reconstruct_ns_per_ray": 88.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 0.000488,
@@ -10759,9 +10759,9 @@
    "nu": 0.093
   },
   "nblocks": 155,
-  "encode_ns_per_ray": 309.5,
-  "decode_ns_per_ray": 245.2,
-  "reconstruct_ns_per_ray": 101.6,
+  "encode_ns_per_ray": 294.7,
+  "decode_ns_per_ray": 225.1,
+  "reconstruct_ns_per_ray": 81.0,
   "q_mismatch": 0,
   "err_structural": {
    "x_max": 7.63e-06,
