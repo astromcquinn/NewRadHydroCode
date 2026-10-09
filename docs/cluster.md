@@ -399,6 +399,19 @@ HeII following HII and HeIII at z < 3; the code's cosmology):
 * The ionized fraction at 0.1c drops from 10% to 99% over Δz ≈ 3.2–3.8; at 0.01c
   over Δz ≈ 4.5–5.2. The 0.01c x_HII,V also lags x_HII,M by more (light
   reaches the dense regions near sources first).
+* **Images** (`tools/movies/compare_stills.py`, `tools/movies/stills.py`):
+  neutral-fraction slabs of the two 256³ runs at the same redshifts, and the
+  256³, 0.1c run's x_HI and T. At 0.1c the bubbles overlap by z ≈ 9; at 0.01c
+  neutral regions survive to z ≈ 8. Faint radial spokes inside bubbles and
+  "+"-shaped crosses on young bubbles (the grid-aligned artifacts of
+  STATUS "Next", B16 on the `movies` branch) are visible at both c; this
+  thread did not investigate them. Every run also has per-redshift stills in
+  `<run>/run/stills/`; the 128³ comparison is `figures/hyak_slowlight_128.png`.
+
+  ![slow light at 256³](figures/hyak_slowlight_256.png)
+
+  ![256³, 0.1c](figures/hyak_stills256_c01.png)
+
 * Whether 0.1c is converged needs a 0.3c or 1c run (at 128³: under an hour
   or a few hours on a whole node, scaling from the 0.1c run).
 * With the global SFR model both c values reionize too early: τ_es = 0.07–0.09

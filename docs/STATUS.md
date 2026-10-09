@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-09, end of the first working thread (after PR #10).*
+*Last updated: 2026-10-08, after the Hyak cluster-setup thread (branch `hyak-setup`). The rest of this file predates PRs #7, #11, #12 and #13.*
 
 ## Done (merged into `main`)
 
@@ -91,6 +91,42 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   entropy formulation for cold supersonic gas behind a flag, is a candidate
   next task.
 
+## Hyak (branch `hyak-setup`, 2026-10-08; `docs/cluster.md`)
+
+- **Environment:** gcc/g++/gfortran 13.2.0 (module `gcc/13.2.0`), FFTW
+  3.3.10 float built SSE2-only in user space (AVX2 / no-SIMD builds break 5–6
+  stored PM/hydro references), CMake 4.4.4, Python 3.12, numpy, matplotlib
+  and ffmpeg from a conda env, all under `/gscratch/astro/mcquinn/sw`.
+  `tools/hyak/` holds env, setup, build, production (auto-restart) and
+  scaling jobs. `radhydro` has a new `run_steps` parameter (stop after n steps
+  of an invocation; for timing).
+- **Tests:** fast suite 72/80, nightly 12/12. The 8 failures are RT stored
+  references (`ref_*lognormal_16src*`, `ref_c01_*`): 1-ulp differences in
+  double-precision stats and 2–10 cells of ray photons at the removal
+  threshold. The live gfortran RT harness built on klone shows exactly the
+  same differences and agrees with the C++ byte for byte (17/17), so the
+  stored references are platform-dependent (glibc 2.28 vs 2.39 is the likely
+  cause). They were not regenerated.
+- **OpenMP scaling on an idle node:** byte-identical outputs for 1–192
+  threads. RT 50× on 96 threads at 128³, flat beyond that (512 domains per
+  colour); 94× on 192 threads at 256³ (ray tracing 116×).
+- **Runs** (global source model): 128³ 0.01c in 3 min, 0.1c in 16 min;
+  256³ 0.01c in 26 min (shared nodes); 256³ 0.1c with movie in 1 h 32 min on
+  a whole node, 27 GB peak RSS. **0.01c delays reionization by Δz ≈ 2–2.5**
+  against 0.1c and lowers τ_es by 20%; the 0.1c histories agree between 128³
+  and 256³. Both c reionize too early with the uncalibrated global model
+  (τ_es = 0.07–0.09).
+- **Findings for later:** checkpoint files hold 6 uninitialised padding bytes
+  (`DriverState`), so identical runs give checkpoints that differ in one byte
+  (restarts are unaffected); `ctest -L long` (CLAUDE.md, README) selects no
+  test, since all long tests are labelled `nightly`; movie frames written
+  before the RT starts log x_HII,V = 1 and x_HII,M = nan.
+- **Open PRs touched:** #7 (`production-run`, draft): its `tools/hyak/`
+  scripts were copied into `hyak-setup` and adapted (env, time limits,
+  restart from the newest checkpoint; the post-run analysis scripts it calls
+  are not on `main`); nothing else from it was merged. #11 (`framework-spike`):
+  SPIKE_PLACEHOLDER
+
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
 Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
@@ -156,7 +192,7 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
 ## Known limits
 
-- **OpenMP only.** MPI/GPU is Phase 2. Thread scaling on Genoa is still to be measured on Hyak.
+- **OpenMP only.** MPI/GPU is Phase 2. On one Genoa node the RT scales to 94× (256³, 192 threads; `docs/cluster.md` §6).
 - **RT dominates the cost.** Hydro+PM take under 1%. At full c, z=12→6 at
   128³ would take days on one core, hence `c_reduced`.
 - **Network access from cloud sessions.** arXiv, ADS and journal sites are
