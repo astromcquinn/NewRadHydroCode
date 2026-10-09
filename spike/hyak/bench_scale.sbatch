@@ -25,7 +25,7 @@ RPN=${LAYOUT%%:*}; TPR=${LAYOUT##*:}
 export CODES="amrex parthenon"
 mk() { local N=$1 P="$SPIKE_WORK/problems/bench_N$1"
   [ -f "$P/gas.bin" ] || python3 "$SPIKE_REPO/spike/bench/make_bench_problem.py" \
-      --N $N --nsrc $((N * N * N / 32768)) --nsteps 4 --nray-max-factor 16 --out "$P"
+      --N $N --nsrc $((N * N * N / 32768)) --nsteps 4 --nray-max-factor 16 --out "$P" >&2
   echo "$P"; }
 for nodes in 1 2 4; do
   [ "$nodes" -le "$SLURM_JOB_NUM_NODES" ] || continue
