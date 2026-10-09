@@ -215,3 +215,63 @@ them in `params.txt` and with `--set`. The run summary prints the
 call, the smallest CFL step, cell-substeps whose pressure came from `e`,
 cell-substeps synchronised, floor hits); `apps/radhydro` also writes them
 to `timing.txt`.
+
+## 7. Quirks of the unsplit scheme (U1–U6)
+
+Flagged like the legacy quirks (`docs/port_notes_hydro.md` §5); none of
+H1–H3, H7–H9, H13 applies to this scheme (`port_notes_hydro.md` §9).
+
+* **U1. The Courant step includes the bulk speed.** `calc_timestep` is
+  unchanged by design, and `summarize_gas`'s `cmax_gas` =
+  max(|v_lab|, |v − v_g| + c) is max(|v| + c) in the lab frame (v_g = 0),
+  so a fast bulk flow shortens the hydro step: the Sod tube with the
+  suite's bulk velocity takes 19 steps instead of 12 at N = 64, the
+  Galilean series 9–40 steps instead of 12–71 (§6). In cosmological runs
+  the Courant step is set by the peculiar velocities for both schemes
+  (the legacy term c1 of `summarize_gas` is the same |v_lab|), so the
+  step counts of the coupled runs are close (§8).
+* **U2. Stagnation cells with the ±1 neighbourhood.** With
+  `dual_nb_radius = 1` the η₂ synchronisation thermalises the unresolved
+  velocity dispersion of a cell between two converging supersonic streams
+  (its E − KE is about a quarter of its neighbours' kinetic energy, above
+  η₂ = 0.1): the two centre cells of the N = 32 pancake reach 37× the
+  adiabatic temperature at z = 10 (82× with the cell-local η₁ test).
+  With the default ±2 neighbourhood the ratio is below 1/48 and the
+  centre stays adiabatic (1.05×). A flow converging by more than about
+  √(48 η₂) ≈ 2 sound speeds per two cells can still trigger it; the
+  pancake and box tables of §6 report the maximum T/T_adiabatic.
+* **U3. The substep count depends on the transverse speed.** The CFL
+  condition uses Σ_d(|v_d| + c), so a uniform transverse bulk velocity
+  changes the substep length and hence the truncation error of a 1-D
+  problem (6×10⁻³ in ρ/ρ_L between |v_⊥| = 0.18 and 3.6 at N = 32,
+  against ≤ 9×10⁻⁴ for the legacy per-direction sweeps). It is a
+  time-step effect, not a Galilean one: the fluxes of a uniform transverse
+  flow cancel exactly.
+* **U4. The total-energy reset is not conservative.** In cells whose
+  pressure comes from the internal-energy field (E − KE ≤ η₁ max_nb E) the
+  stored E is reset to KE + ρe, so the lab-frame total energy of a cold
+  supersonic flow drifts by the discarded truncation error (≤ η₁ E_nb per
+  cell and step). Where the thermal energy is a reliable fraction of the
+  total (every tube, the sound waves, the Sedov blast) energy is conserved
+  to round-off (§6). The energy drift of the pancake and the box is
+  reported in §6.
+* **U5. Float precision of E − KE in the stored state.** `u` is float, so
+  E − KE from `u` alone has a relative error 6×10⁻⁸·E/e (0.03 % at
+  Mach 100, 6 % at Mach 1300). The hydro and the RT use the field `e`
+  (full float precision of its own); the consumers that read only `u`
+  (`summarize_gas`'s sound speed and temperature, the RT grid `temp`, the
+  stats) carry the error, which is why the suite's analysis reads
+  `e_gas.bin`. The species `w` are advected with the HLLC mass flux and
+  MC-limited specific abundances, so Σw is conserved to round-off (the
+  legacy `smooth_cells` is not, H8); `summarize_gas` still clamps
+  `u(1) ≥ Dgas_min` and `w ≥ 0` (H6).
+* **U6. Grid alignment at low resolution.** The blast wave is more cubic
+  than the legacy one at N = 32 (axes ahead of the diagonals by 10 %
+  against 7.7 %, rms anisotropy 2.7 % against 1.9 %) and equal at N = 64
+  (3.9 %, 1.0 %); the unsplit HLLC scheme without transverse corrections
+  is the more grid-aligned at 11 cells of radius. Converges at first
+  order like the legacy scheme (§6).
+
+## 10. What the new scheme does worse, and when to use which
+
+*(Filled in with the measurements of §6, §8 and §9 below.)*
