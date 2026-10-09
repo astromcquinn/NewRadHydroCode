@@ -45,8 +45,10 @@ constexpr int NG = 2;  // ghost cells needed
 constexpr double kGamma = 5.0 / 3.0;
 constexpr double kSmallRho = 1e-10, kSmallP = 1e-12;
 
-// Dual-energy selection (Bryan et al. 1995; see docs/hydro_unsplit.md for
-// the provenance of the defaults). eta1 <= 0 turns the formulation off
+// Dual-energy selection (Bryan et al. 1995, restated in Bryan et al. 2014
+// section 4.1.1; eta1 = 1e-3 and eta2 = 0.1 are their values, the
+// neighbourhood and the reset rule are this implementation's, see
+// docs/hydro_unsplit.md section 2). eta1 <= 0 turns the formulation off
 // (the thermal energy is always E - KE).
 //   eta1: the pressure comes from E - KE when (E - KE)/E_ref > eta1, else
 //         from the separately evolved internal energy. E_ref is the
@@ -54,8 +56,8 @@ constexpr double kSmallRho = 1e-10, kSmallP = 1e-12;
 //         truncation error of E comes from the fluxes, i.e. from the
 //         neighbours' energies, so a stagnation cell between fast streams
 //         is not fooled by its own small E), or the cell's E alone with
-//         eta1_local (the cell-local form as commonly stated for Bryan et
-//         al. 1995; unconfirmed, see the doc);
+//         eta1_local (the cell-local form of Bryan et al. 1995, eq. 44 of
+//         Bryan et al. 2014; see the doc);
 //   eta2: the internal energy is synchronised to E - KE when
 //         (E - KE)/max_neighbours(E) > eta2.
 struct DualEnergy {

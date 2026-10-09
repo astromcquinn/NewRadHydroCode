@@ -94,7 +94,7 @@ The dual-energy formulation of Bryan et al. (1995, Comput. Phys. Commun.
   e_T > η₁ E_ref, else (γ−1)ρe, with E_ref the maximum of E over the cell
   and its neighbours within ±`dual_nb_radius` cells along the axes
   (default 2, i.e. 12 neighbours; `dual_eta1_local = 1` uses the cell's own
-  E, the form in which the rule is usually stated). The selected thermal
+  E, the form of Bryan et al. 2014 eq. 44). The selected thermal
   energy is computed once per substep for every cell (`select_pass`) and
   is what every reconstruction and the CFL speed use; the gravity kick
   (`pm::particle_mesh_unsplit`) uses the cell-local form on the stored
@@ -139,12 +139,17 @@ The dual-energy formulation of Bryan et al. (1995, Comput. Phys. Commun.
   and zeroed. With `dual_energy = 0` the field is evolved but never used
   (e_T always), for comparison runs.
 
-**Constants and their provenance.**
+**Constants and their provenance.** Checked on 2026-10-09 against the
+Enzo method paper (Bryan et al. 2014, ApJS 211, 19, arXiv:1307.2265,
+§4.1.1, which restates Bryan et al. 1995) and the Nyx paper (Almgren et
+al. 2013, ApJ 765, 39, arXiv:1301.4498, §3.2), both supplied by the user.
 
 | Constant | Value | Where | Provenance |
 |---|---|---|---|
-| η₁ | 10⁻³ | `dual_eta1` | **Unconfirmed.** The value commonly quoted for Bryan et al. 1995 (and Enzo's default), written from memory: the cloud session cannot reach arXiv/ADS and the user has not yet supplied the paper. To be checked against the paper. |
-| η₂ | 0.1 | `dual_eta2` | **Unconfirmed**, same source. The neighbourhood (±2 cells along the axes, for η₁ as well) is this implementation's choice from the measurements of §2/§7; Bryan et al. may use the sweep neighbours only and the cell-local η₁. |
+| η₁ | 10⁻³ | `dual_eta1` | **Confirmed** (2026-10-09, user-supplied PDFs): Bryan et al. 2014 (the Enzo method paper, ApJS 211, 19, §4.1.1 eq. 44) use η₁ = 10⁻³ in the cell-local form (E − v²/2)/E > η₁, "consistent with the truncation error of the scheme". This implementation tests against the ±2-cell maximum by default (§2, stagnation cells); `dual_eta1_local = 1` is the paper's form. Nyx (Almgren et al. 2013, ApJ 765, 39, §3.2) uses 10⁻⁴ ("e less than 0.01 % of E"), cell-local. |
+| η₂ | 0.1 | `dual_eta2` | **Confirmed**: Bryan et al. 2014 eq. 45, ρ(E − v²/2)/max(ρ_{j−1}E_{j−1}, ρ_jE_j, ρ_{j+1}E_{j+1}) > η₂ with η₂ = 0.1, "a somewhat conservative value", the maximum over the cell and its two neighbours along the (1-D) sweep. This implementation uses the ±2-cell maximum along all three axes (12 neighbours) by default, for the reason measured in §2/§7 (U2); `dual_nb_radius = 1` is the closest to the paper's stencil. Nyx has no η₂: it resynchronises e := E − ½U² wherever e exceeds 0.01 % of E. |
+| reset of E | rule 0 | `dual_reset_rule` | Nyx (Almgren et al. 2013 §3.2): "In cells where e is less than 0.01 % of E, we use e as evolved independently to compute temperature and pressure from the EOS and re-define E as e + ½U²". Enzo never modifies E (e is "enhanced precision ... for E"). |
+| work term | −p_half Σ(v*₊ − v*₋) | kernel | Bryan et al. 2014 eq. 43 uses the cell-centred pressure **at the old time** ("time-centering of this pressure has proved difficult to do without generating large errors") and the face velocities of the Riemann solver; this implementation uses the Hancock half-step pressure, which gave no such problem on the suite (pancake entropy to 10⁻⁴). |
 | CFL | 0.8 against Σ_d(\|v_d\| + c) | `unsplit_cfl` | RAMSES's `courant_factor` default for its unsplit MUSCL scheme (from memory; the stability limit itself, Σ_d(\|v_d\| + c) dt/dx < 1, is standard). |
 | γ | 5/3 (double) | kernel | The supercomoving equations have no expansion terms for γ = 5/3 (`docs/hydro_tests.md` §1); the legacy scheme uses the real(4) 5./3 (H10), the summaries and the RT still do. |
 | ρ_min, p_min | 10⁻¹⁰, 10⁻¹² (code units) | kernel | Positivity guards of the spike kernel, never reached in the tests (the `Dgas_min` floor is far above). |
@@ -229,8 +234,8 @@ stats, the RT, the data files) reads lab-frame values without change.
 | `hydro_scheme` | `legacy` | `legacy` (the original, bit-identical) or `unsplit` |
 | `unsplit_cfl` | 0.8 | Courant number of the substeps against Σ_d(\|v_d\| + c) |
 | `dual_energy` | 1 | 0: total energy only (the kernel without the formulation; for comparison) |
-| `dual_eta1` | 10⁻³ | pressure from E − KE when (E − KE)/E > η₁ (unconfirmed, §2) |
-| `dual_eta2` | 0.1 | ρe := E − KE when (E − KE)/max_nb E > η₂ (unconfirmed, §2) |
+| `dual_eta1` | 10⁻³ | pressure from E − KE when (E − KE)/max_nb E > η₁ (Bryan et al. 2014 eq. 44, cell-local there; §2) |
+| `dual_eta2` | 0.1 | ρe := E − KE when (E − KE)/max_nb E > η₂ (Bryan et al. 2014 eq. 45; §2) |
 | `dual_nb_radius` | 2 | the neighbourhood of max_nb E: ±1 (6 cells) or ±2 (12) along the axes (§2) |
 | `dual_eta1_local` | 0 | 1: the η₁ test against the cell's own E (the cell-local form; stagnation cells heat, §2) |
 | `dual_reset_rule` | 0 | when the pressure comes from ρe: 0 reset E := KE + ρe always; 1 only if that changes E by ≤ η₁E; 2 as 1 or in thermal-dominated cells; 3 only if E − KE ≤ η₁ max_{±1} E (§2) |

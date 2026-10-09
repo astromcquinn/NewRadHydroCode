@@ -114,9 +114,11 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 - The RT's `photo_cell` reads and writes the field (the one physics
   coupling point); the RT grid temperature and `summarize_gas` read it for
   diagnostics. Checkpoint format version 2 (version 1 still readable).
-- **Unconfirmed constants**: η₁ = 10⁻³, η₂ = 0.1 (Bryan et al. 1995 could
-  not be reached from the cloud session) and the ±2 neighbourhood is this
-  implementation's choice; they are parameters.
+- **Constants confirmed** against the Enzo (Bryan et al. 2014 §4.1.1) and
+  Nyx (Almgren et al. 2013 §3.2) method papers: η₁ = 10⁻³, η₂ = 0.1, the
+  total-energy reset. Deliberate deviations (the ±2 all-axis neighbourhood,
+  the time-centred pressure in the work term) are documented in
+  `docs/hydro_unsplit.md` §2; all are parameters.
 - Suite: `run_suite.py --scheme unsplit`, tolerances per scheme,
   `hydro_suite_unsplit_*` (fast) and `hydro_suite_full_unsplit_*`
   (nightly), `restart_smoke_unsplit`, `thread_full_unsplit_hydro_pm`.
@@ -165,9 +167,9 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    exactly along grid planes (B10, positions on cell faces). Check this before
    science runs, and see whether it also happens with legacy_rt = 1.
 6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
-   branch `hydro-unsplit`). Open: confirm η₁/η₂ against Bryan et al. 1995;
-   convergence check of the Sedov radius bias and the cold-gas time-step
-   sensitivity at 128³.
+   branch `hydro-unsplit`; η₁/η₂ confirmed against the Enzo and Nyx
+   papers). Open: convergence check of the Sedov radius bias and the
+   cold-gas time-step sensitivity at 128³.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study, which can start now;
@@ -185,8 +187,6 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
   `docs/halos_and_sources.md`.
 - Whether to keep the original's default `nray_max_factor = 64` in legacy
   mode. Production uses 16.
-- Bryan et al. 1995 (and Ryu et al. 1993 if wanted) for the dual-energy
-  thresholds (`docs/hydro_unsplit.md` §2).
 
 ## Known limits
 

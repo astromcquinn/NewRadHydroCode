@@ -88,10 +88,9 @@ struct Config {
   //                unsplit substeps;
   //   dual_energy: 1 = dual-energy formulation (Bryan et al. 1995), 0 = total
   //                energy only;
-  //   dual_eta1, dual_eta2: its selection thresholds (docs/hydro_unsplit.md
-  //                section 2 for their provenance; the defaults are the
-  //                values commonly quoted for Bryan et al. 1995, unconfirmed
-  //                against the paper).
+  //   dual_eta1, dual_eta2: its selection thresholds, the values of Bryan
+  //                et al. 1995 as restated in Bryan et al. 2014 (Enzo, section
+  //                4.1.1, eqs. 44-45); docs/hydro_unsplit.md section 2.
   HydroScheme hydro_scheme = HydroScheme::Legacy;
   double unsplit_cfl = 0.8;
   bool dual_energy = true;
