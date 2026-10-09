@@ -154,6 +154,47 @@ al. 2013, ApJ 765, 39, arXiv:1301.4498, §3.2), both supplied by the user.
 | γ | 5/3 (double) | kernel | The supercomoving equations have no expansion terms for γ = 5/3 (`docs/hydro_tests.md` §1); the legacy scheme uses the real(4) 5./3 (H10), the summaries and the RT still do. |
 | ρ_min, p_min | 10⁻¹⁰, 10⁻¹² (code units) | kernel | Positivity guards of the spike kernel, never reached in the tests (the `Dgas_min` floor is far above). |
 
+**Test of the papers' exact forms.** The two emulations are available as
+parameter combinations (`dual_eta1_local`, `dual_nb_radius`,
+`dual_reset_rule = 4` = never reset, `dual_eta2_local`, `dual_p_old`) and
+were run on the pancake (N = 32, 64), the 64³ box, Sedov (N = 32, 64) and
+the Sod and strong tubes at N = 64 (`tests/hydro_suite` problems, same
+analysis as §6):
+
+| | default (this implementation) | Enzo form: η₁ = 10⁻³ cell-local, η₂ = 0.1 over ±1, E never reset, old-time p | Nyx form: 10⁻⁴ cell-local, E reset, e resynced wherever e_T > 10⁻⁴E | default with the old-time p |
+|---|---|---|---|---|
+| pancake N = 64, z = 10: median T/T_ad, mean \|T/T_ad − 1\|, max | 1.000, 0.007, 0.055 | 1.000, 0.93, 28 | 0.979, 24, 311 | 1.000, 0.007, 0.055 |
+| pancake N = 64, z = 7: the same | 1.001, 4.7, 149 | 1.000, 15.6, 496 | 0.946, 100, 2400 | 1.000, 4.6, 147 |
+| pancake N = 64, z = 3: infall entropy error (median) | 9.5×10⁻⁵ | 1.5×10⁻³ | 0.19 | 1.5×10⁻³ |
+| box N = 64, z = 10: median T, median log T of δ < 0.8 | 8.8 K, 0.27 | 34 K, 0.11 | 4600 K, 3.67 | 8.8 K, 0.26 |
+| box N = 64, z = 3: the same | 331 K, 0.65 | 30 K, 0.31 | 15000 K, 3.31 | 329 K, 0.65 |
+| Sedov N = 64: radius, L1 ρ, energy | +3.0 %, 0.041, −3.0×10⁻³ | +3.1 %, 0.041, +8×10⁻⁹ | +3.1 %, 0.041, +8×10⁻⁹ | +3.0 %, 0.041, −3.0×10⁻³ |
+| strong tube N = 64: energy | −1.5×10⁻⁴ | −2×10⁻⁸ | −2×10⁻⁸ | −1.5×10⁻⁴ |
+| Sod N = 64 | identical | identical | identical | identical |
+
+* The **Enzo constants work** in this scheme: with the paper's exact form
+  the pre-caustic median is still on the adiabat and the box's underdense
+  gas is at 1–2 K, and energy is conserved to round-off because E is
+  never modified. What the paper's form does worse is the stagnation
+  cells: the mean deviation from the adiabat at z = 10 is 0.93 (28× in
+  the centre cells) instead of 0.007 (5.5 %), and 15.6 instead of 4.7 at
+  z = 7. The ±2 neighbourhood removes that at z = 10 at the price of the
+  reset's energy leak (U4). Both are defensible; the default was chosen
+  for the cold gas (the point of the thread); `dual_eta1_local = 1
+  dual_nb_radius = 1 dual_reset_rule = 4` is the exact Enzo form for anyone
+  who prefers conservation.
+* The **Nyx form does not work in this scheme**: resynchronising e from E
+  wherever e_T > 10⁻⁴E, with no neighbourhood test, thermalises the
+  flux errors of E in every cold cell (box underdense gas at 5000 K, the
+  pancake infall 2–5 % too cold in the median and 24× off in the mean).
+  Nyx's own hydro (CTU with full corner coupling and a two-shock Riemann
+  solver) evidently keeps E − KE cleaner than this MUSCL-Hancock + HLLC
+  kernel does; its rule is not transferable.
+* The **time-centred pressure** in the work term (which Enzo could not
+  make work) is harmless here and conserves the infall entropy 15× better
+  than the old-time pressure (9.5×10⁻⁵ against 1.5×10⁻³); everything else
+  is unchanged.
+
 The entropy-conserving variant (Ryu et al. 1993) was not built: the
 dual-energy version met the acceptance criteria (§6).
 
@@ -238,7 +279,9 @@ stats, the RT, the data files) reads lab-frame values without change.
 | `dual_eta2` | 0.1 | ρe := E − KE when (E − KE)/max_nb E > η₂ (Bryan et al. 2014 eq. 45; §2) |
 | `dual_nb_radius` | 2 | the neighbourhood of max_nb E: ±1 (6 cells) or ±2 (12) along the axes (§2) |
 | `dual_eta1_local` | 0 | 1: the η₁ test against the cell's own E (the cell-local form; stagnation cells heat, §2) |
-| `dual_reset_rule` | 0 | when the pressure comes from ρe: 0 reset E := KE + ρe always; 1 only if that changes E by ≤ η₁E; 2 as 1 or in thermal-dominated cells; 3 only if E − KE ≤ η₁ max_{±1} E (§2) |
+| `dual_reset_rule` | 0 | when the pressure comes from ρe: 0 reset E := KE + ρe always; 1 only if that changes E by ≤ η₁E; 2 as 1 or in thermal-dominated cells; 3 only if E − KE ≤ η₁ max_{±1} E; 4 never (Enzo) (§2) |
+| `dual_eta2_local` | 0 | 1: the η₂ test against the cell's own E (Nyx's resync; §2) |
+| `dual_p_old` | 0 | 1: the old-time cell pressure in the −p∇·v work term (Bryan et al. 2014 eq. 43) instead of the Hancock half-step pressure (§2) |
 
 All drivers (`apps/radhydro`, `apps/hydro_driver`, the suite driver) take
 them in `params.txt` and with `--set`. The run summary prints the

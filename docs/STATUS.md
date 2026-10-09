@@ -116,9 +116,12 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   diagnostics. Checkpoint format version 2 (version 1 still readable).
 - **Constants confirmed** against the Enzo (Bryan et al. 2014 §4.1.1) and
   Nyx (Almgren et al. 2013 §3.2) method papers: η₁ = 10⁻³, η₂ = 0.1, the
-  total-energy reset. Deliberate deviations (the ±2 all-axis neighbourhood,
-  the time-centred pressure in the work term) are documented in
-  `docs/hydro_unsplit.md` §2; all are parameters.
+  total-energy reset, and tested: the exact Enzo form reproduces the
+  cold-gas results (energy to round-off, but 28× stagnation cells at z = 10
+  in the pancake); the Nyx resync rule does not work in this kernel (box
+  underdense gas at 5000 K). Deliberate deviations (the ±2 all-axis
+  neighbourhood, the time-centred pressure in the work term) are measured
+  and documented in `docs/hydro_unsplit.md` §2; all are parameters.
 - Suite: `run_suite.py --scheme unsplit`, tolerances per scheme,
   `hydro_suite_unsplit_*` (fast) and `hydro_suite_full_unsplit_*`
   (nightly), `restart_smoke_unsplit`, `thread_full_unsplit_hydro_pm`.
