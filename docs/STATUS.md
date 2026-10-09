@@ -1,6 +1,7 @@
 # Project status
 
-*Last updated: 2026-10-09, end of the hydro solver thread (branch `hydro-unsplit`).*
+*Last updated: 2026-10-09 (after PR #10, the ray compression study and the
+hydro solver thread, branch `hydro-unsplit`).*
 
 ## Done (merged into `main`)
 
@@ -48,6 +49,33 @@ overcooling suppression, the rho_source photon consumption, SN heating.
 **Tools:** the comparison tool, quick-look figures
 (`tools/analysis/test_gallery.py` → `docs/figures/tests_*.png`), and the cooling
 figure.
+
+**Ray compression study (ROADMAP §4, Stage B): done** on branch
+`ray-compression`; see `docs/ray_compression.md`.
+
+- Optional ray snapshots (`ray_dump_*`) and a research-only lossy-precision
+  instrument (`ray_quant_*`). Both are off by default, and the C++ stays
+  bit-identical to the Fortran (`ctest -L raycomp`).
+- Never-merged rays are determined by (source, age, nside, ipix) to
+  float32 precision.
+- Ray size:
+  - fixed-width "R-struct": 29–31 B per ray (80 B of ray data, 88 B per slot);
+  - rANS prototype (`build/ray_codec`): 5–9 B before overlap and 12.7 B
+    after, with a 6-bit dithered photon total and 10-bit offsets. It costs
+    230–310 ns to decode and 290–450 ns to encode per ray, against ~2 µs of
+    RT per ray-substep.
+- Dithered photon quantisation: 8 bits is at the 10⁻⁴ level in every
+  test including the 64³ production configuration (0.01c); 1–2 bits pass
+  the 32³ tests but reach 1 % and 15 % per-cell T scatter at 0.01c.
+  Round-to-nearest is biased (≈1 % error at 6 bits).
+- Many sources (128³, up to 1506 sources at the dumps): the source id
+  costs ~3 bits per ray; the spectra diversify and the models must be
+  refit every hydro step (redshifting), after which the size is the same
+  12–14 B per ray as with 17 sources.
+- Recommendation: R-struct with 8 dithered photon bits as the Stage D
+  in-memory format, and rANS for checkpoints and MPI.
+- Not yet run: the 128³ production-configuration precision check
+  (`tools/production/hyak_precision.sbatch`).
 
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
@@ -169,13 +197,17 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
    grid axes, plus faint radial spokes inside bubbles. A suspect is rays moving
    exactly along grid planes (B10, positions on cell faces). Check this before
    science runs, and see whether it also happens with legacy_rt = 1.
+   Possibly related: the 32³ `uniform_1src` baseline shows a 12-fold ring of
+   isolated neutral cells inside the ionised sphere
+   (`docs/figures/raycomp_slices_uniform_1src.png`).
 6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
    branch `hydro-unsplit`; η₁/η₂ confirmed against the Enzo and Nyx
    papers). Open: convergence check of the Sedov radius bias and the
    cold-gas time-step sensitivity at 128³.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
-   - ray compression study, which can start now;
+   - ray compression study: done (`docs/ray_compression.md`); 64³
+     production-configuration check done, 128³ job script ready for Hyak;
    - framework spike (AMReX vs Parthenon);
    - ray data-structure rewrite;
    - MPI;

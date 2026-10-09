@@ -26,6 +26,8 @@ add_library(radray
   src/rt_rates.cpp
   src/ray_tracing.cpp
   src/rt_tools.cpp
+  src/ray_dump.cpp
+  src/ray_quant.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
@@ -62,6 +64,11 @@ target_link_libraries(find_halos PRIVATE radray_halos)
 
 add_executable(rt_driver apps/rt_driver.cpp)
 target_link_libraries(rt_driver PRIVATE radray)
+
+# Ray-compression study prototype (docs/ray_compression.md); reads ray dumps
+add_executable(ray_codec tools/ray_compression/ray_codec.cpp)
+target_link_libraries(ray_codec PRIVATE radray)
+target_compile_options(ray_codec PRIVATE -O3 -fno-math-errno)
 
 # PM gravity (pm_tools.f90 / fft_tools.f90) needs FFTW3 single precision.
 # Optional: without it only the RT part is built.

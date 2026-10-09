@@ -45,6 +45,21 @@ struct Ray {
 };
 static_assert(sizeof(Ray) == 88, "Ray layout");
 
+// Provenance of a ray, kept only when a ray dump is enabled
+// (include/radray/ray_dump.hpp); never read by the RT itself.
+struct RayProv {
+  enum : std::uint8_t {
+    kMerged = 1,     // some ancestor was produced by ray_cast_merge
+    kMixedSrc = 2,   // merged from rays of different sources
+    kClamped = 4,    // a split clamped r, moving the effective origin
+  };
+  std::int32_t src = -1;     // emitting source cell (0-based), -1 if mixed
+  std::int32_t birth = 0;    // global RT substep at emission
+  std::uint16_t nmerge = 0;  // merges in the ancestry (saturating)
+  std::uint8_t nclamp = 0;   // clamped splits in the ancestry (saturating)
+  std::uint8_t flags = 0;
+};
+
 // radhydro_global.f90: ray_stat_type
 struct RayStat {
   std::int64_t ncst1 = 0, ncst2 = 0;
@@ -82,6 +97,26 @@ struct RayBuffer {
   const Ray& operator[](std::int64_t i) const { return p[i]; }
 };
 
+// Provenance per storage slot (ray-dump only), like RayBuffer: calloc'd,
+// so untouched pages cost nothing and threads can write distinct slots.
+struct ProvBuffer {
+  RayProv* p = nullptr;
+  std::int64_t cap = 0;
+  void reset(std::int64_t n) {
+    std::free(p);
+    p = n > 0 ? static_cast<RayProv*>(std::calloc(static_cast<std::size_t>(n), sizeof(RayProv)))
+              : nullptr;
+    cap = p ? n : 0;
+  }
+  bool empty() const { return cap == 0; }
+  ~ProvBuffer() { std::free(p); }
+  ProvBuffer() = default;
+  ProvBuffer(const ProvBuffer&) = delete;
+  ProvBuffer& operator=(const ProvBuffer&) = delete;
+  RayProv& operator[](std::int64_t i) { return p[i]; }
+  const RayProv& operator[](std::int64_t i) const { return p[i]; }
+};
+
 struct RayState {
   std::int64_t Nray_max = 0;
   std::int64_t Nfree_max = 0;
@@ -100,6 +135,10 @@ struct RayState {
 
   std::array<double, 64> ngam_ray{};  // ngam_ray(1:64) -> [0..63]
 
+  // Ray-dump provenance (empty and untouched unless track_prov is set).
+  bool track_prov = false;
+  std::int64_t prov_substep = 0;  // global RT substep, for RayProv::birth
+  ProvBuffer prov;                // prov[ir], allocated by ray_dump_enable
   // F3 pool guard (legacy_rt = 0): substeps in which the split threshold was
   // raised / splitting stopped and merging forced (cumulative)
   std::int64_t npool_limited = 0, npool_forced = 0;
