@@ -482,6 +482,28 @@ N_gas = 64, N_dm = 32, 64 Mpc/h, T_i = 47 K at z = 50:
 * Mass is conserved to 10⁻⁹.
 
 
+### Kelvin–Helmholtz (`docs/hydro_tests.md` §8)
+
+Mach 0.5 tanh shear layers, two wavelengths per box, growth rate of the
+seeded mode over six linear e-folding times against the incompressible
+linear rate of the tanh layer:
+
+| N | layer half-width [cells] | steps legacy / unsplit | σ / σ_lin legacy / unsplit | wall legacy / unsplit [s] |
+|---|---|---|---|---|
+| 32 | 1 | 144 / 144 | decays (−0.46) / **0.40** | 20 / 71 |
+| 64 | 2 | 264 / 264 | ≈ 0 (−0.06) / **0.79** | 309 / 284 |
+| 128 | 4 | 528 / 528 | 0.51 / **0.91** | 5381 / 2203 |
+
+The instability grows at every resolution, at 0.4, 0.8 and 0.9 of the
+linear rate with 1, 2 and 4 cells across the layer (the legacy scheme
+needs 4 cells to grow at all, and then reaches half the rate): the
+numerical viscosity of the HLLC + MC operator is far below that of the
+legacy scheme, consistent with the 3.4-cell contacts and the sound-wave
+damping. The 0.91 at 4 cells is in the 70–90 % range quoted for
+second-order grid codes (`hydro_tests.md` §8). The wall times were taken
+on the shared machine (the N = 128 case ran alone at the end, 2.4× faster
+than the legacy run under similar conditions).
+
 ## 7. Quirks of the unsplit scheme (U1–U6)
 
 Flagged like the legacy quirks (`docs/port_notes_hydro.md` §5); none of

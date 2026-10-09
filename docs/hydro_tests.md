@@ -567,7 +567,7 @@ numbers from `results/*_full_unsplit.json`, legacy from `results/*_full.json`.
 | Pancake (§6), infall median T/T_ad at N = 64, z = 10/7 | 7.0 / 20 | 1.000 / 1.001 (every N, z); centre cells hot near the caustic (U2) | fixed |
 | Pancake, post-caustic | shock within 0.5 cells, entropy of the infall off by 1–300 | shock within 1.15 cells at N = 128 (wall-heating spike confuses the detector at N = 64), entropy 10⁻⁴, symmetry 10⁻⁴ | better (entropy), equal (shock) |
 | Cosmological box (§7), N = 64, z = 10 | median T 6.5×10³ K, underdense gas at 10⁴ K | median 8.8 K (2.1 K with da/a ≤ 0.02), underdense at 2 K; P_gas/P_dm unchanged | fixed; cold gas warms slowly with the original time step (see the doc) |
-| Kelvin–Helmholtz (§8) | decays at N = 32, 0.51 of linear at N = 128 | see `docs/hydro_unsplit.md` §6 | |
+| Kelvin–Helmholtz (§8) | decays at N = 32, ≈ 0 at 64, 0.51 of linear at N = 128 | 0.40, 0.79, 0.91 of linear at N = 32, 64, 128 | better (grows at 1 cell per layer) |
 | Energy conservation | −10⁻⁴ to −5 % (H9) | round-off, except the U4 leak in cold Mach ≫ 1 gas ahead of strong shocks (≤ 0.6 %) | better |
 | Orientation / symmetry (H2) | 10⁻³ tubes, 2–8 % Sedov axes/diag, 0.3–2 % pancake | exact for 1-D problems; Sedov 10 % (N = 32) to 1.1 % (128); pancake 10⁻⁴ | better except Sedov at N = 32 (U6) |
 | Cost | 6 sweeps per step, 0.6–0.9 µs/cell/sweep | 2–4 substeps per step, see the doc §9 | |
