@@ -9,7 +9,7 @@ stays bit-identical to the Fortran harnesses.*
 Contents: 1. the scheme; 2. the dual-energy formulation (every constant and
 its provenance); 3. how the step sits in the loop; 4. the RT coupling and
 the state; 5. parameters; 6. results of the hydro suite, both schemes side
-by side; 7. quirks of the new scheme (U1–U5); 8. the coupled run; 9. cost;
+by side; 7. quirks of the new scheme (U1–U6); 8. the coupled run; 9. cost;
 10. what the new scheme does worse, and when to use which.
 
 ## 1. The scheme
@@ -512,6 +512,153 @@ H1–H3, H7–H9, H13 applies to this scheme (`port_notes_hydro.md` §9).
   is the more grid-aligned at 11 cells of radius. Converges at first
   order like the legacy scheme (§6).
 
+## 8. The coupled run (64³, 10 Mpc/h, 0.1c)
+
+`tools/production/make_production.py --N 64 --c-reduced 0.1` (the
+production configuration: `legacy_rt = legacy_physics = 0`,
+`deterministic_parallel`, `rt_substep_carry`, on-the-fly FoF sources,
+RT from z = 15, outputs every unit in z to 5.5), the same Zel'dovich ICs
+(seed 7), once with each scheme, one thread each, both on a machine shared
+with the suite runs (wall times are upper bounds). Analysis:
+`tools/analysis/compare_schemes.py RUN_A:legacy RUN_B:unsplit` and
+`tools/analysis/pk_growth.py` (from branch `hyak-setup`, copied here);
+figure `docs/figures/hydro_unsplit_coupled64.png`.
+
+| | legacy | unsplit |
+|---|---|---|
+| hydro steps to z = 5.5 | 27 | 27 (identical redshifts: the step is set by `ra_max` and the DM, U1 does not bite) |
+| RT substeps (`nstep_rt`, set by the light travel) | 825 over 6 steps with RT | 939 over 7 steps with RT |
+| unsplit substeps | – | 58 in 54 calls (max 2 per call) |
+| wall per hydro step: hydro / PM / RT / total [s] | 0.75 / 0.12 / 98 / 100 | 0.62 / 0.19 / 157 / 158 |
+| total wall [s] (RT share) | 2702 (98 %) | 4279 (99 %) |
+| peak RSS [MB] | 323 | 401 (the double work arrays, §9) |
+| first source (FoF halo above 20 particles) | step 22, z = 8.95 | step 21, z = 10.05 |
+| x_HII (mass) at z = 10.05 / 8.95 / 7.95 | – / 0.64 / 0.999 | 0.42 / 0.89 / 1.000 |
+| T_M, T_V [K] at z = 8.95 (both mostly ionised) | 12350, 12520 | 12400, 12570 |
+| T_M, T_V [K] at z = 5.53 (all ionised) | 10230, 7680 | 9410, 6750 |
+| gas before the RT (z = 14.2, from `u_gas`/`e_gas`): median T, median T of δ < 1, T_mw, mass fraction below 10 K | 133 K, 95 K, 360 K, 0.10 | **2.7 K, 2.5 K, 37 K, 0.78** |
+| gas P(k)/DM P(k) (CIC-deconvolved) at z = 14.2, k = 2, 5, 10, 20 h/Mpc | 1.01, 0.98, 0.68, 0.12 | 1.01, 1.01, 0.81, 0.23 |
+| the same at z = 4.9 | 0.99, 0.86, 0.45, 0.03 | 1.00, 0.94, 0.72, 0.31 |
+| DM growth vs linear theory (k ≤ 3 h/Mpc, z = 14.2 → 4.9) | 1.000 → 1.143 | 1.000 → 1.142 |
+
+* **Before reionisation the IGM is cold**: the median temperature at
+  z = 14 is 2.7 K (the adiabat of the mean density, the 1 K floor below
+  δ ≈ 0.3) against 133 K for the legacy scheme, whose mass-weighted 360 K
+  and 10 % of the mass below 10 K are the spurious heating of §6/§7 of
+  `hydro_tests.md` in the production box (the 10 Mpc/h box has stronger
+  small-scale velocities than the 64 Mpc/h test box, where the legacy
+  median was 6500 K at z = 10: here the spurious heating is 50–100× in
+  the median and ×10 in the mean). At 64³ the unsplit mass-weighted
+  temperature of 37 K is shock-heated gas in the few collapsed cells.
+* **The ionisation histories differ for a reason unrelated to the hydro:**
+  the FoF finder (on the DM, which the gas moves only through gravity)
+  resolves the first 20-particle halo one step earlier in the unsplit run
+  (z = 10.05 instead of 8.95; the DM differs at the 10⁻³ level between the
+  runs), so that run ionises 42 % of the mass by z = 10 and 89 % by z = 9
+  where the legacy run reaches 64 % at z = 9; both are fully ionised by
+  z = 8. The step at z = 8.95 costs 437 s instead of 44 s for the same
+  reason (1.6×10⁶ instead of 0.6×10⁶ live rays), hence the longer total.
+  A single 20-particle halo ionising the whole 64³ box by z = 8 is the
+  source model's business (abundance matching is the next thread), not
+  this one's. Once ionised, the two runs are within 1 % in T at z = 9,
+  and the unsplit gas is 8 % (mass-weighted) to 12 % (volume-weighted)
+  cooler at z = 5.5: the legacy gas carries the spurious pre-heating of
+  the dense, late-ionised regions and the stronger cooling-time differences
+  that follow; which is right needs a resolution study.
+* **The gas follows the DM to smaller scales**: at z = 14, before any RT,
+  the gas power is 81 % of the DM's at k = 10 h/Mpc and 23 % at the Nyquist
+  scale (20 h/Mpc) against 68 % and 12 %: the HLLC + MC operator smooths
+  less than the TVD + moving-frame + Gaussian-smoothing operator; at z = 4.9
+  the pressure smoothing of the ionised gas (Jeans scale) is visible in
+  both, with the unsplit gas keeping twice the small-scale power. The DM
+  growth is the same (the hydro feeds back only through the gas density in
+  the PM).
+* **Thread-count independence**: `thread_full_unsplit_hydro_pm` (the full
+  loop on `problems_full/onthefly` to z = 12 with 1, 2 and 4 threads: 389
+  files byte-identical) and `restart_smoke_unsplit` (bit-identical restart
+  from step 13 of a run with RT, 47 files) pass; the fast suite with the
+  default flags is unchanged (§9 of `hydro_tests.md`, the PR).
+
+## 9. Cost
+
+Wall time per hydro step (`t_hydro` of `timing.txt`, PM excluded) of
+`apps/radhydro` on the production problem from z = 100 (7 steps, every
+unsplit half step needs one CFL substep at these velocities) on the 4-core
+machine while the KH N = 128 suite case occupied one core (so the 4-thread
+numbers are lower bounds of the speed-up):
+
+| N | threads | legacy [s/step] | unsplit [s/step] (substeps per step) | PM [s] |
+|---|---|---|---|---|
+| 64 | 1 | 0.84 | 0.36 (2) | 0.12 |
+| 64 | 4 | 0.69 | 0.36 (2) | 0.13–0.17 |
+| 128 | 1 | 6.3 | 3.1 (2) | 1.0 |
+| 128 | 4 | 4.0 | 1.8 (2) | 0.76 |
+
+In the coupled run (z = 15–5.5, bulk flows set the Courant step, 2 substeps
+per step on average, 58 in 54 calls) the unsplit scheme took 0.62 s per step
+at 64³ against 0.75 s. Per cell and substep the kernel costs 1.4–1.5 µs
+(predictor + 4 HLLC fluxes + scalars + finalisation, one thread, 128³),
+against 0.6–0.9 µs per cell and sweep for the legacy scheme; the unsplit
+scheme is faster per step because it needs 2–4 substeps where the legacy
+scheme does 6 sweeps plus 4 transposes. The 4-thread speed-up of the
+hydro is 1.2–1.7 for both schemes on this loaded machine (the legacy
+scheme's was never measured idle either, `docs/parallel.md`); the hydro is
+under 1 % of a production run. Memory: the unsplit step keeps double work
+arrays (U, scalars, selected thermal energy, predictor states, new state:
+about 340 B per cell, 0.7 GB at 128³, 2.4 GB at 192³) plus the float field
+`e` (4 B per cell); the 64³ run's peak RSS was 401 against 323 MB. Byte
+identity across thread counts: §8.
+
 ## 10. What the new scheme does worse, and when to use which
 
-*(Filled in with the measurements of §6, §8 and §9 below.)*
+Worse than the legacy scheme, with the numbers:
+
+1. **Sedov at 128³**: L1 ρ 0.025 vs 0.020, radius +1.5 % vs +0.9 % (the
+   1 % target is missed), convergence order 0.63 vs 1.07 for the density;
+   at N ≤ 64 it is better. The blast is more cubic at N = 32 (U6).
+2. **Energy leak ahead of strong shocks in cold Mach ≫ 1 gas** (U4):
+   −1.5×10⁻⁴ (strong tube), −0.6 % (Sedov 128³, where the legacy loses
+   4.9 %); `dual_reset_rule = 1` makes it 10⁻⁵ but brings back the
+   stagnation-cell heating (77× at N = 32 in the pancake centre).
+3. **Galilean dependence grows faster with the advection distance**
+   (×2.5 per box length against ×1.9), although every absolute error is
+   below the legacy one; the transverse bulk speed enters through the
+   substep count (U3, 10⁻²). Acceptable at the same resolution as the
+   legacy scheme: at N = 64 the error after a full box length (0.028) is
+   below the legacy error without advection (0.0235).
+4. **Stagnation cells** (U2): two cells at the centre of a converging
+   supersonic flow heat up before the caustic (149× at z = 7, N = 64 in the
+   pancake; 0 at z = 10). The legacy centre is 10⁵ K where the reference
+   has 60 K, so this is still a 100× improvement, but it is not zero.
+5. **Cold-gas temperature depends on the hydro step size** (§6, box): with
+   da/a ≤ 1/9 the underdense gas warms to 30–700 K by z ≤ 2; with
+   da/a ≤ 0.02 it stays on the adiabat.
+6. **Costs more memory** (0.7 GB at 128³) and has no Fortran counterpart:
+   it is validated by the suite, the restart and thread tests and the
+   coupled run, not bit for bit.
+
+Better: everything else in §6 — cold-gas temperatures (the point of the
+thread: pancake and box medians on the adiabat), contacts (3.4 vs 5.3
+cells), shocks (sharper, exact pre-shock pressure), orientation (exact for
+1-D problems), symmetry (exact), energy conservation (round-off except
+U4), the 123 problem, sound waves at < 32 cells per wavelength, KH growth
+at 1–2 cells per layer, small-scale gas power, and speed per step.
+
+**Recommendation.**
+
+* Use `hydro_scheme = unsplit` (the defaults of §5) for every run whose
+  cold gas matters: the plane-parallel / DM20-type runs, the
+  pre-reionisation T–ρ relation, 21-cm, Jeans/filtering-mass work, and
+  the production reionisation runs, where it also costs less per hydro step.
+  Set `ra_max = 0.02`–`0.03` there (cheap: the RT substeps are set by the
+  light travel) to keep the underdense gas on its adiabat to z = 0.
+* Keep `hydro_scheme = legacy` (the default) for the bit-for-bit
+  validation against the Fortran, for reproducing the original's results,
+  and when the questions are about hot, post-reionisation gas at high
+  resolution only, where the two schemes agree to a few per cent and the
+  legacy Sedov radius is marginally better at 128³.
+* Before science use at 128³ or more: the Sedov radius bias of 1.5 % and
+  the time-step sensitivity of the cold gas deserve a convergence check at
+  the production resolution, and the thresholds η₁, η₂ should be checked
+  against Bryan et al. 1995 once the paper is available (§2). The AMReX
+  thread takes `kernels/hydro_mh.hpp` from this branch.

@@ -16,6 +16,7 @@ import glob
 import json
 import os
 import re
+import sys
 
 import numpy as np
 
@@ -49,7 +50,7 @@ def read_timing(run):
             elif line.startswith("# total"):
                 toks = line[1:].split()
                 extra.update({"total_" + toks[i]: float(toks[i + 1])
-                              for i in range(1, len(toks) - 1, 2)})
+                              for i in range(0, len(toks) - 1, 2)})
             continue
         v = line.split()
         if len(v) >= 12:
@@ -83,12 +84,45 @@ def N_of(run):
     raise SystemExit("N not found in params.txt")
 
 
-def tdist(d, N):
-    """temperature distribution on the RT grid at one field output"""
+def box_of(run):
+    with open(os.path.join(os.path.dirname(run.rstrip("/")), "params.txt")) as f:
+        for line in f:
+            if line.split("=")[0].strip() == "box":
+                return float(line.split("=")[1].split("#")[0])
+    return 10.0
+
+
+def neutral_temperature(d, N, a, box):
+    """T [K] of neutral gas from u_gas (and e_gas, the dual-energy field, if
+    present): (e/rho) * temp1_unit, as the hydro suite does; for the field
+    outputs before the RT starts, where rt_grid temp is not yet set."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                                    "tests", "hydro_suite"))
+    import cosmo_gen as cg
+    u = np.fromfile(os.path.join(d, "u_gas.bin"), dtype="<f4").reshape((5, N, N, N), order="F")
+    u = u.astype(np.float64)
+    rho = u[0]
+    ef = os.path.join(d, "e_gas.bin")
+    if os.path.exists(ef):
+        e = np.fromfile(ef, dtype="<f4").reshape((N, N, N), order="F").astype(np.float64)
+    else:
+        e = u[4] - 0.5 * (u[1:4] ** 2).sum(axis=0) / rho
+    T = e / rho * cg.units(a, box, N)["temp1_unit"]
+    return np.maximum(T, 1.0), rho / rho.mean()
+
+
+def tdist(d, N, a=None, box=None):
+    """temperature distribution on the RT grid at one field output (rt_grid
+    temp; before the RT starts it is zero and the neutral-gas temperature
+    from u_gas/e_gas is used instead, flagged by 'source')"""
     T = read_field(d, "temp", N)
     rho = read_field(d, "rhog", N)
     if T is None or rho is None:
         return None
+    source = "rt_grid"
+    if not np.any(T > 0) and os.path.exists(os.path.join(d, "u_gas.bin")) and a is not None:
+        T, rho = neutral_temperature(d, N, a, box)
+        source = "u_gas/e_gas (neutral)"
     T, rho = T.ravel(), rho.ravel()
     lt = np.log10(T)
     ld = np.log10(rho)
@@ -101,7 +135,7 @@ def tdist(d, N):
     hist, edges = np.histogram(lt, bins=np.linspace(-0.5, 5, 56), weights=rho)
     hist = hist / hist.sum()
     under = rho < 1
-    return {"T_med": float(np.median(T)), "T_med_under": float(np.median(T[under])),
+    return {"source": source, "T_med": float(np.median(T)), "T_med_under": float(np.median(T[under])),
             "T_mw": float(np.sum(rho * T) / np.sum(rho)), "T_vw": float(np.mean(T)),
             "f_T_lt_10": float(np.mean(T < 10)), "f_T_gt_1e4": float(np.mean(T > 1e4)),
             "trho_logd": (0.5 * (bins[1:] + bins[:-1])).tolist(), "trho_logT_med": med,
@@ -122,9 +156,10 @@ def main():
         st = read_stats(run)
         tm, extra = read_timing(run)
         dists = {}
+        box = box_of(run)
         for s in st:
             if os.path.exists(os.path.join(s["dir"], "temp.bin")):
-                dists[round(s["redshift"], 3)] = tdist(s["dir"], N)
+                dists[round(s["redshift"], 3)] = tdist(s["dir"], N, s["scalefactor"], box)
         R[label] = {"run": run, "N": N, "stats": st, "timing": tm, "extra": extra,
                     "dists": dists, "pk": read_pk(run)}
 
@@ -160,12 +195,13 @@ def main():
 
     print("== temperature distribution at the field outputs (RT grid temp, mass-weighted)")
     print(f"{'label':12s} {'z':>6s} {'median T':>9s} {'median T(d<1)':>14s} {'T_mw':>9s} "
-          f"{'f(T<10K)':>9s} {'f(T>1e4)':>9s}")
+          f"{'f(T<10K)':>9s} {'f(T>1e4)':>9s}  source")
     for l in labels:
         for z, dd in sorted(R[l]["dists"].items(), reverse=True):
             if dd:
                 print(f"{l:12s} {z:6.2f} {dd['T_med']:9.3g} {dd['T_med_under']:14.3g} "
-                      f"{dd['T_mw']:9.3g} {dd['f_T_lt_10']:9.3f} {dd['f_T_gt_1e4']:9.3f}")
+                      f"{dd['T_mw']:9.3g} {dd['f_T_lt_10']:9.3f} {dd['f_T_gt_1e4']:9.3f}  "
+                      f"{dd['source']}")
 
     print("== gas / DM power (Delta^2 ratio, CIC-deconvolved DM) at k = 2, 5, 10, 20 h/Mpc")
     for l in labels:
