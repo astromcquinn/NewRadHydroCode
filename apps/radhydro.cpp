@@ -186,8 +186,7 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.max_steps = std::stoi(val);
   else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
-  } else if (!set_halo_param(P.halo, key, val))
-  else if (key == "ray_dump_dir")
+  } else if (key == "ray_dump_dir")
     P.ray_dump.dir = val;
   else if (key == "ray_dump_every")
     P.ray_dump.every = std::stoll(val);
