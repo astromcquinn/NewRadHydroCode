@@ -108,6 +108,11 @@ struct Config {
   //                unresolved velocity dispersion of a stagnation cell
   //                (docs/hydro_unsplit.md section 2).
   int dual_nb_radius = 2;
+  //   dual_reset_rule: when the pressure comes from e, E := KE + e always
+  //                (0), only if the change is at most eta1 E (1), as 1 or
+  //                in thermal-dominated cells (2), only if E - KE <= eta1
+  //                max_{+-1} E (3). docs/hydro_unsplit.md section 2.
+  int dual_reset_rule = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

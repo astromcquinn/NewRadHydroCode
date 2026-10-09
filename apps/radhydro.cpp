@@ -806,14 +806,17 @@ int main(int argc, char** argv) {
     if (cfg.hydro_scheme == HydroScheme::Unsplit) {
       const UnsplitCounters& U = hs.ucounters;
       std::printf(" unsplit hydro: %lld calls, %lld substeps (max %lld per call), dt_cfl min %.4g; "
-                  "cell-substeps with p from e %lld, synced %lld; floors T %lld, rho %lld\n",
+                  "cell-substeps with p from e %lld (E reset %lld), synced %lld; floors T %lld, "
+                  "rho %lld\n",
                   static_cast<long long>(U.calls), static_cast<long long>(U.substeps),
                   static_cast<long long>(U.max_substeps), U.dt_cfl_min,
-                  static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_synced),
-                  static_cast<long long>(U.floor_T), static_cast<long long>(U.floor_rho));
+                  static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_reset),
+                  static_cast<long long>(U.cells_synced), static_cast<long long>(U.floor_T),
+                  static_cast<long long>(U.floor_rho));
       timing << "# unsplit calls " << U.calls << " substeps " << U.substeps << " max_substeps "
-             << U.max_substeps << " cells_from_e " << U.cells_from_e << " cells_synced "
-             << U.cells_synced << " floor_T " << U.floor_T << " floor_rho " << U.floor_rho << "\n";
+             << U.max_substeps << " cells_from_e " << U.cells_from_e << " cells_reset "
+             << U.cells_reset << " cells_synced " << U.cells_synced << " floor_T " << U.floor_T
+             << " floor_rho " << U.floor_rho << "\n";
     }
     timing << "# " << format_rt_timers(s.timers) << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk

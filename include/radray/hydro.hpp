@@ -56,6 +56,7 @@ struct UnsplitCounters {
   std::int64_t max_substeps = 0;     // largest number of substeps of one call
   std::int64_t cells_from_e = 0;     // cell-substeps with the pressure from e
   std::int64_t cells_synced = 0;     // cell-substeps with e := E - KE
+  std::int64_t cells_reset = 0;      // cell-substeps with E := KE + e
   std::int64_t floor_T = 0;          // temperature floor hits
   std::int64_t floor_rho = 0;        // density floor hits
   double dt_cfl_min = 1e300;         // smallest CFL step seen [code time]

@@ -275,10 +275,12 @@ int main(int argc, char** argv) {
         w("thermal_e", T.thermal_e);
         const UnsplitCounters& U = hs.ucounters;
         std::fprintf(fp, "unsplit_substeps = %lld\nunsplit_max_substeps = %lld\n"
-                         "unsplit_cells_from_e = %lld\nunsplit_cells_synced = %lld\n"
+                         "unsplit_cells_from_e = %lld\nunsplit_cells_reset = %lld\n"
+                         "unsplit_cells_synced = %lld\n"
                          "unsplit_floor_T = %lld\nunsplit_floor_rho = %lld\n",
                      static_cast<long long>(U.substeps), static_cast<long long>(U.max_substeps),
-                     static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_synced),
+                     static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_reset),
+                     static_cast<long long>(U.cells_synced),
                      static_cast<long long>(U.floor_T), static_cast<long long>(U.floor_rho));
       }
       w("wall", wall);

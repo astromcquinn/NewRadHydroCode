@@ -1027,6 +1027,8 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
           double vel[3];
           for (int m = 0; m < 3; ++m) vel[m] = u[1 + m] / rho + v[m];
           double eth = u[4] - static_cast<double>(sumsq3(u + 1)) / rho / 2;
+          // hydro_scheme = unsplit: the dual-energy field (empty otherwise)
+          if (!gas.e.empty()) eth = gas.e[c];
           eth = gmax(eth, 0.0);
           const double cs = std::sqrt(g * (g - 1) * eth / rho);
 

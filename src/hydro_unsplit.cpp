@@ -52,6 +52,9 @@ bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::stri
   } else if (key == "dual_nb_radius") {
     cfg.dual_nb_radius = std::stoi(val);
     if (cfg.dual_nb_radius < 1 || cfg.dual_nb_radius > 2) bad("must be 1 or 2");
+  } else if (key == "dual_reset_rule") {
+    cfg.dual_reset_rule = std::stoi(val);
+    if (cfg.dual_reset_rule < 0 || cfg.dual_reset_rule > 3) bad("must be 0..3");
   } else if (key == "dual_eta1_local") {
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
@@ -70,6 +73,7 @@ void copy_hydro_scheme(const Config& from, Config& to) {
   to.dual_eta2 = from.dual_eta2;
   to.dual_eta1_local = from.dual_eta1_local;
   to.dual_nb_radius = from.dual_nb_radius;
+  to.dual_reset_rule = from.dual_reset_rule;
 }
 
 std::string hydro_scheme_summary(const Config& cfg) {
@@ -79,7 +83,8 @@ std::string hydro_scheme_summary(const Config& cfg) {
          ", dual_eta1 = " + std::to_string(cfg.dual_eta1) +
          ", dual_eta2 = " + std::to_string(cfg.dual_eta2) +
          ", dual_eta1_local = " + (cfg.dual_eta1_local ? "1" : "0") +
-         ", dual_nb_radius = " + std::to_string(cfg.dual_nb_radius);
+         ", dual_nb_radius = " + std::to_string(cfg.dual_nb_radius) +
+         ", dual_reset_rule = " + std::to_string(cfg.dual_reset_rule);
 }
 
 namespace {
@@ -226,7 +231,7 @@ struct SlabFaces {
 };
 
 struct SubstepCounts {
-  std::int64_t from_e = 0, synced = 0, floor_T = 0, floor_rho = 0;
+  std::int64_t from_e = 0, synced = 0, floor_T = 0, floor_rho = 0, reset = 0;
 };
 
 // One substep of length dt on the padded state (ghosts filled)
@@ -288,14 +293,14 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
   }
 
   // 3. floors, dual-energy selection and synchronisation; back into U, S
-  std::int64_t n_from_e = 0, n_synced = 0, n_floor_T = 0, n_floor_rho = 0;
+  std::int64_t n_from_e = 0, n_synced = 0, n_floor_T = 0, n_floor_rho = 0, n_reset = 0;
 #pragma omp parallel for schedule(static) if (par_ok) \
-    reduction(+ : n_from_e, n_synced, n_floor_T, n_floor_rho)
+    reduction(+ : n_from_e, n_synced, n_floor_T, n_floor_rho, n_reset)
   for (int k = 0; k < n; ++k)
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
         const std::int64_t cn = W.ai(i, j, k), c = W.at(i, j, k);
-        double Enb = W.Un[cn * NV + 4];
+        double Enb = W.Un[cn * NV + 4], Enb1 = Enb;
         auto nb = [&](int ii, int jj, int kk) {
           Enb = rrf::max(Enb, W.Un[W.ai((ii + n) % n, (jj + n) % n, (kk + n) % n) * NV + 4]);
         };
@@ -306,19 +311,21 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
           nb(i, j + r, k);
           nb(i, j, k - r);
           nb(i, j, k + r);
+          if (r == 1) Enb1 = Enb;
         }
         double* U = &W.U[c * NV];
         for (int m = 0; m < NV; ++m) U[m] = W.Un[cn * NV + m];
         double eD = W.Sn[cn * NS];
-        const rrh::CellFlags f = rrh::finalize_cell(U, eD, Enb, de, rho_min, Tmin);
+        const rrh::CellFlags f = rrh::finalize_cell(U, eD, Enb, Enb1, de, rho_min, Tmin);
         W.S[c * NS] = eD;
         for (int s = 1; s < NS; ++s) W.S[c * NS + s] = W.Sn[cn * NS + s];
         n_from_e += f.from_e;
         n_synced += f.synced;
         n_floor_T += f.floor_T;
         n_floor_rho += f.floor_rho;
+        n_reset += f.reset;
       }
-  return SubstepCounts{n_from_e, n_synced, n_floor_T, n_floor_rho};
+  return SubstepCounts{n_from_e, n_synced, n_floor_T, n_floor_rho, n_reset};
 }
 
 // Largest signal speed over the interior (after select_pass)
@@ -407,7 +414,8 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
         for (int s = 0; s < 4; ++s) W.S[c * NS + 1 + s] = w[s];
       }
 
-  const rrh::DualEnergy de{eta1_of(cfg), cfg.dual_eta2, cfg.dual_eta1_local, cfg.dual_nb_radius};
+  const rrh::DualEnergy de{eta1_of(cfg), cfg.dual_eta2, cfg.dual_eta1_local, cfg.dual_nb_radius,
+                           cfg.dual_reset_rule};
   const double rho_min = un.Dgas_min;
   const double Tmin = 1 / un.temp1_unit;
 
@@ -429,6 +437,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
     C.cells_synced += sc.synced;
     C.floor_T += sc.floor_T;
     C.floor_rho += sc.floor_rho;
+    C.cells_reset += sc.reset;
     ++nsub_call;
     remaining = nsub == 1 ? 0.0 : remaining - dt_sub;
   }

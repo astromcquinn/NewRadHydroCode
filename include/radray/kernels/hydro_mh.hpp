@@ -63,6 +63,10 @@ struct DualEnergy {
   double eta2 = 0.1;
   bool eta1_local = false;
   int nb_radius = 2;  // neighbourhood of the E maximum: +-1 (6 cells) or +-2 (12) along the axes
+  // When the pressure comes from e, reset E := KE + e: 0 always; 1 only if
+  // |E - KE - e| <= eta1 E (cell); 2 as 1, or if E - KE > E/2 (a thermal-
+  // dominated stagnation cell); 3 only if E - KE <= eta1 max_{+-1}(E)
+  int reset_rule = 0;
 };
 
 RR_HD double kinetic_energy(const double U[NV]) {
@@ -301,14 +305,15 @@ RR_HD double update_scalar(double s, double Fx0, double Fx1, double Fy0, double 
 // (Tmin = thermal energy per unit density, applied to both energies), the
 // eta2 synchronisation e := E - KE (Enb_max = max of E over the cell and
 // its 6 face neighbours, after the update) and the reset of E to KE + e in
-// cells whose pressure comes from the internal energy (so that the stored
-// total energy carries the dual-energy temperature; docs/hydro_unsplit.md
-// section 2). Counters: floor_rho, floor_T, synced, from_e.
+// cells whose pressure comes from the internal energy, when that changes E
+// by at most eta1 E (so that the stored total energy carries the
+// dual-energy temperature wherever that is cheap; docs/hydro_unsplit.md
+// section 2). Counters: floor_rho, floor_T, synced, from_e, reset.
 struct CellFlags {
-  bool floor_rho = false, floor_T = false, synced = false, from_e = false;
+  bool floor_rho = false, floor_T = false, synced = false, from_e = false, reset = false;
 };
-RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, const DualEnergy& de,
-                              double rho_min, double Tmin) {
+RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double Enb1_max,
+                              const DualEnergy& de, double rho_min, double Tmin) {
   CellFlags f;
   if (!(U[0] >= rho_min)) {
     U[0] = rho_min;
@@ -335,11 +340,23 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, const Du
       f.floor_T = true;
     }
     if (!(eT > de.eta1 * (de.eta1_local ? U[4] : Enb_max))) {
-      // pressure from e: E carries e (the floor of E - KE above does not
-      // count, E - KE is not used in this cell)
-      U[4] = ke + eD;
+      // pressure from e (the floor of E - KE above does not count, E - KE
+      // is not used in this cell). The stored E is reset to KE + e when
+      // the discarded difference is at most eta1 of the cell's own E, so
+      // the reset changes the total energy by at most eta1 E per cell and
+      // substep (a stagnation cell, whose E - KE is polluted by its
+      // neighbours' kinetic-energy fluxes, and a pre-shock cell carrying
+      // the numerical precursor of a strong shock keep their E).
       f.from_e = true;
       if (eT < emin) f.floor_T = false;
+      bool reset = true;
+      if (de.reset_rule == 1) reset = std::fabs(eT - eD) <= de.eta1 * U[4];
+      else if (de.reset_rule == 2) reset = std::fabs(eT - eD) <= de.eta1 * U[4] || eT > 0.5 * U[4];
+      else if (de.reset_rule == 3) reset = !(eT > de.eta1 * Enb1_max);
+      if (reset) {
+        U[4] = ke + eD;
+        f.reset = true;
+      }
     }
   } else {
     eD = eT;
