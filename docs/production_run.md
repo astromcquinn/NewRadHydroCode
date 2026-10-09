@@ -388,8 +388,8 @@ So:
    192³ is not needed as an intermediate step.
 2. **c_reduced = 0.01 is strongly biased:** against 0.1c it delays
    reionization by Δz ≈ 2–2.5 (z(50%) = 8.5–9.0 against 10.4; z(99%) = 6.2–6.5
-   against 8.8) and lowers τ_es by 20%. 0.1c histories agree between 128³
-   and 256³. Use **0.1c** as the baseline, and test its convergence with a
+   against 8.8) and lowers τ_es by 20% (same ICs at each N; the 128³ and 256³ ICs
+   are different realisations, so they are not a resolution test). Use **0.1c** as the baseline, and test its convergence with a
    0.3c or 1c run at 128³ (hours).
 3. Run on a whole node with 192 threads at 256³; 96 threads at 128³.
 4. At 256³ the checkpoints are 12–17 GB: `restart_every` ≥ 2 (4 for short

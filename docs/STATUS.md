@@ -113,8 +113,9 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 - **Runs** (global source model): 128³ 0.01c in 3 min, 0.1c in 16 min;
   256³ 0.01c in 26 min (shared nodes); 256³ 0.1c with movie in 1 h 32 min on
   a whole node, 27 GB peak RSS. **0.01c delays reionization by Δz ≈ 2–2.5**
-  against 0.1c and lowers τ_es by 20%; the 0.1c histories agree between 128³
-  and 256³. Both c reionize too early with the uncalibrated global model
+  against 0.1c and lowers τ_es by 20% (same ICs at each N). The 128³ and 256³ ICs are
+  different realisations (make_ics.py phases depend on N), so N = 128 vs 256
+  is not a clean resolution test. Both c reionize too early with the uncalibrated global model
   (τ_es = 0.07–0.09).
 - **Findings for later:** checkpoint files hold 6 uninitialised padding bytes
   (`DriverState`), so identical runs give checkpoints that differ in one byte

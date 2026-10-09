@@ -393,9 +393,14 @@ HeII following HII and HeIII at z < 3; the code's cosmology):
   τ_es is 0.069–0.076 at 0.01c and 0.087–0.090 at 0.1c, a 20% bias.
   docs/production_run.md §1 called this "delayed"; it is a large effect, not
   a small correction.
-* **The 0.1c histories hardly depend on resolution** (z(50%) = 10.43 at 128³
-  and 10.38 at 256³, the same z(90%)). At 0.01c they differ by 0.4 in z.
-  So at 0.01c the timing is set by the light horizon, not by the sources.
+* **128³ against 256³ is not a resolution test.** `make_ics.py` draws
+  different phases for different N with the same seed (see the power
+  spectra below:
+  the fundamental mode is 0.78× linear at 128³ and 1.17× at 256³), so the
+  two N are different realisations of a 10 Mpc/h box. Their histories
+  (z(50%) = 10.43 and 10.38 at 0.1c, 8.54 and 8.96 at 0.01c) mix resolution
+  and cosmic variance. The 0.01c against 0.1c comparison at each N uses the
+  same ICs and is clean.
 * The ionized fraction at 0.1c drops from 10% to 99% over Δz ≈ 3.2–3.8; at 0.01c
   over Δz ≈ 4.5–5.2. The 0.01c x_HII,V also lags x_HII,M by more (light
   reaches the dense regions near sources first).
@@ -417,6 +422,39 @@ HeII following HII and HeIII at z < 3; the code's cosmology):
 * With the global SFR model both c values reionize too early: τ_es = 0.07–0.09
   against Planck's 0.054. That is the source calibration (not yet done), not
   the RT.
+
+### Power spectra and linear growth
+
+`tools/analysis/pk_growth.py` on the `Pk/` outputs (13 per run, z = 14.1 →
+5.4; DM Δ² with the CIC window deconvolved, gas Δ² raw):
+
+![P(k) and growth](figures/hyak_pk_growth.png)
+
+* **Linear growth of the fundamental mode** (k = 0.63 h/Mpc, Δ² ≈ 0.04 at
+  z = 5.4), relative to z = 14.1 and divided by linear theory's
+  [D(z)/D(z₀)]² (full growth, `pmcosmo.Growth`): 0.999 at z = 12.3, 0.995 at
+  z = 9, **0.980–0.981 at z = 5.3–5.4**. The same at 128³ and 256³ and at both
+  c (DM only), so it is not resolution. A steady 2% deficit in power (1% in
+  amplitude) over z = 14 → 5.4 is small but not zero. Candidates, not
+  checked: the few large PM steps (da/a up to 0.1), or the D(a) convention
+  of the check against the code's expansion (e.g. Ω_r). The next bins
+  (k = 1.3–2.5) grow faster than linear (1.15–1.46 by z = 5.4): nonlinear
+  growth at Δ² ≈ 0.2–0.5, as expected.
+* **Amplitude against the IC linear theory** at z = 14: within cosmic
+  variance (0.77–1.4 at k ≤ 20 h/Mpc, a few modes per bin in a 10 Mpc/h
+  box). The fundamental is 0.78× linear at 128³ and 1.17× at 256³: **the
+  ICs of the two N are different realisations**.
+* **Gas against DM:** the gas follows the DM to k ≈ 3 h/Mpc at all z. At
+  k = 20 h/Mpc the gas/DM ratio falls from 0.91 (256³, z = 14) to 0.77 at
+  z = 5.4 for 0.01c and to 0.75 for 0.1c, which ionized earlier (more pressure
+  smoothing after photoheating, as expected; the same ordering at 128³).
+  Part of the deficit is already there at z = 14 before any RT (0.91 at
+  256³, 0.76 at 128³ at k = 20, a quarter and half of the Nyquist k):
+  the gas is a cell field, the DM a CIC deposit, and the pre-reionization
+  gas is spuriously heated by the hydro scheme (STATUS, hydro suite), so
+  the small-scale gas power is not a clean physical number here.
+* The DM spectra of the 0.01c and 0.1c runs of each N agree to < 2% at
+  k ≤ 20 h/Mpc (the back-reaction of the gas).
 
 ## 8. Recommendations for the next runs
 
