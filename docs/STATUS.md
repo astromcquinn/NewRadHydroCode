@@ -143,8 +143,15 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
 **Update (user decisions, 2026-10-09):**
 - L(M) is now matched to the simulated FoF mass function
   (`data/hmf/fof_128_10mpc.txt`, `am_fit --hmf st --sim-hmf ...`).
-- The production run starts at f_esc = 0.5, which gives τ_es = 0.0511.
-  The midpoint is at z = 6.65, and x_M = 0.91 at z ≈ 5.3.
+- The production run starts at f_esc = 0.5.
+- **All LF parameters are now read from the papers** the user supplied:
+  Bouwens+22 (z ≈ 6, 8), GLIMPSE/Atek+26 (z ≈ 7), Donnan+24 (z = 9–12.5),
+  with cross-checks. The Bouwens+21 φ* values recalled from memory had
+  been wrong.
+- With these LFs and f_esc = 0.5: τ_es = 0.0516, midpoint z = 6.72,
+  x_M = 0.967 at z ≈ 5.3.
+- The fit is in `data/uv_lf/am_params_128_10mpc.txt`.
+- ξ_ion = 10^25.38 is confirmed from Pahl et al. 2025.
 
 **Not run yet:** the production run itself (the commands are in the doc),
 and the scaling test on Hyak.
@@ -165,7 +172,6 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
 
 1. **User decisions pending for the production run**
    (`docs/reionization_production.md`):
-   - the z ≈ 6–8 LF papers;
       - the production N on Hyak (128 or 256);
    - a 0.1c reference run.
 2. **Production run on Hyak** with `tools/hyak/reion_production.slurm`,

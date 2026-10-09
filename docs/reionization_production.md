@@ -80,6 +80,10 @@ With L(M) matched to the simulated FoF halos (`docs/abundance_matching.md`
 |---|---|---|---|---|
 | **0.5** | **0.0511** | 8.78 | 6.65 | 0.912 |
 
+With **all LFs from the papers** (`docs/abundance_matching.md` §3c),
+f_esc = 0.5 gives τ_es = 0.0516, x_V = 0.5 at z = 6.72, and x_M = 0.967
+at z ≈ 5.3.
+
 **The production run starts with f_esc = 0.5** (user decision). Its τ is
 within the Planck 1σ range, 0.3σ below the central value. The box is not
 fully ionized by z ≈ 5.3, so the end of reionization is late. Raising
@@ -220,14 +224,15 @@ On klone, from the repository root, after `git pull` on `production-run`:
 export HYAK_MODULES="gcc fftw"        # placeholder, see build_hyak.sh
 salloc -A astro -p cpu-g2 -c 16 --mem 32G -t 1:00:00 tools/hyak/build_hyak.sh
 
-# 1. sources: fit L_UV(M, z) against the simulated halos (seconds)
-build/am_fit --lf data/uv_lf/lf_params.txt --hmf st \
-    --sim-hmf data/hmf/fof_128_10mpc.txt --out runs/am
+# 1. sources: the fitted L_UV(M, z) for 128^3 / 10 Mpc/h is committed as
+#    data/uv_lf/am_params_128_10mpc.txt; to refit (seconds):
+#    build/am_fit --lf data/uv_lf/lf_params.txt --hmf st \
+#        --sim-hmf data/hmf/fof_128_10mpc.txt --out runs/am
 
 # 2. production problem: N = 128 first, then 256 if the scaling test is good
 N=128
 python3 tools/production/make_production.py runs/reion$N --N $N \
-    --am-params runs/am/am_params.txt --f-esc 0.5 --xi-ion 25.38 \
+    --am-params data/uv_lf/am_params_128_10mpc.txt --f-esc 0.5 --xi-ion 25.38 \
     --movie-dz 0.025 --movie-fields fHI,temp,rhog --restart-every 1
 
 # 3. run (resubmit the same command after any interruption; it resumes)

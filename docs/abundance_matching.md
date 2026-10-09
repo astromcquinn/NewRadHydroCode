@@ -1,10 +1,7 @@
 # Abundance-matched UV sources
 
-*Status (2026-10-08): **draft**.*
-* The code is in place and tested.
-* The z ≥ 9 LFs (Donnan et al. 2024) are read from the paper.
-* The z ≈ 6–8 rows (Bouwens et al. 2021) are still unconfirmed, and may be
-  replaced by JWST-era LFs from papers the user will supply.
+*Status (2026-10-09):* all LF parameters are read from the papers (§5).
+§3 and §3b describe earlier drafts; the current fit is in §3c.
 
 This is a third source model, `sfr_model = abundance`, beside the
 reconstructed Trac & Cen model (`global`, the default) and `dynamical`
@@ -176,6 +173,30 @@ no-source run with this L(M)):
   (α = −2.23, against −2.06 at z = 6.8 and −2.00 for Donnan at z = 9).
   This row is to be replaced by JWST-era LFs.
 
+## 3c. Current fit (all LFs from the papers; production)
+
+This uses the simulated FoF mass function at 128³ / 10 Mpc/h. The fitted
+parameters are in `data/uv_lf/am_params_128_10mpc.txt`.
+
+```
+build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --sim-hmf data/hmf/fof_128_10mpc.txt --out runs/am
+```
+
+![final fit](figures/am_fit_final.png)
+![box LF, final](figures/box_lf_128_final.png)
+
+* **Shape fit:** rms 0.053 dex in log L.
+* **Halos at the resolution limit** (10⁹ M☉) have M_UV = −13.1, −14.4,
+  −15.5 and −16.6 at z = 6, 8, 10 and 12.
+* **Box LF against the observed LFs:**
+  * 0.8–1.2× brightward of M_UV ≈ −15, at z = 6, 7, 9 and 10;
+  * 0.6× at z = 7.9 from −16.5 to −15;
+  * 0.3–0.7× within about 1.5 mag of the resolution limit. Here the smooth
+    L(M, z) and the FoF-correction fit do not follow the 20–60-particle
+    edge exactly.
+* **f_esc = 0.5** (128³, 0.01c): τ_es = 0.0516, x_V = 0.5 at z = 6.72,
+  and x_M = 0.967 at the end (z ≈ 5.3).
+
 ## 4. Decisions
 
 **Decided (user, 2026-10-08):**
@@ -196,51 +217,45 @@ Bouwens+21 is unconfirmed until then).
 
 ## 5. Parameters used, with provenance
 
-The cloud sessions cannot reach arXiv, ADS or the journals. "Snippet" means
-the number appeared in a quoted search-result excerpt of the paper; "memory"
-means recalled, not verified. **All need confirmation.**
+**UV LFs (`data/uv_lf/lf_params.txt`).** Since 2026-10-09 every row is
+read from the papers, from PDFs the user supplied. Earlier drafts used
+Bouwens+21 values from memory. Two of them were **wrong**: φ* at z ≈ 5.9
+is 0.51×10⁻³, not 0.19×10⁻³, and at z ≈ 6.8 it is 0.19×10⁻³, not 0.12×10⁻³.
 
-**UV LFs (`data/uv_lf/lf_params.txt`).**
+Rows used in the fit:
 
-Donnan et al. 2024, MNRAS 533, 3222 (arXiv:2403.03171v3), Table 3, double
-power law. **Confirmed**: read from the user-supplied PDF. * marks a
-parameter fixed in their fit.
+| z | source | form | M* | φ* (Mpc⁻³ mag⁻¹) | α | β or δ | observed range | use |
+|---|---|---|---|---|---|---|---|---|
+| 5.9 | Bouwens+22, ApJ 940, 55, Table 2 (HFF + blank, fiducial) | Schechter, curved | −20.87 | 0.57×10⁻³ | −1.87 | δ = 0.05 | −22.5 to −14 | shape |
+| 7.0 | Atek+26 (GLIMPSE), arXiv:2604.23823, Table 2 (JWST lensed + B21 bright bins) | Schechter | −21.29 | 10^−3.68 | −1.98 | — | −22.2 to −12.5 | shape |
+| 7.9 | Bouwens+22, Table 2 | Schechter, curved | −20.90 | 0.096×10⁻³ | −2.20 | δ = 0.23 | −22 to −15 | shape |
+| 9.0 | Donnan+24, MNRAS 533, 3222, Table 3 | DPL | −19.70 | 23.5×10⁻⁵ | −2.00 | −3.81 | −21 to −17.3 | shape |
+| 10.0 | Donnan+24 | DPL | −19.98 | 14.5×10⁻⁵ | −1.98 | −4.05 (fixed) | −21 to −17.3 | normalisation |
+| 11.0 | Donnan+24 | DPL | −20.73 | 3.27×10⁻⁵ | −2.19 | −4.29 | −21.5 to −18 | normalisation |
+| 12.5 | Donnan+24 | DPL | −20.82 | 0.99×10⁻⁵ | −2.19 (fixed) | −4.29 (fixed) | −21.5 to −18 | normalisation |
 
-| z | φ* (10⁻⁵ Mpc⁻³ mag⁻¹) | M* | α | β | fitted M_UV range | use |
-|---|---|---|---|---|---|---|
-| 9 | 23.5 ± 39.2 | −19.70 ± 0.96 | −2.00 ± 0.47 | −3.81 ± 0.49 | −21.0 to −17.3 | shape |
-| 10 | 14.5 ± 16.4 | −19.98 ± 0.61 | −1.98 ± 0.40 | −4.05* | −21.0 to −17.3 | normalisation |
-| 11 | 3.27 ± 9.86 | −20.73 ± 1.61 | −2.19 ± 0.69 | −4.29 ± 1.30 | −21.5 to −18.0 | normalisation |
-| 12.5 | 0.99 ± 0.99 | −20.82 ± 0.71 | −2.19* | −4.29* | −21.5 to −18.0 | normalisation |
-| 14.5 | 0.18 ± 0.28 | −20.82* | −2.19* | −4.29* | one bin, about 1.3 galaxies | not used (weight 0) |
+* **Curvature.** Bouwens+22 multiply the Schechter function by
+  10^(−0.4δ(M+16)²) faintward of −16 (their §3.2). The `schechter_curv`
+  form implements this. Their δ is consistent with 0 at z ≈ 6–8; turn-overs
+  are excluded brightward of −14.3 to −15.2.
+* **GLIMPSE** finds no turnover down to M_UV = −12.3 at z ≈ 7.
 
-Their evolving parametrisation (eqs. 3–6, used as a redshift prior for
-z ≥ 7) is:
-* M* = −20.95 + 0.11z;
-* φ* = 10^(−0.14z − 2.36);
-* α = −2.04×10⁻⁴ z − 2.1;
-* β = 0.138z − 5.13.
+**Cross-checks** (weight 0, in the data file):
+* Bouwens+21 Table 5, at z = 5.9–10.2;
+* Bouwens+22 at z = 6.8, superseded by GLIMPSE;
+* Atek+18 Table 3, at z ≈ 6;
+* Bowler+20 Table 7, DPL at z = 8 and 9;
+* Whitler+25 Table 6, JADES DPL at z ≈ 8.5–12 and 12–16;
+* Donnan+24 at z = 14.5.
 
-It is not used.
+**Read but not entered:**
+* Ma 2026 (UNCOVER, one lensing field; a faint-range-only fit);
+* Goolsby 2026, which refits α only (−1.92, −2.14, −1.74 at z = 6, 7, 8,
+  consistent with the rows used);
+* McLeod+24 (its Table 5 was not extractable);
+* Harikane+22 (z ≈ 4–7 bright end, not needed for this box).
 
-Bouwens et al. 2021, AJ 162, 47 (arXiv:2102.07775), Schechter fits. The
-z = 8.9 and 10.2 rows are kept at weight 0, superseded by Donnan+24:
-
-| ⟨z⟩ | M* | φ* (10⁻³ Mpc⁻³) | α | provenance |
-|---|---|---|---|---|
-| 5.9 | −20.93 ± 0.09 | 0.19 (+0.05/−0.04) | −1.93 ± 0.04 | memory |
-| 6.8 | −21.15 ± 0.13 | 0.12 | −2.06 ± 0.05 | memory |
-| 7.9 | −20.93 ± 0.28 | 0.09 (+0.09/−0.05) | −2.23 ± 0.20 | snippet |
-| 8.9 | −21.15 (fixed) | 0.021 (+0.014/−0.009) | −2.33 ± 0.19 | snippet |
-| 10.2 | −21.19 (fixed) | 0.0042 (+0.0045/−0.0022) | −2.38 | M*, φ*: snippet (Oesch et al. 2018 row); α: memory |
-
-The Bouwens+21 evolving fit was partly seen in snippets and is not used:
-M* = −21.03 − 0.04(z−6), α = −1.94 − 0.11(z−6),
-φ* = 0.40×10⁻³ × 10^(−0.33(z−6) − 0.024(z−6)²).
-
-Other JWST LFs (not entered) are listed in the data file.
-
-**Other published constants (from memory, unconfirmed):**
+**Other published constants** (from memory and unconfirmed, except where marked):
 
 | constant | value | source |
 |---|---|---|
@@ -249,7 +264,7 @@ Other JWST LFs (not entered) are listed in the data file.
 | IRX–β | A_UV = 4.43 + 1.99 β | Meurer, Heckman & Calzetti 1999 |
 | L_UV / SFR | 8.0×10²⁷ erg/s/Hz per M☉/yr | Madau, Pozzetti & Dickinson 1998 (already in the code) |
 | ξ_ion (code default) | 10^25.2 Hz/erg | Robertson et al. 2013; equals the original's `pop2_init` |
-| ξ_ion (production) | 10^25.38 Hz/erg | median log ξ_ion,0 of the z > 4.64 galaxies in a CEERS+JADES NIRSpec sample: Pahl et al. 2025, ApJ (arXiv:2407.03399). Snippet; author attribution from memory |
+| ξ_ion (production) | 10^25.38 Hz/erg | **confirmed**: median log ξ_ion,0 = 25.38 of the z > 4.64 galaxies in the JADES+CEERS NIRSpec sample, Pahl et al. 2025, ApJ 981, 134 (arXiv:2407.03399) |
 | ξ_ion(z), alternative | log ξ_ion = 0.06 z + 24.82, i.e. 25.18 at z = 6 and 25.42 at z = 10 | 761 NIRSpec galaxies at z = 4–10: Llerena et al. 2025, A&A (arXiv:2412.01358). Snippet; attribution from memory |
 
 ## 6. Tests

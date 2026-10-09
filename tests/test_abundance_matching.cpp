@@ -58,6 +58,16 @@ void test_lf_integral() {
       CHECK_CLOSE(dn, e.phi(M), 1e-3);
     }
   }
+  // Curved Schechter (Bouwens+22): unchanged brightward of -16, suppressed
+  // by 10^(-0.4 delta (M+16)^2) faintward
+  {
+    LFEntry c = schechter(6);
+    c.form = LFEntry::Form::SchechterCurved;
+    c.beta = 0.3;  // delta
+    LFEntry s0 = schechter(6);
+    CHECK(c.phi(-18) == s0.phi(-18));
+    CHECK_CLOSE(c.phi(-13), s0.phi(-13) * std::pow(10.0, -0.4 * 0.3 * 9), 1e-12);
+  }
   // Schechter phi at M* is 0.4 ln10 phi* e^-1
   const LFEntry e = schechter(8);
   CHECK_CLOSE(e.phi(e.Mstar), 0.4 * std::log(10.0) * e.phistar / std::exp(1.0), 1e-12);

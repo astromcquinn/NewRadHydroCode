@@ -50,9 +50,12 @@ def log_luv(p, logM, z):
 def lf_row(r, M):
     z, form, Ms, ps, al, be = r[:6]
     dM = M - Ms
-    if form == "schechter":
+    if form in ("schechter", "schechter_curv"):
         xx = 10 ** (-0.4 * dM)
-        return 0.4 * np.log(10) * ps * xx ** (al + 1) * np.exp(-xx)
+        f = 0.4 * np.log(10) * ps * xx ** (al + 1) * np.exp(-xx)
+        if form == "schechter_curv":  # Bouwens+22: delta in the beta column
+            f = f * np.where(M > -16, 10 ** (-0.4 * be * (M + 16) ** 2), 1.0)
+        return f
     return ps / (10 ** (0.4 * (al + 1) * dM) + 10 ** (0.4 * (be + 1) * dM))
 
 

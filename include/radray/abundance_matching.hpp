@@ -33,12 +33,15 @@ double muv_from_luv(double L_uv);
 // ---------------------------------------------------------------------------
 
 struct LFEntry {
-  enum class Form { Schechter, DoublePowerLaw };
+  enum class Form { Schechter, DoublePowerLaw, SchechterCurved };
   double z = 0;
   Form form = Form::Schechter;
   // phi_star in Mpc^-3 mag^-1 (comoving, the observers' h = 0.7 units).
   //  Schechter: phi = 0.4 ln10 phi* x^(alpha+1) exp(-x), x = 10^(-0.4(M-M*))
   //  DPL:       phi = phi* / (10^(0.4(alpha+1)(M-M*)) + 10^(0.4(beta+1)(M-M*)))
+  //  SchechterCurved (Bouwens et al. 2022, ApJ 940, 55, Sec. 3.2): Schechter
+  //             times 10^(-0.4 delta (M+16)^2) faintward of M = -16, with
+  //             delta stored in `beta`
   double Mstar = 0, phistar = 0, alpha = 0, beta = 0;
   // Magnitude range the fit is constrained by data (bright, faint)
   double M_bright = -23, M_faint = -17;

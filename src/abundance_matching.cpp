@@ -97,9 +97,12 @@ double muv_from_luv(double L_uv) {
 
 double LFEntry::phi(double M) const {
   const double dM = M - Mstar;
-  if (form == Form::Schechter) {
+  if (form == Form::Schechter || form == Form::SchechterCurved) {
     const double x = std::pow(10.0, -0.4 * dM);
-    return 0.4 * kLn10 * phistar * std::pow(x, alpha + 1) * std::exp(-x);
+    double f = 0.4 * kLn10 * phistar * std::pow(x, alpha + 1) * std::exp(-x);
+    if (form == Form::SchechterCurved && M > -16)
+      f *= std::pow(10.0, -0.4 * beta * (M + 16) * (M + 16));
+    return f;
   }
   return phistar / (std::pow(10.0, 0.4 * (alpha + 1) * dM) + std::pow(10.0, 0.4 * (beta + 1) * dM));
 }
@@ -133,8 +136,11 @@ std::vector<LFEntry> read_lf_table(const std::string& path) {
       e.form = LFEntry::Form::Schechter;
     else if (form == "dpl")
       e.form = LFEntry::Form::DoublePowerLaw;
+    else if (form == "schechter_curv")
+      e.form = LFEntry::Form::SchechterCurved;
     else
-      throw std::runtime_error(path + ":" + std::to_string(ln) + ": form must be schechter|dpl");
+      throw std::runtime_error(path + ":" + std::to_string(ln) +
+                               ": form must be schechter|dpl|schechter_curv");
     if (status != "confirmed" && status != "unconfirmed")
       throw std::runtime_error(path + ":" + std::to_string(ln) +
                                ": status must be confirmed|unconfirmed");
