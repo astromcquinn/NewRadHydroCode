@@ -215,6 +215,45 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   rt_grid (fHI = rhog = 0). The tool skips them; a C++ fix that skips them at
   write time is optional.
 
+**Production-run thread (PR #7, branch `production-run`; merged 2026-10-09):**
+
+*Abundance-matched sources* (`docs/abundance_matching.md`):
+- `sfr_model = abundance`, a new source model; the existing models are
+  unchanged and bit-identical.
+- L_UV(M_halo, z) from abundance matching to the observed UV LFs, with all
+  LF parameters read from the papers the user supplied: Bouwens+22
+  (z ≈ 6, 8), GLIMPSE/Atek+26 (z ≈ 7), Donnan+24 (z = 9–12.5). The shape
+  is fitted at z ≤ 9 with the faint end extrapolated to M_UV = −12; at
+  z = 10–12.5 only the normalisation is fitted; L(M) is held fixed beyond
+  the data. L(M) is matched to the simulated FoF mass function
+  (`data/hmf/fof_128_10mpc.txt`; user decision), so the box's LF matches
+  the observations. The fit is `data/uv_lf/am_params_128_10mpc.txt`.
+- Ionizing rate = f_esc ξ_ion L_UV with log ξ_ion = 25.38 (Pahl et al.
+  2025). The RT code is untouched.
+- Tools: `apps/am_fit`, `apps/hmf_table` (Tinker in `MassFunction`),
+  `tools/analysis/plot_am.py`, `box_lf.py`, `fit_fof_hmf.py`,
+  `hmf_compare.py`, `tests/test_abundance_matching.cpp`.
+
+*Halo mass function* at 128³ / 10 Mpc/h (`docs/hmf_validation.md`):
+- FoF agrees with Sheth–Tormen above about 100 particles and is 1.3–2.2×
+  above Tinker; a 2–4× deficit at 20–60 particles grows with z. The first
+  halo forms at z ≈ 11.3. Not yet checked at 256³.
+
+*f_esc calibration* (`docs/production_run.md` §8, folded in from the
+thread's `reionization_production.md`):
+- At 128³ and **0.01c**, f_esc = 0.5 gives τ_es = 0.0516 with the final
+  LFs (Planck 2018: 0.054 ± 0.007), midpoint z = 6.72, x_M = 0.967 at
+  z ≈ 5.3. τ is a weak constraint (f_esc 0.2–0.8 gives 0.046–0.058); the
+  end of reionization is the sharper one.
+- The production run was to start at f_esc = 0.5 (user decision), but the
+  calibration **must be redone at 0.1c** (`docs/cluster.md` §7: 0.01c
+  lowers τ_es by 20 %) and at 256³; `tools/production/calibrate_fesc.py`.
+- Movie, test movie `docs/figures/reion_test_128.mp4` (the thread's own
+  movie tool was dropped in favour of `tools/movies/make_movie.py` from
+  PR #12; `reion_production.slurm` now runs `reion.py`, the stills and the
+  movie when a run finishes). `make_production.py` gained `--am-params`,
+  `--xi-ion`, `--f-esc` and `--restart-every`.
+
 ## Measured production costs (PR #10, `docs/production_run.md`)
 
 Box 10 Mpc/h, Ngas = Ndm, factor 16, z = 100 → 5.5, fixed flags,
@@ -250,29 +289,21 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
   (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
   `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
 
-## Branches and PRs (survey, 2026-10-09)
+## Branches and PRs (survey, 2026-10-09; all merged the same day)
 
-`main` holds PRs #1–#6, #8–#11, #13–#15. Three branches carry work that
-is **not** on `main`; each was test-merged against `main` and against the
-others (worktrees, 2026-10-09):
+The survey found three branches off `main`; they were merged in the order
+`hyak-setup` (PR #17), `movies` (PR #12), `production-run` (PR #7), with
+these resolutions: the `tools/hyak/` scripts of `hyak-setup` were kept
+over the older copies on `production-run` (plus the post-run `reion.py`,
+stills and movie calls); `tools/movie/make_movie.py` of `production-run`
+was dropped for `tools/movies/make_movie.py` of PR #12;
+`docs/reionization_production.md` was folded into `docs/production_run.md`
+§8. Remote branches with no commits beyond `main` after the merges:
+`framework-spike`, `hydro-unsplit`, `ray-compression`, `hyak-setup`,
+`movies`, `production-run`, `claude/hopeful-thompson-w5m60t`,
+`claude/relaxed-brahmagupta-9v7xb5`, `claude/lucid-brahmagupta-85vs76`.
 
-| Branch | PR | What it adds | Conflicts with `main` | Conflicts with the others |
-|---|---|---|---|---|
-| `hyak-setup` (11 commits, 67 behind) | none yet | `docs/cluster.md` (klone environment, FFTW SSE2-only finding, scaling on an idle node, four 128³/256³ runs, 0.01c vs 0.1c, P(k)/growth check), `tools/hyak/` (env, setup, build, auto-restart production job, scaling test), `run_steps` parameter, `reion_history.py`, `pk_growth.py`, `compare_stills.py` | `docs/STATUS.md`; `apps/radhydro.cpp` (the `run_steps` lines against the parameter if-chain fix of PR #15) | `tools/hyak/{build_hyak.sh, reion_production.slurm, scaling_test.slurm}` also exist on `production-run` (older, shorter versions): keep the `hyak-setup` ones |
-| `movies` (3 commits, 71 behind) | #12 | `tools/movies/make_movie.py` (609 lines, CTest `movie_tool`), `docs/movies.md`, 64³ test movie, the **B16** finding (grid-aligned photon deficit) in `port_notes.md`, `axis_deficit.py` | `docs/STATUS.md` only | `tools/production/make_production.py`: both add `--movie-fields` (merge by hand) |
-| `production-run` (10 commits, 71 behind) | #7 (draft) | `sfr_model = abundance` (abundance matching to the UV LFs read from Bouwens+22, Atek+26, Donnan+24; `apps/am_fit`, `apps/hmf_table`, Tinker HMF), HMF validation at 128³ (`docs/hmf_validation.md`), f_esc calibration (`calibrate_fesc.py`), `docs/reionization_production.md`, `docs/abundance_matching.md`, `data/uv_lf/` | `docs/STATUS.md` only (textual) | `tools/movie/make_movie.py` (177 lines) is superseded by the `movies` tool: drop it and keep `tools/analysis/reion.py`; `tools/hyak/` as above |
-
-Merged and deletable remote branches (0 commits ahead of `main`):
-`framework-spike`, `hydro-unsplit`, `ray-compression`,
-`claude/hopeful-thompson-w5m60t`, `claude/relaxed-brahmagupta-9v7xb5`.
-
-**Recommended merge order:** `hyak-setup` (open a PR; smallest code change,
-largest measured content), then `movies` (#12), then `production-run` (#7).
-After each merge: rebuild, run the fast suite with the live Fortran tests
-(needs gfortran and FFTW; the cloud container has neither, so only the RT
-third of the suite runs there), and on Hyak the nightly label.
-
-**Facts from the unmerged branches that change the plan:**
+**Facts from these branches that change the plan:**
 - One klone node runs 128³ at 0.01c in 3 min and 256³ at 0.1c with a
   movie in 1.5 h (192 threads, RT 94× over one core). Resolution is no
   longer the constraint; 256³ is the production size.
@@ -307,9 +338,9 @@ format unchanged).
 
 On Hyak (`claude remote-control` in tmux, or batch jobs):
 
-1. **Merge and validate.** Merge the three branches in the order above,
-   resolve the conflicts listed, run the fast and nightly suites on klone,
-   update this file. Can run in the cloud, with the klone test run after.
+1. ~~Merge and validate~~ Done 2026-10-09 (PRs #16, #17, #12, #7). Still
+   to do on klone: the fast and nightly suites on the merged `main`
+   (expect the 8 known RT stored-reference failures of `docs/cluster.md` §3).
 2. **Production run at 256³, 0.1c, abundance-matched sources.** Recalibrate
    f_esc at 0.1c (four 128³ runs of about 16 min, `calibrate_fesc.py`),
    check the 256³ HMF (`hmf_compare.py`), then the 256³ 0.1c run with
@@ -336,8 +367,7 @@ In the cloud (branch + PR each):
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. Smaller: the stored-RT-reference platform policy; the 2 % growth
    deficit; the unsplit open items (Sedov radius convergence, cold-gas
-   time-step sensitivity at 128³); merge `docs/production_run.md` and
-   `docs/reionization_production.md` once #7 lands.
+   time-step sensitivity at 128³).
 
 **Decisions needed from the user:** confirm AMReX (Stage D); production
 `c_reduced` (0.1 recommended) and N (256); `hydro_scheme` for production;
@@ -345,23 +375,26 @@ the stored-reference policy on klone; deleting the merged branches.
 
 ## Next
 
-1. Check the halo mass function at production resolution against Sheth–Tormen/Tinker.
-2. **Abundance-matched sources:**
-   - Fit L_UV(M_halo) to the observed high-z UV LFs (HST z≈6–10, JWST z>10).
-   - Calibrate f_esc to Planck τ_es.
-   - No sub-grid sources for unresolved halos (user decision).
-3. **Production reionisation run and movie.** The box is decided; the
-   resolution waits on the timing table. The movie tool is ready
-   (`docs/movies.md`): run `tools/movies/make_movie.py RUN/run --jobs 4` on
-   the 128³/192³ Hyak runs.
+1. ~~Halo mass function at production resolution~~ Done at 128³
+   (`docs/hmf_validation.md`); redo at 256³ before the production run.
+2. ~~Abundance-matched sources~~ Done (`sfr_model = abundance`,
+   `docs/abundance_matching.md`). **Open: recalibrate f_esc at 0.1c and
+   256³** (`docs/production_run.md` §8, `calibrate_fesc.py`); the 0.01c
+   value is 0.5.
+3. **Production reionisation run and movie** on one klone node
+   (`docs/production_run.md` §7–8, `docs/cluster.md` §5, `docs/movies.md`).
 
    | Setting | Value |
    |---|---|
    | Box | 10 Mpc/h |
-   | c_reduced | 0.1 recommended (was 0.01; the Hyak runs on `hyak-setup` show 0.01 delays reionisation by Δz ≈ 2–2.5) |
+   | c_reduced | 0.1 (0.01 delays reionisation by Δz ≈ 2–2.5, `docs/cluster.md` §7); convergence check with one 0.3c or 1c run at 128³ |
    | nray_max_factor | 16 |
-   | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on one klone node; was 128³/192³) |
-   | Flags | legacy_rt = legacy_physics = 0 |
+   | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on a whole node) |
+   | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry |
+   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c |
+   | hydro_scheme | user decision pending (`unsplit` fixes the cold-gas overheating; `make_production.py` does not set it yet) |
+   | Before the run | B16 fix (item 5), 256³ HMF and f_esc |
+
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
    - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
      and 1.5 TB per node) with 7.8 TB of memory, a 64-core,

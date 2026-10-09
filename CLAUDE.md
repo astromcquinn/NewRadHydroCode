@@ -75,7 +75,9 @@ At the start of a session, read:
 | `tools/ics` | Zel'dovich ICs |
 | `tools/analysis` | figures |
 | `tools/ray_compression` | ray dumps → entropy, codec prototype, precision runs (`docs/ray_compression.md`) |
+| `tools/production` | production parameters, f_esc calibration, timing (`docs/production_run.md`) |
 | `tools/hyak` | UW Hyak `klone` environment, build, production and scaling jobs (`docs/cluster.md`) |
+| `tools/movies` | movie and stills from a run directory (`docs/movies.md`) |
 | `docs/` | plan, status, port notes per component, design doc, figures |
 
 ## Build and test

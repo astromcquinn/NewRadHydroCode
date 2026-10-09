@@ -371,7 +371,7 @@ non-monotonic in M.
 | `so_iterations` | 3 | SO re-centring iterations |
 | `mu` | 0.59 | mean molecular weight for T_vir |
 | `ncell_max` | 0 (auto) | cap on FoF cells per dimension |
-| `SourceModelParams::model` | `GlobalMassProportional` | or `Dynamical` |
+| `SourceModelParams::model` | `GlobalMassProportional` | or `Dynamical`, or `AbundanceMatched` (`docs/abundance_matching.md`) |
 | `Tvir_min` | 1e4 K | star formation threshold |
 | `M_min` | 0 | extra mass threshold |
 | `sfr_history_path` | "" | `sfr.txt` for the global SFR (else HS03 fit) |

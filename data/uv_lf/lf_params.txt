@@ -1,0 +1,59 @@
+# Observed rest-frame UV (1500-1600 A) luminosity functions for abundance
+# matching (apps/am_fit, docs/abundance_matching.md).
+#
+# Every row is read from the paper (PDFs supplied by the user, 2026-10-09).
+# Columns:
+#   z  form  Mstar  phistar[Mpc^-3 mag^-1]  alpha  beta  M_bright  M_faint
+#   weight  ref  status
+# form: schechter | dpl | schechter_curv
+#   dpl: phi*/(10^(0.4(a+1)(M-M*)) + 10^(0.4(b+1)(M-M*)))
+#   schechter_curv (Bouwens+22 Sec. 3.2): Schechter x 10^(-0.4 delta (M+16)^2)
+#   faintward of -16, delta in the beta column.
+# M_bright/M_faint: the observed magnitude range (outer edges of the binned
+# data). weight 0 = cross-check only (am_fit skips it).
+#
+# Use (user decisions 2026-10-08/09): rows at z <= 9.5 fix the shape of
+# L_UV(M_halo, z), with the faint end extrapolated to -12; rows above only set
+# the normalisation, from the observed range; prefer recent JWST LFs.
+
+# --- Shape, z ~ 6-9 ---------------------------------------------------------
+# Bouwens et al. 2022, ApJ 940, 55 (arXiv:2205.11526v2), Table 2, "HFF +
+# Blank-Field (Parametric, Fiducial)": lensed HFF faint end + B21 blank fields.
+# <z> of the i, z, Y dropouts. Turn-over excluded brightward of -14.3 (z~6),
+# -15.2 (z~7, 8).
+5.9   schechter_curv  -20.87  0.57e-3   -1.87  0.05   -22.5  -14.0   1  Bouwens+22  confirmed
+6.8   schechter_curv  -21.13  0.20e-3   -2.05  0.24   -22.2  -14.5   0  Bouwens+22  confirmed  # superseded by GLIMPSE z~7
+7.9   schechter_curv  -20.90  0.096e-3  -2.20  0.23   -22.0  -15.0   1  Bouwens+22  confirmed
+# Atek et al. 2026 (GLIMPSE), arXiv:2604.23823v2, Table 2 (Schechter, "This
+# Work a"): JWST lensed faint end to -12.5 plus the Bouwens+21 z~7 blank-field
+# bins (their Table 4); 6 < z < 9 sample, "z ~ 7". log phi* = -3.68.
+7.0   schechter  -21.29  2.089e-4  -1.98  0      -22.2  -12.5   1  Atek+26     confirmed
+# Donnan et al. 2024, MNRAS 533, 3222 (arXiv:2403.03171v3), Table 3, DPL
+9.0   dpl  -19.70  23.5e-5  -2.00  -3.81   -21.0   -17.3   1  Donnan+24  confirmed
+
+# --- Normalisation, z > 9.5 (Donnan+24 Table 3; ranges from their Table 2) ---
+10.0  dpl  -19.98  14.5e-5  -1.98  -4.05   -21.0   -17.3   1  Donnan+24  confirmed  # beta fixed
+11.0  dpl  -20.73  3.27e-5  -2.19  -4.29   -21.5   -18.0   1  Donnan+24  confirmed
+12.5  dpl  -20.82  0.99e-5  -2.19  -4.29   -21.5   -18.0   1  Donnan+24  confirmed  # alpha, beta fixed
+14.5  dpl  -20.82  0.18e-5  -2.19  -4.29   -20.5   -20.0   0  Donnan+24  confirmed  # one bin, ~1.3 galaxies
+
+# --- Cross-checks (weight 0) --------------------------------------------------
+# Bouwens et al. 2021, AJ 162, 47 (arXiv:2102.07775v1), Table 5 (blank fields)
+5.9   schechter  -20.93  0.51e-3   -1.93  0      -22.5  -16.5   0  Bouwens+21  confirmed
+6.8   schechter  -21.15  0.19e-3   -2.06  0      -22.2  -16.9   0  Bouwens+21  confirmed
+7.9   schechter  -20.93  0.09e-3   -2.23  0      -21.9  -17.6   0  Bouwens+21  confirmed
+8.9   schechter  -21.15  0.021e-3  -2.33  0      -21.9  -17.9   0  Bouwens+21  confirmed  # M* fixed
+10.2  schechter  -21.19  0.0042e-3 -2.38  0      -21.3  -17.3   0  Oesch+18    confirmed  # via B21 Table 5; M* fixed
+# Atek et al. 2018, MNRAS 479, 5184 (arXiv:1803.09747v1), Table 3 (Schechter), z~6, log phi* = -3.43
+6.0   schechter  -20.74  3.715e-4  -1.98  0      -22.0  -13.0   0  Atek+18     confirmed
+# Bowler et al. 2020, MNRAS 493, 2059 (arXiv:1911.12832v2), Table 7 (DPL; alpha fixed at z=9)
+8.0   dpl  -19.80  4.83e-4  -1.96  -3.98   -22.5  -18.0   0  Bowler+20  confirmed
+9.0   dpl  -19.67  2.85e-4  -2.10  -3.75   -22.5  -18.5   0  Bowler+20  confirmed
+# Whitler et al. 2025 (JADES), arXiv:2501.00984v3, Table 6 (DPL); F115W
+# dropouts z ~ 8.5-12, F150W z ~ 12-16 (z column: mid-range, approximate)
+10.3  dpl  -20.54  4.849e-5  -2.60  -3.49   -21.5  -17.0   0  Whitler+25  confirmed
+14.0  dpl  -20.54  2.263e-5  -2.42  -3.50   -21.0  -17.5   0  Whitler+25  confirmed  # M* fixed
+# Not entered: Ma 2026 (UNCOVER, one lensing field, faint-range fit only);
+# Goolsby 2026 (refits alpha only: -1.92, -2.14, -1.74 at z = 6, 7, 8);
+# McLeod et al. 2024 (Table 5 not extractable from the PDF text);
+# Harikane et al. 2022 (GOLDRUSH IV, z ~ 4-7 bright end; not needed for this box).

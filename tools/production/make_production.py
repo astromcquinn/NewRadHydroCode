@@ -18,7 +18,7 @@ deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5.5, movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
-docs/movies.md), a checkpoint after every hydro step.
+docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
 """
 import argparse
 import os
@@ -45,6 +45,14 @@ def main():
                     help="max da/a per hydro step as ra_max/(1-ra_max); 0: original 0.1")
     ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5")
     ap.add_argument("--no-ics", action="store_true", help="params.txt only")
+    ap.add_argument("--am-params", default="",
+                    help="am_params.txt from apps/am_fit: abundance-matched sources "
+                         "(sfr_model = abundance, docs/abundance_matching.md)")
+    ap.add_argument("--xi-ion", type=float, default=25.38,
+                    help="log10 xi_ion with --am-params (production choice 25.38)")
+    ap.add_argument("--f-esc", type=float, default=0.0,
+                    help="escape fraction with --am-params (calibrated to tau_es)")
+    ap.add_argument("--restart-every", type=int, default=1)
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.join(a.outdir, "ics")
@@ -71,13 +79,23 @@ def main():
         "rt_substep_carry = 1",
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",
-        "restart_every = 1",
+        f"restart_every = {a.restart_every}",
         "fields_at_data1 = 1",
         "fields = fHI,fHeI,fHeII,temp,rhog,gamma",
         "data_files = norays",
     ]
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
+    if a.am_params:
+        if not a.f_esc > 0:
+            sys.exit("--am-params needs --f-esc")
+        lines.append("# Abundance-matched sources (" + a.am_params + ")")
+        for l in open(a.am_params):
+            l = l.split("#")[0].strip()
+            if l:
+                lines.append(l)
+        lines.append(f"xi_ion = {a.xi_ion:g}")
+        lines.append(f"f_esc = {a.f_esc:g}")
     with open(os.path.join(a.outdir, "params.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print("wrote", os.path.join(a.outdir, "params.txt"))

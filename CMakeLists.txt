@@ -57,7 +57,8 @@ add_library(radray_halos
   src/halos.cpp
   src/halo_sources.cpp
   src/halo_capi.cpp
-  src/mass_function.cpp)
+  src/mass_function.cpp
+  src/abundance_matching.cpp)
 target_link_libraries(radray_halos PUBLIC radray)
 add_executable(find_halos apps/find_halos.cpp)
 target_link_libraries(find_halos PRIVATE radray_halos)
@@ -110,3 +111,10 @@ option(RADRAY_NIGHTLY_TESTS "Enable the long (nightly) CTests" OFF)
 
 enable_testing()
 add_subdirectory(tests)
+
+# Abundance matching of halo UV luminosities to observed UV LFs
+# (docs/abundance_matching.md)
+add_executable(am_fit apps/am_fit.cpp)
+target_link_libraries(am_fit PRIVATE radray_halos)
+add_executable(hmf_table apps/hmf_table.cpp)
+target_link_libraries(hmf_table PRIVATE radray_halos)

@@ -1,6 +1,7 @@
 // Analytic mass functions (see include/radray/mass_function.hpp).
 #include "radray/mass_function.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace radray {
@@ -72,6 +73,18 @@ double MassFunction::dndlnM(double M, double z, Kind kind) const {
   double f;
   if (kind == Kind::PressSchechter) {
     f = std::sqrt(2 / kPi) * nu * std::exp(-0.5 * nu * nu);
+  } else if (kind == Kind::Tinker08) {
+    // f(sigma) = A [(sigma/b)^-a + 1] exp(-c/sigma^2), Delta = 200 (mean);
+    // A = A0 (1+z)^-0.14, a = a0 (1+z)^-0.06, b = b0 (1+z)^-alpha,
+    // log10 alpha = -(0.75/log10(Delta/75))^1.2. f(sigma) = nu f(nu) here,
+    // so it replaces f directly.
+    const double zz = std::min(z, tinker_zmax_evol);
+    const double A0 = 0.186, a0 = 1.47, b0 = 2.57, c = 1.19, Delta = 200;
+    const double alpha = std::pow(10.0, -std::pow(0.75 / std::log10(Delta / 75), 1.2));
+    const double A = A0 * std::pow(1 + zz, -0.14);
+    const double a = a0 * std::pow(1 + zz, -0.06);
+    const double b = b0 * std::pow(1 + zz, -alpha);
+    f = A * (std::pow(s / b, -a) + 1) * std::exp(-c / (s * s));
   } else {
     const double A = 0.3222, a = 0.707, p = 0.3;
     const double an2 = a * nu * nu;
