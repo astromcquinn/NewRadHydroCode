@@ -54,7 +54,15 @@ bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::stri
     if (cfg.dual_nb_radius < 1 || cfg.dual_nb_radius > 2) bad("must be 1 or 2");
   } else if (key == "dual_reset_rule") {
     cfg.dual_reset_rule = std::stoi(val);
-    if (cfg.dual_reset_rule < 0 || cfg.dual_reset_rule > 3) bad("must be 0..3");
+    if (cfg.dual_reset_rule < 0 || cfg.dual_reset_rule > 4) bad("must be 0..4");
+  } else if (key == "dual_eta2_local") {
+    const int v = std::stoi(val);
+    if (v != 0 && v != 1) bad("must be 0 or 1");
+    cfg.dual_eta2_local = v == 1;
+  } else if (key == "dual_p_old") {
+    const int v = std::stoi(val);
+    if (v != 0 && v != 1) bad("must be 0 or 1");
+    cfg.dual_p_old = v == 1;
   } else if (key == "dual_eta1_local") {
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
@@ -74,6 +82,8 @@ void copy_hydro_scheme(const Config& from, Config& to) {
   to.dual_eta1_local = from.dual_eta1_local;
   to.dual_nb_radius = from.dual_nb_radius;
   to.dual_reset_rule = from.dual_reset_rule;
+  to.dual_eta2_local = from.dual_eta2_local;
+  to.dual_p_old = from.dual_p_old;
 }
 
 std::string hydro_scheme_summary(const Config& cfg) {
@@ -84,7 +94,9 @@ std::string hydro_scheme_summary(const Config& cfg) {
          ", dual_eta2 = " + std::to_string(cfg.dual_eta2) +
          ", dual_eta1_local = " + (cfg.dual_eta1_local ? "1" : "0") +
          ", dual_nb_radius = " + std::to_string(cfg.dual_nb_radius) +
-         ", dual_reset_rule = " + std::to_string(cfg.dual_reset_rule);
+         ", dual_reset_rule = " + std::to_string(cfg.dual_reset_rule) +
+         ", dual_eta2_local = " + (cfg.dual_eta2_local ? "1" : "0") +
+         ", dual_p_old = " + (cfg.dual_p_old ? "1" : "0");
 }
 
 namespace {
@@ -236,7 +248,7 @@ struct SubstepCounts {
 
 // One substep of length dt on the padded state (ghosts filled)
 SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_min,
-                      double Tmin) {
+                      double Tmin, bool p_old) {
   const int n = W.n;
   const double dtdx = dt;  // dx = 1 cell
   const bool par_ok = par::worth(static_cast<long long>(n) * n * n);
@@ -281,7 +293,10 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
         for (int m = 0; m < NV; ++m) Un[m] = W.U[c * NV + m];
         rrh::update_cell(Un, x0.F, x1.F, y0.F, y1.F, z0.F, z1.F, dtdx);
         const double divv = ((x1.v - x0.v) + (y1.v - y0.v)) + (z1.v - z0.v);
-        const double p_half = W.Q[W.aq(i, j, k) * NQ + 4];
+        // the cell pressure of the work term: time-centred (Hancock) or at
+        // the old time (Bryan et al. 2014 eq. 43)
+        const double p_half = p_old ? (rrh::kGamma - 1) * rrf::max(W.Es[c], 0.0)
+                                    : W.Q[W.aq(i, j, k) * NQ + 4];
         const double* S = &W.S[c * NS];
         double* Sn = &W.Sn[cn * NS];
         Sn[0] = rrh::update_scalar(S[0], x0.Fs[0], x1.Fs[0], y0.Fs[0], y1.Fs[0], z0.Fs[0],
@@ -415,7 +430,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
       }
 
   const rrh::DualEnergy de{eta1_of(cfg), cfg.dual_eta2, cfg.dual_eta1_local, cfg.dual_nb_radius,
-                           cfg.dual_reset_rule};
+                           cfg.dual_reset_rule, cfg.dual_eta2_local};
   const double rho_min = un.Dgas_min;
   const double Tmin = 1 / un.temp1_unit;
 
@@ -432,7 +447,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
     int nsub = static_cast<int>(std::ceil(remaining / dt_cfl - 1e-9));
     if (nsub < 1) nsub = 1;
     const double dt_sub = nsub == 1 ? remaining : remaining / nsub;
-    const SubstepCounts sc = substep(W, dt_sub, de, rho_min, Tmin);
+    const SubstepCounts sc = substep(W, dt_sub, de, rho_min, Tmin, cfg.dual_p_old);
     C.cells_from_e += sc.from_e;
     C.cells_synced += sc.synced;
     C.floor_T += sc.floor_T;

@@ -67,8 +67,10 @@ struct DualEnergy {
   int nb_radius = 2;  // neighbourhood of the E maximum: +-1 (6 cells) or +-2 (12) along the axes
   // When the pressure comes from e, reset E := KE + e: 0 always; 1 only if
   // |E - KE - e| <= eta1 E (cell); 2 as 1, or if E - KE > E/2 (a thermal-
-  // dominated stagnation cell); 3 only if E - KE <= eta1 max_{+-1}(E)
+  // dominated stagnation cell); 3 only if E - KE <= eta1 max_{+-1}(E);
+  // 4 never (Enzo: E is never modified)
   int reset_rule = 0;
+  bool eta2_local = false;  // eta2 test against the cell's own E (Nyx's resync)
 };
 
 RR_HD double kinetic_energy(const double U[NV]) {
@@ -333,7 +335,7 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double E
     f.floor_T = true;
   }
   if (de.eta1 > 0) {
-    if (eT > de.eta2 * Enb_max) {
+    if (eT > de.eta2 * (de.eta2_local ? U[4] : Enb_max)) {
       eD = eT;
       f.synced = true;
     }
@@ -355,6 +357,7 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double E
       if (de.reset_rule == 1) reset = std::fabs(eT - eD) <= de.eta1 * U[4];
       else if (de.reset_rule == 2) reset = std::fabs(eT - eD) <= de.eta1 * U[4] || eT > 0.5 * U[4];
       else if (de.reset_rule == 3) reset = !(eT > de.eta1 * Enb1_max);
+      else if (de.reset_rule == 4) reset = false;
       if (reset) {
         U[4] = ke + eD;
         f.reset = true;

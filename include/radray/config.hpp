@@ -112,6 +112,13 @@ struct Config {
   //                in thermal-dominated cells (2), only if E - KE <= eta1
   //                max_{+-1} E (3). docs/hydro_unsplit.md section 2.
   int dual_reset_rule = 0;
+  //   dual_eta2_local: 1 = the eta2 test against the cell's own E (Nyx's
+  //                resync); dual_p_old: 1 = the old-time cell pressure in
+  //                the -p div v work term (Bryan et al. 2014 eq. 43) instead
+  //                of the Hancock half-step pressure. Both for the
+  //                comparison of docs/hydro_unsplit.md section 2.
+  bool dual_eta2_local = false;
+  bool dual_p_old = false;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
