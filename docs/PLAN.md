@@ -165,3 +165,13 @@ ray-pool guard for F3 (`legacy_rt = 0`, both codes); 88-byte rays; F1 fix;
 bit-identical restart; movie frames independent of the hydro step;
 nightly test label; measured cost and timing table for the production run.
 
+
+## Fortran harness scope (decided 2026-10-08)
+
+* The Fortran harnesses only have to reproduce the **original** code, so the
+  C++ can be compared with it at the default settings.
+* New C++ options that change results (fixes, research instruments such as
+  the `ray_quant_*` lossy-precision options of the ray-compression study)
+  go behind a flag whose default is the original behaviour. They need **no**
+  mirrored implementation in Fortran. The already mirrored `legacy_rt` and
+  `legacy_physics` stay as they are.
