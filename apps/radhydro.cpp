@@ -116,6 +116,8 @@ struct RunParams {
   int fields_every = 0;     // write fields every n steps (0: never)
   int fields_at_data1 = 1;  // write fields at the zdata1 output steps
   int max_steps = 1000;     // the original's timing(1000) array
+  int run_steps = 0;        // > 0: stop after this many steps of this invocation
+                            // (timing runs from a checkpoint; 0: run to the end)
   // hydro_scheme = legacy | unsplit and the unsplit parameters
   // (docs/hydro_unsplit.md), parsed by set_hydro_scheme_param
   Config hydro;
@@ -184,6 +186,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.fields_at_data1 = std::stoi(val);
   else if (key == "max_steps")
     P.max_steps = std::stoi(val);
+  else if (key == "run_steps")
+    P.run_steps = std::stoi(val);
   else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
   } else if (key == "ray_dump_dir")
@@ -691,6 +695,7 @@ int main(int argc, char** argv) {
     // Time stepping
     // ------------------------------------------------------------------
     std::vector<double> pk_dm, pk_gas;
+    int steps_run = 0;
     for (;;) {
       if (s.clk.istep >= P.max_steps)
         throw std::runtime_error("max_steps reached before the last zdata1 redshift");
@@ -814,6 +819,7 @@ int main(int argc, char** argv) {
 
       // Stop
       if (last) break;
+      if (P.run_steps > 0 && ++steps_run >= P.run_steps) break;
     }
 
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();

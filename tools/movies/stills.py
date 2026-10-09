@@ -5,8 +5,8 @@
 
 RUNDIR is the radhydro output directory with movie/frames.txt and
 movie/frame_NNNNN_<field>.bin (float32 (N,N,N) rt_grid fields, Fortran
-order). It needs the fields fHI, temp and rhog (set movie_fields =
-fHI,temp,rhog). Writes:
+order). It shows fHI and temp, and the gas density when the run wrote it
+(movie_fields = fHI,temp,rhog). Writes:
   stills_grid.png      rows = redshifts; columns = gas density, neutral
                        fraction, temperature (thin slab through the box)
   stills_history.png   volume- and mass-weighted x_HII(z), frames marked
@@ -104,7 +104,9 @@ def main():
         i = int(np.argmin(np.abs(fr["z"] - z)))
         if fr[i]["frame"] not in [p["frame"] for p in picks]:
             picks.append(fr[i])
-    fields = ["rhog", "fHI", "temp"]
+    # rhog only if the run wrote it (movie_fields = fHI,temp in the production params)
+    fields = [f for f in ("rhog", "fHI", "temp")
+              if os.path.exists(os.path.join(a.run, "movie", f"frame_{picks[0]['frame']:05d}_{f}.bin"))]
     if a.pos >= 0:
         k0 = a.pos
     else:
@@ -117,7 +119,7 @@ def main():
                          "xtick.color": MUTED, "ytick.color": MUTED})
 
     # grid: rows = redshift, columns = field
-    fig, axs = plt.subplots(len(picks), 3, figsize=(10.5, 3.3 * len(picks) + 0.6),
+    fig, axs = plt.subplots(len(picks), len(fields), figsize=(3.5 * len(fields), 3.3 * len(picks) + 0.6),
                             constrained_layout=True, squeeze=False)
     ims = {}
     for r, p in enumerate(picks):
@@ -136,7 +138,7 @@ def main():
 
     # one image per redshift
     for p in picks:
-        fig, axs = plt.subplots(1, 3, figsize=(12, 4.4), constrained_layout=True)
+        fig, axs = plt.subplots(1, len(fields), figsize=(4 * len(fields), 4.4), constrained_layout=True)
         for c, fld in enumerate(fields):
             im = panel(axs[c], slab(load(a.run, p["frame"], fld), a.axis, a.slab, k0), fld, box)
             fig.colorbar(im, ax=axs[c], location="bottom", shrink=0.85, pad=0.02).set_label(MAPS[fld]["label"])

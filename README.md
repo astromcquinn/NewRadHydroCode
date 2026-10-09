@@ -52,7 +52,8 @@ reference/        original Fortran (read-only) and the gfortran harnesses
                   (harness: RT, harness_hydro, harness_pm, harness_full, harness_common)
 tools/            compare/ (field and stats comparison), ics/ (Zel'dovich ICs),
                   analysis/ (figures), production/ (production parameters, timing),
-                  movies/ (stills), ray_compression/ (ray dumps, codec, precision)
+                  movies/ (stills), ray_compression/ (ray dumps, codec, precision),
+                  hyak/ (UW Hyak klone environment, build and job scripts; docs/cluster.md)
 spike/            framework spike: AMReX and Parthenon prototypes (docs/framework_decision.md)
 docs/             plan, status, roadmap, validation spec, port notes, design docs, figures
 ```
@@ -154,6 +155,11 @@ independent of the thread count) is described in
 (`c_reduced`), the deterministic parallel ray tracing, restarts, movie
 frames and the production-run cost in
 [docs/production_run.md](docs/production_run.md).
+
+Running on the UW Hyak cluster (`klone`): environment, build, tests,
+submitting and restarting jobs, OpenMP scaling on one node and the
+measured runs are in [docs/cluster.md](docs/cluster.md); the scripts are
+in `tools/hyak/`.
 
 How the Fortran maps onto the C++, the ambiguous constructs and the bugs
 found in the original are described in
