@@ -190,11 +190,16 @@ scheme spuriously heats cold supersonic gas (`docs/hydro_tests.md` §6, §7,
   thermal energy unchanged (`pm::particle_mesh_unsplit`).
 * **RT coupling rule:** the RT's `photo_cell` takes the thermal energy from
   the internal-energy field when it exists and writes its heating/cooling
-  back to both `u(5)` and the field; this is the only RT edit and it is a
-  no-op (same arithmetic) with the legacy scheme. The hydro step resets
-  `u(5) = KE + e` in cells whose pressure comes from the field, so every
-  diagnostic that reads `u` (`summarize_gas`, the RT grid temperature, the
-  step fields) sees the dual-energy temperature.
+  back to both `u(5)` and the field (the physics coupling point). A second,
+  diagnostic RT edit reads the field for the RT grid temperature
+  (`average_gas`/`gas_state_from_avg`), as does `summarize_gas`, because
+  the float `u` cannot hold a cold supersonic cell's thermal energy; both
+  are no-ops (same arithmetic) with the legacy scheme. **Approved by the
+  user (2026-10-09).**
+* **Thresholds:** Bryan et al. 1995 is not accessible to the user either;
+  the constants are to be checked against the open-access Enzo method
+  paper (Bryan et al. 2014, ApJS 211, 19) or the Nyx paper (Almgren et
+  al. 2013, ApJ 765, 39) when one is supplied.
 * **Validation:** the hydro suite with `--scheme unsplit` and its own
   tolerances, the restart and thread-count tests, and one coupled 64³ run
   per scheme. No Fortran harness copy (new physics beyond the original
