@@ -228,3 +228,51 @@ measure it on the cluster. Cells whose stencil holds no photons are skipped.
   the grid, with a ghost layer of one cell per subcycle. It is a natural fit
   for every one of them, and for the "moment hand-over in transparent
   regions" of ROADMAP §4.5.
+
+## 6. Production comparison on Hyak (256³)
+
+Not yet run; nothing here was measured on klone. To compare the methods on
+the production boxes, run M1 and OTVET siblings of the existing ray runs
+(`reion256_c01`, 0.1c; `reion256`, 0.01c; `docs/cluster.md` §4–§7). They
+share the ICs and every parameter except `rt_method`.
+
+```
+# on klone, repository at this branch (or main after the merge)
+sbatch tools/hyak/build_hyak.sh                         # build/ + fast suite
+tools/hyak/rt_methods_runs.sh                           # DRYRUN=1 to only print
+#  -> $RUNS/reion256_c01_{m1,otvet}, $RUNS/reion256_{m1,otvet}: params.txt +
+#     rt_method, ics -> the base ICs; one whole-node job each
+#     (reion_production.slurm: auto-restart, DONE, reion.py, movie)
+# when they are done:
+python3 tools/analysis/rt_methods_runs.py \
+    $RUNS/reion256_c01/run:rays $RUNS/reion256_c01_m1/run:M1 \
+    $RUNS/reion256_c01_otvet/run:OTVET --outdir $RUNS/rt_methods_c01
+python3 tools/analysis/rt_methods_runs.py \
+    $RUNS/reion256/run:rays $RUNS/reion256_m1/run:M1 \
+    $RUNS/reion256_otvet/run:OTVET --outdir $RUNS/rt_methods_c001
+```
+
+`rt_methods_runs.py` writes:
+- `history.png` and the z(x_HII) table with τ_es (from `movie/frames.txt`);
+- for each `zdata1` output common to the runs: x_HII and T slices, the
+  volume- and mass-weighted x_HII, partly ionised cells, the median T of
+  ionised gas, cells off by more than 0.1 from the rays, the correlation of
+  log T, and P_x(k) relative to the rays;
+- the RT time and peak memory from `<run>.log`.
+
+Expected cost (an extrapolation from the 32³ timings, to be checked):
+- The transport is about 0.7 µs per cell per substep on one thread, about
+  12 s per substep at 256³. With memory-bound scaling of perhaps 40–80× on
+  192 threads, that is 0.15–0.3 s per substep: 10–20 min for the 4064
+  substeps of the 0.1c run (the rays took 1 h 32 min), and a few minutes at
+  0.01c (404 substeps).
+- The OTVET tensor is about 7 serial 256³ FFTs per hydro step.
+- Memory is about 3 GB of moment state, and checkpoints are 1–2 GB (no
+  rays).
+
+Things to look at:
+- **Small fronts.** At 256³ the early fronts around the first, faint sources
+  are a few cells across, where the first-order diffusion runs ahead (§4).
+  Expect earlier ionisation at the start and a smaller difference later.
+- **The 0.01c runs.** There the light-travel resolution per hydro step is
+  coarse for both methods.

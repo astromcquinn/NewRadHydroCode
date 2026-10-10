@@ -376,11 +376,16 @@ void transport_group(MomentState& M, int g, bool otvet, double C) {
       }
     }
   }
-  std::copy(nn, nn + nc, n);
-  std::copy(nfx, nfx + nc, fx);
-  std::copy(nfy, nfy + nc, fy);
-  std::copy(nfz, nfz + nc, fz);
-  std::copy(ne, ne + nc, e);
+  // copy back in parallel (5 arrays of N^3: serial, this dominated at 256^3)
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (int k = 0; k < N; ++k) {
+    const std::int64_t a = k * sk, b = a + sk;
+    std::copy(nn + a, nn + b, n + a);
+    std::copy(nfx + a, nfx + b, fx + a);
+    std::copy(nfy + a, nfy + b, fy + a);
+    std::copy(nfz + a, nfz + b, fz + a);
+    std::copy(ne + a, ne + b, e + a);
+  }
 }
 
 // Sum of per-plane partial sums in plane order (thread-count independent)
