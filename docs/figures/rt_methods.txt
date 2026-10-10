@@ -1,0 +1,47 @@
+I-front (uniform, c_reduced = 0.1): R [cells] and R/R_pred - 1
+ step  c_hat t  R_pred           rays             M1          OTVET
+    1     2.00   1.771  1.755 (-0.009)  2.889 (+0.631)  2.888 (+0.631)
+    2     4.00   2.948  3.196 (+0.084)  3.670 (+0.245)  3.605 (+0.223)
+    3     6.01   3.772  3.950 (+0.047)  4.392 (+0.164)  4.338 (+0.150)
+    4     8.01   4.406  4.586 (+0.041)  4.909 (+0.114)  4.828 (+0.096)
+    5    10.02   4.928  5.122 (+0.039)  5.357 (+0.087)  5.275 (+0.070)
+    6    12.03   5.379  5.568 (+0.035)  5.767 (+0.072)  5.676 (+0.055)
+    7    14.05   5.777  5.947 (+0.029)  6.127 (+0.061)  6.030 (+0.044)
+    8    16.06   6.135  6.316 (+0.030)  6.463 (+0.053)  6.366 (+0.038)
+    9    18.08   6.462  6.637 (+0.027)  6.755 (+0.045)  6.664 (+0.031)
+   10    20.10   6.764  6.950 (+0.027)  7.035 (+0.040)  6.947 (+0.027)
+   11    22.12   7.044  7.202 (+0.023)  7.302 (+0.037)  7.211 (+0.024)
+   12    24.14   7.304  7.457 (+0.021)  7.541 (+0.032)  7.456 (+0.021)
+   13    26.17   7.549  7.696 (+0.020)  7.778 (+0.030)  7.689 (+0.019)
+   14    28.20   7.781  7.931 (+0.019)  7.994 (+0.027)  7.911 (+0.017)
+   15    30.23   8.002  8.151 (+0.019)  8.203 (+0.025)  8.127 (+0.016)
+
+Shadow: mean x_HII on the axis behind the clump (i = 23..26, j = k = 16), beside it at the same distance (i = 23..26, j = 16 +- 6), and in front (i = 17)
+  rays   behind 0.000   beside 0.517   in front 1.000   ionised volume 5492.7 cells
+  M1     behind 0.061   beside 0.387   in front 1.000   ionised volume 5562.8 cells
+  OTVET  behind 0.008   beside 0.318   in front 1.000   ionised volume 5400.8 cells
+
+Pair: extent of the ionised region (x_HII > 0.5) along y through the midpoint (i = 16) and through a source (i = 10), in cells
+  rays   midpoint   7   source  13
+  M1     midpoint   7   source  13
+  OTVET  midpoint   7   source  15
+
+Box (lognormal_16src, legacy_rt = legacy_physics = 0): volume- and mass-weighted x_HII, fraction of partly ionised cells (0.05 < x < 0.95), median T [K], cells with |x_HII - x_HII(rays)| > 0.1
+  step 10 rays   0.0212 0.0836 0.020      1.5   0 of 32768
+  step 20 rays   0.1014 0.1519 0.059      1.5   0 of 32768
+  step 40 rays   0.3103 0.2933 0.124     87.1   0 of 32768
+  step 60 rays   0.5252 0.4344 0.154  16238.7   0 of 32768
+  step 10 M1     0.0577 0.0928 0.072      1.5   2440 of 32768
+  step 20 M1     0.1486 0.1688 0.129      4.6   3782 of 32768
+  step 40 M1     0.3587 0.3150 0.209   3448.4   5773 of 32768
+  step 60 M1     0.5692 0.4564 0.242  16292.0   7134 of 32768
+  step 10 OTVET  0.0562 0.0937 0.072      1.5   2388 of 32768
+  step 20 OTVET  0.1418 0.1694 0.126      3.1   3419 of 32768
+  step 40 OTVET  0.3438 0.3103 0.202   2499.3   5170 of 32768
+  step 60 OTVET  0.5522 0.4497 0.238  16090.3   6255 of 32768
+
+Wall-clock seconds (rt_driver, whole run)
+  ifront  rays   0.34  M1   0.26  OTVET   0.30
+  shadow  rays   0.50  M1   0.33  OTVET   0.34
+  pair    rays   0.41  M1   0.61  OTVET   0.28
+  box     rays  18.04  M1   1.41  OTVET   2.71

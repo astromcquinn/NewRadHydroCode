@@ -1,6 +1,38 @@
 # Project status
 
-*Last updated: 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`; no branch carries unmerged work.*
+*Last updated: 2026-10-10, moment RT (M1, OTVET) on branch `claude/elegant-bell-rqd3l1` (not yet merged); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+
+## In progress (branch `claude/elegant-bell-rqd3l1`, not merged)
+
+**Moment RT: M1 and OTVET as alternatives to the ray tracing
+(`docs/rt_moments.md`).**
+- `rt_method = rays (default) | m1 | otvet` in `rt_driver` and `radhydro`.
+  A two-moment photon solver per frequency group on the RT grid
+  (`src/rt_moments.cpp`): explicit first-order GLF transport at ĉ,
+  `moment_nsub = 4` subcycles per RT substep, and the M1 closure or the
+  optically thin variable Eddington tensor (direct sum or FFT, every hydro
+  step).
+- Sources, `photo_cell` (absorption through `rt_grid%fgam`) and the redshift
+  are the rays' physics, unchanged. `ray_redshifting`'s spectrum update is
+  factored out (`redshift_spectrum`) with identical arithmetic.
+- The defaults are untouched: the full fast suite, 93 tests including the
+  live gfortran comparisons, passes. New: `ctest -L moments`, 7 tests (unit,
+  I-front vs finite c, threads, restarts). Checkpoint version 3.
+- Results:
+  - Photons are conserved to float precision.
+  - Thread-count independent; bit-identical restarts.
+  - I-fronts converge to the finite-c solution: +9% (M1) and +7% (OTVET)
+    at 10 cells of light travel, +2.5% and +1.6% at 30. The first-order
+    diffusion makes small fronts run ahead (+63% at 2 cells).
+  - Shadows behind a dense clump: OTVET sharp, M1 slightly filled in
+    (x_HII 0.06).
+  - 16-source lognormal box: the moment methods end 4–8% above the rays in
+    x_HII, with about 1.6× thicker fronts.
+  - 5.5–6.5× faster than the rays on that box (1 thread, 32³), at about
+    0.7 µs per cell-substep.
+- Open: second-order transport; Iliev-test validation; M1 crossing beams;
+  the OTVET formulation (time-dependent two-moment here; the published
+  implementations differ and could not be checked, no journal access).
 
 ## Done (merged into `main`)
 
@@ -435,6 +467,12 @@ the stored-reference policy on klone; deleting the merged branches.
    - adaptive RT.
 
 ## Open questions for the user
+
+- Moment RT (`docs/rt_moments.md` §5): whether to invest in second-order
+  transport, and whether the moment methods should become the
+  transparent-region hand-over of ROADMAP §4.5 or stay a standalone
+  alternative. Which OTVET formulation the user has in mind (the paper
+  could not be read here).
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see
