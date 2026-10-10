@@ -508,6 +508,15 @@ if(Python3_Interpreter_FOUND)
                    --set recomb_case=A --set recomb_rad=1)
   set_tests_properties(thread_rt_recomb_lognormal_16src PROPERTIES TIMEOUT 1800
                        LABELS "threads;recomb" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  # the same with the moment RT (every cell emits into the moments)
+  add_test(NAME thread_rt_recomb_m1_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_recomb_m1 $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=3
+                   --set rt_method=m1 --set legacy_physics=0
+                   --set recomb_case=A --set recomb_rad=1)
+  set_tests_properties(thread_rt_recomb_m1_lognormal_16src PROPERTIES TIMEOUT 1800
+                       LABELS "threads;recomb;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   if(RADRAY_HAVE_PM)
     # hydro, PM, summaries, FoF (N = 32, 22 steps before RT)
     add_test(NAME thread_full_legacy_hydro_pm
@@ -589,6 +598,12 @@ if(Python3_Interpreter_FOUND)
                      --set legacy_physics=0 --set deterministic_parallel=1
                      --set recomb_case=A --set recomb_rad=1)
     set_tests_properties(restart_smoke_recomb PROPERTIES TIMEOUT 600 LABELS "restart;recomb")
+    add_test(NAME restart_smoke_recomb_otvet
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_otvet 13 --set rt_method=otvet
+                     --set recomb_case=A --set recomb_rad=1)
+    set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          PROPERTIES TIMEOUT 600 LABELS restart)
   endif()

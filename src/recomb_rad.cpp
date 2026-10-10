@@ -68,7 +68,9 @@ void check_recomb_param(const Config& c) {
     throw std::runtime_error(
         "recomb_rad = 1 needs recomb_case = A: with case B the ground-state "
         "recombinations are already absorbed on the spot");
-  if (c.rt_method != RTMethod::Rays) throw std::runtime_error("recomb_rad = 1 needs rt_method = rays");
+  // rt_method = m1 | otvet: every cell emits its own recombinations into the
+  // moments (moment_step_1); the ray-only settings below are not used
+  if (c.rt_method != RTMethod::Rays) return;
   if (c.legacy_rt) throw std::runtime_error("recomb_rad = 1 needs legacy_rt = 0 (the pool guard)");
   if (c.Nrt % c.recomb_rad_block != 0)
     throw std::runtime_error("recomb_rad_block must divide N");

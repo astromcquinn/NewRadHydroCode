@@ -4,6 +4,7 @@
 
 usage: recomb_stromgren.py RT_DRIVER UNIFORM_PROBLEM_DIR WORKDIR [--plot PNG]
                            [--check] [--threads n] [--reuse]
+                           [--method rays|m1|otvet]
 
 Builds a uniform problem from UNIFORM_PROBLEM_DIR (tests/problems/
 uniform_1src, mean density, N = 32) at 30x the mean density and z = 30
@@ -31,6 +32,9 @@ temperature of each run's ionised gas),
     for both blocks. It comes out a few per cent above 1: the diffuse
     photons widen the soft edge, and they fill the holes that the stellar
     rays' HEALPix sampling leaves inside the case B sphere (B16).
+--method m1 | otvet runs the three cases with the moment RT instead (A+RR
+once: every cell emits into the moments, no blocks). The radii are compared
+with that method's own case B.
 The fractions of the ground-state recombinations launched as rays and kept
 on the spot (case B: optically thick cells, or no room in the ray pool) are
 printed from ray.log.
@@ -108,8 +112,10 @@ def run(driver, prob, out, sets, threads, reuse=False):
     if os.path.exists(rl):
         last = [l for l in open(rl) if l.startswith(" Recomb")]
         if last:
-            v = dict(re.findall(r"(launched|dropped|onspot) ([0-9.eE+-]+)", last[-1]))
+            v = dict(re.findall(r"(launched|dropped|onspot|emitted) ([0-9.eE+-]+)", last[-1]))
             budget = {k: float(x) for k, x in v.items()}
+            if "emitted" in budget:  # moment RT: everything is emitted
+                budget = {"launched": budget["emitted"], "dropped": 0.0, "onspot": 0.0}
     return np.array(R), np.array(T), budget
 
 
@@ -132,15 +138,21 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--threads", type=int, default=1)
     ap.add_argument("--reuse", action="store_true", help="keep finished runs in WORKDIR")
+    ap.add_argument("--method", default="rays", choices=["rays", "m1", "otvet"])
     a = ap.parse_args()
     prob = os.path.join(a.work, "stromgren")
     make_problem(a.uniform, prob)
     cases = [("B", []), ("A", ["recomb_case=A"]),
              ("A+RR (block 1)", ["recomb_case=A", "recomb_rad=1", "recomb_rad_block=1"]),
              ("A+RR (block 2)", ["recomb_case=A", "recomb_rad=1", "recomb_rad_block=2"])]
+    if a.method != "rays":
+        cases = [(lab, sets + [f"rt_method={a.method}"]) for lab, sets in cases[:3]]
+        cases[2] = ("A+RR", cases[2][1])
     res = {}
     for lab, sets in cases:
         tag = lab.replace(" ", "").replace("(", "_").replace(")", "").replace("+", "p")
+        if a.method != "rays":
+            tag = f"{a.method}_{tag}"
         res[lab] = run(a.driver, prob, os.path.join(a.work, tag), sets, a.threads, a.reuse)
     RB = res["B"][0]
     TB = res["B"][1][-1]
@@ -165,7 +177,7 @@ def main():
         line = f"  {lab:16s} R = {R[-1]:6.3f}  T = {Tl:6.0f} K  expected {pred:6.3f}  ratio {rat:.3f}"
         if bud:
             tot = bud["launched"] + bud["dropped"] + bud["onspot"]
-            line += (f"\n      ground-state recombinations per H atom {tot:.4g}: launched as rays"
+            line += (f"\n      ground-state recombinations per H atom {tot:.4g}: launched"
                      f" {bud['launched'] / tot:.1%}, on the spot {bud['onspot'] / tot:.1%},"
                      f" dropped {bud['dropped'] / tot:.2%}")
         print(line)
