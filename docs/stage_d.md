@@ -305,7 +305,34 @@ halves the memory of the rays. The backend's memory is dominated by the
 redundant serial state plus the level (§2.2); the 1-rank case also holds
 the flat gather buffer.
 
-128³ (z = TBD, TBD substeps, TBD live rays): TBD.
+| 128³, 2 hydro steps (z = 5.0, 13 substeps, 22.5 M live rays) | RT [s] | peak RSS of rank 0 [MB] |
+|---|---|---|
+| serial, 4 threads | 148.9 | 2817 (the whole run) |
+| serial, 1 thread | 598.7 | |
+| backend, 1 rank × 4 threads | 152.2 | 11480 |
+| backend, 2 ranks × 2 threads | 136.8 | 10260 |
+| backend, 4 ranks × 1 thread | 136.4 | 9787 |
+| backend, 4 × 1, `amrex_max_grid_size = 32` | 128.9 | 9677 |
+| backend, 1 rank × 1 thread | 390.9 | 11455 |
+| backend, 4 × 1, R-struct rays | 172.1 | 6233 |
+
+At 128³ the backend is 8–13 % faster than the serial OpenMP code on the
+same 4 cores (4 ranks with 32³ boxes is best), and 1.5× faster on one
+core; R-struct costs 26 % (decode) and saves 36 % of rank 0's peak memory.
+
+The first attempt at the 128³ backend runs was killed by the container's
+15 GB memory limit for every multi-rank case: each rank read the whole
+checkpoint (the serial ray pool and the ray list, 4 GB) and the level held
+three copies of the rays (the particle tile and two 80-byte scratch
+arrays). Now ranks other than 0 skip the ray blocks of a checkpoint, and
+the level releases each copy as soon as it is used (at most two exist at
+once; AMReX's arena reuses the blocks). The peak RSS above is rank 0's and
+is reached during the restart (the serial pool, the ray list and the
+particle tile before the first `Redistribute`), not in the substeps; the
+steady-state memory per ray of the level is the tile (100 B float, 48 B
+R-struct) plus the transient scratch (80 B), against 88 B in the serial
+pool. Reducing the restart peak (streaming the rays to their owners) and
+the redundant serial state per rank are open (Stage E).
 
 The RT cost model of `tools/production/timing_table.py` (`--a-cell`,
 `--b-ray` per substep) is unchanged for the backend to within these

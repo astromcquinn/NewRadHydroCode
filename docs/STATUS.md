@@ -42,7 +42,10 @@ bit-for-bit legacy reference and the AMReX path is the new option
   backend 24–27 s for any of 1×4, 2×2, 4×1 ranks×threads, 74 s on one
   core (serial 87 s), R-struct +30 %; after removing the CPU atomics
   (first measurement 137 s: a shared histogram and 13 atomics per
-  deposit serialised the threads). 128³: `docs/stage_d.md` §4.3; the klone
+  deposit serialised the threads). 128³ (22.5 M rays): serial 149 s,
+  backend 129–152 s on 4 cores (4 ranks × 1, 32³ boxes best), 391 s on one
+  core (serial 599 s), R-struct +26 % time, −36 % memory. Rank 0's peak
+  memory at restart (10–11 GB at 128³) is open. The klone
   256³ job (24 ranks × 8 threads) is `tools/hyak/amrex_scaling.slurm`,
   **the user runs it**.
 - **Milestone 5, GPU:** scaffolding only (CUDA CMake target, device rate
