@@ -440,6 +440,57 @@ Per-cell comparison with case B, at matched movie frames:
   - Peak memory rises by 13%, because of the larger pool.
   - Case A itself costs the same as case B.
 
+### 4.3 256³ with the moment RT
+
+Case A + RR siblings of the M1 and OTVET runs `reion256_c01_m1` and
+`reion256_c01_otvet` (`docs/rt_moments.md` §6), at 0.1c, made with
+`tools/hyak/recomb_runs.sh`. They were built from commit 8dc2267, which
+uses χ + kT (§2.1), and have no helium lines.
+- Full table, with every run compared with the case-B rays:
+  [`figures/recomb256_moments.txt`](figures/recomb256_moments.txt).
+- Movie of the three case A + RR runs (rays | M1 | OTVET):
+  [`movies/recomb_256_c01_moments.mp4`](movies/recomb_256_c01_moments.mp4).
+
+| run | z(x_V = 0.5) | z(x_V = 0.99) | τ_es | recombination photons emitted (per H) | wall | RT | peak RSS |
+|---|---|---|---|---|---|---|---|
+| M1, case B | 10.373 | 8.909 | 0.0905 | – | 49:35 | 0.78 h | 13.5 GB |
+| M1, case A + RR | 10.386 | 8.939 | 0.0906 | 1.16 | 51:22 | 0.81 h | 14.9 GB |
+| OTVET, case B | 10.367 | 8.897 | 0.0906 | – | 51:39 | 0.82 h | 14.3 GB |
+| OTVET, case A + RR | 10.373 | 8.896 | 0.0906 | 1.10 | 53:13 | 0.85 h | 15.5 GB |
+| rays, case A + RR (§4.2) | 10.390 | 8.836 | 0.0905 | 1.12 (82% as rays) | 2:16:39 | 2.00 h | 30.5 GB |
+
+![history moments](figures/recomb256_moments_history.png)
+
+*All six runs against the case-B rays. Within each method, case A + RR
+moves the history by at most +0.005 in x_V, about as much as with the
+rays.*
+
+- **The moment methods confirm the ray result.** With every cell emitting,
+  and nothing on the spot, the history is within Δz ≤ 0.03 of the same
+  method's case B, and τ_es is unchanged to 10⁻⁴.
+- **Temperature: the same pattern, slightly stronger.** The median T of
+  ionised gas rises over each method's own case B by:
+
+  | z | rays | M1 | OTVET |
+  |---|---|---|---|
+  | 12.3 | +3.0% | +2.7% | +3.1% |
+  | 9.8 | +1.7% | +4.4% | +4.2% |
+  | 9.0 | +1.6% | +5.3% | +5.2% |
+  | 6.0 | +14% | +18% | +18% |
+
+  - The moment methods emit all of the recombination radiation during
+    overlap. The rays put about half of it on the spot (case B).
+  - After overlap all three move towards case A, for the reason given in
+    §4.2. The residual-neutral power P_x rises 1.6–4× over each method's
+    case B, and up to 10× at k = 16 for M1 at z = 6.
+- **About 20% of the recombination photons are lost to redshift.** The
+  moments' `lost` grows by 0.21 (M1) and 0.24 (OTVET) photons per H atom,
+  out of 1.10–1.16 emitted. At c_reduced = 0.1 these just-above-threshold
+  photons stay in flight for a long time in the ionised IGM, and redshift
+  below 13.6 eV (§5).
+- **Cost:** +4% RT time, +3–4% wall time and +1.2 GB, against +43% RT time
+  for the rays. The emission is one addition per cell and group.
+
 ## 5. Caveats
 
 - **Helium lines** (`recomb_rad_lines`): the branching fractions are
@@ -460,4 +511,4 @@ Per-cell comparison with case B, at matched movie frames:
 - **One substep of delay** between recombination and emission (one cell of
   light travel).
 - The pool-limited fraction depends on the pool size and on
-  `recomb_rad_pool`: see §4.
+  `recomb_rad_pool`: see §4. The moment RT has no such limit (§2.3, §4.3).
