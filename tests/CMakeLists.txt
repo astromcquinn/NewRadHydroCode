@@ -34,13 +34,15 @@ add_executable(test_halo_catalog test_halo_catalog.cpp)
 target_link_libraries(test_halo_catalog PRIVATE radray_halos)
 find_program(RADRAY_GFORTRAN gfortran)
 if(RADRAY_GFORTRAN)
-  # Reference program with the original source_type layout and read_halo
+  # Reference program with the original source_type layout and read_halo. The
+  # target is named differently from its output file: Ninja rejects a target
+  # that names its own output.
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
     COMMAND ${RADRAY_GFORTRAN} -O0 -o ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
             ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90)
-  add_custom_target(halo_catalog_ref ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
+  add_custom_target(halo_catalog_ref_build ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
   set(HALO_REF ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
 else()
   set(HALO_REF "")  # the test then skips the Fortran comparisons

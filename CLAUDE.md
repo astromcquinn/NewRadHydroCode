@@ -90,6 +90,10 @@ ctest --test-dir build -j4 -LE "long|nightly"   # fast suite
 cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~5 min each: full-loop references, pool guard, full hydro tiers
 ```
 
+- CI: `.github/workflows/ci.yml` runs the fast suite on every push to `main`
+  and every pull request (Ubuntu 24.04, gcc 13); `nightly.yml` runs the
+  nightly label once a day and on demand. A PR is mergeable only when CI is
+  green.
 - Needs `g++`, `gfortran` (for the live Fortran comparison tests), `libfftw3-dev`
   (FFTW3 single precision; MKL is replaced by FFTW in both codes) and python3
   with numpy (and matplotlib for figures).
