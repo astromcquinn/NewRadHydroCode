@@ -43,7 +43,7 @@ the same branch as PR #20. The duplicate merge was dropped and
 | 2. build and test `main` on a node | done: fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures), nightly 20/20 (job 41705709, 58 min); `docs/cluster.md` §3 |
 | 3. 256³ mass function | done: `docs/hmf_validation.md` (256³ section), `data/hmf/fof_256_10mpc.txt`, `data/uv_lf/am_params_256_10mpc.txt`; run `$RUNS/hmf256` (2 min 15 s on 96 threads) |
 | 4. f_esc at 0.1c | done: **f_esc = 0.28** (`docs/production_run.md` §8, runs `$RUNS/cal128/fesc_*`, 9–10 min each on 96 threads); the 256³ τ_es check is the production run itself |
-| 5. production run | **done: `$RUNS/reion256_f0.2`, f_esc = 0.2** (`docs/production_256.md`): 1 h 30 min on a whole node, reionization ends at z = 5.6–5.7, τ_es = 0.057; movie `docs/movies/production_256_c01.mp4`. The f_esc = 0.28 run (`reion256_prod`, ends z = 6.44, τ_es = 0.063) and 0.1 (`reion256_f0.1`, does not finish) bracket it; 0.15 (job 41707783) running |
+| 5. production run | **done: `$RUNS/reion256_f0.2`, f_esc = 0.2** (`docs/production_256.md`): 1 h 30 min on a whole node, reionization ends at z = 5.6–5.7, τ_es = 0.057; movie `docs/movies/production_256_c01.mp4`. The f_esc = 0.28 run (`reion256_prod`, ends z = 6.44, τ_es = 0.063) 0.15 (`reion256_f0.15`, x_V = 0.87 at z = 5.5) and 0.1 (`reion256_f0.1`, does not finish) bracket it |
 | 6. c convergence | done: `docs/production_run.md` §9; 0.1c delays the end of reionization by Δz = 0.4 against full c (0.3c: 0.14), the midpoint by 0.15, τ_es 2.5 % low |
 | 7. ray-precision check | done: `docs/ray_compression.md` §6.2 (`$RUNS/p128/prec`, job array 41705715) |
 | 8. STATUS, PLAN, PR | this entry; PR opened for `production-256` |

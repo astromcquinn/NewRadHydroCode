@@ -102,16 +102,19 @@ on a whole node:
 | 0.28 | 10.34 | 7.63 | 6.78 | 6.44 | 6.30 | 1.000 | 0.0631 |
 | **0.2** | 9.48 | 7.03 | 6.10 | **5.74** | **5.60** | 0.933 | 0.0566 |
 | 0.1 | 7.64 | (x_M = 0.5 at z = 5.70) | | | | 0.341 | 0.0445 (to z = 5.4) |
-| 0.15 | job 41707783, pending at the time of writing (§5) | | | | | | |
+| 0.15 | 8.55 | 6.43 | (x_V = 0.75 at z = 5.77) | | | 0.660 | 0.0508 (to z = 5.4) |
 
 (volume-weighted; the mass-weighted redshifts are 0.0–0.3 higher early
 on and the same at the end.)
 
 * **f_esc = 0.2 ends reionization at z = 5.6–5.7** (x_V = 0.99 at 5.74,
-  0.999 at 5.60), the round value nearest the target. f_esc = 0.1 leaves
-  the box half neutral by mass at z = 5.7 and 52 % neutral by volume at
-  z = 5.5. The 256³ end point moves by Δz = 2.1 per e-fold in f_esc, 1.5×
-  the 128³ slope.
+  0.999 at 5.60), the round value nearest the target. f_esc = 0.15
+  (`$RUNS/reion256_f0.15`, job 41707783, 1 h 29 min) reaches only
+  x_V = 0.87 at z = 5.5 (midpoint z = 6.43), and f_esc = 0.1 leaves the
+  box half neutral by mass at z = 5.7 and 52 % neutral by volume at
+  z = 5.5. So the end point is steep in f_esc here: Δz = 2.1 per e-fold
+  between 0.28 and 0.2 (1.5× the 128³ slope), and from 0.2 to 0.15 the
+  end moves below the last output at z = 5.4.
 * With 0.1c the end is late by Δz ≈ 0.4 against full c
   (`docs/production_run.md` §9), so at full c this f_esc would end
   reionization at z ≈ 6.0–6.1. τ_es = 0.057 is 0.4σ above Planck.
@@ -179,8 +182,6 @@ the x_HII(z) and τ_es panels).
 
 ## 5. Open
 
-* The f_esc = 0.15 run (job 41707783) completes the bracket; add its row
-  to §3 when it finishes.
 * The 0.1c bias on the end of reionization (Δz ≈ 0.4) and the 0.2–0.3 mag
   bright-end offset of the 256³ L(M) fit (`docs/hmf_validation.md`) are
   the known systematics of this calibration.

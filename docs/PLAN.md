@@ -329,8 +329,7 @@ policy on klone, and deleting the merged branches.
   ending nearest z = 5.5 is the production run (0.15 if neither is).
 * **Result: the production run is f_esc = 0.2** (`docs/production_256.md`):
   x_V = 0.99 at z = 5.74 and 0.999 at z = 5.60, τ_es = 0.057; f_esc = 0.1
-  does not finish by z = 5.4. (f_esc = 0.15 was also run to complete the
-  bracket.)
+  does not finish by z = 5.4, and 0.15 reaches only x_V = 0.87 at z = 5.5.
 * The 256³ run at that f_esc is made in the production configuration
   (movie every Δz = 0.025, checkpoint every 4 steps), so it is both the
   256³ τ_es check of the brief's step 4 and the production run of step 5
