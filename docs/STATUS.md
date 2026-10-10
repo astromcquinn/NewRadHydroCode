@@ -283,6 +283,12 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   hydro step. Worse: Sedov at 128³ (radius +1.5 % vs +0.9 %, slower
   convergence), two hot stagnation cells before a caustic (U2), the
   cold-gas temperature depends on the hydro step (use `ra_max` ≈ 0.02).
+  Convergence checks done 2026-10-10 (`docs/hydro_unsplit.md` §6,
+  `tests/hydro_suite/convergence.py`): the Sedov bias is a first-order
+  0.6-cell offset, +0.63 % at 256³ (legacy −1.1 %, its energy leak grows
+  with N); the cold-gas heating converges with the step, and in the
+  production box (10 Mpc/h, 128³ and 256³, z ≥ 3) the original step
+  already keeps the underdense gas on its adiabat. Fit for 256³ production.
 - The RT's `photo_cell` reads and writes the field (the one physics
   coupling point); the RT grid temperature and `summarize_gas` read it for
   diagnostics. Checkpoint format version 2 (version 1 still readable).
@@ -758,8 +764,9 @@ In the cloud (branch + PR each):
    > table, and open the PR.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. Smaller: the stored-RT-reference platform policy; the 2 % growth
-   deficit; the unsplit open items (Sedov radius convergence, cold-gas
-   time-step sensitivity at 128³); the AMReX multi-node hydro anomaly
+   deficit; ~~the unsplit open items (Sedov radius convergence, cold-gas
+   time-step sensitivity at 128³)~~ done (`docs/hydro_unsplit.md` §6,
+   both converge); the AMReX multi-node hydro anomaly
    (`docs/framework_decision.md` §3.3).
 
 **Decisions needed from the user:** `hydro_scheme` for production
@@ -802,8 +809,11 @@ moment-RT questions below.
    `make_production.py`.
 6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
    PR #15; η₁/η₂ confirmed against the Enzo and Nyx
-   papers). Open: convergence check of the Sedov radius bias and the
-   cold-gas time-step sensitivity at 128³.
+   papers). ~~Open: convergence check of the Sedov radius bias and the
+   cold-gas time-step sensitivity at 128³~~ done 2026-10-10
+   (`docs/hydro_unsplit.md` §6): Sedov +0.63 % at 256³ (first order);
+   cold gas converged with the original step in the production box to
+   z = 3 at 128³ and 256³. No obstacle to `unsplit` at 256³.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. After the production run, follow `docs/ROADMAP.md`:
    - ray compression study: done (`docs/ray_compression.md`); 64³
