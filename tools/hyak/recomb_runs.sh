@@ -4,8 +4,10 @@
 # problem directory (an existing case-B ray run made by
 # tools/production/make_production.py, e.g. reion256_c01), makes the
 # siblings
+#   <base>_caseB      the base parameters (a rerun with this build)
 #   <base>_caseA      recomb_case = A
 #   <base>_caseA_rr   recomb_case = A, recomb_rad = 1 (+ RR_EXTRA lines)
+# (directory names get $SUFFIX appended)
 # with the same params.txt otherwise and a symlink to the same ics/, and
 # submits tools/hyak/reion_production.slurm for each (whole node). The base
 # runs are not touched or resubmitted.
@@ -15,7 +17,9 @@
 #   tools/hyak/recomb_runs.sh [BASE ...]
 # default BASE: $RUNS/reion256_c01 with RUNS=/gscratch/astro/$USER/radhydro/runs.
 # Environment: VARIANTS (default "caseA caseA_rr"), RR_EXTRA (extra
-# params.txt lines for caseA_rr, e.g. "recomb_rad_block = 4"), DRYRUN=1
+# params.txt lines for caseA_rr, e.g. "recomb_rad_block = 4"), OVERRIDE
+# (params.txt lines for every variant that replace the base's lines with the
+# same keys, e.g. "nray_max_factor = 32"), SUFFIX (e.g. _f32), DRYRUN=1
 # (make the directories and print the sbatch commands only), SBATCH_ARGS
 # (default: a whole node for 2 days), THREADS (default 192).
 set -eu
@@ -32,15 +36,22 @@ for base in "$@"; do
     echo "skip $base: already sets recomb_* or rt_method"; continue
   fi
   ics="$(cd "$base" && readlink -f ics)"
+  # keys replaced by OVERRIDE
+  okeys="ics"
+  if [ -n "${OVERRIDE:-}" ]; then
+    okeys="$okeys|$(printf '%s\n' "$OVERRIDE" | sed -n 's/^[[:space:]]*\([A-Za-z0-9_]*\)[[:space:]]*=.*/\1/p' | paste -sd'|')"
+  fi
   for v in $VARIANTS; do
-    dst="${base}_${v}"
+    dst="${base}_${v}${SUFFIX:-}"
     mkdir -p "$dst"
     if [ ! -f "$dst/params.txt" ]; then
       {
         echo "# $(basename "$base") with $v (tools/hyak/recomb_runs.sh)"
-        grep -v '^[[:space:]]*ics[[:space:]]*=' "$base/params.txt"
+        grep -Ev "^[[:space:]]*($okeys)[[:space:]]*=" "$base/params.txt"
         echo "ics = $ics"
+        [ -n "${OVERRIDE:-}" ] && printf '%s\n' "$OVERRIDE"
         case "$v" in
+          caseB) ;;
           caseA) echo "recomb_case = A" ;;
           caseA_rr)
             echo "recomb_case = A"

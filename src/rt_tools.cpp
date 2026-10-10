@@ -1129,8 +1129,10 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         double nrab[3] = {0, 0, 0};
         // recomb_case = A: case A rates and cooling (alpha_rec(1:3),
         // coef_cool(1:3)); B (default, the original): alpha_rec(4:6),
-        // coef_cool(4:6)
-        const int ia = s.cfg.recomb_case_A ? 0 : 3;
+        // coef_cool(4:6). With recomb_rad = 1, cells whose block is on the
+        // spot this substep use case B.
+        const bool onspot = s.recomb && recomb_onspot(*s.recomb, c);
+        const int ia = (s.cfg.recomb_case_A && !onspot) ? 0 : 3;
 
         // Maximum photoionization rate in 1/s
         double gamma_pht[3][kNfreq], gamma_max[3][kNfreq];

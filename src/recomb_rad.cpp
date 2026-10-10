@@ -83,14 +83,17 @@ void recomb_init(Simulation& s) {
   check_recomb_param(s.cfg);
   if (!s.recomb) s.recomb = std::make_shared<RecombState>();
   RecombState& Rc = *s.recomb;
-  const std::size_t n = static_cast<std::size_t>(s.cfg.Nrtc) * kNfreq;
+  const std::size_t nc = static_cast<std::size_t>(s.cfg.Nrtc);
+  const std::size_t n = nc * kNfreq;
   if (Rc.ngam.size() != n) {
     Rc.ngam.assign(n, 0.0f);
     Rc.egam.assign(n, 0.0f);
+    Rc.ots.assign(nc, 0.0f);
+    Rc.mode.assign(nc, 1);  // launch until a block has shown its production
   }
   Rc.emit_ngam.assign(n, 0.0f);
   Rc.emit_egam.assign(n, 0.0f);
-  Rc.emit.assign(static_cast<std::size_t>(s.cfg.Nrtc), 0);
+  Rc.emit.assign(nc, 0);
 }
 
 // photo_cell. Mean photon energy of a ground-state recombination: the
@@ -105,9 +108,14 @@ void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], double T,
   const double nu_hi[3] = {std::sqrt(pc::HI_eV * pc::HeI_eV),
                            std::sqrt(pc::HeI_eV * pc::HeII_eV), 1e2};
   const double kT = pc::K2eV * T;
+  const bool onspot = recomb_onspot(Rc, c);
   for (int sp = 0; sp < 3; ++sp) {
     if (!(nrab[sp] > 0)) continue;
     const double ng = nrab[sp] * vol_gas / (u.nH_avg * u.vol_rt);
+    if (onspot) {
+      Rc.ots[c] = static_cast<float>(static_cast<double>(Rc.ots[c]) + ng);
+      continue;
+    }
     const double nu = std::min(nu0[sp] + kT, nu_hi[sp]);
     const std::size_t k = static_cast<std::size_t>(c) * kNfreq + grp[sp];
     Rc.ngam[k] = static_cast<float>(static_cast<double>(Rc.ngam[k]) + ng);
@@ -133,11 +141,20 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
   const int b3 = b * b * b;
   const int rot = static_cast<int>((31LL * s.clk.istep + s.clk.istep_rt) % b3);
   const int oi = rot % b, oj = (rot / b) % b, ok = rot / (b * b);
+  auto cell_in = [&](int bi, int bj, int bk, int i, int j, int k) {
+    return G.cell(bi * b + i + 1, bj * b + j + 1, bk * b + k + 1);
+  };
 
-  // Pass 1: per block, the photons per ray and the class
-  // (0 none, 1 too faint or optically thick: on the spot, 2 candidate)
+  // Pass 1, per block (blocks are independent; per-plane sums added in
+  // order): launch the buffer of a launch-mode block from its emitting cell,
+  // tally the on-the-spot count, and keep the block's production of the
+  // last substep (photons per ray) and class for the choice of modes
+  // (0 no production, 1 on the spot by optical depth or faintness,
+  // 2 candidate for launch).
   std::vector<float> pray(static_cast<std::size_t>(nblk), 0.0f);
   std::vector<std::uint8_t> cls(static_cast<std::size_t>(nblk), 0);
+  std::vector<double> sum_launch(nb, 0), sum_drop(nb, 0), sum_ots(nb, 0);
+  std::vector<std::int64_t> nemit(nb, 0);
   const double lmin = -12, ldel = 0.01;
   const int NH = 1600;  // log10(photons per ray) from 1e-12 to 1e4
   std::vector<std::int64_t> hist(NH + 1, 0);
@@ -149,23 +166,53 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
       for (int bj = 0; bj < nb; ++bj)
         for (int bi = 0; bi < nb; ++bi) {
           const std::int64_t ib = (static_cast<std::int64_t>(bk) * nb + bj) * nb + bi;
-          double tot = 0;
+          const std::int64_t ce = cell_in(bi, bj, bk, oi, oj, ok);
+          double tot = 0, tots = 0;
           for (int k = 0; k < b; ++k)
             for (int j = 0; j < b; ++j)
               for (int i = 0; i < b; ++i) {
-                const std::int64_t c = G.cell(bi * b + i + 1, bj * b + j + 1, bk * b + k + 1);
+                const std::int64_t c = cell_in(bi, bj, bk, i, j, k);
                 for (int n = 0; n < kNfreq; ++n)
                   tot += static_cast<double>(Rc.ngam[static_cast<std::size_t>(c) * kNfreq + n]);
+                tots += static_cast<double>(Rc.ots[c]);
+                Rc.ots[c] = 0;
               }
-          if (!(tot > 0)) continue;
-          const double p = tot / static_cast<double>(nray);
+          sum_ots[bk] += tots;
+          if (tot > 0) {
+            const bool launch = tot / static_cast<double>(nray) >= u.ngam_min;
+            for (int k = 0; k < b; ++k)
+              for (int j = 0; j < b; ++j)
+                for (int i = 0; i < b; ++i) {
+                  const std::int64_t c = cell_in(bi, bj, bk, i, j, k);
+                  float* ng = &Rc.ngam[static_cast<std::size_t>(c) * kNfreq];
+                  float* eg = &Rc.egam[static_cast<std::size_t>(c) * kNfreq];
+                  for (int n = 0; n < kNfreq; ++n) {
+                    if (launch && ng[n] > 0) {
+                      const std::size_t ke = static_cast<std::size_t>(ce) * kNfreq + n;
+                      Rc.emit_ngam[ke] += ng[n];
+                      Rc.emit_egam[ke] += eg[n];
+                    }
+                    ng[n] = 0;
+                    eg[n] = 0;
+                  }
+                }
+            if (launch) {
+              Rc.emit[ce] = 1;
+              sum_launch[bk] += tot;
+              nemit[bk] += 1;
+            } else {
+              sum_drop[bk] += tot;
+            }
+          }
+          // the block's production in the last substep, in either mode
+          const double p = (tot + tots) / static_cast<double>(nray);
+          if (!(p > 0)) continue;
           pray[ib] = static_cast<float>(p);
-          const std::int64_t ce = G.cell(bi * b + oi + 1, bj * b + oj + 1, bk * b + ok + 1);
           const float* tau = G.tau_p(ce);
           float tmin = tau[0];
           for (int n = 1; n < kNfreq; ++n) tmin = std::min(tmin, tau[n]);
-          // ray_source's test for an optically thick source cell; rays below
-          // ngam_min would be removed at once
+          // ray_source's test for an optically thick source cell; rays
+          // below ngam_min would be removed at once
           if (std::exp(-tmin) < 1e-2f || p < u.ngam_min) {
             cls[ib] = 1;
           } else {
@@ -178,14 +225,18 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
 #pragma omp critical(radray_recomb_hist)
     for (int h = 1; h <= NH; ++h) hist[h] += hist_t[h];
   }
+  std::int64_t ne = 0;
+  for (int bk = 0; bk < nb; ++bk) ne += nemit[bk];
 
-  // Pool budget: launch only while L + stellar source rays + the rays of the
-  // expected stellar splits + recombination rays stay below
-  // recomb_rad_pool * Nray_max; the brightest blocks first
-  // (whole histogram bins, so the choice does not depend on the order).
+  // Pool budget for the blocks in launch mode this substep (their rays are
+  // created at the next substep): L + stellar source rays + the rays of the
+  // expected stellar splits + this substep's recombination rays + 12 nside^2
+  // per launch block stay below recomb_rad_pool * Nray_max. The brightest
+  // blocks first, in whole histogram bins, so the choice does not depend on
+  // the order. Blocks without production stay in launch mode at no cost.
   const RayState& R = s.rays;
-  const std::int64_t room = static_cast<std::int64_t>(s.cfg.recomb_rad_pool * static_cast<double>(R.Nray_max)) -
-                            L - rayp::nray_init * nsrc - nsplit;
+  const std::int64_t cap = static_cast<std::int64_t>(s.cfg.recomb_rad_pool * static_cast<double>(R.Nray_max));
+  const std::int64_t room = cap - L - rayp::nray_init * nsrc - nsplit - ne * nray;
   const std::int64_t nmax = room > 0 ? room / nray : 0;
   std::int64_t ncand = 0;
   for (int h = 1; h <= NH; ++h) ncand += hist[h];
@@ -199,79 +250,45 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
       hcut = h;
     }
   }
-  Rc.nblock_last = ncand;
   // Coarser merging of the faint rays (12 instead of 48 direction bins per
   // cell) while the pool is crowded, so that the live count can fall
-  s.rays.nside_merge = (L > static_cast<std::int64_t>(s.cfg.recomb_rad_pool * static_cast<double>(R.Nray_max))) ? 1 : 2;
+  s.rays.nside_merge = (L > cap) ? 1 : 2;
 
-  // Pass 2: launch or absorb on the spot; per-plane sums, added in order
-  std::vector<double> sum_prod(nb, 0), sum_launch(nb, 0), sum_thick(nb, 0), sum_pool(nb, 0);
-  std::vector<std::int64_t> nemit(nb, 0);
+  // Pass 2: the modes of this substep
+  std::vector<std::int64_t> nlaunch(nb, 0);
 #pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (int bk = 0; bk < nb; ++bk)
     for (int bj = 0; bj < nb; ++bj)
       for (int bi = 0; bi < nb; ++bi) {
         const std::int64_t ib = (static_cast<std::int64_t>(bk) * nb + bj) * nb + bi;
-        if (cls[ib] == 0) continue;
-        bool launch = false;
+        bool launch = cls[ib] == 0;
         if (cls[ib] == 2) {
           int h = 1 + static_cast<int>(std::floor((std::log10(static_cast<double>(pray[ib])) - lmin) / ldel));
           h = std::min(std::max(h, 1), NH);
           launch = h >= hcut;
         }
-        const std::int64_t ce = G.cell(bi * b + oi + 1, bj * b + oj + 1, bk * b + ok + 1);
-        double tot = 0;
+        if (launch && cls[ib] == 2) nlaunch[bk] += 1;
+        const std::uint8_t m = launch ? 1 : 0;
         for (int k = 0; k < b; ++k)
           for (int j = 0; j < b; ++j)
-            for (int i = 0; i < b; ++i) {
-              const std::int64_t c = G.cell(bi * b + i + 1, bj * b + j + 1, bk * b + k + 1);
-              float* ng = &Rc.ngam[static_cast<std::size_t>(c) * kNfreq];
-              float* eg = &Rc.egam[static_cast<std::size_t>(c) * kNfreq];
-              for (int n = 0; n < kNfreq; ++n) {
-                if (!(ng[n] > 0)) continue;
-                tot += static_cast<double>(ng[n]);
-                if (launch) {
-                  const std::size_t ke = static_cast<std::size_t>(ce) * kNfreq + n;
-                  Rc.emit_ngam[ke] += ng[n];
-                  Rc.emit_egam[ke] += eg[n];
-                } else {
-                  // on the spot: into the cell's photon field before
-                  // photo_cell (gnu holds ngam*nu until photo_cell)
-                  float* gng = G.ngam_p(c);
-                  float* gnu = G.nu_p(c);
-                  gng[n] = static_cast<float>(static_cast<double>(gng[n]) + static_cast<double>(ng[n]));
-                  gnu[n] = static_cast<float>(static_cast<double>(gnu[n]) + static_cast<double>(eg[n]));
-                }
-                ng[n] = 0;
-                eg[n] = 0;
-              }
-            }
-        sum_prod[bk] += tot;
-        if (launch) {
-          Rc.emit[ce] = 1;
-          sum_launch[bk] += tot;
-          nemit[bk] += 1;
-        } else if (cls[ib] == 1) {
-          sum_thick[bk] += tot;
-        } else {
-          sum_pool[bk] += tot;
-        }
+            for (int i = 0; i < b; ++i) Rc.mode[cell_in(bi, bj, bk, i, j, k)] = m;
       }
+
   const double norm = 1.0 / static_cast<double>(s.cfg.Nrtc);
-  std::int64_t ne = 0;
+  std::int64_t nl = 0;
   for (int bk = 0; bk < nb; ++bk) {
-    Rc.produced += sum_prod[bk] * norm;
     Rc.launched += sum_launch[bk] * norm;
-    Rc.local_thick += sum_thick[bk] * norm;
-    Rc.local_pool += sum_pool[bk] * norm;
-    ne += nemit[bk];
+    Rc.dropped += sum_drop[bk] * norm;
+    Rc.onspot += sum_ots[bk] * norm;
+    nl += nlaunch[bk];
   }
   Rc.nemit_last = ne;
+  Rc.nlaunch_last = nl;
   if (s.raylog)
-    *s.raylog << " Recomb     : produced " << static_cast<float>(Rc.produced) << " launched "
-              << static_cast<float>(Rc.launched) << " thick " << static_cast<float>(Rc.local_thick)
-              << " pool " << static_cast<float>(Rc.local_pool) << " blocks " << ncand << " emit "
-              << ne << " merge_nside " << s.rays.nside_merge << "\n";
+    *s.raylog << " Recomb     : launched " << static_cast<float>(Rc.launched) << " dropped "
+              << static_cast<float>(Rc.dropped) << " onspot " << static_cast<float>(Rc.onspot)
+              << " emit " << ne << " launch_mode " << nl << " of " << ncand << " merge_nside "
+              << s.rays.nside_merge << "\n";
   return ne * nray;
 }
 

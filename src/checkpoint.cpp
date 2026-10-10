@@ -22,7 +22,8 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // state before the trailer (empty with the rays). Versions 1-2 are read as
 // ray runs.
 // Version 4 (recomb_rad = 1, docs/recomb_radiation.md): the recombination
-// photon buffers and budget before the trailer (empty when off).
+// photon buffers, on-the-spot counts, cell modes and budget before the
+// trailer (empty when off).
 constexpr std::int32_t kVersion = 4;
 
 struct Out {
@@ -167,10 +168,12 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.pod(budget);
     // recombination radiation (version 4)
     const RecombState* Rc = s.recomb.get();
+    const std::vector<std::uint8_t> none8;
     o.vec(Rc ? Rc->ngam : none);
     o.vec(Rc ? Rc->egam : none);
-    const double rbud[4] = {Rc ? Rc->produced : 0, Rc ? Rc->launched : 0,
-                            Rc ? Rc->local_thick : 0, Rc ? Rc->local_pool : 0};
+    o.vec(Rc ? Rc->ots : none);
+    o.vec(Rc ? Rc->mode : none8);
+    const double rbud[3] = {Rc ? Rc->launched : 0, Rc ? Rc->dropped : 0, Rc ? Rc->onspot : 0};
     o.pod(rbud);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
@@ -275,24 +278,29 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     }
   }
   if (ver >= 4) {
-    std::vector<float> ng, eg;
+    std::vector<float> ng, eg, ots;
+    std::vector<std::uint8_t> mode;
     in.vec(ng);
     in.vec(eg);
-    double rbud[4];
+    in.vec(ots);
+    in.vec(mode);
+    double rbud[3];
     in.pod(rbud);
     if (s.cfg.recomb_rad != !ng.empty())
       throw std::runtime_error("checkpoint and run differ in recomb_rad: " + path);
     if (s.cfg.recomb_rad) {
       recomb_init(s);
       RecombState& Rc = *s.recomb;
-      if (ng.size() != Rc.ngam.size() || eg.size() != Rc.egam.size())
+      if (ng.size() != Rc.ngam.size() || eg.size() != Rc.egam.size() ||
+          ots.size() != Rc.ots.size() || mode.size() != Rc.mode.size())
         throw std::runtime_error("checkpoint: recombination buffers of the wrong size: " + path);
       Rc.ngam = std::move(ng);
       Rc.egam = std::move(eg);
-      Rc.produced = rbud[0];
-      Rc.launched = rbud[1];
-      Rc.local_thick = rbud[2];
-      Rc.local_pool = rbud[3];
+      Rc.ots = std::move(ots);
+      Rc.mode = std::move(mode);
+      Rc.launched = rbud[0];
+      Rc.dropped = rbud[1];
+      Rc.onspot = rbud[2];
     }
   } else if (s.cfg.recomb_rad) {
     throw std::runtime_error("checkpoint has no recombination radiation state: " + path);
