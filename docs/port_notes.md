@@ -380,8 +380,11 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
     the same by z = 6 (0.141 against 0.145); the mean x_HI of ionised cells
     rises by 1–14 %. More rays per source (a larger `nside_init`) would
     lower both; not tried.
-  * **Recommendation:** `ray_rotate = 3` for science runs (2 is
-    equivalent in these tests; 3 also decorrelates neighbouring sources).
+  * **Production uses `ray_rotate = 3`** (user decision 2026-10-10;
+    `make_production.py`). Mode 2 is equivalent in these tests; 3 also
+    decorrelates neighbouring sources. The single-source tests exaggerate
+    the effect for a full cosmological run, where many overlapping sources
+    fill each other's gaps.
 
 ## 5a. The `legacy_rt` switch (phase 1b)
 

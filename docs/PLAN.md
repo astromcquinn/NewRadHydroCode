@@ -258,4 +258,10 @@ policy on klone, and deleting the merged branches.
 * Implementation choice: rotate at emission only, and keep `ipix` in the
   grid frame (the pixel containing the rotated direction). This avoids a
   per-ray frame id and any re-indexing of live rays.
+* **Production uses `ray_rotate = 3`** (user decision 2026-10-10), written
+  by `make_production.py`. The user's caveat: the single-source tests
+  exaggerate the effect for a full cosmological run, where many
+  overlapping sources fill each other's coverage gaps, so the 3–10 %
+  single-thread ray-tracing cost buys less there than the uniform tests
+  suggest.
 

@@ -129,6 +129,8 @@ How the test movie was made:
   on-the-fly FoF sources, `c_reduced = 0.01`, `nray_max_factor = 16`,
   `legacy_rt = legacy_physics = 0`, `deterministic_parallel`,
   `rt_substep_carry`, and `movie_dz = 0.05` with fHI, temp and rhog.
+  (This movie predates `ray_rotate`; the script now also sets
+  `ray_rotate = 3`, so a remake has no B16 streaks.)
 - **Run:** 4 threads, z = 100 → 4.87, 27 hydro steps, 90 s, peak RSS 384 MB.
 - **Movie:** `make_movie.py RUN/run --jobs 4` gave 104 frames from z = 9.95
   to 4.87 (after dropping the 99 pre-RT frames).

@@ -249,7 +249,13 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   with the flag, same front and photons).
 - Tools: `tools/analysis/ray_rotate_compare.py`
   (`docs/figures/ray_rotate_uniform.png`).
-- Open: `make_production.py` does not set `ray_rotate` yet (decision below).
+- **Production uses `ray_rotate = 3`** (user decision 2026-10-10);
+  `make_production.py` writes it (`--ray-rotate 0` for the original). The
+  user notes that the single-source tests exaggerate the effect for a full
+  cosmological run, where many overlapping sources already fill each
+  other's gaps. The f_esc calibration (`calibrate_fesc.py` calls
+  `make_production.py`) now includes the rotation; the 64³ history did not
+  change with it.
 
 **Production-run thread (PR #7, branch `production-run`; merged 2026-10-09):**
 
@@ -411,7 +417,6 @@ In the cloud (branch + PR each):
 
 **Decisions needed from the user:** confirm AMReX (Stage D); production
 `c_reduced` (0.1 recommended) and N (256); `hydro_scheme` for production;
-`ray_rotate = 3` for production (and in `make_production.py`);
 the stored-reference policy on klone; deleting the merged branches.
 
 ## Next
@@ -431,10 +436,10 @@ the stored-reference policy on klone; deleting the merged branches.
    | c_reduced | 0.1 (0.01 delays reionisation by Δz ≈ 2–2.5, `docs/cluster.md` §7); convergence check with one 0.3c or 1c run at 128³ |
    | nray_max_factor | 16 |
    | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on a whole node) |
-   | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry |
+   | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry, ray_rotate = 3 |
    | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c |
    | hydro_scheme | user decision pending (`unsplit` fixes the cold-gas overheating; `make_production.py` does not set it yet) |
-   | Before the run | 256³ HMF and f_esc; `ray_rotate = 3` (B16, item 5) |
+   | Before the run | 256³ HMF and f_esc |
 
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
    - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
@@ -446,8 +451,8 @@ the stored-reference policy on klone; deleting the merged branches.
      inside tmux, batch jobs with restarts.
 5. ~~B16 fix before any science run~~ Done behind `ray_rotate`
    (2026-10-10, see above): streaks, crosses and the 12-fold ring are gone.
-   Open: whether production uses 3 (recommended) and whether
-   `make_production.py` sets it.
+   Production uses `ray_rotate = 3` (user decision 2026-10-10), set by
+   `make_production.py`.
 6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
    PR #15; η₁/η₂ confirmed against the Enzo and Nyx
    papers). Open: convergence check of the Sedov radius bias and the
