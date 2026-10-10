@@ -1,8 +1,8 @@
 # Project status
 
-*Last updated: 2026-10-10, case A recombination and recombination radiation (branch `recomb-radiation`, not yet merged); before that, moment RT (M1, OTVET) and its 256³ klone comparison with the rays, merged into `main` (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+*Last updated: 2026-10-10, case A recombination and recombination radiation (branch `recomb-radiation`, merged into `main`); before that, moment RT (M1, OTVET) and its 256³ klone comparison with the rays, merged into `main` (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
 
-## Done 2026-10-10, branch `recomb-radiation` (not yet pushed or merged)
+## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
 
 **Case A recombination and recombination radiation transported by the rays
 (`docs/recomb_radiation.md`).**
