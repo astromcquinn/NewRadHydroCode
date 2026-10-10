@@ -119,34 +119,39 @@ int main(int argc, char** argv) {
         {
           const radray::Units u = run.units;
 #pragma omp parallel for schedule(static)
-          for (long long c = 0; c < ncell; ++c) rrk::calc_rt_1_cell(cells[c], u, run.sig_init);
+          for (long long c = 0; c < ncell; ++c) rrk::calc_rt_1_cell(rrk::cell_ref(cells[c]), u, run.sig_init, false);
         }
         double t1 = now();
         T.cell += t1 - t0;
-        // 1b. histogram -> thresholds
-        std::vector<long long> hist(rrk::kNpdfMax, 0);
+        // 1b. histogram -> thresholds, pool guard
+        std::vector<long long> hist(rrk::kNpdfMax, 0), spl(rrk::kNpdfMax, 0);
         long long npos = 0;
         {
           const int Np = run.N_pdf;
           const long long nr = static_cast<long long>(rays.size());
 #pragma omp parallel
           {
-            std::vector<long long> h(rrk::kNpdfMax, 0);
+            std::vector<long long> h(rrk::kNpdfMax, 0), hs(rrk::kNpdfMax, 0);
             long long np = 0;
 #pragma omp for schedule(static) nowait
             for (long long r = 0; r < nr; ++r) {
               const double ntot = rrk::sum_ngam(rays[r]);
-              h[rrk::pdf_bin(ntot, Np)] += 1;
+              const int b = rrk::pdf_bin(ntot, Np);
+              h[b] += 1;
+              if (rays[r].dr < 0 && rays[r].nside < radray::rayp::nside_max) hs[b] += 1;
               if (ntot > 0) np += 1;
             }
 #pragma omp critical
             {
               for (int b = 0; b < rrk::kNpdfMax; ++b) hist[b] += h[b];
+              for (int b = 0; b < rrk::kNpdfMax; ++b) spl[b] += hs[b];
               npos += np;
             }
           }
         }
-        run.thresholds(hist.data(), npos);
+        long long nsrc = 0;
+        for (long long c = 0; c < ncell; ++c) nsrc += is_src[c] ? 1 : 0;
+        run.thresholds(hist.data(), npos, spl.data(), nsrc);
         const rrk::RTP P = run.rtp();
         double t2 = now();
         T.hist += t2 - t1;
@@ -159,9 +164,11 @@ int main(int argc, char** argv) {
                     k = static_cast<int>(c / (static_cast<long long>(N) * N));
           const bool src = is_src[c];
           const bool thick = src && rrk::source_is_thick(cells[c].tau);
+          rrk::SourceSpec spec;
+          if (src && !thick) spec = rrk::source_spec(i, j, k, cells[c].Luv, P);
           rrk::CellStats cs;
           cnt[c] = rrk::step1_count(rays.data() + start[c], static_cast<int>(start[c + 1] - start[c]),
-                                    src, thick, i, j, k, cells[c].Luv, P, cs);
+                                    (src && !thick) ? &spec : nullptr, P, cs);
           ncst += cs.ncst;
           nspl += cs.nspl;
           nmrg += cs.nmrg;
@@ -186,8 +193,10 @@ int main(int argc, char** argv) {
               atomic_add(&acc[c * rrk::kNdep + m], rrk::to_fx(v[m], rrk::dep_scale(m)));
           }
           if (cnt[c] == 0) continue;
+          rrk::SourceSpec spec;
+          if (src && !thick) spec = rrk::source_spec(i, j, k, cells[c].Luv, P);
           const int w = rrk::step1_write(rays.data() + start[c], static_cast<int>(start[c + 1] - start[c]),
-                                         src, thick, i, j, k, cells[c].Luv, P, idx.data() + start[c],
+                                         (src && !thick) ? &spec : nullptr, i, j, k, P, idx.data() + start[c],
                                          key.data() + start[c], out.data() + ostart[c]);
           if (w != cnt[c]) std::abort();
         }
@@ -269,9 +278,10 @@ int main(int argc, char** argv) {
       const double t7 = now();
       {
         const rrk::RedshiftTable RT = run.redshift_table();
+        const double fscale = run.redshift_fscale(), ngam_min = run.units.ngam_min;
         const long long nr = static_cast<long long>(rays.size());
 #pragma omp parallel for schedule(static)
-        for (long long r = 0; r < nr; ++r) rrk::redshift_ray(rays[r], RT);
+        for (long long r = 0; r < nr; ++r) rrk::redshift_ray(rays[r], RT, fscale, ngam_min);
         const radray::Units u = run.units;
 #pragma omp parallel for schedule(static)
         for (long long c = 0; c < ncell; ++c) rrk::post_cell(cells[c], u, run.sig_init);

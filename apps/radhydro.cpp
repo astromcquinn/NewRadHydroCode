@@ -54,6 +54,7 @@
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
@@ -195,6 +196,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.run_steps = std::stoi(val);
   else if (set_rt_method_param(P.rtm, key, val)) {
     // moment RT (docs/rt_moments.md)
+  } else if (set_rt_backend_param(P.rtm, key, val)) {
+    // rt_backend = serial | amrex (docs/stage_d.md)
   } else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
   } else if (key == "ray_dump_dir")
@@ -384,6 +387,10 @@ struct Timers {
 }  // namespace
 
 int main(int argc, char** argv) {
+  backend_init(argc, argv);  // rt_backend = amrex: amrex::Initialize (MPI)
+  struct Fin {
+    ~Fin() { backend_finalize(); }
+  } fin;
   if (argc < 3) {
     std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--set key=value ...] [--quiet] [--restart <checkpoint>]\n",
                  argv[0]);
@@ -441,15 +448,25 @@ int main(int argc, char** argv) {
     if (!P.halo.model.sfr_history_path.empty())
       P.halo.model.sfr_history_path = in_problem(P.halo.model.sfr_history_path);
 
-    std::filesystem::create_directories(odir + "/Log");
-    std::filesystem::create_directories(odir + "/Pk");
-    std::filesystem::create_directories(odir + "/DM");
+    // With MPI (rt_backend = amrex) every rank runs this driver on the full
+    // serial state and only rank 0 writes files; an unopened ofstream
+    // discards what the other ranks write to it.
+    const bool io = io_rank();
+    if (io) {
+      std::filesystem::create_directories(odir + "/Log");
+      std::filesystem::create_directories(odir + "/Pk");
+      std::filesystem::create_directories(odir + "/DM");
+    }
+    backend_barrier();
     // a restart appends to the logs of the run directory
     const auto logmode = restart_from.empty() ? std::ios::out : std::ios::app;
-    std::ofstream raylog(odir + "/Log/ray.log", logmode);
-    std::ofstream hydrolog(odir + "/Log/hydro.log", logmode);
+    std::ofstream raylog, hydrolog;
+    if (io) {
+      raylog.open(odir + "/Log/ray.log", logmode);
+      hydrolog.open(odir + "/Log/hydro.log", logmode);
+    }
     std::ofstream nullout;
-    std::ostream* out = quiet ? nullptr : &std::cout;
+    std::ostream* out = (quiet || !io) ? nullptr : &std::cout;
 
     // ------------------------------------------------------------------
     // Initialize (radhydro.f90 order)
@@ -463,7 +480,9 @@ int main(int argc, char** argv) {
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
+    copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
+    check_rt_backend_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);
@@ -477,7 +496,7 @@ int main(int argc, char** argv) {
       if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
       s.cfg.rt_substep_carry = true;
     }
-    s.raylog = &raylog;
+    s.raylog = io ? &raylog : nullptr;
     s.out = out;
     const Config& cfg = s.cfg;
 
@@ -518,6 +537,7 @@ int main(int argc, char** argv) {
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
+           << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
@@ -548,6 +568,7 @@ int main(int argc, char** argv) {
         xhe3 = xhe3 + (1 - static_cast<double>(G.fHeI[c]) - static_cast<double>(G.fHeII[c]));
       }
       const double nc = cfg.nrtcr;
+      if (!io) return;
       std::FILE* fp = std::fopen((d + "/stats.txt").c_str(), "w");
       if (!fp) throw std::runtime_error("cannot write stats.txt in " + d);
       auto i1 = [&](const char* k, long long x) { std::fprintf(fp, "%s = %lld\n", k, x); };
@@ -590,6 +611,7 @@ int main(int argc, char** argv) {
     };
 
     auto write_fields = [&](const std::string& d) {
+      if (!io) return;
       const RTGrid& G = s.rt;
       auto W = [&](const char* name, const std::vector<float>& v) {
         if (!P.fields.empty() && ("," + P.fields + ",").find(std::string(",") + name + ",") ==
@@ -620,7 +642,7 @@ int main(int argc, char** argv) {
       char name[32];
       std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
       const std::string d = odir + "/" + name;
-      std::filesystem::create_directories(d);
+      if (io) std::filesystem::create_directories(d);
       return d;
     };
 
@@ -651,7 +673,7 @@ int main(int argc, char** argv) {
         else if (fld == "gamma") v = &G.gamma;
         else throw std::runtime_error("movie_fields: unknown field " + fld);
         std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
-        write_f32(odir + name, v->data(), v->size());
+        if (io) write_f32(odir + name, v->data(), v->size());
       }
       double xv = 0, xm = 0, mass = 0;
       for (std::int64_t c = 0; c < G.ncell; ++c) {
@@ -667,14 +689,19 @@ int main(int argc, char** argv) {
       dst.movie_next -= P.movie_dz;
     };
     if (P.movie_dz > 0) {
-      std::filesystem::create_directories(odir + "/movie");
-      movielog.open(odir + "/movie/frames.txt", logmode);
+      if (io) {
+        std::filesystem::create_directories(odir + "/movie");
+        movielog.open(odir + "/movie/frames.txt", logmode);
+      }
       if (restart_from.empty()) {
         movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
                     "float32 (N,N,N) rt_grid fields)\n";
         dst.movie_next = P.movie_z0 > 0 ? P.movie_z0 : zdata1.front();
       }
       s.substep_hook = [&](Simulation& ss) {
+        if (!(ss.clk.redshift <= dst.movie_next)) return;
+        // rt_backend = amrex: the fields live on the level inside a hydro step
+        if (use_amrex(cfg)) amrex_rt_sync_fields(ss);
         while (ss.clk.redshift <= dst.movie_next) write_frame(ss);
       };
     }
@@ -695,7 +722,8 @@ int main(int argc, char** argv) {
       if (P.fields_every > 0) write_fields(d);
     }
 
-    std::ofstream timing(odir + "/timing.txt", logmode);
+    std::ofstream timing;
+    if (io) timing.open(odir + "/timing.txt", logmode);
     if (restart_from.empty())
       timing << "# istep redshift nstep_rt Nsource nray_active t_hydro t_pm t_halos t_rt "
                 "t_summaries t_io t_total [s, this step]\n";
@@ -771,18 +799,19 @@ int main(int argc, char** argv) {
       const std::string d = step_dir();
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
       if (data2_out) {  // write_data_2 (F1 fix: all files)
-        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
+        if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
         idata2 = idata2 + 1;
         data2_out = false;
       }
       if (data1_out) {
         const auto tp = Clock::now();
         pm::calc_power_spectrum(pm, s.gas.u.data(), cfg.box, pk_dm, pk_gas);
-        pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
-                                 pk_gas);
+        if (io)
+          pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
+                                   pk_gas);
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
         // write_data_1 (F1 fix: all files)
-        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
+        if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
@@ -803,7 +832,7 @@ int main(int argc, char** argv) {
                       T.hydro - T0.hydro, T.pm - T0.pm, T.halos - T0.halos, T.rt - T0.rt,
                       T.summaries - T0.summaries, T.io - T0.io, tstep);
         timing << buf << std::flush;
-        if (quiet) {
+        if (quiet && io) {
           std::printf(" step %4d  z = %9.5f  nstep_rt = %5d  Nsource = %5lld  %.3f s\n",
                       s.clk.istep, s.clk.redshift, s.clk.nstep_rt,
                       static_cast<long long>(s.Nsource), tstep);
@@ -817,7 +846,8 @@ int main(int argc, char** argv) {
 
       // Checkpoint (complete state at the end of this step)
       if (P.restart_every > 0 && (s.clk.istep % P.restart_every == 0 || last)) {
-        std::filesystem::create_directories(odir + "/restart");
+        if (io) std::filesystem::create_directories(odir + "/restart");
+        backend_barrier();
         char name[64];
         if (P.restart_keep_latest)
           std::snprintf(name, sizeof name, "/restart/checkpoint.bin");
@@ -831,16 +861,20 @@ int main(int argc, char** argv) {
       if (P.run_steps > 0 && ++steps_run >= P.run_steps) break;
     }
 
+    backend_barrier();
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
-    std::printf(
-        " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
-        "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
-        s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
-        peak_rss_mb());
-    std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
-                format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
-                static_cast<long long>(s.rays.npool_forced));
-    if (cfg.hydro_scheme == HydroScheme::Unsplit) {
+    if (io) {
+      std::printf(
+          " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
+          "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
+          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
+          peak_rss_mb());
+      std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
+                  format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
+                  static_cast<long long>(s.rays.npool_forced));
+      if (use_amrex(cfg)) std::printf(" %s\n", amrex_rt_timers(s).c_str());
+    }
+    if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {
       const UnsplitCounters& U = hs.ucounters;
       std::printf(" unsplit hydro: %lld calls, %lld substeps (max %lld per call), dt_cfl min %.4g; "
                   "cell-substeps with p from e %lld (E reset %lld), synced %lld; floors T %lld, "

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,20 @@ void rt_step_1(Simulation& s);
 void rt_step_2(Simulation& s);
 void rt_step_3(Simulation& s);
 void radiative_physics(Simulation& s, int krt);
+// The end of rt_step_3: the per-hydro-step sums of rt_stat / ray_stat
+void accumulate_rt_stats(Simulation& s);
+
+// rt_step_1 / calc_ray_1: the ngam_ray thresholds from the photon-count
+// histogram ngam_pdf[1..N_pdf] (rrk::pdf_bin) of the live rays, and the F3
+// ray-pool guard (legacy_rt = 0) from the histogram spl_pdf of the rays that
+// may split. Shared with the AMReX backend; see rt_tools.cpp.
+void calc_ngam_ray(const std::int64_t* ngam_pdf, int N_pdf, double ngam_avg, std::int64_t Nray,
+                   std::int64_t Nray_max, bool legacy, std::array<double, 64>& ngam_ray,
+                   std::ostream* log);
+std::int64_t pool_split_candidates(const std::int64_t* spl_pdf, int N_pdf, double ngam_ray32);
+void pool_guard(const std::int64_t* spl_pdf, int N_pdf, std::int64_t L, std::int64_t nsrc,
+                std::int64_t nrec_rays, std::int64_t Nray_max, std::array<double, 64>& ngam_ray,
+                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log);
 
 // rt_tools.f90: summarize_rt (writes to s.out)
 void summarize_rt(Simulation& s);

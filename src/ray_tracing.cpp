@@ -13,6 +13,7 @@
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
+#include "radray/kernels/ray_kernels.hpp"
 #include "radray/parallel.hpp"
 #include "radray/recomb_rad.hpp"
 
@@ -160,10 +161,37 @@ void det_check_reach(const Simulation& s, int i, int j, int k) {
 
 inline double sum_ngam_r4(const Ray& r) {
   // sum(ray(ir)%ngam): real(4) sum, then widened
-  return static_cast<double>(f::sum4<kNfreq>(r.ngam));
+  return rrk::sum_ngam(r);
+}
+
+// 1-based cell of a float position (the ray's stored x)
+inline void home_cell(const Ray& ry, int Nrt, int& i, int& j, int& k) {
+  i = cell_of(ry.x[0], Nrt);
+  j = cell_of(ry.x[1], Nrt);
+  k = cell_of(ry.x[2], Nrt);
 }
 
 }  // namespace
+
+rrk::RTP rt_params(const Simulation& s) {
+  rrk::RTP p;
+  p.N = s.cfg.Nrt;
+  p.nrtr = s.cfg.nrtr;
+  p.hrtr = s.cfg.hrtr;
+  p.seg_min = s.units.seg_min;
+  p.ngam_min = s.units.ngam_min;
+  p.fgam_min = s.units.fgam_min;
+  p.sfr_min = s.units.sfr_min;
+  p.vol_rt = s.units.vol_rt;
+  p.nH_avg = s.units.nH_avg;
+  p.dtsec_rt = s.clk.dtsec_rt;
+  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3)
+  p.nseg = s.cfg.legacy_rt ? 3 : 4;
+  p.nside_merge = s.rays.nside_merge;
+  p.ngam_ray16 = s.rays.ngam_ray[16 - 1];
+  p.ngam_ray32 = s.rays.ngam_ray[32 - 1];
+  return p;
+}
 
 // ---------------------------------------------------------------------------
 // ray_tracing_1
@@ -181,6 +209,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
   static thread_local std::vector<std::vector<std::int64_t>> merge1_ir(192);
   int merge1_nr[192];
   const bool det = s.cfg.det_parallel;
+  const rrk::RTP P = rt_params(s);
   // recomb_rad = 1 (recomb_rad.hpp): cells that launch recombination rays
   const std::uint8_t* rec_emit = s.recomb ? s.recomb->emit.data() : nullptr;
 
@@ -195,7 +224,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
 
         std::int64_t ncst_tot = 0, nspl_tot = 0, nmrg_tot = 0;
         // 2 in the original (both branches of its choice give 2, B12)
-        const int nside_merge = R.nside_merge;
+        const int nside_merge = P.nside_merge;
 
         // Source?
         if (static_cast<double>(G.sfr[c]) > u.sfr_min) {
@@ -228,32 +257,20 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
 
           const std::int64_t next = R.at(ir).next;
 
-          enum Case { kMerge, kCast, kSplit, kRemove };
-          Case ray_case = kMerge;
           const Ray& ry = R.at(ir);
-          const double ntot = sum_ngam_r4(ry);
-
-          if (ntot > R.ngam_ray[16 - 1]) ray_case = kCast;
-          if (ry.r == 0) ray_case = kCast;
-          if (ry.dr < 0 && ntot > R.ngam_ray[32 - 1]) ray_case = kSplit;
-          if (ntot < u.ngam_min) ray_case = kRemove;
-          if (ry.nside == nside_max) ray_case = kRemove;
-
-          switch (ray_case) {
-            case kCast:
+          // classify: cast / split / merge / remove (last match wins)
+          switch (rrk::classify(ry, P)) {
+            case rrk::kCast:
               ray_cast_1(s, ir, irt, jrt, krt);
               ncst_tot += 1;
               break;
-            case kSplit:
+            case rrk::kSplit:
               ray_cast_split(s, ir, irt, jrt, krt);
               ncst_tot += 4;
               nspl_tot += 4;
               break;
-            case kMerge: {
-              double dxv[3] = {static_cast<double>(ry.dx[0]),
-                               static_cast<double>(ry.dx[1]),
-                               static_cast<double>(ry.dx[2])};
-              const int ic = healpix::vec2pix_nest(nside_merge, dxv);
+            case rrk::kMerge: {
+              const int ic = rrk::merge_cone(ry, nside_merge);
               const int nr = merge1_nr[ic] + 1;
               if (nr > kMergeCap)
                 throw std::runtime_error(
@@ -264,7 +281,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
               merge1_ir[ic][nr - 1] = ir;
               break;
             }
-            case kRemove:
+            default:  // rrk::kRemove
               ray_remove(s, ir, irt, jrt, krt, true);
               break;
           }
@@ -319,71 +336,31 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
 void ray_source(Simulation& s, int irt, int jrt, int krt) {
   RTGrid& G = s.rt;
   RayState& R = s.rays;
-  const Units& u = s.units;
   const std::int64_t c = G.cell(irt, jrt, krt);
-  float* tau = G.tau_p(c);
+  const rrk::RTP P = rt_params(s);
 
-  // minval(rtg%tau): real(4)
-  float tmin = tau[0];
-  for (int n = 1; n < kNfreq; ++n)
-    if (tau[n] < tmin) tmin = tau[n];
-
-  // Photons per frequency group, normalised by <nH>:
-  // ngam = fResc*pop2_init*(rtg%Luv*dtsec_rt)
-  const double Ldt = static_cast<double>(G.Luv[c]) * s.clk.dtsec_rt;
-
-  // exp of a real(4) argument is real(4) (expf); 1E-2 is real(4)
-  if (std::exp(-tmin) < 1e-2f) {
+  if (rrk::source_is_thick(G.tau_p(c))) {
     // Optically thick source cell: add photons directly to the cell
+    double v[rrk::kNdep];
+    rrk::source_thick_deposit(G.Luv[c], P, v);
     float* gng = G.ngam_p(c);
     float* gnu = G.nu_p(c);
     for (int n = 0; n < kNfreq; ++n) {
-      const double nu = cp::freq_init[n];
-      double ngam = cp::fResc * cp::pop2_init[n] * Ldt;
-      ngam = ngam / u.vol_rt / u.nH_avg;
-      gng[n] = static_cast<float>(static_cast<double>(gng[n]) + ngam);
-      gnu[n] = static_cast<float>(static_cast<double>(gnu[n]) + ngam * nu);
+      gng[n] = static_cast<float>(static_cast<double>(gng[n]) + v[n]);
+      gnu[n] = static_cast<float>(static_cast<double>(gnu[n]) + v[5 + n]);
     }
     return;
   }
 
   // Generate new rays
-  const double r = 0;
-  const double dr = rmax_from_nside(nside_init);
-  // x = (/irt,jrt,krt/) - 0.5 : real(4) arithmetic
-  const float xs[3] = {static_cast<float>(irt) - 0.5f,
-                       static_cast<float>(jrt) - 0.5f,
-                       static_cast<float>(krt) - 0.5f};
-
+  const rrk::SourceSpec spec = rrk::source_spec(irt - 1, jrt - 1, krt - 1, G.Luv[c], P);
   std::int64_t indx[nray_init];
   ray_create(s, nray_init, indx);
-
-  double nu[kNfreq], ngam[kNfreq];
-  for (int n = 0; n < kNfreq; ++n) {
-    nu[n] = cp::freq_init[n];
-    ngam[n] = cp::fResc * cp::pop2_init[n] * Ldt;
-    ngam[n] = ngam[n] / u.vol_rt / u.nH_avg / nray_init;
-  }
-
   for (int i = 1; i <= nray_init; ++i) {
     const int ipix = i - 1;
-    double dx[3];
-    healpix::pix2vec_nest(nside_init, ipix, dx);
-
     const std::int64_t ir = indx[i - 1];
     Ray& ry = R.at(ir);
-    ry.nside = nside_init;
-    ry.ipix = ipix;
-    ry.r = static_cast<float>(r);
-    ry.dr = static_cast<float>(dr);
-    for (int d = 0; d < 3; ++d) {
-      ry.x[d] = xs[d];
-      ry.dx[d] = static_cast<float>(dx[d]);
-    }
-    for (int n = 0; n < kNfreq; ++n) {
-      ry.nu[n] = static_cast<float>(nu[n]);
-      ry.ngam[n] = static_cast<float>(ngam[n]);
-    }
+    static_cast<rrk::RayP&>(ry) = rrk::source_ray(spec, ipix);
     if (R.track_prov) {
       RayProv& pv = R.prov[ir];
       pv = RayProv{};
@@ -407,59 +384,24 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
 // ray_tracing_tools.f90: ray_cast_split
 void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
   RayState& R = s.rays;
-  const double nrtr = s.cfg.nrtr;
   const int Nrt = s.cfg.Nrt;
+  const rrk::RTP P = rt_params(s);
 
-  // Parent ray
-  int nside, ipix;
-  double r, dr, x[3], dx[3], nu[kNfreq], ngam[kNfreq];
-  {
-    const Ray& p = R.at(ir);
-    nside = p.nside;
-    ipix = p.ipix;
-    r = p.r;
-    dr = p.dr;
-    for (int d = 0; d < 3; ++d) {
-      x[d] = p.x[d];
-      dx[d] = p.dx[d];
-    }
-    for (int n = 0; n < kNfreq; ++n) {
-      nu[n] = p.nu[n];
-      ngam[n] = p.ngam[n];
-    }
-  }
-
-  // Current indices: deviation of the ray direction from its pixel centre
-  const int ipixc = ipix;
-  double dc[3];
-  healpix::pix2vec_nest(nside, ipixc, dc);
-  for (int d = 0; d < 3; ++d) dc[d] = dx[d] - dc[d];
-
-  // Daughter rays
-  nside = f::min(2 * nside, nside_max);
-  const double rmin = rmin_from_nside(nside);
-  const double rmax = rmax_from_nside(nside);
-  const double r_parent = r;
-  r = f::min(f::max(r, rmin), rmin + 1);
-  dr = rmax - r;
+  // The 4 daughters (rrk::split); the first keeps the parent's slot
+  const rrk::RayP parent = R.at(ir);
+  rrk::RayP child[4];
+  bool clamped = false;
+  rrk::split(parent, P, child, &clamped);
 
   // Ray-dump provenance (not used by the RT)
   RayProv pv_child;
   if (R.track_prov) {
     pv_child = R.prov[ir];
-    if (r != r_parent) {
+    if (clamped) {
       pv_child.flags |= RayProv::kClamped;
       if (pv_child.nclamp < 255) ++pv_child.nclamp;
     }
   }
-
-  // Effective origin, position corresponding to r = 0
-  double x0[3];
-  for (int d = 0; d < 3; ++d)
-    x0[d] = f::mod(x[d] - f::mod(r * dx[d], nrtr) + nrtr, nrtr);
-
-  // Divide photon count
-  for (int n = 0; n < kNfreq; ++n) ngam[n] = ngam[n] / 4;
 
   // Storage indices: parent + 3 new rays
   std::int64_t indx[4];
@@ -467,42 +409,13 @@ void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
   ray_create(s, 3, indx + 1);
 
   for (int n = 1; n <= 4; ++n) {
-    ipix = 4 * ipixc + (n - 1);
-
-    // New direction: default direction of new pixel + parent deviation
-    healpix::pix2vec_nest(nside, ipix, dx);
-    for (int d = 0; d < 3; ++d) dx[d] = dx[d] + dc[d];
-    const double nrm = std::sqrt(f::sum8<3>(
-        std::array<double, 3>{dx[0] * dx[0], dx[1] * dx[1], dx[2] * dx[2]}.data()));
-    for (int d = 0; d < 3; ++d) dx[d] = dx[d] / nrm;
-    ipix = healpix::vec2pix_nest(nside, dx);
-
-    // New position
-    for (int d = 0; d < 3; ++d)
-      x[d] = f::mod(x0[d] + f::mod(r * dx[d], nrtr) + nrtr, nrtr);
-
     const std::int64_t irn = indx[n - 1];
     if (R.track_prov) R.prov[irn] = pv_child;
-    {
-      Ray& ry = R.at(irn);
-      ry.nside = nside;
-      ry.ipix = ipix;
-      ry.r = static_cast<float>(r);
-      ry.dr = static_cast<float>(dr);
-      for (int d = 0; d < 3; ++d) {
-        ry.x[d] = static_cast<float>(x[d]);
-        ry.dx[d] = static_cast<float>(dx[d]);
-      }
-      for (int k = 0; k < kNfreq; ++k) {
-        ry.nu[k] = static_cast<float>(nu[k]);
-        ry.ngam[k] = static_cast<float>(ngam[k]);
-      }
-      // Safer to get x from ray(ir)%x
-      for (int d = 0; d < 3; ++d) x[d] = ry.x[d];
-    }
-    const int i = cell_of(x[0], Nrt);
-    const int j = cell_of(x[1], Nrt);
-    const int k = cell_of(x[2], Nrt);
+    Ray& ry = R.at(irn);
+    static_cast<rrk::RayP&>(ry) = child[n - 1];
+    // Safer to get x from ray(ir)%x
+    int i, j, k;
+    home_cell(ry, Nrt, i, j, k);
 
     if (n == 1) {
       // First daughter keeps the parent's storage index; relink only if it
@@ -527,10 +440,8 @@ void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) {
 void ray_cast_merge(Simulation& s, int nrc, const std::int64_t* irc, int irt,
                     int jrt, int krt) {
   RayState& R = s.rays;
-  const double nrtr = s.cfg.nrtr;
-  const double hrt = s.cfg.hrtr;
   const int Nrt = s.cfg.Nrt;
-  const Units& u = s.units;
+  const rrk::RTP P = rt_params(s);
 
   // Ray-dump provenance of the merged ray (not used by the RT)
   RayProv pv_merged;
@@ -550,98 +461,24 @@ void ray_cast_merge(Simulation& s, int nrc, const std::int64_t* irc, int irt,
     if (pv_merged.src < 0) pv_merged.flags |= RayProv::kMixedSrc;
   }
 
-  double r = 0, dr = 0, ntot = 0;
-  double x[3] = {0, 0, 0}, dx[3] = {0, 0, 0}, xd[3];
-  double nu[kNfreq] = {0, 0, 0, 0, 0}, ngam[kNfreq] = {0, 0, 0, 0, 0};
-  // (/irt,jrt,krt/)-0.5 is real(4)
-  const float cc[3] = {static_cast<float>(irt) - 0.5f,
-                       static_cast<float>(jrt) - 0.5f,
-                       static_cast<float>(krt) - 0.5f};
-
+  // Photon-weighted sums over the rays of the cone, in chain order
+  // (rrk::merge_add); the other rays are removed entirely
+  float cc[3];
+  rrk::cell_centre(irt - 1, jrt - 1, krt - 1, cc);
+  rrk::MergeAcc acc;
   for (int i = 1; i <= nrc; ++i) {
     const std::int64_t ir = irc[i - 1];
-    {
-      const Ray& ry = R.at(ir);
-      // xd = ray(ir)%x - ((/irt,jrt,krt/)-0.5): real(4) subtraction
-      for (int d = 0; d < 3; ++d) xd[d] = static_cast<double>(ry.x[d] - cc[d]);
-      for (int d = 0; d < 3; ++d) {
-        if (std::fabs(xd[d]) > hrt) {
-          if (xd[d] > 0)
-            xd[d] = xd[d] - nrtr;
-          else
-            xd[d] = xd[d] + nrtr;
-        }
-      }
-      const double w = sum_ngam_r4(ry);
-      ntot = ntot + w;
-      for (int d = 0; d < 3; ++d) x[d] = x[d] + w * xd[d];
-      // ray(ir)%r**2 is a real(4) product
-      r = r + w * static_cast<double>(ry.r * ry.r);
-      dr = dr + w * static_cast<double>(ry.dr);
-      for (int d = 0; d < 3; ++d) dx[d] = dx[d] + w * static_cast<double>(ry.dx[d]);
-      // ray(ir)%ngam*ray(ir)%nu is a real(4) product
-      for (int n = 0; n < kNfreq; ++n)
-        nu[n] = nu[n] + static_cast<double>(ry.ngam[n] * ry.nu[n]);
-      for (int n = 0; n < kNfreq; ++n)
-        ngam[n] = ngam[n] + static_cast<double>(ry.ngam[n]);
-    }
-    // Remove other rays entirely
+    rrk::merge_add(acc, R.at(ir), cc, P);
     if (i > 1) ray_remove(s, ir, irt, jrt, krt, true);
   }
 
-  // Merged ray properties
+  // Merged ray properties (rrk::merge_finish)
   const std::int64_t ir = irc[0];
-  r = r / ntot;
-  dr = dr / ntot;
-  for (int d = 0; d < 3; ++d) xd[d] = x[d] / ntot;
-  for (int d = 0; d < 3; ++d) dx[d] = dx[d] / ntot;
-  r = std::sqrt(r);
-  {
-    const double nrm = std::sqrt((0.0 + dx[0] * dx[0]) + dx[1] * dx[1] + dx[2] * dx[2]);
-    for (int d = 0; d < 3; ++d) dx[d] = dx[d] / nrm;
-  }
-  for (int d = 0; d < 3; ++d)
-    x[d] = f::mod(static_cast<double>(cc[d]) + xd[d] + nrtr, nrtr);
-
-  // Conserve photon number; conserve energy via effective frequency
-  for (int n = 0; n < kNfreq; ++n) {
-    if (ngam[n] < u.ngam_min) {
-      nu[n] = cp::freq_init[n];
-      ngam[n] = 0;
-    } else {
-      nu[n] = nu[n] / ngam[n];
-    }
-  }
-
-  // nside from mean radius, then distance from splitting, final radius
-  const int nside = nside_from_radius(r);
-  const double rmin = rmin_from_nside(nside);
-  const double rmax = rmax_from_nside(nside);
-  r = f::max(rmax - dr, rmin);
-  dr = rmax - r;
-
-  const int ipix = healpix::vec2pix_nest(nside, dx);
-
   if (R.track_prov) R.prov[ir] = pv_merged;
-  {
-    Ray& ry = R.at(ir);
-    ry.nside = nside;
-    ry.ipix = ipix;
-    ry.r = static_cast<float>(r);
-    ry.dr = static_cast<float>(dr);
-    for (int d = 0; d < 3; ++d) {
-      ry.x[d] = static_cast<float>(x[d]);
-      ry.dx[d] = static_cast<float>(dx[d]);
-    }
-    for (int n = 0; n < kNfreq; ++n) {
-      ry.nu[n] = static_cast<float>(nu[n]);
-      ry.ngam[n] = static_cast<float>(ngam[n]);
-    }
-    for (int d = 0; d < 3; ++d) x[d] = ry.x[d];
-  }
-  const int i = cell_of(x[0], Nrt);
-  const int j = cell_of(x[1], Nrt);
-  const int k = cell_of(x[2], Nrt);
+  Ray& ry = R.at(ir);
+  static_cast<rrk::RayP&>(ry) = rrk::merge_finish(acc, cc, P);
+  int i, j, k;
+  home_cell(ry, Nrt, i, j, k);
 
   if (i != irt || j != jrt || k != krt) {
     ray_remove(s, ir, irt, jrt, krt, false);
@@ -692,168 +529,46 @@ void ray_tracing_3(Simulation& s, const std::array<int, 6>& box) {
 // ray_cast_1 / ray_cast_3 (non-RAYFAST)
 // ---------------------------------------------------------------------------
 
-// ray_tracing_tools.f90: ray_cast_1 (#else RAYFAST branch)
+// ray_tracing_tools.f90: ray_cast_1 (#else RAYFAST branch): rrk::cast_1
+// with the deposits added to the float32 RT grid in segment order
 void ray_cast_1(Simulation& s, std::int64_t ir, int /*irt*/, int /*jrt*/,
                 int /*krt*/) {
   RTGrid& G = s.rt;
-  const double nrtr = s.cfg.nrtr;
-  const int Nrt = s.cfg.Nrt;
-
-  double x[3], dx[3], nu[kNfreq], ngam[kNfreq];
-  {
-    const Ray& ry = s.rays.at(ir);
-    for (int d = 0; d < 3; ++d) {
-      x[d] = ry.x[d];
-      dx[d] = ry.dx[d];
-    }
-    for (int n = 0; n < kNfreq; ++n) {
-      nu[n] = ry.nu[n];
-      ngam[n] = ry.ngam[n];
-    }
-  }
-  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3)
-  const int nseg = s.cfg.legacy_rt ? 3 : 4;
-  const std::array<double, 4> dl = ray_segment(x, dx, s.units.seg_min, nseg);
-
-  double l = 0;
-  for (int n = 0; n < nseg; ++n) {
-    l = l + dl[n];
-    if (dl[n] >= s.units.seg_min) {
-      double x1[3];
-      for (int d = 0; d < 3; ++d)
-        x1[d] = f::mod(x[d] + (l - dl[n] / 2) * dx[d] + nrtr, nrtr);
-      const int i = cell_of(x1[0], Nrt);
-      const int j = cell_of(x1[1], Nrt);
-      const int k = cell_of(x1[2], Nrt);
-      const std::int64_t c = G.cell(i, j, k);
-
-      // fdl = dl(n)/sum(dl(n:))
-      double sdl = 0;
-      for (int m = n; m < nseg; ++m) sdl += dl[m];
-      const double fdl = dl[n] / sdl;
-
-      const float* tau = G.tau_p(c);
-      double dng[kNfreq];
-      for (int q = 0; q < kNfreq; ++q) {
-        const double fabs_ = 1 - std::exp(static_cast<double>(-tau[q]) * dl[n]);
-        if (fabs_ < fdl) {
-          dng[q] = ngam[q] * fdl;
-          ngam[q] = ngam[q] - dng[q];
-        } else {
-          dng[q] = ngam[q] * fabs_;
-          ngam[q] = ngam[q] - dng[q];
-        }
-      }
-
-      float* gng = G.ngam_p(c);
-      float* gnu = G.nu_p(c);
-      float* gdx = G.dx_p(c);
-      for (int q = 0; q < kNfreq; ++q)
-        gng[q] = static_cast<float>(static_cast<double>(gng[q]) + dng[q]);
-      for (int q = 0; q < kNfreq; ++q)
-        gnu[q] = static_cast<float>(static_cast<double>(gnu[q]) + dng[q] * nu[q]);
-      const double sdng = f::sum8<kNfreq>(dng);
-      for (int d = 0; d < 3; ++d)
-        gdx[d] = static_cast<float>(static_cast<double>(gdx[d]) + dx[d] * sdng);
-    }
-  }
+  const rrk::RTP P = rt_params(s);
+  auto tau = [&](int i, int j, int k) -> const float* { return G.tau_p(G.cell(i + 1, j + 1, k + 1)); };
+  auto dep = [&](int i, int j, int k, const double* v) {
+    const std::int64_t c = G.cell(i + 1, j + 1, k + 1);
+    float* gng = G.ngam_p(c);
+    float* gnu = G.nu_p(c);
+    float* gdx = G.dx_p(c);
+    for (int q = 0; q < kNfreq; ++q)
+      gng[q] = static_cast<float>(static_cast<double>(gng[q]) + v[q]);
+    for (int q = 0; q < kNfreq; ++q)
+      gnu[q] = static_cast<float>(static_cast<double>(gnu[q]) + v[5 + q]);
+    for (int d = 0; d < 3; ++d)
+      gdx[d] = static_cast<float>(static_cast<double>(gdx[d]) + v[10 + d]);
+  };
+  rrk::cast_1(s.rays.at(ir), P, tau, dep);
 }
 
-// ray_tracing_tools.f90: ray_cast_3 (#else RAYFAST branch)
+// ray_tracing_tools.f90: ray_cast_3 (#else RAYFAST branch): rrk::cast_3,
+// then the removal or the relink to the new home cell
 void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
   RTGrid& G = s.rt;
-  const double nrtr = s.cfg.nrtr;
   const int Nrt = s.cfg.Nrt;
-  const Units& u = s.units;
-
-  double r, dr, x[3], dx[3], ngam[kNfreq];
-  {
-    const Ray& ry = s.rays.at(ir);
-    r = ry.r;
-    dr = ry.dr;
-    for (int d = 0; d < 3; ++d) {
-      x[d] = ry.x[d];
-      dx[d] = ry.dx[d];
-    }
-    for (int n = 0; n < kNfreq; ++n) ngam[n] = ry.ngam[n];
-  }
-  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3)
-  const int nseg = s.cfg.legacy_rt ? 3 : 4;
-  const std::array<double, 4> dl = ray_segment(x, dx, u.seg_min, nseg);
-
-  // Save original
-  const double r0 = r, dr0 = dr;
-  const double x0[3] = {x[0], x[1], x[2]};
-  double ng1[kNfreq], ng2[kNfreq];
-  for (int n = 0; n < kNfreq; ++n) {
-    ng1[n] = ngam[n];
-    ng2[n] = ngam[n];
-  }
-  const double ngam_cut = f::max(u.ngam_min, f::sum8<kNfreq>(ngam) * u.fgam_min);
-
-  double l = 0;
-  for (int n = 0; n < kNfreq; ++n) ngam[n] = 0;
-
-  for (int n = 0; n < nseg; ++n) {
-    l = l + dl[n];
-    if (dl[n] >= u.seg_min && f::sum8<kNfreq>(ng2) > ngam_cut) {
-      double x1[3];
-      for (int d = 0; d < 3; ++d)
-        x1[d] = f::mod(x0[d] + (l - dl[n] / 2) * dx[d] + nrtr, nrtr);
-      const int i = cell_of(x1[0], Nrt);
-      const int j = cell_of(x1[1], Nrt);
-      const int k = cell_of(x1[2], Nrt);
-      const std::int64_t c = G.cell(i, j, k);
-
-      double sdl = 0;
-      for (int m = n; m < nseg; ++m) sdl += dl[m];
-      const double fdl = dl[n] / sdl;
-
-      const float* tau = G.tau_p(c);
-      const float* fgam = G.fgam_p(c);
-      double dng[kNfreq];
-      for (int q = 0; q < kNfreq; ++q) {
-        const double fabs_ = 1 - std::exp(static_cast<double>(-tau[q]) * dl[n]);
-        if (fabs_ < fdl) {
-          dng[q] = ng1[q] * fdl;
-          ng1[q] = ng1[q] - dng[q];
-        } else {
-          dng[q] = ng1[q] * fabs_;
-          ng1[q] = ng1[q] - dng[q];
-        }
-      }
-
-      // Consume photons along ray segment: (1-fgam) is real(4) arithmetic
-      for (int q = 0; q < kNfreq; ++q)
-        ng2[q] = ng2[q] - dng[q] * static_cast<double>(1.0f - fgam[q]);
-
-      if (f::sum8<kNfreq>(ng2) > ngam_cut) {
-        // Advance ray to end of segment (and slightly beyond); 1E-6 real(4)
-        for (int d = 0; d < 3; ++d)
-          x[d] = f::mod(x0[d] + (l + static_cast<double>(1e-6f)) * dx[d] + nrtr, nrtr);
-        r = r0 + l;
-        dr = dr0 - l;
-        for (int q = 0; q < kNfreq; ++q)
-          ngam[q] = ngam[q] + dng[q] * static_cast<double>(fgam[q]);
-      }
-    }
-  }
-
-  if (f::sum8<kNfreq>(ngam) < ngam_cut) {
+  const rrk::RTP P = rt_params(s);
+  auto tf = [&](int i, int j, int k, const float*& tau, const float*& fgam) {
+    const std::int64_t c = G.cell(i + 1, j + 1, k + 1);
+    tau = G.tau_p(c);
+    fgam = G.fgam_p(c);
+  };
+  Ray& ry = s.rays.at(ir);
+  if (!rrk::cast_3(ry, P, tf)) {
     ray_remove(s, ir, irt, jrt, krt, true);
     ir = 0;
   } else {
-    {
-      Ray& ry = s.rays.at(ir);
-      ry.r = static_cast<float>(r);
-      ry.dr = static_cast<float>(dr);
-      for (int d = 0; d < 3; ++d) ry.x[d] = static_cast<float>(x[d]);
-      for (int q = 0; q < kNfreq; ++q) ry.ngam[q] = static_cast<float>(ngam[q]);
-      for (int d = 0; d < 3; ++d) x[d] = ry.x[d];
-    }
-    const int i = cell_of(x[0], Nrt);
-    const int j = cell_of(x[1], Nrt);
-    const int k = cell_of(x[2], Nrt);
+    int i, j, k;
+    home_cell(ry, Nrt, i, j, k);
     if (i != irt || j != jrt || k != krt) {
       ray_remove(s, ir, irt, jrt, krt, false);
       ray_insert_tail(s, ir, i, j, k);
@@ -861,36 +576,12 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
   }
 }
 
-// ray_tracing_tools.f90: ray_segment
+// ray_tracing_tools.f90: ray_segment (rrk::ray_segment)
 std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
                                   double seg_min, int nseg) {
   if (nseg < 1 || nseg > 4) throw std::invalid_argument("ray_segment: nseg must be 1..4");
   std::array<double, 4> seg{};
-  double l = 0;
-  double x[3] = {x0[0], x0[1], x0[2]};
-  const double eps = static_cast<double>(1e-6f);  // 1E-6 is real(4)
-
-  for (int n = 0; n < nseg; ++n) {
-    double dl = 1 - l;
-    if (dl > seg_min) {
-      for (int i = 0; i < 3; ++i) {
-        if (std::fabs(dx[i]) > eps) {
-          double ds;
-          if (dx[i] < 0) {
-            ds = f::floor4(x[i]) - x[i];
-            if (ds > -eps) ds = -1;
-          } else {
-            ds = f::ceiling4(x[i]) - x[i];
-            if (ds < +eps) ds = +1;
-          }
-          dl = f::min(dl, ds / dx[i]);
-        }
-      }
-    }
-    l = l + dl;
-    for (int i = 0; i < 3; ++i) x[i] = x[i] + dl * dx[i];
-    seg[n] = dl;
-  }
+  rrk::ray_segment(x0, dx, seg_min, nseg, seg.data());
   return seg;
 }
 
@@ -1015,64 +706,19 @@ void ray_insert_tail(Simulation& s, std::int64_t ir, int irt, int jrt, int krt) 
 // nside / radius relations
 // ---------------------------------------------------------------------------
 
-// ray_tracing_tools.f90: lside_from_radius
-int lside_from_radius(double r) {
-  if (r < 1) return lside_min;
-  // log(pi*ray_per_cell/3.*r**2)/log(4.) ; log(4.) is real(4)
-  const int lside = f::ceiling4(
-      std::log(pc::pi * ray_per_cell / 3.0 * f::pow2(r)) / folded::log4_r4);
-  return f::min(f::max(lside, lside_min), lside_max);
-}
-
-// ray_tracing_tools.f90: nside_from_radius
-int nside_from_radius(double r) { return 1 << lside_from_radius(r); }
-
-// ray_tracing_tools.f90: nray_from_nside
-int nray_from_nside(int nside) {
-  if (nside < nside_min) return nray_init;
-  return 12 * nside * nside;
-}
-
-// ray_tracing_tools.f90: rmin_from_nside
-double rmin_from_nside(int nside) {
-  if (nside == nside_min) return 0;
-  return (nside / 2) * std::sqrt(3 / (pc::pi * ray_per_cell));
-}
-
-// ray_tracing_tools.f90: rmax_from_nside
-double rmax_from_nside(int nside) {
-  return nside * std::sqrt(3 / (pc::pi * ray_per_cell));
-}
+// ray_tracing_tools.f90: lside_from_radius etc. (the kernels' functions)
+int lside_from_radius(double r) { return rrk::lside_from_radius(r); }
+int nside_from_radius(double r) { return rrk::nside_from_radius(r); }
+int nray_from_nside(int nside) { return rrk::nray_from_nside(nside); }
+double rmin_from_nside(int nside) { return rrk::rmin_from_nside(nside); }
+double rmax_from_nside(int nside) { return rrk::rmax_from_nside(nside); }
 
 // ---------------------------------------------------------------------------
 // interpolate (general_tools.f90), 'lin' branch
 // ---------------------------------------------------------------------------
 
 double interpolate_lin(double x, const double* fa, int n, int a, int b) {
-  auto F = [&](int row, int i) { return fa[2 * (i - 1) + (row - 1)]; };
-  const double dxmin = static_cast<double>(f::epsilon_r4);
-  int i1 = 1, i2 = n;
-  if (F(a, 1) < F(a, n)) {
-    while (i2 - i1 > 1) {
-      const int i = (i1 + i2) / 2;
-      if (x > F(a, i))
-        i1 = i;
-      else
-        i2 = i;
-    }
-  } else {
-    while (i2 - i1 > 1) {
-      const int i = (i1 + i2) / 2;
-      if (x < F(a, i))
-        i1 = i;
-      else
-        i2 = i;
-    }
-  }
-  const double x1 = F(a, i1), y1 = F(b, i1), x2 = F(a, i2), y2 = F(b, i2);
-  const double ddx = x2 - x1;
-  if (std::fabs(ddx) < dxmin) return (y1 + y2) / 2;
-  return y1 + (y2 - y1) * ((x - x1) / (x2 - x1));
+  return rrk::interp_lin(x, fa, n, a, b);
 }
 
 // ---------------------------------------------------------------------------
@@ -1080,129 +726,13 @@ double interpolate_lin(double x, const double* fa, int n, int a, int b) {
 // ---------------------------------------------------------------------------
 
 // ray_tracing_tools.f90: the tables of ray_redshifting (Nfreq = 5 case)
-RedshiftTable make_redshift_table() {
-  RedshiftTable T;
-  constexpr int NF = kNfreq;
-  const double bmin = T.bmin, bdel = T.bdel;
-  const int Nbin = 1 + f::nint((T.bmax - bmin) / bdel);  // 121
-  if (Nbin != T.Nbin) throw std::logic_error("make_redshift_table: Nbin");
-  double* freq = T.freq;
-  // Frequency edges (Nfreq = 5 case)
-  freq[0] = pc::HI_eV;
-  freq[1] = std::sqrt(pc::HI_eV * pc::HeI_eV);
-  freq[2] = pc::HeI_eV;
-  freq[3] = std::sqrt(pc::HeI_eV * pc::HeII_eV);
-  freq[4] = pc::HeII_eV;
-  freq[5] = static_cast<double>(1e2f);
-
-  // Lookup table indx(2,Nbin,Nfreq-1) stored as tab[j][2*(i-1)+(row-1)]
-  T.tab.assign(NF - 1, std::vector<double>(2 * Nbin));
-  double rmax = 0.;
-  double rmin = static_cast<double>(f::huge_r4);
-  for (int j = 1; j <= NF - 1; ++j) {
-    // freq(j), freq(j1), freq(j2) with j1=j+1, j2=j+2 (1-based)
-    const double fj = freq[j - 1], fj1 = freq[j], fj2 = freq[j + 1];
-    for (int i = 1; i <= Nbin; ++i) {
-      const double b = (i - 1) * bdel + bmin;
-      const double c = b + 1;
-      double v;
-      if (std::fabs(c) < bdel / 1e2) {
-        v = std::log(fj2 / fj1) / std::log(fj1 / fj);
-      } else {
-        v = (std::pow(fj2, c) - std::pow(fj1, c)) / (std::pow(fj1, c) - std::pow(fj, c));
-      }
-      T.tab[j - 1][2 * (i - 1) + 1] = b;
-      T.tab[j - 1][2 * (i - 1) + 0] = v;
-      rmax = f::max(rmax, v);
-      rmin = f::min(rmin, v);
-    }
-  }
-  T.rmin = rmin;
-  T.rmax = rmax;
-  return T;
-}
-
-// ray_tracing_tools.f90: redshift_ray (#else FREQ1), without the final
-// "minimum for stability" of the rays
-void redshift_spectrum(const RedshiftTable& T, double fscale, double ngam_min, double* nu,
-                       double* ngam, double* keep, double* down) {
-  constexpr int NF = kNfreq;
-  const double bmin = T.bmin, bmax = T.bmax, bdel = T.bdel;
-  const int Nbin = T.Nbin;
-  const double* freq = T.freq;
-  const double rmin = T.rmin, rmax = T.rmax;
-  double egam[NF], ngam1[NF], egam1[NF];
-  for (int i = 0; i < NF; ++i) {
-    egam[i] = nu[i] * ngam[i];
-    ngam1[i] = 0;
-    egam1[i] = 0;
-    keep[i] = 0;
-    down[i] = 0;
-  }
-
-  for (int i = 1; i <= NF; ++i) {
-    const int im = i - 1, ip = i + 1;
-    if (ngam[i - 1] > ngam_min) {
-      const double fq = freq[i - 1] / fscale;
-      double rN, rE, b;
-      if (i < NF) {
-        rN = ngam[ip - 1] / ngam[i - 1];
-        rN = f::min(f::max(rN, rmin), rmax);
-        b = interpolate_lin(rN, T.tab[i - 1].data(), Nbin, 1, 2);
-        b = f::min(f::max(b, bmin), bmax);
-      } else {
-        rN = ngam[i - 1] / f::max(ngam[im - 1], ngam_min);
-        rN = f::min(f::max(rN, rmin), rmax);
-        b = interpolate_lin(rN, T.tab[im - 1].data(), Nbin, 1, 2);
-        b = f::min(f::max(b, bmin), bmax);
-      }
-      const double c = b + 1;
-      const double d = b + 2;
-      const double fi = freq[i - 1], fip = freq[ip - 1];
-
-      if (std::fabs(c) < bdel / 1e2)
-        rN = std::log(fq / fi) / std::log(fip / fi);
-      else
-        rN = (std::pow(fq, c) - std::pow(fi, c)) / (std::pow(fip, c) - std::pow(fi, c));
-
-      if (std::fabs(d) < bdel / 1e2)
-        rE = std::log(fq / fi) / std::log(fip / fi);
-      else
-        rE = (std::pow(fq, d) - std::pow(fi, d)) / (std::pow(fip, d) - std::pow(fi, d));
-
-      rN = f::min(f::max(rN, 0.0), 1.0);
-      rE = f::min(f::max(rE, 0.0), 1.0);
-      ngam1[i - 1] = (1 - rN) * ngam[i - 1];
-      egam1[i - 1] = (1 - rE) * egam[i - 1];
-      keep[i - 1] = 1 - rN;
-
-      if (i > 1) {
-        ngam1[im - 1] = ngam1[im - 1] + rN * ngam[i - 1];
-        egam1[im - 1] = egam1[im - 1] + rE * egam[i - 1];
-        down[i - 1] = rN;
-      }
-    }
-  }
-
-  for (int i = 1; i <= NF; ++i) {
-    if (ngam1[i - 1] < ngam_min) {
-      nu[i - 1] = cp::freq_init[i - 1];
-      ngam[i - 1] = 0;
-    } else {
-      nu[i - 1] = egam1[i - 1] / ngam1[i - 1] * fscale;
-      nu[i - 1] = f::min(f::max(nu[i - 1], freq[i - 1]), freq[i]);
-      ngam[i - 1] = ngam1[i - 1];
-    }
-  }
-}
+RedshiftTable make_redshift_table() { return rrk::build_redshift_table(); }
 
 // ray_tracing_tools.f90: ray_redshifting / redshift_ray (#else FREQ1)
 void ray_redshifting(Simulation& s) {
   RayState& R = s.rays;
   if (R.Nray <= 0) return;
-  const Units& u = s.units;
-  constexpr int NF = kNfreq;
-
+  const double ngam_min = s.units.ngam_min;
   const double fscale = (s.clk.scalefactor - s.clk.da_sim) / s.clk.scalefactor;
   const RedshiftTable T = make_redshift_table();
 
@@ -1212,21 +742,7 @@ void ray_redshifting(Simulation& s) {
   for (std::int64_t ir = 1; ir <= top; ++ir) {
     Ray& ry = R.at(ir);
     if (!(ry.nside > 0)) continue;
-
-    double nu[NF], ngam[NF], keep[NF], down[NF];
-    for (int i = 0; i < NF; ++i) {
-      nu[i] = ry.nu[i];
-      ngam[i] = ry.ngam[i];
-    }
-    redshift_spectrum(T, fscale, u.ngam_min, nu, ngam, keep, down);
-    for (int i = 0; i < NF; ++i) {
-      ry.nu[i] = static_cast<float>(nu[i]);
-      ry.ngam[i] = static_cast<float>(ngam[i]);
-    }
-
-    // Enforce minimum for stability (real(4) sum)
-    if (static_cast<double>(f::sum4<NF>(ry.ngam)) < u.ngam_min)
-      ry.ngam[0] = static_cast<float>(u.ngam_min);
+    rrk::redshift_ray(ry, T, fscale, ngam_min);
   }
 }
 

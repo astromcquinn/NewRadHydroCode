@@ -314,6 +314,7 @@ if(Python3_Interpreter_FOUND)
   # problems for a few steps; the output must still match the reference.
   if(NOT RADRAY_SANITIZE)
     file(GLOB RADRAY_ALL_SRC ${PROJECT_SOURCE_DIR}/src/*.cpp)
+    list(APPEND RADRAY_ALL_SRC ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp)
     add_executable(hydro_driver_asan ${PROJECT_SOURCE_DIR}/apps/hydro_driver.cpp ${RADRAY_ALL_SRC})
     target_include_directories(hydro_driver_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
                                ${FFTW3F_INCLUDE_DIR})
@@ -439,6 +440,7 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
   # it must still match the reference bit for bit.
   if(NOT RADRAY_SANITIZE)
     file(GLOB RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/*.cpp)
+    list(APPEND RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp)
     add_executable(radhydro_asan ${PROJECT_SOURCE_DIR}/apps/radhydro.cpp ${RADRAY_ALL_SRC_FULL})
     target_include_directories(radhydro_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
                                ${FFTW3F_INCLUDE_DIR})
@@ -529,6 +531,7 @@ if(Python3_Interpreter_FOUND)
     # paths: N = 32)
     if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
       file(GLOB RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/*.cpp)
+      list(APPEND RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp)
       add_executable(rt_driver_asan ${PROJECT_SOURCE_DIR}/apps/rt_driver.cpp ${RADRAY_ALL_SRC_RT})
       target_include_directories(rt_driver_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
                                  ${FFTW3F_INCLUDE_DIR})

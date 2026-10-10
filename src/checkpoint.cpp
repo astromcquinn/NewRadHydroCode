@@ -2,6 +2,7 @@
 #include "radray/checkpoint.hpp"
 
 #include "radray/recomb_rad.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
 #include <cstdio>
@@ -24,7 +25,21 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // Version 4 (recomb_rad = 1, docs/recomb_radiation.md): the recombination
 // photon buffers, on-the-spot counts, cell modes and budget before the
 // trailer (empty when off).
-constexpr std::int32_t kVersion = 4;
+// Version 5 (Stage D, docs/stage_d.md): the ray storage layout is
+// rrk::RayP + links (the links moved from between ipix and r to the end;
+// versions <= 4 are converted on reading), and the AMReX backend's section
+// (rt_backend, then its rays gathered on rank 0) before the trailer.
+constexpr std::int32_t kVersion = 5;
+
+// The ray layout of versions <= 4
+struct RayV4 {
+  std::int32_t nside, ipix;
+  std::int32_t next, prev;
+  float r, dr;
+  float x[3], dx[3];
+  float nu[kNfreq], ngam[kNfreq];
+};
+static_assert(sizeof(RayV4) == sizeof(Ray), "RayV4 layout");
 
 struct Out {
   std::ofstream f;
@@ -80,6 +95,11 @@ void ray_stat_io(IO& io, RS& r) {
 
 void write_checkpoint(const std::string& path, const Simulation& s, const HydroState& hs,
                       const pm::PMState& pm, const DriverState& d) {
+  // rt_backend = amrex: the rays live on the level; gather them on rank 0
+  // (collective: every rank calls this function, only io_rank() writes)
+  std::vector<rrk::RayP> brays;
+  if (use_amrex(s.cfg)) amrex_rt_gather_rays(s, brays);
+  if (!io_rank()) return;
   const std::string tmp = path + ".tmp";
   {
     Out o;
@@ -175,6 +195,11 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.vec(Rc ? Rc->mode : none8);
     const double rbud[3] = {Rc ? Rc->launched : 0, Rc ? Rc->dropped : 0, Rc ? Rc->onspot : 0};
     o.pod(rbud);
+    // AMReX backend (version 5): its rays in the float layout
+    const std::int32_t backend = static_cast<std::int32_t>(s.cfg.rt_backend);
+    o.pod(backend);
+    o.vec(brays);
+    o.pod(s.ngam_total_backend);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -234,6 +259,28 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   if (hwm > 0) {
     in.f.read(reinterpret_cast<char*>(&R.ray[1]), static_cast<std::streamsize>(hwm * sizeof(Ray)));
     if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+    if (ver <= 4) {
+      // the links sat between ipix and r
+      for (std::int64_t ir = 1; ir <= hwm; ++ir) {
+        RayV4 o;
+        std::memcpy(&o, &R.ray[ir], sizeof o);
+        Ray& r = R.ray[ir];
+        r.nside = o.nside;
+        r.ipix = o.ipix;
+        r.next = o.next;
+        r.prev = o.prev;
+        r.r = o.r;
+        r.dr = o.dr;
+        for (int d = 0; d < 3; ++d) {
+          r.x[d] = o.x[d];
+          r.dx[d] = o.dx[d];
+        }
+        for (int n = 0; n < kNfreq; ++n) {
+          r.nu[n] = o.nu[n];
+          r.ngam[n] = o.ngam[n];
+        }
+      }
+    }
   }
   R.det_set_hwm(hwm);
   in.vec(R.ray_index_);
@@ -305,6 +352,18 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   } else if (s.cfg.recomb_rad) {
     throw std::runtime_error("checkpoint has no recombination radiation state: " + path);
   }
+  std::int32_t backend = 0;
+  std::vector<rrk::RayP> brays;
+  if (ver >= 5) {
+    in.pod(backend);
+    in.vec(brays);
+    in.pod(s.ngam_total_backend);
+  }
+  if (backend != static_cast<std::int32_t>(s.cfg.rt_backend))
+    throw std::runtime_error("checkpoint was written with rt_backend = " +
+                             std::string(backend ? "amrex" : "serial") + ", this run has " +
+                             rt_backend_summary(s.cfg));
+  if (use_amrex(s.cfg)) amrex_rt_scatter_rays(s, brays);
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)
     throw std::runtime_error("checkpoint trailer missing: " + path);

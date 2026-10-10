@@ -31,8 +31,71 @@ add_library(radray
   src/rt_moments.cpp
   src/rt_moments_fft.cpp
   src/recomb_rad.cpp
+  src/rt_backend.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
+
+# AMReX backend of the ray tracing (rt_backend = amrex, docs/stage_d.md):
+# the sorted-ray-array RT on an AMReX level, MPI + OpenMP. Optional: with
+# RADRAY_AMREX off the backend is a stub that throws. AMReX (3D, MPI, OMP,
+# particles in SINGLE precision) is found with find_package (set
+# -DAMReX_DIR=<install>/lib/cmake/AMReX) or, with RADRAY_FETCH_AMREX=ON,
+# downloaded and built as a subproject (AMReX 26.10, needs network access).
+# AMReX 26.x needs C++20: the backend is its own target; the library stays
+# C++17.
+option(RADRAY_AMREX "Build the AMReX RT backend (rt_backend = amrex)" OFF)
+option(RADRAY_FETCH_AMREX "Download and build AMReX 26.10 if find_package fails" OFF)
+set(RADRAY_HAVE_AMREX OFF)
+if(RADRAY_AMREX)
+  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE)
+  if(NOT AMReX_FOUND)
+    if(NOT RADRAY_FETCH_AMREX)
+      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE) was not "
+                          "found: set -DAMReX_DIR=<install>/lib/cmake/AMReX or -DRADRAY_FETCH_AMREX=ON")
+    endif()
+    include(FetchContent)
+    set(AMReX_SPACEDIM 3 CACHE STRING "" FORCE)
+    set(AMReX_MPI ON CACHE BOOL "" FORCE)
+    set(AMReX_OMP ON CACHE BOOL "" FORCE)
+    set(AMReX_PARTICLES ON CACHE BOOL "" FORCE)
+    set(AMReX_PARTICLES_PRECISION SINGLE CACHE STRING "" FORCE)
+    set(AMReX_FORTRAN OFF CACHE BOOL "" FORCE)
+    set(AMReX_FASTMATH OFF CACHE BOOL "" FORCE)
+    set(AMReX_LINEAR_SOLVERS OFF CACHE BOOL "" FORCE)
+    set(AMReX_PROBINIT OFF CACHE BOOL "" FORCE)
+    set(AMReX_AMRLEVEL OFF CACHE BOOL "" FORCE)
+    if(RADRAY_AMREX_GPU_BACKEND)
+      set(AMReX_GPU_BACKEND ${RADRAY_AMREX_GPU_BACKEND} CACHE STRING "" FORCE)
+    endif()
+    FetchContent_Declare(amrex
+      GIT_REPOSITORY https://github.com/AMReX-Codes/amrex.git
+      GIT_TAG 26.10
+      GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(amrex)
+  endif()
+  set(RADRAY_HAVE_AMREX ON)
+  add_library(radray_amrex src/amrex/rt_level.cpp)
+  target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
+  if(TARGET AMReX::Flags_INLINE)
+    # AMReX does not pass its inlining flag to consumers; the communication
+    # loops are header templates instantiated here (spike/amrex/README.md)
+    target_link_libraries(radray_amrex PRIVATE AMReX::Flags_INLINE)
+  endif()
+  set_target_properties(radray_amrex PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+  target_compile_definitions(radray_amrex PUBLIC RADRAY_HAVE_AMREX=1)
+  if(AMReX_GPU_BACKEND STREQUAL "CUDA")
+    # the ray kernels are compiled as CUDA for the device (docs/stage_d.md 5)
+    set_source_files_properties(src/amrex/rt_level.cpp PROPERTIES LANGUAGE CUDA)
+    set_target_properties(radray_amrex PROPERTIES CUDA_STANDARD 20 CUDA_SEPARABLE_COMPILATION ON)
+    target_compile_options(radray_amrex PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+  endif()
+  set(RADRAY_RT_BACKEND_LIB radray_amrex)
+  message(STATUS "AMReX RT backend: enabled (AMReX ${AMReX_VERSION})")
+else()
+  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp)
+  set(RADRAY_RT_BACKEND_LIB radray)
+  message(STATUS "AMReX RT backend: disabled (RADRAY_AMREX=OFF)")
+endif()
 
 # Moment RT (docs/rt_moments.md): the OTVET tensor uses an FFT convolution
 # when FFTW3f is available (otherwise only the direct sum).
@@ -76,7 +139,7 @@ add_executable(find_halos apps/find_halos.cpp)
 target_link_libraries(find_halos PRIVATE radray_halos)
 
 add_executable(rt_driver apps/rt_driver.cpp)
-target_link_libraries(rt_driver PRIVATE radray)
+target_link_libraries(rt_driver PRIVATE ${RADRAY_RT_BACKEND_LIB})
 
 # Ray-compression study prototype (docs/ray_compression.md); reads ray dumps
 add_executable(ray_codec tools/ray_compression/ray_codec.cpp)
@@ -110,7 +173,7 @@ if(RADRAY_WITH_PM)
     target_link_libraries(pm_driver PRIVATE radray_pm)
     # Full radhydro.f90 time loop (docs/full_run.md)
     add_executable(radhydro apps/radhydro.cpp)
-    target_link_libraries(radhydro PRIVATE radray_pm radray_halos)
+    target_link_libraries(radhydro PRIVATE radray_pm radray_halos ${RADRAY_RT_BACKEND_LIB})
     message(STATUS "PM gravity and hydro: enabled (FFTW3f: ${FFTW3F_LIBRARY})")
   else()
     message(STATUS "PM gravity: disabled (FFTW3f not found)")

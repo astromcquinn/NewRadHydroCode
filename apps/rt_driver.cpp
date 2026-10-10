@@ -31,12 +31,17 @@
 #include "radray/ray_dump.hpp"
 #include "radray/parallel.hpp"
 #include "radray/rt.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 
 int main(int argc, char** argv) {
   using namespace radray;
+  backend_init(argc, argv);  // rt_backend = amrex: amrex::Initialize (MPI)
+  struct Fin {
+    ~Fin() { backend_finalize(); }
+  } fin;
   if (argc < 3) {
     std::fprintf(stderr,
                  "usage: %s <problem_dir> <outdir> [--nsteps n] [--set key=value ...]\n",
@@ -69,8 +74,11 @@ int main(int argc, char** argv) {
     }
     if (nsteps_override >= 0) P.nsteps = nsteps_override;
 
-    std::filesystem::create_directories(odir);
-    std::ofstream raylog(odir + "/ray.log");
+    const bool io = io_rank();  // with MPI only rank 0 writes files
+    if (io) std::filesystem::create_directories(odir);
+    backend_barrier();
+    std::ofstream raylog;
+    if (io) raylog.open(odir + "/ray.log");
 
     auto sim = std::make_unique<Simulation>();
     Simulation& s = *sim;
@@ -80,11 +88,13 @@ int main(int argc, char** argv) {
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
+    copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
+    check_rt_backend_param(s.cfg);
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
-    s.raylog = &raylog;
+    s.raylog = io ? &raylog : nullptr;
     RayDumpConfig dump;
     dump.dir = P.ray_dump_dir;
     dump.every = P.ray_dump_every;
@@ -98,12 +108,12 @@ int main(int argc, char** argv) {
       std::cout << " RESEARCH: ray_quant bits=" << P.ray_quant_bits << " dither="
                 << P.ray_quant_dither << " struct=" << P.ray_quant_struct
                 << " (results differ from the original on purpose)\n";
-    s.out = &std::cout;
+    s.out = io ? &std::cout : nullptr;
 
     read_gas(pdir + "/gas.bin", s.gas);
     const std::vector<Source> sources = read_sources(pdir + "/sources.txt");
 
-    std::cout << " Problem    : " << pdir << "\n"
+    if (io) std::cout << " Problem    : " << pdir << "\n"
               << " N          : " << P.N << "\n"
               << " Nray_max   : " << s.cfg.Nray_max << "\n"
               << " z_init     : " << P.z_init << "\n"
@@ -114,6 +124,7 @@ int main(int argc, char** argv) {
               << " c_reduced  : " << P.c_reduced << "\n"
               << " det_par    : " << P.deterministic_parallel << "\n"
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
+              << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"
               << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";
 
@@ -126,23 +137,29 @@ int main(int argc, char** argv) {
       calc_halo(s, sources);
       radiative_transfer(s);
 
-      std::cout << "\n Step number  : " << s.clk.istep << "\n"
-                << " Redshift     : " << z1 << " -> " << s.clk.redshift << "\n"
-                << " RT           : " << s.clk.nstep_rt << "  dtyr_rt = "
-                << static_cast<float>(s.clk.dtyr_rt) << "\n";
+      if (io)
+        std::cout << "\n Step number  : " << s.clk.istep << "\n"
+                  << " Redshift     : " << z1 << " -> " << s.clk.redshift << "\n"
+                  << " RT           : " << s.clk.nstep_rt << "  dtyr_rt = "
+                  << static_cast<float>(s.clk.dtyr_rt) << "\n";
       summarize_rt(s);
 
-      char name[32];
-      std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
-      const std::string sdir = odir + "/" + name;
-      std::filesystem::create_directories(sdir);
-      write_step_output(sdir, s);
+      if (io) {
+        char name[32];
+        std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
+        const std::string sdir = odir + "/" + name;
+        std::filesystem::create_directories(sdir);
+        write_step_output(sdir, s);
+      }
     }
+    backend_barrier();
     const double secs =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << "\n Simulation completed in " << secs << " s\n " << format_rt_timers(s.timers)
-              << "\n ray pool guard: split limited in " << s.rays.npool_limited
-              << " substeps, merging forced in " << s.rays.npool_forced << "\n";
+    if (io)
+      std::cout << "\n Simulation completed in " << secs << " s\n " << format_rt_timers(s.timers)
+                << "\n ray pool guard: split limited in " << s.rays.npool_limited
+                << " substeps, merging forced in " << s.rays.npool_forced << "\n"
+                << (use_amrex(s.cfg) ? " " + amrex_rt_timers(s) + "\n" : std::string());
   } catch (const std::exception& e) {
     std::fprintf(stderr, "rt_driver: error: %s\n", e.what());
     return 1;

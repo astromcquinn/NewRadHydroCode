@@ -22,6 +22,7 @@ namespace radray {
 struct RayDump;  // radray/ray_dump.hpp
 struct MomentState;  // radray/rt_moments.hpp
 struct RecombState;  // radray/recomb_rad.hpp
+struct AmrexRT;      // src/amrex/rt_level.cpp (rt_backend = amrex)
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -91,6 +92,13 @@ struct Simulation {
   std::shared_ptr<MomentState> moments;
   // Recombination radiation (recomb_rad = 1, recomb_rad.hpp); null otherwise.
   std::shared_ptr<RecombState> recomb;
+  // The AMReX level of rt_backend = amrex (rt_backend.hpp); null otherwise.
+  // Between hydro steps the rt and gas grids above hold its state; the rays
+  // live only on the level (rays is then unused except for the counters
+  // and thresholds). ngam_total_backend: sum of the live rays' photons after
+  // post_rt (ngam_rays_total).
+  std::shared_ptr<AmrexRT> amrex;
+  double ngam_total_backend = 0;
 };
 
 }  // namespace radray

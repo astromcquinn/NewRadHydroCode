@@ -28,22 +28,23 @@
 #include <vector>
 
 #include "radray/constants.hpp"
+#include "radray/kernels/ray_kernels.hpp"
 
 namespace radray {
 
-// radhydro_global.f90: ray_type. The links are int32 here (int8 in the
-// original): Config::make refuses Nray_max >= 2^31. This saves 8 B per ray
-// (88 B instead of 96 B) and changes no result; see docs/parallel.md.
-struct Ray {
-  std::int32_t nside = 0, ipix = 0;
+// radhydro_global.f90: ray_type. The payload (nside, ipix, r, dr, x, dx, nu,
+// ngam: 80 B) is the kernels' rrk::RayP, the type every ray kernel takes
+// (include/radray/kernels/ray_kernels.hpp), so a Ray can be passed to them
+// directly; the chain links follow it. The links are int32 here (int8 in
+// the original): Config::make refuses Nray_max >= 2^31. This saves 8 B per
+// ray (88 B instead of 96 B) and changes no result; see docs/parallel.md.
+// (Before Stage D the links sat between ipix and r; checkpoint versions
+// <= 4 hold that layout, checkpoint.cpp converts it.)
+struct Ray : rrk::RayP {
   std::int32_t next = 0, prev = 0;
-  float r = 0, dr = 0;
-  float x[3] = {0, 0, 0};
-  float dx[3] = {0, 0, 0};
-  float nu[kNfreq] = {0, 0, 0, 0, 0};
-  float ngam[kNfreq] = {0, 0, 0, 0, 0};
 };
 static_assert(sizeof(Ray) == 88, "Ray layout");
+static_assert(sizeof(rrk::RayP) == 80, "Ray payload layout");
 
 // Provenance of a ray, kept only when a ray dump is enabled
 // (include/radray/ray_dump.hpp); never read by the RT itself.
