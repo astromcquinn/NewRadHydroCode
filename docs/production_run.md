@@ -610,3 +610,46 @@ python3 tools/production/calibrate_fesc.py $R/cal$N --N $N \
 `calibrate_fesc.py` writes one problem directory per f_esc value sharing the
 ICs; run them as jobs with `reion_production.slurm` (about 16 min each at
 128³ and 0.1c on a shared node, about 1.5 h at 256³ on a whole node).
+
+### Recalibration at 0.1c with the unsplit hydro (production-256 thread, 2026-10-10)
+
+Four 128³ runs on klone (`/gscratch/astro/mcquinn/radhydro/runs/cal128`,
+jobs 41705711–14, 96 threads each on shared nodes, **9–10 min and 4.9 GB
+each**), with the settings of the production run except N:
+`c_reduced = 0.1`, `ray_rotate = 3`, `hydro_scheme = unsplit`,
+`sfr_model = abundance` with the 128³ L(M)
+(`data/uv_lf/am_params_128_10mpc.txt`, §3c), log ξ_ion = 25.38, the ICs of
+`reion128` (seed 7), lean outputs (`data_files = dm`,
+`fields_at_data1 = 0`).
+
+```
+tools/production/calibrate_fesc.py $RUNS/cal128 --N 128 --am-params data/uv_lf/am_params_128_10mpc.txt \
+    --fesc 0.2 0.35 0.5 0.8 --threads 96 --extra c_reduced=0.1 data_files=dm fields_at_data1=0 hydro_scheme=unsplit
+```
+
+| f_esc | τ_es | z(x_V = 0.1) | z(x_V = 0.5) | z(x_V = 0.99) | x_HII,M at the end (z = 5.27) |
+|---|---|---|---|---|---|
+| 0.2 | 0.0499 | 8.23 | 6.69 | 5.57 | 0.9986 |
+| 0.35 | 0.0568 | 8.87 | 7.39 | 6.35 | 1.0000 |
+| 0.5 | 0.0609 | 9.46 | 7.82 | 6.78 | 1.0000 |
+| 0.8 | 0.0662 | 10.03 | 8.35 | 7.28 | 1.0000 |
+
+![calibration at 0.1c](figures/fesc_calibration_128_c01.png)
+
+* **The interpolation in log f_esc gives f_esc = 0.28** for τ_es = 0.054
+  (f_esc ξ_ion = 10^24.83). That is 1.8× below the 0.01c value of 0.5,
+  as the 0.01c bias predicted (§7: 0.01c lowers τ_es by 20 %).
+* At 0.1c the box finishes reionizing: with f_esc = 0.28 the midpoint is
+  z ≈ 7.1 and x_V = 0.99 at z ≈ 6.1 (interpolating the table), against
+  z = 6.7 and "not by z = 5.3" at 0.01c and f_esc = 0.5. The end of
+  reionization now falls in the Lyα-forest range without pushing τ_es
+  above Planck.
+* τ_es remains a weak constraint: f_esc = 0.2–0.8 spans 0.050–0.066,
+  i.e. the Planck 1σ band and 1.7σ above it.
+* **Used for the production run: f_esc = 0.28** with the 256³ L(M)
+  (`data/uv_lf/am_params_256_10mpc.txt`, `docs/hmf_validation.md`). The
+  256³ run itself is the check of τ_es at the production resolution
+  (`docs/production_256.md`); the 256³ L(M) is matched to the same
+  observed LFs, so the box's emissivity is the same by construction down
+  to the 256³ resolution limit, which adds the 10⁸–10⁹ M☉ halos that the
+  128³ box does not resolve.

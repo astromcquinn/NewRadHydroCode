@@ -155,6 +155,10 @@ and adaptive calculations.
   2026-10-09; this replaces Tinker), so the box's LF matches the
   observations.
 * **f_esc:** start the production run with f_esc = 0.5 (2026-10-09).
+  Superseded 2026-10-10: **f_esc = 0.28**, the 128³ calibration at 0.1c
+  with the unsplit hydro (`docs/production_run.md` §8); the 256³
+  production run uses it with the 256³ L(M)
+  (`data/uv_lf/am_params_256_10mpc.txt`).
 * **Dust:** no correction.
 * **ξ_ion:** a JWST-era value, log ξ_ion = 25.38, with a single f_esc
   calibrated to τ_es.
@@ -293,3 +297,25 @@ policy on klone, and deleting the merged branches.
   overlapping sources fill each other's coverage gaps, so the 3–10 %
   single-thread ray-tracing cost buys less there than the uniform tests
   suggest.
+
+## Production-256 thread (2026-10-10)
+
+* Settings from the thread brief: 256³, 10 Mpc/h, `c_reduced = 0.1`,
+  `nray_max_factor = 16`, `legacy_rt = legacy_physics = 0`,
+  `deterministic_parallel`, `rt_substep_carry`, `ray_rotate = 3`,
+  `sfr_model = abundance`, log ξ_ion = 25.38, f_esc calibrated to
+  τ_es = 0.054.
+* **`hydro_scheme = unsplit`** for the production run and the 0.1c
+  calibration runs. The brief left the choice open (`unsplit`, which fixes
+  the cold-gas overheating, or `legacy`, which every earlier 256³ run
+  used); the thread took the documented recommendation of
+  `docs/hydro_unsplit.md` §10 and `docs/STATUS.md`. `ra_max` was left at
+  the original 0.1: the time-step sensitivity of the cold gas only
+  appears at z ≲ 2 (`docs/hydro_unsplit.md` §6). `make_production.py
+  --hydro-scheme` writes the line.
+* **f_esc = 0.28** (interpolated at 0.1c; `docs/production_run.md` §8).
+* The 256³ run at that f_esc is made in the production configuration
+  (movie every Δz = 0.025, checkpoint every 4 steps), so it is both the
+  256³ τ_es check of the brief's step 4 and the production run of step 5
+  if τ_es comes out at Planck; otherwise it is the calibration point for
+  a corrected f_esc and a second run.
