@@ -420,14 +420,22 @@ def mfp_stats(snap, nlos=4096, rmax_pmpc=40.0, ds=0.5, seed=1, kap=None, fHI_ion
     # random (volume-weighted) starts
     run("random", rng.uniform(0, N, size=(nlos, 3)))
     # starts in ionized cells (x_HI < fHI_ion)
-    fl = np.asarray(snap.field("fHI")).ravel()
-    ion = np.nonzero(fl < fHI_ion)[0]
-    out["f_ion"] = len(ion) / fl.size
-    if len(ion):
-        c = ion[rng.integers(0, len(ion), nlos)]
+    fl = snap.field("fHI").reshape(-1)
+    nion = sum(int((np.asarray(fl[k0 * N * N:k1 * N * N]) < fHI_ion).sum())
+               for k0, k1 in snap.slabs(5))
+    out["f_ion"] = nion / fl.size
+    if nion:
+        if out["f_ion"] > 1e-2:  # rejection sampling: no N^3 index array
+            c = np.empty(0, np.int64)
+            while len(c) < nlos:
+                t = np.sort(rng.integers(0, fl.size, 4 * nlos + int(4 * nlos / out["f_ion"])))
+                c = np.concatenate([c, t[np.asarray(fl[t]) < fHI_ion]])
+            c = rng.permutation(c)[:nlos]
+        else:
+            ion = np.nonzero(np.asarray(fl) < fHI_ion)[0]
+            c = ion[rng.integers(0, len(ion), nlos)]
         x0 = np.stack([c % N, (c // N) % N, c // (N * N)], axis=1) + rng.uniform(0, 1, (nlos, 3))
         run("ionized", x0)
-    del fl
     # starts at sources (luminosity weighted), skipping their own cell
     if os.path.exists(os.path.join(snap.run.out, "RT", "rt_grid." + snap.tag)):
         idx, lum = source_cells(snap)

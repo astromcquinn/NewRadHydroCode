@@ -9,7 +9,8 @@
 # $RUNS/igm_diag), NLOS, NSKEW (sightlines per start set, skewers per axis;
 # default 8192 each), CONV=1 also runs the convergence checks (sightline
 # step, number of sightlines and skewers) on the first run's last snapshot.
-# At N = 512 use --mem=96G or more and JOBS <= 4 (about 3 GB per snapshot).
+# At N = 512 a snapshot takes ~1.5 min plus one scan of the 19 GB rt_grid and
+# ~6 GB of resident memory (mostly mapped file pages): use JOBS=4 with 64 GB.
 #SBATCH --job-name=igm_diag
 #SBATCH --account=astro
 #SBATCH --partition=cpu-g2

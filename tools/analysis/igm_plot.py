@@ -11,7 +11,8 @@ their asymmetric 68% errors:
              estimator compared with Gaikwad et al. 2023); dotted:
              transmission-weighted (Lya skewers); crosses: the Gamma implied
              by the Bosman mean flux, Gamma(x_HI < 1e-2) / A, where
-             <exp(-A tau)> = <F>_obs (photoionization equilibrium, tau ~ 1/Gamma).
+             <exp(-A tau)> = <F>_obs (photoionization equilibrium, tau ~ 1/Gamma;
+             drawn only after overlap, x_HII,V >= 0.99).
   lambda_mfp solid: lambda_e (<exp(-tau_912)> = 1/e) from starts in ionized
              cells; dashed: from source cells; the grey dotted line is the
              proper box size of the first run.
@@ -66,6 +67,15 @@ def data_points(ax, b, scale=1.0, log10=False):
                     else INK, ecolor=INK, elinewidth=1, capsize=2, label=lab, zorder=5)
 
 
+def req_from_F(snap, xmin=0.99):
+    """Gamma implied by the observed <F>, only after overlap (x_HII,V >= xmin):
+    before, the neutral islands set <F> and the rescaling of tau ~ 1/Gamma
+    does not apply."""
+    if snap["xHII_V"] is None or snap["xHII_V"] < xmin:
+        return float("nan")
+    return snap["gamma"].get("req_from_F", float("nan"))
+
+
 def ndot_at(run, z):
     nz, nd = np.array(run["ndot"]["z"]), np.array(run["ndot"]["ndot"])
     if len(nz) == 0:
@@ -78,7 +88,7 @@ def table(runs, obs, path):
             "lam_e_rnd", "lam_e_ion", "lam_fit_ion", "lam_e_src", "lam_obs", "lam/obs", "box",
             "F", "F_obs", "F/obs", "A", "lg_ndot", "lg_ndot_B21", "lg_ndot_GZ"]
     lines = ["# igm_plot.py: Gamma in 1e-12 s^-1 (G_ion: x_HI < 1e-2; G_Fw: transmission-"
-             "weighted; G_reqF = G_ion/A), lambda and box in pMpc (lam_e_*: <F> = 1/e from "
+             "weighted; G_reqF = G_ion/A, after overlap only), lambda and box in pMpc (lam_e_*: <F> = 1/e from "
              "random / ionized / source starts; lam_fit_ion: exp fit), A = tau rescaling for "
              "Bosman <F>, ndot in log10 s^-1 cMpc^-3 at the nearest hydro step; *_obs: data "
              "interpolated to z (lam_obs: Becker+21 and Zhu+23 pooled; G_obs: Gaikwad+23; lg_ndot_GZ: ndot_gz block)"]
@@ -96,7 +106,7 @@ def table(runs, obs, path):
             li = m.get("ionized", m["random"])["lambda_e"]
             nd = ndot_at(r, z)
             vals = [z, s["xHII_V"], g["V"] / 1e-12, gi, ly["gamma_Fweighted"] / 1e-12,
-                    g.get("req_from_F", float("nan")) / 1e-12, go, gi / go,
+                    req_from_F(s) / 1e-12, go, gi / go,
                     m["random"]["lambda_e"], li, m.get("ionized", m["random"])["lambda_fit"],
                     m.get("sources", {}).get("lambda_e", float("nan")), lo, li / lo,
                     s["box_pmpc"], ly["F_mean"], ly.get("F_obs", float("nan")),
@@ -140,7 +150,7 @@ def main():
         if len(sn):
             gi = np.array([s["gamma"]["ion_V"][thr_index(s)] for s in sn]) / 1e-12
             gf = np.array([s["lya"]["gamma_Fweighted"] for s in sn]) / 1e-12
-            gr = np.array([s["gamma"].get("req_from_F", np.nan) for s in sn]) / 1e-12
+            gr = np.array([req_from_F(s) for s in sn]) / 1e-12
             ag.plot(z, gi, "-o", color=c, lw=2, ms=4)
             ag.plot(z, gf, ":", color=c, lw=1.5)
             ag.plot(z, gr, "x", color=c, ms=7, mew=1.8)
@@ -158,7 +168,7 @@ def main():
     if runs and runs[0]["snapshots"]:
         sn = sorted(runs[0]["snapshots"], key=lambda s: s["z"])
         al.plot([s["z"] for s in sn], [s["box_pmpc"] for s in sn], ":", color=MUTED, lw=1.5)
-        al.annotate("box (proper)", (sn[0]["z"], sn[0]["box_pmpc"]), xytext=(4, 4),
+        al.annotate("box (proper)", (sn[-1]["z"], sn[-1]["box_pmpc"]), xytext=(-60, -12),
                     textcoords="offset points", color=MUTED, fontsize=8)
     ag.set_ylabel(r"$\Gamma_{\rm HI}$ [$10^{-12}$ s$^{-1}$]")
     ag.set_yscale("log")
@@ -166,6 +176,7 @@ def main():
     al.set_yscale("log")
     af.set_ylabel(r"$\langle F_{\rm Ly\alpha}\rangle$")
     af.set_yscale("log")
+    af.set_ylim(bottom=1e-4)
     an.set_ylabel(r"$\dot n_{\rm ion}$ [s$^{-1}$ cMpc$^{-3}$]")
     an.set_yscale("log")
     for ax in axs.ravel():
