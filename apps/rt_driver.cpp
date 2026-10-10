@@ -81,6 +81,7 @@ int main(int argc, char** argv) {
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
+    s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
     par::set_threads(P.threads);
@@ -116,6 +117,7 @@ int main(int argc, char** argv) {
               << " c_reduced  : " << P.c_reduced << "\n"
               << " det_par    : " << P.deterministic_parallel << "\n"
               << " ray_rotate : " << P.ray_rotate << "\n"
+              << " z_per_dist : " << P.redshift_per_distance << "\n"
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
               << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";

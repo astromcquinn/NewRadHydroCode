@@ -18,6 +18,7 @@ the original behaviour:
 | `threads` | 0 | OpenMP threads (0: `OMP_NUM_THREADS` / all cores) |
 | `rt_substep_carry` | 0 | 1: carry the rounding of `nstep_rt` to the next hydro step, so the total RT substeps equal the light travel at ĉ exactly (`legacy_rt = 0` only) |
 | `ray_rotate`, `ray_rotate_seed` | 0, 0 | rotate the HEALPix frame of emitted rays against the grid-aligned deficit B16: 1 fixed, 2 every RT substep, 3 every substep and source (the production setting, written by `make_production.py`; `docs/port_notes.md` B16); also `rt_driver` |
+| `redshift_per_distance` | 0 | 1: redshift the radiation (rays and moment RT) per distance travelled instead of per time, fscale^s with s ≈ ĉ/c (section 1, "Redshifting per time or per distance"); only acts with `c_reduced < 1`; independent of `legacy_physics`; also `rt_driver` |
 | `ra_max` | the original 0.1 | max expansion per hydro step, da/a ≤ ra_max/(1−ra_max) (`legacy_rt = 0` only) |
 | `movie_dz`, `movie_z0`, `movie_fields` | 0, first zdata1, `fHI,temp` | movie frames every `movie_dz` in redshift, written from inside the RT substeps (section 4) |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes |
@@ -66,7 +67,7 @@ for every place that involves c or the substep length:
 | ionisations per substep, photon limiter | `photo_cell` (`num1`, `nrad`) | both ∝ dtsec_rt: consistent, photons are conserved per substep |
 | heating, cooling, chemistry | `photo_cell` with `dtsec_rt` | physical time steps; unchanged rates |
 | Thomson optical depth `dtau` | σ_T n_e c dtsec_rt | uses the **true c** and the physical time (it is the CMB τ_es integral, not a ray quantity): unchanged |
-| cosmological redshifting of rays | `ray_redshifting`: factor (a − da)/a per hydro step | depends on the expansion during the hydro step, i.e. on time: unchanged |
+| cosmological redshifting of rays | `ray_redshifting` (and `moment_redshift`): factor (a − da)/a per hydro step | depends on the expansion during the hydro step, i.e. on time: unchanged, so per distance travelled the radiation is redshifted c/ĉ times too much; `redshift_per_distance = 1` redshifts per distance instead (below) |
 | ray removal | `ngam_min`, `fgam_min` per substep, `nside_max` (path length ≈ 4000–8000 cells) | per-substep fractions and a path length: unchanged; a ray reaches nside_max after a longer time |
 | I-front speed | — | limited to ≤ ĉ (below) |
 
@@ -77,6 +78,73 @@ cannot move faster than ĉ, and after overlap, where the mean free path is
 long, the photon field responds to changes with the light-crossing time at
 ĉ (Gnedin 2016; Deparis et al. 2019 and Ocvirk et al. 2019 argue for
 ĉ ≳ 0.1–0.2c for the timing of reionization).
+
+### Redshifting per time or per distance (`redshift_per_distance`)
+
+A photon's frequency falls as ν ∝ 1/a while it is in flight:
+d ln ν = −H dt. For a real photon dt = a dχ/c, so equivalently
+d ln ν = −(aH/c) dχ: the redshift is fixed by the comoving distance χ it
+has travelled. Both forms agree only when the photon moves at c.
+
+The code redshifts every ray and every moment-RT cell once per hydro step,
+in `post_rt`, by fscale = (a − da)/a: **per unit time**. With
+c_reduced < 1 a photon covers only ĉ·dt per hydro step, so by the time it
+reaches a given distance from its source it has been redshifted c/ĉ times
+more than a real photon at that distance. The photons that set Γ_HI after
+overlap travel about a mean free path before they are absorbed, so what
+matters is the redshift accumulated over that distance. Example: the
+15.7 eV group drops below 13.6 eV (Δ ln ν = 0.144) after
+0.144·c/H ≈ 70 proper Mpc at z ≈ 5.5. Redshifted per time at ĉ = 0.1c,
+this happens after only ≈ 6–7 pMpc, comparable to λ_mfp after overlap; at
+the production ĉ = 0.01c it happens after ≈ 0.7 pMpc. Photons are lost
+below 13.6 eV, and the rest of the spectrum is softened, so Γ_HI comes out
+low for a given emissivity.
+
+`redshift_per_distance = 1` (default 0, the original) redshifts **per
+distance travelled** instead:
+
+    fscale_eff = fscale^s,   s = min(nstep_rt·dl_rt / dl_c, 1),
+
+where nstep_rt·dl_rt is the distance the radiation actually moved in the
+hydro step (one RT cell per substep, for rays and for the M1/OTVET
+transport alike) and dl_c = 2c/(H0 √Ωm)(√(a+da) − √a) the light distance of
+the step, both exactly as in `calc_timestep`. Since ln fscale_eff =
+s·ln fscale, the redshift per distance travelled is the physical one. In
+detail:
+
+* s uses the clock's actual `nstep_rt`: after `nint`, the
+  `rt_substep_carry` remainder and the `nstep_rt ≥ 1` guard. So s ≈ ĉ/c but
+  not exactly. With `rt_substep_carry = 1` s fluctuates from step to step
+  and its distance-weighted mean is ĉ/c exactly, as the substep total is.
+* s ≤ 1: a step whose substeps cover more than the light distance (rounding
+  up, or the guard) keeps the original per-time factor.
+* With c_reduced ≥ 1 the flag does nothing: the radiation moves at c on
+  average, so per time already is per distance, and s would differ from 1
+  only through the `nint` rounding (by ≤ 0.5/nstep_rt), which the cap would
+  turn into a bias.
+* dl_c and s are recomputed in `post_rt` from the clock
+  (`rt_path_fraction`, `redshift_fscale` in `cosmology.hpp`); nothing is
+  stored. The checkpoint format is unchanged, and the flag can be changed
+  at a restart, like `c_reduced`.
+* It is independent of `legacy_physics`: tying it to `legacy_physics = 0`
+  would silently change the running production runs. It is recorded in the
+  `rt_driver` log (`z_per_dist`), the `radhydro` summary line (when set)
+  and the `ray_dump` json; `make_production.py --redshift-per-distance 1`
+  writes it.
+* Not changed: the emission, Γ in the optically thin limit and everything
+  else in the table above. The radiation's redshift **per unit time** is
+  now ĉ/c times the physical one; that matters only for photons that stream
+  for a sizeable fraction of a Hubble time without being absorbed, which
+  the RSLA does not describe correctly anyway (they travel ĉ/c times too
+  short a distance).
+
+Tests: `redshift_distance` (unit: s against the `calc_timestep` geometry,
+the carry total, the cap, and for one ray and one M1 cell the energy
+scaled by exactly fscale^s with the flag and fscale without, photon number
+conserved, bit-identical with c_reduced = 1) and `redshift_distance_smoke`
+(`rt_driver` with rays and m1: the flag changes the c_reduced = 0.1 results
+and is byte-identical at c_reduced = 1). With the default the code path is
+the original, so every reference stays bit-identical.
 
 ### Validation
 

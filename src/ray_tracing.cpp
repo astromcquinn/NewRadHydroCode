@@ -1267,7 +1267,8 @@ void ray_redshifting(Simulation& s) {
   const Units& u = s.units;
   constexpr int NF = kNfreq;
 
-  const double fscale = (s.clk.scalefactor - s.clk.da_sim) / s.clk.scalefactor;
+  // (a - da)/a, or per distance with redshift_per_distance (cosmology.hpp)
+  const double fscale = redshift_fscale(s.cfg, s.clk);
   const RedshiftTable T = make_redshift_table();
 
   // every ray is redshifted independently
