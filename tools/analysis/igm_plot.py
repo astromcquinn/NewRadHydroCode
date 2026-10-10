@@ -81,7 +81,7 @@ def table(runs, obs, path):
              "weighted; G_reqF = G_ion/A), lambda and box in pMpc (lam_e_*: <F> = 1/e from "
              "random / ionized / source starts; lam_fit_ion: exp fit), A = tau rescaling for "
              "Bosman <F>, ndot in log10 s^-1 cMpc^-3 at the nearest hydro step; *_obs: data "
-             "interpolated to z (lam_obs: Zhu+23; G_obs: Gaikwad+23; lg_ndot_GZ: ndot_gz block)"]
+             "interpolated to z (lam_obs: Becker+21 and Zhu+23 pooled; G_obs: Gaikwad+23; lg_ndot_GZ: ndot_gz block)"]
     for r in runs:
         lines.append(f"## {r['label']}  ({r['run']}; N = {r['N']}, box = {r['box']} Mpc/h, "
                      f"f_esc = {r['f_esc']}, c_reduced = {r['c_reduced']})")
@@ -92,7 +92,7 @@ def table(runs, obs, path):
             i2 = thr_index(s)
             gi = g["ion_V"][i2] / 1e-12
             go = obs_interp(obs, "gamma", z)
-            lo = obs_interp(obs, "lambda_mfp", z, ref="Zhu23")
+            lo = obs_interp(obs, "lambda_mfp", z)
             li = m.get("ionized", m["random"])["lambda_e"]
             nd = ndot_at(r, z)
             vals = [z, s["xHII_V"], g["V"] / 1e-12, gi, ly["gamma_Fweighted"] / 1e-12,

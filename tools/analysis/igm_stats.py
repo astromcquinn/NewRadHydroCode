@@ -25,8 +25,10 @@ zmin and zmax it measures:
    luminosity weighted; the source's own cell is skipped).
 3. The Lya forest mean flux along skewers parallel to the three axes, in
    redshift space: Hubble flow plus the line-of-sight peculiar velocity
-   (Gas/u_gas.<z>: momentum / density), thermal Doppler profile (no
-   damping wings), the profile integrated over each pixel (pixel = cell).
+   (Gas/u_gas.<z>: momentum / density), the gas of each cell spread
+   between its faces in redshift space (face velocities interpolated),
+   thermal Doppler profile (no damping wings), integrated over each pixel
+   (pixel = cell).
    <F> = <exp(-tau)> over all pixels, the factor A for which
    <exp(-A tau)> equals the Bosman et al. 2022 mean flux at the same z, and
    the transmission-weighted Gamma_HI of the gas (each cell weighted by the
@@ -481,31 +483,66 @@ def read_pencils(snap, sel):
     return out
 
 
-def lya_tau(nHI, T, v, dl, H, cut=1e-6):
+def lya_tau(nHI, T, v, dl, H, cut=1e-6, profile="tophat"):
     """Lya optical depth on pixels = cells along periodic skewers (M, N).
     nHI [cm^-3], T [K], v [cm/s] (line-of-sight peculiar), dl proper cell
-    [cm], H [s^-1]. Gas of cell i sits at x_i = i + 0.5 + v_i/dv in pixel
-    units (dv = H dl); its Doppler profile (b = sqrt(2kT/m_H)) is
-    integrated over each pixel."""
+    [cm], H [s^-1]; pixel units: dv = H dl.
+
+    profile = "tophat" (default): the gas of cell i is spread uniformly in
+    redshift space between its faces, y_lo = i + v_{i-1/2}/dv and y_hi =
+    i + 1 + v_{i+1/2}/dv (face velocities: the mean of the two cells), and
+    every element has a Doppler profile, b = sqrt(2kT/m_H); the result is
+    integrated over each pixel analytically. "point": all the gas of the
+    cell at its centre, x_i = i + 1/2 + v_i/dv. The point form leaves
+    empty pixels between cold (T ~ 1 K, b ~ 0.1 km/s) cells whose redshift-
+    space spacing the velocity field stretches beyond a pixel, i.e. spurious
+    transmission through neutral voids; the top-hat closes these gaps.
+    Returns tau (M, N) and the pixel of each cell's centre."""
     from scipy.special import erf
     M, N = nHI.shape
     dv = H * dl
     A = K_LYA * nHI.astype(np.float64) * dl / dv
     beta = np.sqrt(2 * K_CGS * np.maximum(T.astype(np.float64), 1.0) / MH_CGS) / dv
-    x = np.arange(N)[None, :] + 0.5 + v.astype(np.float64) / dv
-    base = np.floor(x)
+    w = v.astype(np.float64) / dv
+    i = np.arange(N)[None, :]
+    xc = i + 0.5 + w
+    if profile == "point":
+        ylo = yhi = xc
+    else:
+        wf = 0.5 * (w + np.roll(w, -1, axis=1))          # face i+1/2
+        ylo, yhi = i + np.roll(wf, 1, axis=1), i + 1 + wf
+        ylo, yhi = np.minimum(ylo, yhi), np.maximum(ylo, yhi)
+    delta = yhi - ylo
+    point = delta < 1e-4 * beta
+    base = np.floor(ylo)
     sig = A > cut
-    W = int(min(N, math.ceil(5 * beta[sig].max()) + 1)) if sig.any() else 1
+    if sig.any():
+        w5 = math.ceil(5 * beta[sig].max()) + 1
+        wlo, whi = min(N, w5), min(N, w5 + int(math.ceil(delta[sig].max())))
+    else:
+        wlo = whi = 1
+    sq = 1 / math.sqrt(math.pi)
+
+    def G(u):
+        return u * erf(u) + np.exp(-u * u) * sq
+
+    def cdf(q):  # fraction of the cell's gas at y < q
+        with np.errstate(divide="ignore", invalid="ignore"):
+            c = 0.5 * beta * (G((q - ylo) / beta) - G((q - yhi) / beta)) / delta
+        if point.any():
+            c = np.where(point, 0.5 * erf((q - 0.5 * (ylo + yhi)) / beta), c)
+        return c
+
     rows = (np.arange(M) * N)[:, None]
     bi = base.astype(np.int64)
     tau = np.zeros(M * N)
-    elo = 0.5 * erf((base - W - x) / beta)
-    for m in range(-W, W + 1):
-        ehi = 0.5 * erf((base + m + 1 - x) / beta)
+    elo = cdf(base - wlo)
+    for m in range(-wlo, whi + 1):
+        ehi = cdf(base + m + 1)
         tau += np.bincount((rows + (bi + m) % N).ravel(), weights=(A * (ehi - elo)).ravel(),
                            minlength=M * N)
         elo = ehi
-    return tau.reshape(M, N), bi % N
+    return tau.reshape(M, N), np.floor(xc).astype(np.int64) % N
 
 
 def rescale_A(tau, F_target):
@@ -521,7 +558,7 @@ def rescale_A(tau, F_target):
     return float(math.exp(brentq(g, lo, hi, xtol=1e-6)))
 
 
-def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024):
+def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat"):
     rng = np.random.default_rng(seed + 7 + 1000 * snap.step)
     sel = choose_pencils(snap.N, nskew, rng)
     P = read_pencils(snap, sel)
@@ -531,7 +568,7 @@ def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024):
         for c0 in range(0, d["fHI"].shape[0], chunk):
             s = slice(c0, c0 + chunk)
             nHI = d["fHI"][s].astype(np.float64) * d["rhog"][s] * snap.nH_avg
-            tau, pix = lya_tau(nHI, d["temp"][s], d["v"][s], snap.dl, snap.H)
+            tau, pix = lya_tau(nHI, d["temp"][s], d["v"][s], snap.dl, snap.H, profile=profile)
             taus.append(tau)
             # transmission-weighted Gamma: each cell weighted by the flux of
             # the pixel its gas falls in
@@ -540,7 +577,7 @@ def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024):
             fw += float(Fc.sum())
     tau = np.concatenate(taus)
     F = np.exp(-tau)
-    out = {"nskew": int(tau.shape[0]), "F_mean": float(F.mean()),
+    out = {"nskew": int(tau.shape[0]), "profile": profile, "F_mean": float(F.mean()),
            "F_mean_axis": [float(np.exp(-t).mean()) for t in np.split(tau, 3)],
            "tau_eff": float(-math.log(max(F.mean(), 1e-300))),
            "tau_median": float(np.median(tau)),
@@ -568,7 +605,8 @@ def measure(args):
     res["gamma"] = gamma_stats(snap)
     res["mfp"] = mfp_stats(snap, nlos=opt["nlos"], rmax_pmpc=opt["rmax"], ds=opt["ds"],
                            seed=opt["seed"])
-    res["lya"] = lya_stats(snap, nskew=opt["nskew"], seed=opt["seed"], obs=obs)
+    res["lya"] = lya_stats(snap, nskew=opt["nskew"], seed=opt["seed"], obs=obs,
+                           profile=opt.get("profile", "tophat"))
     g = res["gamma"]
     i2 = g["thresholds"].index(1e-2)
     res["gamma"]["req_from_F"] = g["ion_V"][i2] / res["lya"]["A"] if res["lya"].get("A") else \
@@ -593,10 +631,19 @@ def selftest():
     e1 = np.abs(tau / gp - 1).max()
     n1 = np.zeros((M, N))
     n1[:, 10] = 1e-10
-    v = np.zeros((M, N))
-    v[:, 10] = [0, 3.3 * H * dl, -40.7 * H * dl]  # shifts across the periodic edge too
-    tau1, pix = lya_tau(n1, T, v, dl, H)
-    e2 = np.abs(tau1.sum(axis=1) / (K_LYA * 1e-10 * dl / (H * dl)) - 1).max()
+    v = np.array([[0], [3.3 * H * dl], [-40.7 * H * dl]]) * np.ones((1, N))  # uniform shifts,
+    e2 = 0.0                                                             # also across the edge
+    for prof in ("tophat", "point"):
+        tau1, pix = lya_tau(n1, T, v, dl, H, profile=prof)
+        e2 = max(e2, np.abs(tau1.sum(axis=1) / (K_LYA * 1e-10 * dl / (H * dl)) - 1).max())
+    # a stretched cold void: the top-hat fills every pixel, the point form leaves gaps
+    vs = (np.arange(N) - N / 2)[None, :] * 0.8 * H * dl * np.ones((M, 1))
+    vs[:, :8] = vs[:, -8:] = 0
+    tt, _ = lya_tau(n, np.ones((M, N)), vs, dl, H)
+    tp, _ = lya_tau(n, np.ones((M, N)), vs, dl, H, profile="point")
+    e5 = (tt[:, 12:-12] / gp).min()
+    gaps = int((tp[:, 12:-12] < 1e-3 * gp).sum())
+    e1 = max(e1, np.abs(lya_tau(n, T, np.zeros((M, N)), dl, H, profile="point")[0] / gp - 1).max())
     kap = np.full((16, 16, 16), np.float32(0.01))
     rng = np.random.default_rng(0)
     r, F, m = sightlines(kap, rng.uniform(0, 16, (64, 3)), random_dirs(rng, 64), 400)
@@ -605,9 +652,10 @@ def selftest():
     e4 = abs(res["lambda_fit"] / 100 - 1)
     print(f"GP tau: max rel. error {e1:.2e}; single-line integral {e2:.2e}; "
           f"lambda_e {e3:.2e}; lambda_fit {e4:.2e}; peak pixel of the shifted lines "
-          f"{tau1.argmax(axis=1).tolist()} (expect 10, 13, 33)")
+          f"{tau1.argmax(axis=1).tolist()} (expect 10, 13, 33); stretched cold void: "
+          f"min tau/tau_GP(top-hat) {e5:.3f} (expect 1/1.8 = 0.556), empty pixels (point) {gaps}")
     ok = e1 < 1e-6 and e2 < 1e-6 and e3 < 1e-3 and e4 < 1e-3 and \
-        tau1.argmax(axis=1).tolist() == [10, 13, 33]
+        tau1.argmax(axis=1).tolist() == [10, 13, 33] and abs(e5 - 1 / 1.8) < 1e-3 and gaps > 0
     print("selftest", "passed" if ok else "FAILED")
     return ok
 
@@ -624,6 +672,8 @@ def main():
     ap.add_argument("--rmax", type=float, default=40.0, help="sightline length [pMpc]")
     ap.add_argument("--ds", type=float, default=0.5, help="sightline step [cells]")
     ap.add_argument("--nskew", type=int, default=4096, help="Lya skewers per axis")
+    ap.add_argument("--lya-profile", default="tophat", choices=("tophat", "point"),
+                    help="gas of a cell spread between its faces in redshift space, or at its centre")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=1, help="snapshots measured in parallel")
     ap.add_argument("--data", default=DATA_DEFAULT)
@@ -636,7 +686,7 @@ def main():
     steps = [int(s) for s in a.steps.split(",") if s]
     snaps = run.snapshots(a.zmin, a.zmax, steps or None)
     opt = {"nlos": a.nlos, "rmax": a.rmax, "ds": a.ds, "nskew": a.nskew, "seed": a.seed,
-           "data": a.data}
+           "data": a.data, "profile": a.lya_profile}
     jobs = [(run.top, s.step, opt) for s in snaps]
     if a.jobs > 1 and len(jobs) > 1:
         with ProcessPoolExecutor(max_workers=a.jobs) as ex:
