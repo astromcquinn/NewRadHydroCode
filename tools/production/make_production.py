@@ -52,7 +52,12 @@ def main():
     ap.add_argument("--xi-ion", type=float, default=25.38,
                     help="log10 xi_ion with --am-params (production choice 25.38)")
     ap.add_argument("--f-esc", type=float, default=0.0,
-                    help="escape fraction with --am-params (calibrated to tau_es)")
+                    help="escape fraction with --am-params (calibrated to tau_es); with "
+                         "--f-esc-beta, its value at z = --f-esc-z0")
+    ap.add_argument("--f-esc-beta", type=float, default=0.0,
+                    help="f_esc(z) = f_esc ((1+z)/(1+f_esc_z0))^beta, capped at 1 "
+                         "(tools/analysis/emissivity.py); 0: constant f_esc")
+    ap.add_argument("--f-esc-z0", type=float, default=6.0)
     ap.add_argument("--restart-every", type=int, default=1)
     ap.add_argument("--ray-rotate", type=int, default=3, choices=(0, 1, 2, 3),
                     help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
@@ -101,6 +106,9 @@ def main():
                 lines.append(l)
         lines.append(f"xi_ion = {a.xi_ion:g}")
         lines.append(f"f_esc = {a.f_esc:g}")
+        if a.f_esc_beta != 0:
+            lines.append(f"f_esc_beta = {a.f_esc_beta:g}")
+            lines.append(f"f_esc_z0 = {a.f_esc_z0:g}")
     with open(os.path.join(a.outdir, "params.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print("wrote", os.path.join(a.outdir, "params.txt"))

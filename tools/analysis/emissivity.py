@@ -61,7 +61,14 @@ def abundance_run(path, cats, box, nmin):
     p = read_params(os.path.join(path, "params.txt"))
     if p.get("sfr_model") != "abundance":
         raise SystemExit(f"{path}: sfr_model is not abundance; use --moments")
-    xi, fesc = float(p["xi_ion"]), float(p["f_esc"])
+    xi, f0 = float(p["xi_ion"]), float(p["f_esc"])
+    beta = float(p.get("f_esc_beta", 0))
+    z0, fmax = float(p.get("f_esc_z0", 6)), float(p.get("f_esc_max", 1))
+    # halo_sources.cpp f_esc_at
+    fesc = np.array([f0 if beta == 0 else min(fmax, f0 * ((1 + z) / (1 + z0)) ** beta)
+                     for z, _ in cats])
+    desc = f"f_esc = {f0:g}" if beta == 0 else \
+        f"f_esc = {f0:g} ((1+z)/{1 + z0:g})$^{{{beta:g}}}$"
     vol = (box / H0) ** 3
     zs, nint = [], []
     for z, cat in cats:
@@ -70,7 +77,7 @@ def abundance_run(path, cats, box, nmin):
         L = np.sum(10.0 ** log_luv(p, np.log10(h["M"].astype(float)), z)) if len(h) else 0.0
         zs.append(z)
         nint.append(10 ** xi * L / vol)  # f_esc = 1
-    return np.array(zs), np.array(nint), fesc
+    return np.array(zs), np.array(nint), fesc, desc
 
 
 def moment_run(path):
@@ -127,17 +134,17 @@ def main():
     first = None
     for i, spec in enumerate(a.run):
         path, label = spec.rsplit(":", 1)
-        z, nint, fesc = abundance_run(path, cats, a.box, a.nmin)
+        z, nint, fesc, desc = abundance_run(path, cats, a.box, a.nmin)
         c = colors[i % len(colors)]
-        ax.plot(z, fesc * nint, "-", color=c, lw=2, label=f"{label} (f_esc = {fesc:g})")
+        ax.plot(z, fesc * nint, "-", color=c, lw=2, label=f"{label} ({desc})")
         rows.append((label, z, fesc * nint))
         if first is None:
-            first = (label, z, nint, fesc, c)
+            first = (label, z, nint, fesc, desc, c)
         hs = history(path)
         if hs is not None:
             axx.plot(hs[0], hs[1], "-", color=c, lw=1.5, label=label)
     if first is not None:
-        label, z, nint, fesc, c = first
+        label, z, nint, fesc, desc, c = first
         ax.plot(z, nint, ":", color="0.5", lw=1.2, label="intrinsic (f_esc = 1)")
         # f_esc(z) that turns the intrinsic emissivity into the Lopez median,
         # and a power-law fit to it over the redshifts both cover
@@ -146,7 +153,7 @@ def main():
         lx = np.log10((1 + z[ok]) / 7.0)
         bfit, lf6 = np.polyfit(lx, np.log10(freq), 1)
         axf.plot(z[ok], freq, "o", color="k", ms=3.5, label="Lopez median / intrinsic")
-        axf.axhline(fesc, color=c, lw=2, label=f"{label}: f_esc = {fesc:g}")
+        axf.plot(z, fesc, "-", color=c, lw=2, label=f"{label}: {desc}")
         zz = np.linspace(5, 13.5, 100)
         curves = [(10 ** lf6, bfit, "-", "fit"), (None, a.beta, "--", "D'Aloisio+ toy")]
         for f6, beta, ls, what in curves:
