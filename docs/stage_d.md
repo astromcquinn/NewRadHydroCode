@@ -323,6 +323,19 @@ FAB and ray scratch are uncoalesced.
   complete run, for every rank layout tried.
 - The nearest-image particle position (spike gotcha 2) is still needed for
   the local `Redistribute`; `amrex_redist_local = 0` (global) also passes.
+- **Atomics on the CPU serialise the threads.** The first clean timing of
+  the backend at 64³ (1 rank × 4 threads, 2 hydro steps restarted from a
+  production checkpoint, 3.2 M rays) took 137 s of RT against 23.5 s for
+  the serial OpenMP code: 11 s in the photon histogram (one shared
+  histogram with an atomic per ray), 22 s in `cast_1` (13 int64 atomics
+  per segment, rays sorted by cell so adjacent threads hit the same
+  cells), and the contended cache lines slowed everything else (the gather
+  phase took 40 s). With per-thread histograms and per-thread deposit
+  buffers of the grown box, summed into the accumulator FAB afterwards
+  (integers, so any order), and dynamic scheduling of the per-cell loops
+  (source cells do 192 emissions), the same run takes 27 s, still bitwise
+  identical. The spike did not see this at 32³ with 7 k rays. The GPU
+  build keeps the atomics (`kThreadBuffers` is off there).
 - The multi-node hydro slowdown of `docs/framework_decision.md` §3.3 is
   untouched here (Stage E); nothing new learned about it on one machine.
 
