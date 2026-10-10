@@ -43,8 +43,8 @@ the same branch as PR #20. The duplicate merge was dropped and
 | 2. build and test `main` on a node | done: fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures), nightly 20/20 (job 41705709, 58 min); `docs/cluster.md` §3 |
 | 3. 256³ mass function | done: `docs/hmf_validation.md` (256³ section), `data/hmf/fof_256_10mpc.txt`, `data/uv_lf/am_params_256_10mpc.txt`; run `$RUNS/hmf256` (2 min 15 s on 96 threads) |
 | 4. f_esc at 0.1c | done: **f_esc = 0.28** (`docs/production_run.md` §8, runs `$RUNS/cal128/fesc_*`, 9–10 min each on 96 threads); the 256³ τ_es check is the production run itself |
-| 5. production run | `$RUNS/reion256_prod` running on a whole node (job 41706017); `docs/production_256.md` when it finishes |
-| 6. c convergence | 128³ runs at f_esc = 0.28: 0.1c (`$RUNS/cal128/fesc_0.28`, done, τ_es = 0.0541), 0.3c (`$RUNS/cal128_c03`, job 41706019) and 1.0c (`$RUNS/cal128_c10`, job 41706020) running |
+| 5. production run | the f_esc = 0.28 run (`$RUNS/reion256_prod`, 1 h 32 min, τ_es = 0.063, ends at z = 6.44) is the 256³ calibration point (`docs/production_256.md` §2); after the user's decisions (round f_esc, end at z = 5.5, no Planck matching) the candidates `$RUNS/reion256_f0.2` and `reion256_f0.1` are running (jobs 41707183/4) |
+| 6. c convergence | done: `docs/production_run.md` §9; 0.1c delays the end of reionization by Δz = 0.4 against full c (0.3c: 0.14), the midpoint by 0.15, τ_es 2.5 % low |
 | 7. ray-precision check | done: `docs/ray_compression.md` §6.2 (`$RUNS/p128/prec`, job array 41705715) |
 | 8. STATUS, PLAN, PR | pending |
 
