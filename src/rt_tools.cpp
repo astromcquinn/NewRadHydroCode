@@ -18,6 +18,7 @@
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt_moments.hpp"
+#include "radray/recomb_rad.hpp"
 
 namespace radray {
 
@@ -431,6 +432,10 @@ void prep_rt(Simulation& s) {
         store_gas_state(G, G.cell(irt, jrt, krt), g, s.units);
       }
 
+  // recomb_rad = 1: buffers of the recombination radiation (recomb_rad.hpp)
+  if (s.cfg.recomb_rad && !s.recomb) recomb_init(s);
+  if (s.cfg.recomb_rad) check_recomb_param(s.cfg);
+
   // rt_method = m1 | otvet: no ray pool (rt_moments.hpp)
   if (use_moments(s.cfg)) {
     moment_prep(s);
@@ -766,7 +771,20 @@ void rt_step_1(Simulation& s) {
     std::int64_t nsrc = 0;
     for (std::int64_t c = 0; c < G.ncell; ++c)
       if (static_cast<double>(G.sfr[c]) > u.sfr_min) ++nsrc;
-    const std::int64_t budget = (9 * R.Nray_max) / 10 - L - rayp::nray_init * nsrc;
+    // recomb_rad = 1 (recomb_rad.hpp): choose the blocks that launch
+    // recombination rays this substep and absorb the rest on the spot; their
+    // rays count against the budget like the stellar source rays
+    std::int64_t nrec_rays = 0;
+    if (s.recomb) {
+      // stellar splits expected this substep: candidates above the split
+      // threshold ngam_ray(32), 3 new rays each; the recombination rays only
+      // get the room left after them
+      std::int64_t nspl = 0;
+      for (int n = 1; n <= N_pdf; ++n)
+        if (std::pow(1e1, n * lgn_del + lgn_min) > R.ngam_ray[32 - 1]) nspl += spl_pdf[n];
+      nrec_rays = recomb_prepare(s, L, nsrc, 3 * nspl);
+    }
+    const std::int64_t budget = (9 * R.Nray_max) / 10 - L - rayp::nray_init * nsrc - nrec_rays;
     if (budget <= 0) {
       R.ngam_ray[16 - 1] = 1e30;
       R.ngam_ray[32 - 1] = 1e30;
@@ -1105,8 +1123,16 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         double ngam[kNfreq];
         for (int n = 0; n < kNfreq; ++n) ngam[n] = static_cast<double>(gng[n]) * u.nH_avg;
 
-        // Recombination radiation: disabled (`if (.false.)`)
-        const double nrab[3] = {0, 0, 0};
+        // Recombination radiation: disabled in the original (`if (.false.)`);
+        // with recomb_rad = 1 counted below, after the update, and emitted
+        // as rays at the next substep (recomb_rad.hpp)
+        double nrab[3] = {0, 0, 0};
+        // recomb_case = A: case A rates and cooling (alpha_rec(1:3),
+        // coef_cool(1:3)); B (default, the original): alpha_rec(4:6),
+        // coef_cool(4:6). With recomb_rad = 1, cells whose block is on the
+        // spot this substep use case B.
+        const bool onspot = s.recomb && recomb_onspot(*s.recomb, c);
+        const int ia = (s.cfg.recomb_case_A && !onspot) ? 0 : 3;
 
         // Maximum photoionization rate in 1/s
         double gamma_pht[3][kNfreq], gamma_max[3][kNfreq];
@@ -1132,9 +1158,9 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         while (std::fabs(ne / ne_prev - 1) > static_cast<double>(1e-3f) && n < 5) {
           n = n + 1;
           ne_prev = ne;
-          const double AH2 = rs.alpha[3] * ne * dtsec_rt;
-          const double AHe2 = rs.alpha[4] * ne * dtsec_rt;
-          const double AHe3 = rs.alpha[5] * ne * dtsec_rt;
+          const double AH2 = rs.alpha[ia + 0] * ne * dtsec_rt;
+          const double AHe2 = rs.alpha[ia + 1] * ne * dtsec_rt;
+          const double AHe3 = rs.alpha[ia + 2] * ne * dtsec_rt;
           const double BH1 = (gam_pht[0] + rs.gcol[0] * ne) * dtsec_rt;
           const double BHe1 = (gam_pht[1] + rs.gcol[1] * ne) * dtsec_rt;
           const double BHe2 = (gam_pht[2] + rs.gcol[2] * ne) * dtsec_rt;
@@ -1193,7 +1219,13 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         double ncol[3], nrec[3];
         for (int sp = 0; sp < 3; ++sp) {
           ncol[sp] = rs.gcol[sp] * nsp[sp] * ne * dtsec_rt;
-          nrec[sp] = rs.alpha[sp + 3] * nsp_rec[sp] * ne * dtsec_rt;
+          nrec[sp] = rs.alpha[sp + ia] * nsp_rec[sp] * ne * dtsec_rt;
+        }
+        if (s.recomb) {
+          // ground-state recombinations: case A - case B
+          for (int sp = 0; sp < 3; ++sp)
+            nrab[sp] = (rs.alpha[sp] - rs.alpha[sp + 3]) * nsp_rec[sp] * ne * dtsec_rt;
+          recomb_count(s, c, nrab, tmp, u.vol_gas);
         }
 
         // Photoheating
@@ -1222,8 +1254,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         const double Tcmb = u.Tcmb;
         double cool_rate;
         if (s.cfg.legacy_physics) {
-          cool_rate = rs.cool[3] * ne * nHII + rs.cool[4] * ne * nHeII +
-                      rs.cool[5] * ne * nHeIII + rs.cool[6] * ne * nHI +
+          cool_rate = rs.cool[ia + 0] * ne * nHII + rs.cool[ia + 1] * ne * nHeII +
+                      rs.cool[ia + 2] * ne * nHeIII + rs.cool[6] * ne * nHI +
                       rs.cool[7] * ne * nHeI + rs.cool[8] * ne * nHeII +
                       rs.cool[9] * ne * nHI + rs.cool[10] * ne * nHeI +
                       rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +
@@ -1233,8 +1265,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
           // scales as ne^2*nHeII; slot 15 is HeII dielectronic recombination
           // cooling (Hui & Gnedin 1997), times ne*nHeII. Same term order as
           // the Fortran, left to right.
-          cool_rate = rs.cool[3] * ne * nHII + rs.cool[4] * ne * nHeII +
-                      rs.cool[5] * ne * nHeIII + rs.cool[6] * ne * nHI +
+          cool_rate = rs.cool[ia + 0] * ne * nHII + rs.cool[ia + 1] * ne * nHeII +
+                      rs.cool[ia + 2] * ne * nHeIII + rs.cool[6] * ne * nHI +
                       rs.cool[7] * ne * nHeI + rs.cool[8] * ne * nHeII +
                       rs.cool[9] * ne * nHI + rs.cool[10] * ne * ne * nHeII +
                       rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +

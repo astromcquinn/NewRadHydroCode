@@ -30,6 +30,7 @@ add_library(radray
   src/ray_quant.cpp
   src/rt_moments.cpp
   src/rt_moments_fft.cpp
+  src/recomb_rad.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 

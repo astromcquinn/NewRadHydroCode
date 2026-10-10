@@ -138,6 +138,27 @@ struct Config {
   int moment_nsub = 4;
   int otvet_tensor = 0;
 
+  // Recombinations and recombination radiation (docs/recomb_radiation.md;
+  // set_recomb_param in recomb_rad.hpp). New options, not in the original:
+  //   recomb_case: B (default, the original) = case B recombination rates
+  //                and cooling in photo_cell (on-the-spot); A = case A.
+  //   recomb_rad:  1 = the ground-state recombinations (alpha_A - alpha_B)
+  //                of every ionised cell are emitted as rays (requires
+  //                recomb_case = A, rt_method = rays, legacy_rt = 0).
+  //   recomb_rad_nside: HEALPix nside of the emitted rays (12 nside^2 rays
+  //                per emission; default 1, i.e. 12 rays).
+  //   recomb_rad_block: emission is gathered over blocks of b^3 RT cells and
+  //                launched from one cell of the block, rotating every
+  //                substep (default 2).
+  //   recomb_rad_pool: recombination rays are only launched while the live
+  //                rays stay below this fraction of Nray_max; the rest of
+  //                the emission is absorbed on the spot (default 0.75).
+  bool recomb_case_A = false;
+  bool recomb_rad = false;
+  int recomb_rad_nside = 1;
+  int recomb_rad_block = 2;
+  double recomb_rad_pool = 0.75;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

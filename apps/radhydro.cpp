@@ -54,6 +54,7 @@
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
+#include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 
@@ -462,6 +463,7 @@ int main(int argc, char** argv) {
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
+    check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);

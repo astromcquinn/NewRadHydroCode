@@ -14,6 +14,7 @@
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
 #include "radray/parallel.hpp"
+#include "radray/recomb_rad.hpp"
 
 namespace radray {
 
@@ -180,23 +181,28 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
   static thread_local std::vector<std::vector<std::int64_t>> merge1_ir(192);
   int merge1_nr[192];
   const bool det = s.cfg.det_parallel;
+  // recomb_rad = 1 (recomb_rad.hpp): cells that launch recombination rays
+  const std::uint8_t* rec_emit = s.recomb ? s.recomb->emit.data() : nullptr;
 
   for (int krt = box[4]; krt <= box[5]; ++krt) {
     for (int jrt = box[2]; jrt <= box[3]; ++jrt) {
       for (int irt = box[0]; irt <= box[1]; ++irt) {
         const std::int64_t c = G.cell(irt, jrt, krt);
         if (!(G.htoc_ray(1, c) > 0 ||
-              static_cast<double>(G.sfr[c]) > u.sfr_min))
+              static_cast<double>(G.sfr[c]) > u.sfr_min || (rec_emit && rec_emit[c])))
           continue;
         if (det) det_set_cell(irt, jrt, krt);
 
         std::int64_t ncst_tot = 0, nspl_tot = 0, nmrg_tot = 0;
-        const int nside_merge = 2;
+        // 2 in the original (both branches of its choice give 2, B12)
+        const int nside_merge = R.nside_merge;
 
         // Source?
         if (static_cast<double>(G.sfr[c]) > u.sfr_min) {
           ray_source(s, irt, jrt, krt);
         }
+        // Recombination radiation (recomb_rad = 1)
+        if (rec_emit && rec_emit[c]) ray_source_recomb(s, irt, jrt, krt);
 
         // Use htoc_ray(1:2) instead of htoc_ray(3:4) for head & tail
         const std::int64_t head = G.htoc_ray(1, c);

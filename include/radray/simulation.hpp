@@ -21,6 +21,7 @@ namespace radray {
 
 struct RayDump;  // radray/ray_dump.hpp
 struct MomentState;  // radray/rt_moments.hpp
+struct RecombState;  // radray/recomb_rad.hpp
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -88,6 +89,8 @@ struct Simulation {
   // Moment RT state (rt_method = m1 | otvet, rt_moments.hpp); null with the
   // ray tracing.
   std::shared_ptr<MomentState> moments;
+  // Recombination radiation (recomb_rad = 1, recomb_rad.hpp); null otherwise.
+  std::shared_ptr<RecombState> recomb;
 };
 
 }  // namespace radray
