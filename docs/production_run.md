@@ -581,7 +581,7 @@ submission):
 
 ```
 source tools/hyak/env.sh
-R=/gscratch/astro/$USER/runs
+R=/gscratch/astro/$USER/radhydro/runs
 # 1. sources: the fitted L_UV(M, z) for 128^3 / 10 Mpc/h is committed as
 #    data/uv_lf/am_params_128_10mpc.txt; to refit (seconds):
 #    build/am_fit --lf data/uv_lf/lf_params.txt --hmf st \

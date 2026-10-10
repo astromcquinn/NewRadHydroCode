@@ -128,9 +128,9 @@ not regenerated (CLAUDE.md). The PM, hydro and full-loop stored references
 
 ```
 /gscratch/astro/mcquinn/
-  NewRadHydroCode/            the repository (branch hyak-setup); build/, build-nightly/, build-znver4/
+  NewRadHydroCode/            the repository (`main`); build/, build-nightly/, build-znver4/
   sw/                         fftw-3.3.10-float, conda-envs/radray, conda-pkgs, src, fftw-variants (the SIMD test)
-  runs/                       production problems (params.txt, ics/, run/, run.log)
+  radhydro/runs/              production problems (params.txt, ics/, run/, run.log)
     reion128/                 128³, 0.01c (all checkpoints kept)
     reion128_c01/             128³, 0.1c (ics -> ../reion128/ics)
     reion256/                 256³, 0.01c
@@ -145,9 +145,9 @@ not regenerated (CLAUDE.md). The PM, hydro and full-loop stored references
 
 ```
 source tools/hyak/env.sh
-python3 tools/production/make_production.py /gscratch/astro/$USER/runs/reion128 --N 128   # ICs + params.txt, < 1 min
+python3 tools/production/make_production.py /gscratch/astro/$USER/radhydro/runs/reion128 --N 128   # ICs + params.txt, < 1 min
 # shared node, 32 threads
-sbatch --export=ALL,PROB=/gscratch/astro/$USER/runs/reion128 tools/hyak/reion_production.slurm
+sbatch --export=ALL,PROB=/gscratch/astro/$USER/radhydro/runs/reion128 tools/hyak/reion_production.slurm
 # whole node
 sbatch --exclusive -c 192 --mem=256G --export=ALL,PROB=...,THREADS=192 tools/hyak/reion_production.slurm
 ```
@@ -349,7 +349,7 @@ any run.
   ionised. At 0.01c it keeps rising, to 0.59 Nray_max at z ≈ 5.9. All the
   per-step numbers are in `run/timing.txt`.
 
-**Where they are** (`/gscratch/astro/mcquinn/runs/`): each `<run>/run/` holds
+**Where they are** (`/gscratch/astro/mcquinn/radhydro/runs/`; the older root `runs/` was moved there on 2026-10-09): each `<run>/run/` holds
 `timing.txt`, `step_NNNN/` (stats and fields at the zdata1 outputs),
 `movie/` (frames and `frames.txt`), `RT/`, `Gas/`, `DM/`, `Pk/`, `Log/`,
 `restart/` and `DONE`, plus `<run>/run.log`. The 256³, 0.1c final checkpoint

@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-10: B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-10: status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
 
@@ -402,7 +402,7 @@ thread's `reionization_production.md`):
 - The production run was to start at f_esc = 0.5 (user decision), but the
   calibration **must be redone at 0.1c** (`docs/cluster.md` §7: 0.01c
   lowers τ_es by 20 %) and at 256³; `tools/production/calibrate_fesc.py`.
-- Movie, test movie `docs/figures/reion_test_128.mp4` (the thread's own
+- Movie, test movie `docs/movies/reion_test_128.mp4` (the thread's own
   movie tool was dropped in favour of `tools/movies/make_movie.py` from
   PR #12; `reion_production.slurm` now runs `reion.py`, the stills and the
   movie when a run finishes). `make_production.py` gained `--am-params`,
@@ -465,7 +465,7 @@ The survey found three branches off `main`; they were merged in the order
 `hyak-setup` (PR #17), `movies` (PR #12), `production-run` (PR #7), with
 these resolutions: the `tools/hyak/` scripts of `hyak-setup` were kept
 over the older copies on `production-run` (plus the post-run `reion.py`,
-stills and movie calls); `tools/movie/make_movie.py` of `production-run`
+stills and movie calls); `tools/movie/make_movie.py` (sic) of `production-run`
 was dropped for `tools/movies/make_movie.py` of PR #12;
 `docs/reionization_production.md` was folded into `docs/production_run.md`
 §8. Remote branches with no commits beyond `main` after the merges:
@@ -508,42 +508,227 @@ carried `long`); README status, layout and dependencies brought up to date;
 uninitialised padding bytes (`DriverState` is written from a zeroed copy;
 format unchanged).
 
-## Threads to launch (2026-10-09)
+## Threads to launch (2026-10-09, revised 2026-10-10)
+
+*Assessment of 2026-10-10 (session `lucid-heisenberg`): PR #19 merged.
+The production-run thread (item 2) was started on Hyak in a session that
+did not finish; nothing from it reached the repository (no branch, no 256³
+mass function, no 0.1c calibration). Every 256³ run on klone so far used
+the global SFR model and no frame rotation, so none is a science run. The
+B16 fix `ray_rotate` (item 5) sits on the unmerged branch
+`claude/exciting-clarke-zn62ih` and now conflicts with `main` in five
+files; production needs it.*
 
 On Hyak (`claude remote-control` in tmux, or batch jobs):
 
 1. ~~Merge and validate~~ Done 2026-10-09 (PRs #16, #17, #12, #7). Still
    to do on klone: the fast and nightly suites on the merged `main`
-   (expect the 8 known RT stored-reference failures of `docs/cluster.md` §3).
-2. **Production run at 256³, 0.1c, abundance-matched sources.** Recalibrate
-   f_esc at 0.1c (four 128³ runs of about 16 min, `calibrate_fesc.py`),
-   check the 256³ HMF (`hmf_compare.py`), then the 256³ 0.1c run with
-   movie on a whole node (1.5 h), and one 0.3c or 1c run at 128³ for the
-   c convergence. Decide `hydro_scheme = unsplit` for it (the legacy scheme
-   overheats cold gas; `make_production.py` does not set it yet).
-3. ~~Framework-spike benchmarks~~ Done 2026-10-10 (branch
+   (expect the 10 known RT stored-reference failures of `docs/cluster.md` §3
+   and `docs/rt_moments.md` §6.1).
+2. **Production run at 256³, 0.1c, abundance-matched sources.** Opening
+   prompt for the Hyak session (it also covers item 4):
+
+   > Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md and docs/ROADMAP.md.
+   > You are on UW Hyak klone (`docs/cluster.md`): account `astro`,
+   > partition `cpu-g2`, `source tools/hyak/env.sh`, build with
+   > `tools/hyak/build_hyak.sh` on a compute node, runs under
+   > `RUNS=/gscratch/astro/$USER/radhydro/runs` (the older runs of
+   > `docs/cluster.md` §7 may be under `/gscratch/astro/$USER/runs`).
+   > Work on branch `production-256` off `main`; commit often and push.
+   >
+   > Decisions already taken: 256³, 10 Mpc/h, `c_reduced = 0.1`,
+   > `nray_max_factor = 16`, `legacy_rt = legacy_physics = 0`,
+   > `deterministic_parallel`, `rt_substep_carry`, `ray_rotate = 3`,
+   > `sfr_model = abundance`, log ξ_ion = 25.38, f_esc calibrated to
+   > τ_es = 0.054. `hydro_scheme`: HYDRO_SCHEME_DECISION (`unsplit`, which
+   > fixes the cold-gas overheating of `docs/hydro_tests.md`, or `legacy`,
+   > which every 256³ run so far used); `make_production.py` does not set
+   > it, so add `hydro_scheme = ...` to params.txt or `--hydro-scheme` to
+   > the script.
+   >
+   > 0. **Recover the earlier attempt.** `sacct -S 2026-10-09 -X
+   >    --format=JobID,JobName%30,State,Elapsed,NodeList` and the run
+   >    directories under both roots (`DONE`, `run/reion.txt`,
+   >    `run/restart/`). Reuse any finished no-source 256³ run,
+   >    calibration run or production run that matches the settings
+   >    above; list what you found in docs/STATUS.md.
+   > 1. **`ray_rotate` must be on `main`.** If `git grep ray_rotate
+   >    include/radray/config.hpp` on `main` finds nothing, merge `main`
+   >    into `claude/exciting-clarke-zn62ih` (conflicts in
+   >    apps/rt_driver.cpp, include/radray/io.hpp, tests/CMakeLists.txt,
+   >    docs/STATUS.md, docs/PLAN.md: keep both sides, the branch adds
+   >    the `ray_rotate*` options, a `rays` unit test and a `ray_rotate`
+   >    physics test), rebuild, run the fast suite (only the known
+   >    stored-reference failures allowed), push, open a PR and merge it.
+   >    Then branch `production-256` from the new `main`.
+   > 2. **Build and test** `main` on a node: `sbatch
+   >    tools/hyak/build_hyak.sh`, then the nightly label
+   >    (`CMAKE_EXTRA=-DRADRAY_NIGHTLY_TESTS=ON CTEST_LABELS=nightly`).
+   >    Record the results in docs/cluster.md §3.
+   > 3. **256³ mass function** (`docs/hmf_validation.md`): a no-source
+   >    256³ run (`tvir_min = 1e30`, `write_catalogs`, 96 threads,
+   >    minutes), `hmf_compare.py` at z = 5.5, 6.25, 8, 10, 12.6 against
+   >    Sheth–Tormen, then `fit_fof_hmf.py` → `data/hmf/fof_256_10mpc.txt`
+   >    and `build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --sim-hmf
+   >    data/hmf/fof_256_10mpc.txt` → `data/uv_lf/am_params_256_10mpc.txt`
+   >    (`docs/abundance_matching.md` §3c). Add the 256³ figure and table
+   >    to docs/hmf_validation.md.
+   > 4. **f_esc at 0.1c.** `tools/production/calibrate_fesc.py $RUNS/cal128
+   >    --N 128 --am-params data/uv_lf/am_params_128_10mpc.txt --fesc 0.2
+   >    0.35 0.5 0.8 --threads 96 --extra c_reduced=0.1 data_files=dm
+   >    fields_at_data1=0 hydro_scheme=<decision>` (later lines of
+   >    params.txt override earlier ones, so `--extra` wins over the
+   >    script's 0.01c). About 16 min per run on 96 threads.
+   >    Then one 256³ run at the interpolated f_esc with the 256³ L(M) to
+   >    confirm τ_es (1.5 h on a whole node). Write the table into
+   >    docs/production_run.md §8 and the chosen f_esc into docs/PLAN.md.
+   > 5. **The production run:** `make_production.py $RUNS/reion256_prod
+   >    --N 256 --c-reduced 0.1 --am-params
+   >    data/uv_lf/am_params_256_10mpc.txt --f-esc <calibrated> --xi-ion
+   >    25.38 --movie-dz 0.025 --movie-fields fHI,temp,rhog
+   >    --restart-every 4`, the hydro-scheme line, then `sbatch
+   >    --exclusive -c 192 --mem=256G --time=1-00:00:00
+   >    --export=ALL,PROB=$RUNS/reion256_prod,THREADS=192
+   >    tools/hyak/reion_production.slurm`. The job writes `run/reion.txt`,
+   >    stills and `run/movie/cosmo.mp4`. Put the history table, τ_es,
+   >    stills and a compressed movie (`docs/movies/`, a few MB) into a
+   >    new docs/production_256.md, and compare the history with the
+   >    global-model `reion256_c01` run of `docs/cluster.md` §7.
+   > 6. **c convergence:** one 128³ run at `c_reduced = 0.3` with the same
+   >    sources as the 128³ calibration run at the chosen f_esc (about 50
+   >    min on 96 threads), and if time allows one at 1.0 (hours). Compare
+   >    x_HII(z) and τ_es with the 0.1c run (`tools/analysis/reion_history.py`).
+   > 7. **Ray-precision check** (docs/ray_compression.md §9, the one unrun
+   >    item): `make_production.py $RUNS/p128 --N 128 --movie-dz 0` then
+   >    `sbatch --export=ALL,ROOT=$RUNS/p128
+   >    tools/production/hyak_precision.sbatch` (a 6-task array, 24
+   >    threads each, so it runs alongside the jobs above), then
+   >    `precision_metrics.py` and `slices.py` as the script's header says.
+   >    Record the result in docs/ray_compression.md §6/§9.
+   > 8. At the end update docs/STATUS.md (this list), docs/PLAN.md (f_esc,
+   >    hydro_scheme as used) and push; open a PR for `production-256`.
+
+3. ~~Framework-spike benchmarks~~ Done 2026-10-10 (PR #19, branch
    `spike-hyak-bench`; `docs/framework_decision.md` §3.2–4). AMReX
    approved and no ACCESS proposal for now (user, 2026-10-10).
-4. **Ray-compression 128³ precision check**
-   (`tools/production/hyak_precision.sbatch`), the one unrun item of the
-   compression study.
+4. ~~Ray-compression 128³ precision check~~ Folded into the item 2
+   prompt (step 7); `tools/production/hyak_precision.sbatch` is a klone
+   job.
 
 In the cloud (branch + PR each):
 
-5. **B16 fix behind a flag** (frame rotation; `tools/analysis/axis_deficit.py`
-   and the 64³ movie as the checks). Blocks science runs.
+5. **B16 fix behind a flag**: done on branch `claude/exciting-clarke-zn62ih`
+   (`ray_rotate = 1|2|3`, production uses 3, user decision 2026-10-10),
+   **not merged**; merging now conflicts with `main` in five files. Merge
+   it before the production run (step 1 of the item 2 prompt, or in the
+   cloud).
 6. **Stage D: sorted-ray-array RT in AMReX** on a uniform grid, with the
    R-struct encoding (8 dithered photon bits), validated against
-   `rt_driver --set legacy_rt=0` as the spike was. Needs the user's AMReX
-   confirmation first.
+   `rt_driver --set legacy_rt=0` as the spike was. AMReX is confirmed
+   (2026-10-10), so this can start. Opening prompt (2026-10-10):
+
+   > Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md, docs/ROADMAP.md, then
+   > docs/framework_decision.md (§1, §2, §6 Stage D, §8),
+   > docs/design_parallel_and_encoding.md (§0.1, §2, §3, §4.2) and
+   > docs/ray_compression.md (the R-struct recommendation). This is
+   > Stage D of the roadmap: the ray-tracing RT on AMReX, uniform grid,
+   > no refinement, CPU first. Branch `stage-d-amrex` off `main`; commit
+   > often and push; one PR at the end (or one per milestone below).
+   >
+   > Starting point: `spike/` (`spike/README.md`, `spike/amrex/README.md`).
+   > `spike/amrex/rt_amrex.cpp` already does the whole RT substep on
+   > AMReX (sorted rays, two-pass emission/split/merge, canonical merge
+   > order, int64 deposits with SumBoundary, Redistribute) and is bitwise
+   > identical to `spike/serial/rt_serial` for 1–8 ranks and to round-off
+   > against `rt_driver --set legacy_rt=0` on the five RT problems. Build
+   > AMReX 26.10 with `-DSPIKE_FETCH_AMREX=ON` (MPI, OpenMP, 3D, particles
+   > in single precision) as the spike did; cache the install.
+   >
+   > Ground rules: the serial port stays the bit-for-bit legacy reference
+   > and every stored-reference, live-Fortran, restart and thread test
+   > must keep passing unchanged. The AMReX path is a new option
+   > (`rt_backend = amrex`, default the current code), implemented only
+   > for `legacy_rt = 0` (sorted arrays cannot reproduce the zombie-ray
+   > thresholds, design doc §0.1). AMReX is an optional dependency:
+   > `-DRADRAY_AMREX=ON`, found with `find_package` or fetched; the
+   > default build and the fast suite must not need it.
+   >
+   > Milestones, each validated before the next:
+   > 1. **One physics implementation.** Move the ray and RT-cell kernels of
+   >    `spike/common` (`ray_kernels.hpp`, `rt_cell.hpp`, `healpix_hd.hpp`,
+   >    `consts_hd.hpp`) to `include/radray/kernels/`, as PR #15 did for
+   >    `hydro_mh.hpp`, and make `src/ray_tracing.cpp` and
+   >    `src/rt_tools.cpp` call them, so cast, advance, split, merge,
+   >    emission, redshifting and `photo_cell` exist once. Bit-identical
+   >    results in every flag combination (the whole fast suite, then the
+   >    nightly label). Carry the serial code's newer physics into the
+   >    kernels where it belongs: `ray_rotate` (if merged by then; it is
+   >    on `claude/exciting-clarke-zn62ih`), the recombination-radiation
+   >    emission (`recomb_rad`), and the `rt_substep_carry` / `ra_max`
+   >    bookkeeping. Leave the moment solvers (`rt_method = m1|otvet`) on
+   >    the serial path.
+   > 2. **Library component.** Turn `rt_amrex` into
+   >    `src/amrex/rt_level.cpp` (+ header) working on one level: a
+   >    `ParticleContainerPureSoA` of rays, cell `FabArray`s, int64
+   >    deposits with `SumBoundary`, 2 ghost layers with the assertion on
+   >    the ray reach, `Redistribute` after every substep. Add what the
+   >    prototype lacks: the full source model (`halo_sources`, including
+   >    `sfr_model = abundance` and the local-deposit branch for thick
+   >    source cells), redshifting and `post_rt` inside the hydro loop,
+   >    the ray pool guard, movie frames, and checkpoints (a new section
+   >    of the checkpoint format, version 5). Wire it into `rt_driver` and
+   >    `radhydro` behind `rt_backend = amrex`.
+   > 3. **Encoding.** Store the rays as the R-struct of
+   >    docs/ray_compression.md (direction as HEALPix index + quantised
+   >    offset, position as an in-cell offset, float photon total + 8-bit
+   >    dithered log-quantised spectral shape, never-merged flag), decoded
+   >    to float/double in registers. Keep a `ray_encoding = float|rstruct`
+   >    switch so the float layout remains for bitwise validation; measure
+   >    bytes per ray and the x_HII(z), τ_es and T errors of the encoded
+   >    run against the float one on `lognormal_16src` and the 64³
+   >    production configuration (the acceptance metrics of
+   >    docs/ROADMAP.md: x_HII within 1–2 %, τ_es within 1 %).
+   > 4. **Validation and tests** (CTest label `amrex`, skipped when AMReX
+   >    is off): bitwise against `rt_serial` for 1, 2, 4, 8 ranks × 1, 2
+   >    threads and box sizes 16³/32³ (the spike's `validate.sh` matrix);
+   >    round-off against `rt_driver --set legacy_rt=0` on the five RT
+   >    problems with `tools/compare/compare.py`; rank- and thread-count
+   >    independence; bit-identical restarts; a full 64³ `radhydro` run
+   >    compared with the serial one (history, τ_es, per-cell fields).
+   >    Timing: `rt_backend = amrex` against the serial OpenMP code on the
+   >    4-core VM at 64³ and 128³ (`tools/production/timing_table.py`),
+   >    and a klone job script in `tools/hyak/` for 24 ranks × 8 threads
+   >    at 256³ to compare with `docs/cluster.md` §6 (the user runs it).
+   > 5. **GPU, last and optional:** add the CUDA target
+   >    (`-DAMReX_GPU_BACKEND=CUDA`, nvcc ≥ 12.2, `--fmad=false`), rate
+   >    tables in device memory, a team-level step-1 for source cells, and
+   >    a klone `ckpt` job script (`spike/hyak/build_gpu.sh` is the start).
+   >    Compile-only is acceptable here; the A100/H200 runs are the user's.
+   >    Record the ratio against one node in docs/framework_decision.md §4
+   >    (PLAN.md: ≥ 5× on H200 reopens the ACCESS question).
+   >
+   > Known traps: AMReX's `ParallelCopy`/`FillBoundary` need `operator+=`,
+   > so struct FABs do not work (use component FABs); `ParallelFor` is
+   > serial on CPU without MFIter tiling + OpenMP; particle precision is
+   > build-wide (SINGLE, the original's `real(4)` for DM); the merge must
+   > use the canonical order (cone, payload hash, bytes) or results depend
+   > on the rank layout. Don't fix the AMReX multi-node hydro slowdown of
+   > `docs/framework_decision.md` §3.3 here (Stage E), but note anything
+   > you learn about it.
+   >
+   > Write `docs/stage_d.md` (design as built, validation tables,
+   > timings, encoding errors, what is left for Stage E), update
+   > docs/STATUS.md, docs/PLAN.md (decisions taken) and CLAUDE.md's layout
+   > table, and open the PR.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. Smaller: the stored-RT-reference platform policy; the 2 % growth
    deficit; the unsplit open items (Sedov radius convergence, cold-gas
-   time-step sensitivity at 128³).
+   time-step sensitivity at 128³); the AMReX multi-node hydro anomaly
+   (`docs/framework_decision.md` §3.3).
 
-**Decisions needed from the user:** production
-`c_reduced` (0.1 recommended) and N (256); `hydro_scheme` for production;
-the stored-reference policy on klone; deleting the merged branches.
+**Decisions needed from the user:** `hydro_scheme` for production
+(`unsplit` recommended); the stored-reference policy on klone; the
+moment-RT questions below.
 
 ## Next
 

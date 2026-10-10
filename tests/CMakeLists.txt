@@ -490,6 +490,16 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(thread_rt_det_${p} PROPERTIES TIMEOUT 1800 LABELS threads
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   endforeach()
+  # the production RT configuration: deterministic_parallel with the per-substep
+  # and per-source frame rotation ray_rotate = 3 (B16 fix, docs/port_notes.md)
+  add_test(NAME thread_rt_det_rotate_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_det_rotate $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set legacy_rt=0
+                   --set legacy_physics=0 --set deterministic_parallel=1 --set ray_rotate=3
+                   --set nsteps=6)
+  set_tests_properties(thread_rt_det_rotate_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
+                       ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   # legacy order (rt_step_2 and the RT grid loops in parallel), vs threads
   add_test(NAME thread_rt_legacy_lognormal_16src
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
