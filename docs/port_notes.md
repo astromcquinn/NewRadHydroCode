@@ -389,6 +389,17 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
     the effect for a full cosmological run, where many overlapping sources
     fill each other's gaps.
 
+* **Redshift per time with a reduced speed of light** (not a quirk of the
+  original, which hard-wires c: a consequence of the C++ `c_reduced`).
+  `ray_redshifting` and `moment_redshift` scale frequencies by
+  (a − da)/a once per hydro step, i.e. per unit time. With ĉ < c the
+  radiation then loses c/ĉ times more energy per distance travelled than
+  real photons. **Option `redshift_per_distance = 1`** (default 0 = the
+  original; independent of `legacy_rt` and `legacy_physics`) uses
+  ((a − da)/a)^s with s = min(nstep_rt·dl_rt/dl_c, 1) ≈ ĉ/c, and does
+  nothing with `c_reduced ≥ 1`. Details and tests:
+  `docs/production_run.md` §1, "Redshifting per time or per distance".
+
 ## 5a. The `legacy_rt` switch (phase 1b)
 
 `legacy_rt` is a `params.txt` key, default 1. Both drivers also accept

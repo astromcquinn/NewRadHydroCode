@@ -1,5 +1,6 @@
 #include "radray/cosmology.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <ostream>
@@ -297,6 +298,30 @@ TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode,
 
 int calc_timestep(const Config& cfg, double da_fixed, SimClock& clk) {
   return timestep_core(cfg, TimestepMode::Fixed, da_fixed, clk).ns_rt;
+}
+
+double rt_path_fraction(const Config& cfg, const SimClock& clk) {
+  // dl_c and dl_rt as in timestep_core (computed here, not stored in the
+  // clock, so that SimClock and the checkpoint format are unchanged)
+  const double a1 = clk.scalefactor - clk.da_sim;
+  const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
+                      (std::sqrt(a1 + clk.da_sim) - std::sqrt(a1));
+  const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
+  return clk.nstep_rt * dl_rt / dl_c;
+}
+
+double redshift_fscale(const Config& cfg, const SimClock& clk) {
+  // the original: (a - da)/a per hydro step
+  const double fscale = (clk.scalefactor - clk.da_sim) / clk.scalefactor;
+  if (!cfg.redshift_per_distance || !(cfg.c_reduced < 1)) return fscale;
+  // Per distance: the radiation moved s = nstep_rt*dl_rt/dl_c of the light
+  // distance of the step, so it is redshifted by fscale^s (ln nu ~ -distance
+  // travelled). s <= 1: a step whose substeps cover more than the light
+  // distance (nint rounding, the nstep_rt >= 1 guard) keeps the full
+  // per-time factor; with c_reduced >= 1 (above) the radiation moves at c
+  // and the per-time factor is already per distance.
+  const double s_path = std::min(rt_path_fraction(cfg, clk), 1.0);
+  return std::pow(fscale, s_path);
 }
 
 // radhydro.f90: radhydro (clock part only)

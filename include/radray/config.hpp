@@ -102,6 +102,16 @@ struct Config {
   int ray_rotate = 0;
   std::uint64_t ray_rotate_seed = 0;
 
+  // Cosmological redshift of the radiation per distance travelled instead of
+  // per time (docs/production_run.md, reduced speed of light). The rays
+  // (ray_redshifting) and the moment RT (moment_redshift) are redshifted once
+  // per hydro step by fscale = (a - da)/a. false (default): the original.
+  // true with c_reduced < 1: by fscale^s, s = min(nstep_rt*dl_rt/dl_c, 1) the
+  // distance the radiation actually moved in the step over the light distance
+  // (redshift_fscale in cosmology.hpp); with c_reduced >= 1 it changes
+  // nothing. Not tied to legacy_physics.
+  bool redshift_per_distance = false;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled

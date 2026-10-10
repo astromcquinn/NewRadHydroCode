@@ -97,6 +97,7 @@ struct RunParams {
   int rt_substep_carry = 0;  // 1: exact total RT substeps (Config::rt_substep_carry)
   int ray_rotate = 0;        // B16 fix: Config::ray_rotate (0 = original)
   long long ray_rotate_seed = 0;
+  int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -164,6 +165,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     if (P.ray_rotate < 0 || P.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
   } else if (key == "ray_rotate_seed")
     P.ray_rotate_seed = std::stoll(val);
+  else if (key == "redshift_per_distance") {
+    P.redshift_per_distance = std::stoi(val);
+    if (P.redshift_per_distance != 0 && P.redshift_per_distance != 1)
+      throw std::runtime_error("redshift_per_distance must be 0 or 1");
+  }
   else if (key == "restart_every")
     P.restart_every = std::stoi(val);
   else if (key == "restart_keep_latest")
@@ -470,6 +476,7 @@ int main(int argc, char** argv) {
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
+    s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
@@ -526,6 +533,8 @@ int main(int argc, char** argv) {
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
+           << (P.redshift_per_distance ? ", redshift_per_distance = 1" : "")
+           << (P.redshift_per_distance && !(P.c_reduced < 1) ? " (no effect: c_reduced >= 1)" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "

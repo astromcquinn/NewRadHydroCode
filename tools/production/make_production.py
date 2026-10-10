@@ -57,6 +57,10 @@ def main():
     ap.add_argument("--ray-rotate", type=int, default=3, choices=(0, 1, 2, 3),
                     help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
                          "3: every RT substep and source (production), 0: the original")
+    ap.add_argument("--redshift-per-distance", type=int, default=0, choices=(0, 1),
+                    help="redshift the radiation per distance travelled instead of per time "
+                         "(fscale^s, docs/production_run.md); 0: the original (default, "
+                         "no line written)")
     a = ap.parse_args()
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
@@ -94,6 +98,8 @@ def main():
     ]
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
+    if a.redshift_per_distance:
+        lines.append("redshift_per_distance = 1")
     if a.am_params:
         if not a.f_esc > 0:
             sys.exit("--am-params needs --f-esc")

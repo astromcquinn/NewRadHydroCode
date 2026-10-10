@@ -20,6 +20,12 @@ target_link_libraries(test_moments PRIVATE radray)
 add_test(NAME moments COMMAND test_moments)
 set_tests_properties(moments PROPERTIES LABELS moments)
 
+# Redshift per distance travelled with a reduced speed of light
+# (redshift_per_distance, docs/production_run.md)
+add_executable(test_redshift_distance test_redshift_distance.cpp)
+target_link_libraries(test_redshift_distance PRIVATE radray)
+add_test(NAME redshift_distance COMMAND test_redshift_distance)
+
 # Halo finder and sources (docs/halos_and_sources.md)
 add_executable(test_halos test_halos.cpp)
 target_link_libraries(test_halos PRIVATE radray_halos)
@@ -204,6 +210,14 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
                    ${CMAKE_CURRENT_BINARY_DIR}/ray_rotate)
   set_tests_properties(ray_rotate PROPERTIES TIMEOUT 600 LABELS physics)
+
+  # Redshift per distance travelled with a reduced speed of light
+  # (redshift_per_distance, docs/production_run.md): rays and m1 smoke runs
+  add_test(NAME redshift_distance_smoke
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/redshift_distance_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/redshift_distance)
+  set_tests_properties(redshift_distance_smoke PROPERTIES TIMEOUT 600 LABELS physics)
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.

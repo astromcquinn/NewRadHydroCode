@@ -1,6 +1,36 @@
 # Project status
 
-*Last updated: 2026-10-10: IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-10, branch `redshift-per-distance` (not merged)
+
+**Redshift per distance travelled with a reduced speed of light
+(`docs/production_run.md` §1, "Redshifting per time or per distance").**
+- Problem: `ray_redshifting` and `moment_redshift` scale frequencies by
+  fscale = (a − da)/a once per hydro step, per unit time. At ĉ < c the
+  radiation then loses c/ĉ times more energy per distance than real
+  photons. At ĉ = 0.1c and z ≈ 5.5 the 15.7 eV group falls below 13.6 eV
+  after ≈ 6–7 pMpc (≈ 70 pMpc at c), comparable to λ_mfp after overlap;
+  at 0.01c after ≈ 0.7 pMpc. Γ_HI is biased low for a given emissivity.
+- New option `redshift_per_distance` (params.txt / `--set`, `radhydro`
+  and `rt_driver`; default 0 = the original code path):
+  fscale_eff = fscale^s, s = min(nstep_rt·dl_rt/dl_c, 1), the distance the
+  radiation moved in the step (actual `nstep_rt`, after nint,
+  `rt_substep_carry` and the ≥ 1 guard) over the light distance of
+  `calc_timestep`. No effect with `c_reduced ≥ 1`. Rays and M1/OTVET.
+  Independent of `legacy_physics` (the running production runs use
+  `legacy_physics = 0` and are unchanged). Not in the checkpoint: can be
+  changed at a restart like `c_reduced`. Recorded in the `rt_driver` log,
+  the `radhydro` summary line (when set) and the `ray_dump` json;
+  `make_production.py --redshift-per-distance 1` writes it.
+- Tests: `redshift_distance` (unit) and `redshift_distance_smoke`
+  (`rt_driver`, rays and m1; physics label), both pass. Fast suite on
+  klone (gcc 13): 99/109 pass; the 10 failures are the same ones as on
+  `main` without the change (`ref_*lognormal_16src*` ×6,
+  `ray_dump_*_lognormal_16src_smallbuf` ×2, `ref_c01_*` ×2: mismatches with
+  the stored references on this platform, e.g. last-digit rt_stats values).
+- **Open (user):** whether production runs should use it. Not turned on
+  anywhere.
 
 ## Done 2026-10-10, branch `igm-diagnostics` (not merged)
 
@@ -858,6 +888,10 @@ moment-RT questions below.
    - adaptive RT.
 
 ## Open questions for the user
+
+- Whether production runs should use `redshift_per_distance = 1` (redshift
+  per distance travelled at ĉ < c, `docs/production_run.md` §1). It is off
+  by default and not tied to `legacy_physics`.
 
 - Moment RT (`docs/rt_moments.md` §5–§6): whether to invest in second-order
   transport or first in faster photo-chemistry (now half the moment RT
