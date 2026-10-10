@@ -52,8 +52,30 @@ def outputs(run):
     return out
 
 
+def frames(run):
+    """[(z, {field: path}, xHII_M)] of the movie frames with fHI and temp
+    (written at the same movie_dz redshifts in every run, from inside the
+    RT substeps, so they line up across runs even when the hydro steps,
+    and hence the zdata1 output redshifts, differ)"""
+    out = []
+    fn = os.path.join(run, "movie", "frames.txt")
+    if not os.path.exists(fn):
+        return out
+    for line in open(fn):
+        if line.startswith("#") or not line.strip():
+            continue
+        f = line.split()
+        xm = float(f[5])
+        files = {k: os.path.join(run, "movie", "frame_%05d_%s.bin" % (int(f[0]), k))
+                 for k in ("fHI", "temp")}
+        if np.isfinite(xm) and all(os.path.exists(v) for v in files.values()):
+            out.append((float(f[3]), files, xm))
+    return out
+
+
 def load(d, name, N):
-    return np.fromfile(os.path.join(d, name + ".bin"), dtype=np.float32).reshape(N, N, N)
+    path = d[name] if isinstance(d, dict) else os.path.join(d, name + ".bin")
+    return np.fromfile(path, dtype=np.float32).reshape(N, N, N)
 
 
 def pk(x, kbins):
@@ -140,36 +162,56 @@ def main():
         fig.savefig(os.path.join(a.outdir, "history.png"), dpi=120)
 
     # ---- fields at common outputs -------------------------------------------
+    # Compare at the movie frames nearest to the reference's zdata1 output
+    # redshifts when every run has frames (the zdata1 outputs themselves
+    # drift apart once the hydro steps differ); else at step outputs with
+    # the same redshift.
     outs = [outputs(r) for r in runs]
-    common = sorted(set.intersection(*[set(o) for o in outs]), reverse=True)
-    if not common:
-        rep.append("\nno common field outputs (step_*/fHI.bin at the same redshift)")
+    frs = [frames(r) for r in runs]
+    sets = []  # (label z, [per-run (z, location, xM or None)])
+    if all(frs):
+        rep.append("\nFields: movie frames nearest to the reference's zdata1 redshifts; "
+                   "<x>_M from frames.txt")
+        for zt in sorted(outs[0], reverse=True):
+            # the reference frame nearest to zt, then each run's frame
+            # nearest to that frame's redshift
+            z0 = min(frs[0], key=lambda e: abs(e[0] - zt))[0]
+            pick = [min(f, key=lambda e: abs(e[0] - z0)) for f in frs]
+            if abs(z0 - zt) <= 0.05 and max(abs(e[0] - z0) for e in pick) <= 0.05:
+                sets.append((zt, pick))
+    else:
+        common = sorted(set.intersection(*[set(o) for o in outs]), reverse=True)
+        sets = [(z, [(z, o[z], None) for o in outs]) for z in common]
+    if not sets:
+        rep.append("\nno common field outputs")
     kb = [2, 4, 8, 16]
-    for z in common:
-        d0 = outs[0][z]
-        N = int(round((os.path.getsize(os.path.join(d0, "fHI.bin")) / 4) ** (1 / 3)))
-        rep.append(f"\nz = {z:g} (N = {N}): <x>_V <x>_M partly(0.05..0.95) T_med(x>0.5) "
+    for z, pick in sets:
+        d0 = pick[0][1]
+        f0 = d0["fHI"] if isinstance(d0, dict) else os.path.join(d0, "fHI.bin")
+        N = int(round((os.path.getsize(f0) / 4) ** (1 / 3)))
+        rep.append(f"\nz = {z:g} (N = {N}): z_run <x>_V <x>_M partly(0.05..0.95) T_med(x>0.5) "
                    f"|dx|>0.1 corr(logT) P_x(k={','.join(map(str, kb))})/P_ref")
         x0 = t0 = p0 = None
         fig, ax = plt.subplots(2, len(runs), figsize=(3.2 * len(runs), 6.6), squeeze=False)
-        for i, (o, lab) in enumerate(zip(outs, labels)):
-            d = o[z]
+        for i, ((zr, d, xm), lab) in enumerate(zip(pick, labels)):
             x = 1 - load(d, "fHI", N)
             t = load(d, "temp", N)
-            rho = load(d, "rhog", N)
+            if xm is None:
+                rho = load(d, "rhog", N)
+                xm = np.sum(x * rho) / rho.sum()
             p = pk(x, kb)
             if i == 0:
                 x0, t0, p0 = x, t, p
             ion = x > 0.5
             corr = np.corrcoef(np.log10(t).ravel(), np.log10(t0).ravel())[0, 1]
-            rep.append(f"  {lab:10s} {x.mean():.4f} {np.sum(x * rho) / rho.sum():.4f} "
+            rep.append(f"  {lab:10s} {zr:7.4f} {x.mean():.4f} {xm:.4f} "
                        f"{np.mean((x > 0.05) & (x < 0.95)):.3f} "
                        f"{(np.median(t[ion]) if ion.any() else float('nan')):8.0f} "
                        f"{np.mean(np.abs(x - x0) > 0.1):.3f} {corr:.3f} " +
                        " ".join(f"{pi / p0i:.3f}" for pi, p0i in zip(p, p0)))
             ax[0, i].imshow(x[N // 2], origin="lower", cmap="Blues", vmin=0, vmax=1)
             ax[1, i].imshow(np.log10(t[N // 2]), origin="lower", cmap="Oranges", vmin=0, vmax=4.7)
-            ax[0, i].set_title(lab)
+            ax[0, i].set_title(f"{lab} (z = {zr:.3f})")
             for r_ in (0, 1):
                 ax[r_, i].set_xticks([])
                 ax[r_, i].set_yticks([])
