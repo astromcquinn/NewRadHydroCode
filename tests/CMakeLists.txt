@@ -188,6 +188,13 @@ if(Python3_Interpreter_FOUND)
                          LABELS "nightly;physics;recomb" ENVIRONMENT OMP_NUM_THREADS=4)
   endif()
 
+  # Grid-aligned photon deficit B16 and its fix ray_rotate (docs/port_notes.md)
+  add_test(NAME ray_rotate
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/ray_rotate_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/ray_rotate)
+  set_tests_properties(ray_rotate PROPERTIES TIMEOUT 600 LABELS physics)
+
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
   foreach(p uniform_8src lognormal_16src_smallbuf)
@@ -572,6 +579,12 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/unsplit 13 --set hydro_scheme=unsplit)
+    # ray_rotate = 3 (B16 fix): the per-substep rotation is keyed on the clock
+    add_test(NAME restart_smoke_rotate
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/rotate 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set ray_rotate=3)
     # the moment RT state through the checkpoint (docs/rt_moments.md)
     foreach(m m1 otvet)
       add_test(NAME restart_smoke_${m}
@@ -590,7 +603,7 @@ if(Python3_Interpreter_FOUND)
                      --set recomb_case=A --set recomb_rad=1)
     set_tests_properties(restart_smoke_recomb PROPERTIES TIMEOUT 600 LABELS "restart;recomb")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
-                         PROPERTIES TIMEOUT 600 LABELS restart)
+                         restart_smoke_rotate PROPERTIES TIMEOUT 600 LABELS restart)
   endif()
 endif()
 

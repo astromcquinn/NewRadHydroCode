@@ -1,5 +1,6 @@
 // Unit tests: ray_segment, nside/radius relations, chain operations,
 // ray_cast_split / ray_cast_merge conservation.
+#include <array>
 #include <cmath>
 #include <memory>
 #include <random>
@@ -270,11 +271,125 @@ static void test_merge_conserves() {
   }
 }
 
+// ray_rotate (B16 fix): the frame rotations are proper rotations keyed as
+// documented, and ray_source emits the rotated HEALPix directions with ipix
+// the grid-frame pixel containing each one.
+static void test_ray_rotate() {
+  auto sp = make_sim(8);
+  Simulation& s = *sp;
+  auto rotation = [&](int mode, std::uint64_t seed, int istep_rt, int i, int j, int k) {
+    s.cfg.ray_rotate = mode;
+    s.cfg.ray_rotate_seed = seed;
+    s.clk.istep_rt = istep_rt;
+    std::array<double, 9> m;
+    double rot[3][3];
+    ray_frame_rotation(s, i, j, k, rot);
+    for (int a = 0; a < 3; ++a)
+      for (int b = 0; b < 3; ++b) m[3 * a + b] = rot[a][b];
+    // orthonormal with determinant +1
+    for (int a = 0; a < 3; ++a)
+      for (int b = 0; b < 3; ++b) {
+        double d = 0;
+        for (int c = 0; c < 3; ++c) d += rot[a][c] * rot[b][c];
+        CHECK(std::fabs(d - (a == b ? 1 : 0)) < 1e-12);
+      }
+    const double det = rot[0][0] * (rot[1][1] * rot[2][2] - rot[1][2] * rot[2][1]) -
+                       rot[0][1] * (rot[1][0] * rot[2][2] - rot[1][2] * rot[2][0]) +
+                       rot[0][2] * (rot[1][0] * rot[2][1] - rot[1][1] * rot[2][0]);
+    CHECK(std::fabs(det - 1) < 1e-12);
+    return m;
+  };
+  CHECK(rotation(1, 0, 1, 1, 1, 1) == rotation(1, 0, 5, 3, 2, 1));  // fixed
+  CHECK(rotation(1, 0, 1, 1, 1, 1) != rotation(1, 9, 1, 1, 1, 1));  // seed
+  CHECK(rotation(2, 0, 1, 1, 1, 1) == rotation(2, 0, 1, 3, 2, 1));  // all cells
+  CHECK(rotation(2, 0, 1, 1, 1, 1) != rotation(2, 0, 2, 1, 1, 1));  // per substep
+  CHECK(rotation(3, 0, 1, 1, 1, 1) != rotation(3, 0, 1, 1, 1, 2));  // per cell
+  CHECK(rotation(3, 0, 1, 1, 1, 1) != rotation(3, 0, 2, 1, 1, 1));
+  {
+    // the recombination-radiation stream differs from the stellar one
+    s.cfg.ray_rotate = 3;
+    double r0[3][3], r1[3][3];
+    ray_frame_rotation(s, 1, 1, 1, r0);
+    ray_frame_rotation(s, 1, 1, 1, r1, 1);
+    CHECK(r0[0][0] != r1[0][0] || r0[1][2] != r1[1][2]);
+  }
+  {
+    const double a0 = s.clk.scalefactor;
+    const auto m0 = rotation(2, 0, 1, 1, 1, 1);
+    s.clk.scalefactor = a0 * (1 + 1e-6);  // next hydro step, same istep_rt
+    CHECK(m0 != rotation(2, 0, 1, 1, 1, 1));
+    s.clk.scalefactor = a0;
+  }
+
+  // Uniform rotations: the average of many rotation matrices is close to 0
+  {
+    std::array<double, 9> mean{};
+    const int n = 4000;
+    for (int t = 1; t <= n; ++t) {
+      const auto m = rotation(2, 0, t, 1, 1, 1);
+      for (int q = 0; q < 9; ++q) mean[q] += m[q] / n;
+    }
+    for (double v : mean) CHECK(std::fabs(v) < 0.05);
+  }
+
+  // ray_source: one source cell, tau = 0, rotated vs original emission
+  const int ic = 4, jc = 5, kc = 3;
+  const std::int64_t c = s.rt.cell(ic, jc, kc);
+  for (int mode : {0, 3}) {
+    auto sp2 = make_sim(8);
+    Simulation& t = *sp2;
+    t.rt.Luv[c] = 1e50f;
+    t.cfg.ray_rotate = mode;
+    t.cfg.ray_rotate_seed = 11;
+    t.clk.istep_rt = 1;
+    ray_source(t, ic, jc, kc);
+    double rot[3][3];
+    if (mode) ray_frame_rotation(t, ic, jc, kc, rot);
+    std::int64_t ir = t.rt.htoc_ray(3, c);
+    int n = 0;
+    double ng = 0, mean[3] = {0, 0, 0};
+    std::vector<bool> used(rayp::nray_init, false);
+    while (ir > 0) {
+      const Ray& ry = t.rays.at(ir);
+      double d[3] = {ry.dx[0], ry.dx[1], ry.dx[2]};
+      CHECK(std::fabs(d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - 1) < 1e-6);
+      CHECK(ry.nside == rayp::nside_init);
+      CHECK(healpix::vec2pix_nest(rayp::nside_init, d) == ry.ipix);
+      // each ray is a distinct pixel of the rotated frame (chain order is
+      // not emission order)
+      int match = -1;
+      for (int p = 0; p < rayp::nray_init && match < 0; ++p) {
+        double v[3];
+        healpix::pix2vec_nest(rayp::nside_init, p, v);
+        if (mode) {
+          const double u[3] = {v[0], v[1], v[2]};
+          for (int a = 0; a < 3; ++a)
+            v[a] = rot[a][0] * u[0] + rot[a][1] * u[1] + rot[a][2] * u[2];
+        }
+        if (ry.dx[0] == static_cast<float>(v[0]) && ry.dx[1] == static_cast<float>(v[1]) &&
+            ry.dx[2] == static_cast<float>(v[2]))
+          match = p;
+      }
+      CHECK(match >= 0 && !used[match]);
+      if (match >= 0) used[match] = true;
+      if (!mode) CHECK(ry.ipix == match);
+      for (int a = 0; a < 3; ++a) mean[a] += d[a];
+      for (int f = 0; f < kNfreq; ++f) ng += ry.ngam[f];
+      ++n;
+      ir = ry.next;
+    }
+    CHECK(n == rayp::nray_init);
+    for (double m : mean) CHECK(std::fabs(m) < 1e-4);
+    CHECK(ng > 0);
+  }
+}
+
 int main() {
   test_segment();
   test_nside_radius();
   test_chain_ops();
   test_split_conserves();
   test_merge_conserves();
+  test_ray_rotate();
   TEST_MAIN_END();
 }

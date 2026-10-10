@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-10, framework-spike Hyak CPU and GPU benchmarks merged (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now); the same day, case A recombination and recombination radiation (branch `recomb-radiation`) and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`) merged into `main`; before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+*Last updated: 2026-10-10: B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
 
@@ -318,11 +318,56 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   are symmetric. In the movies this shows as grid-aligned neutral streaks
   and "+" crosses on sources. The deficit is up to 0.25 in x_HII near the
   front in the uniform test, and present in the legacy (= Fortran) runs.
-  **Look into it and fix it behind a flag (frame rotation) before any
-  science run.**
+  Fixed behind a flag on 2026-10-10 (`ray_rotate`, below).
 - Finding: frames written before the first RT step have an uninitialised
   rt_grid (fHI = rhog = 0). The tool skips them; a C++ fix that skips them at
   write time is optional.
+
+**B16 fix: `ray_rotate` (branch `claude/exciting-clarke-zn62ih`, 2026-10-10;
+`docs/port_notes.md` B16):**
+- `ray_rotate = 1 | 2 | 3` rotates the 192 HEALPix directions a source
+  emits: one fixed rotation, a new one every RT substep, or a new one every
+  substep and source cell (default 0 = the original, so every reference
+  test is unchanged). `ipix` becomes the grid-frame pixel that contains the
+  rotated direction, and the existing split deviation handles the rest. So
+  there is no frame id and no extra ray memory. The rotation is a hash of
+  `ray_rotate_seed`, the substep (restart-safe) and the cell, so it is
+  deterministic and independent of the thread count. Works in
+  `rt_driver` and `radhydro`, with any `legacy_*` flags. It also rotates
+  the recombination-radiation rays (`recomb_rad`, merged from `main`; own
+  hash stream; checked thread-count independent). No effect with
+  `rt_method = m1 | otvet`.
+- Uniform test: the worst axis cell goes from −0.46 to −0.018 in x_HII
+  (also −0.47 → −0.024 at `c_reduced = 0.1`). A fixed rotation (1) leaves
+  −0.10 on one axis, so use 2 or 3. In the 240-step run with production
+  ray settings, the 12-fold ring of neutral, cold cells inside the sphere
+  (`docs/figures/raycomp_slices_uniform_1src.png`) is gone: 36 → 0
+  interior cells below x_HII = 0.9, and the scatter of log T in the
+  interior falls from 0.52 to 0.03 dex. So the ring was B16 too.
+- 64³ cosmological run: the streaks, the "+" crosses and the faint grid
+  lines through bubbles are gone, and x_HII,V(z) is unchanged. In exchange,
+  cell-to-cell noise of log x_HI in ionised gas rises by 0.0–0.03 dex
+  (`docs/figures/ray_rotate_stills64.png`).
+- Cost: ray tracing takes 3–10 % longer single-threaded
+  (`rt_driver`, 30 steps, fixed flags). Part of it is extra work (on
+  `lognormal_16src` about 4 % more casts and 3 % more splits; callgrind:
+  5–6 % more instructions in the casts, same mispredicts), cause not
+  pinned down. A fixed rotation costs the same, so it comes from rays
+  that are no longer grid-aligned, not from changing frames. Not visible
+  in the 64³ `radhydro` run at 4 threads (RT 40.8 s → 39.1 s, within the
+  noise).
+- Tests: `rays` (unit: proper rotations, the keys, the emitted rays) and
+  `ray_rotate` (physics label, 2 s: the deficit is seen without and gone
+  with the flag, same front and photons).
+- Tools: `tools/analysis/ray_rotate_compare.py`
+  (`docs/figures/ray_rotate_uniform.png`).
+- **Production uses `ray_rotate = 3`** (user decision 2026-10-10);
+  `make_production.py` writes it (`--ray-rotate 0` for the original). The
+  user notes that the single-source tests exaggerate the effect for a full
+  cosmological run, where many overlapping sources already fill each
+  other's gaps. The f_esc calibration (`calibrate_fesc.py` calls
+  `make_production.py`) now includes the rotation; the 64³ history did not
+  change with it.
 
 **Production-run thread (PR #7, branch `production-run`; merged 2026-10-09):**
 
@@ -448,9 +493,9 @@ Fortran, restart and thread tests) and nightly label, all passing.
   references are platform-dependent (libm). Decision needed: regenerate
   them per platform, or compare the double sums with a tolerance.
 - B16 (PR #12, `docs/port_notes.md`): the fixed HEALPix frame leaves a photon deficit
-  along ±x/±y from every source, up to 0.25 in x_HII near the front; it is
-  the "+" crosses and streaks in the stills. Fix behind a flag (a global
-  frame rotation first) before any science run.
+  along ±x/±y from every source. Fixed behind `ray_rotate` (2026-10-10).
+  A fixed global rotation was not enough; the frame has to change every
+  substep.
 - `make_ics.py` draws different phases for different N with the same seed,
   so 128³ against 256³ mixes resolution with cosmic variance.
 - The linear growth of the fundamental mode is 2 % low in power by z = 5.4
@@ -517,10 +562,10 @@ the stored-reference policy on klone; deleting the merged branches.
    | c_reduced | 0.1 (0.01 delays reionisation by Δz ≈ 2–2.5, `docs/cluster.md` §7); convergence check with one 0.3c or 1c run at 128³ |
    | nray_max_factor | 16 |
    | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on a whole node) |
-   | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry |
+   | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry, ray_rotate = 3 |
    | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c |
    | hydro_scheme | user decision pending (`unsplit` fixes the cold-gas overheating; `make_production.py` does not set it yet) |
-   | Before the run | B16 fix (item 5), 256³ HMF and f_esc |
+   | Before the run | 256³ HMF and f_esc |
 
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
    - Owned: about 1000 `cpu-g2` cores (about 5 nodes of AMD Genoa, 192 cores
@@ -530,16 +575,10 @@ the stored-reference policy on klone; deleting the merged branches.
      limits. See `docs/ROADMAP.md` (answers section).
    - Access: Claude Code installed in user space, `claude remote-control`
      inside tmux, batch jobs with restarts.
-5. **B16 fix before any science run.** The grid-aligned neutral streaks
-   and "+"-shaped crosses on sources in the 64³ stills
-   (`docs/figures/stills64_*.png`) are B16 (`docs/port_notes.md`, PR #12):
-   the HEALPix frame is fixed to the grid, so ±x/±y are pixel vertices and
-   leave a photon deficit (up to 0.25 in x_HII near the front), also in
-   legacy (= Fortran) runs. Fix behind a flag, a global frame rotation
-   first, checked with `tools/analysis/axis_deficit.py` and the 64³
-   movie. Then see whether the faint radial spokes inside bubbles and the
-   12-fold ring of neutral cells in the 32³ `uniform_1src` baseline
-   (`docs/figures/raycomp_slices_uniform_1src.png`) go with it.
+5. ~~B16 fix before any science run~~ Done behind `ray_rotate`
+   (2026-10-10, see above): streaks, crosses and the 12-fold ring are gone.
+   Production uses `ray_rotate = 3` (user decision 2026-10-10), set by
+   `make_production.py`.
 6. ~~Hydro fix for cold supersonic gas~~ Done (`hydro_scheme = unsplit`,
    PR #15; η₁/η₂ confirmed against the Enzo and Nyx
    papers). Open: convergence check of the Sedov radius bias and the

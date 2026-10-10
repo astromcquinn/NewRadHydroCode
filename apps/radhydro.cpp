@@ -95,6 +95,8 @@ struct RunParams {
   int threads = 0;          // OpenMP threads (0: OpenMP default)
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
   int rt_substep_carry = 0;  // 1: exact total RT substeps (Config::rt_substep_carry)
+  int ray_rotate = 0;        // B16 fix: Config::ray_rotate (0 = original)
+  long long ray_rotate_seed = 0;
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -157,6 +159,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ra_max = to_double(val);
   else if (key == "rt_substep_carry")
     P.rt_substep_carry = std::stoi(val);
+  else if (key == "ray_rotate") {
+    P.ray_rotate = std::stoi(val);
+    if (P.ray_rotate < 0 || P.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
+  } else if (key == "ray_rotate_seed")
+    P.ray_rotate_seed = std::stoll(val);
   else if (key == "restart_every")
     P.restart_every = std::stoi(val);
   else if (key == "restart_keep_latest")
@@ -461,6 +468,8 @@ int main(int argc, char** argv) {
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    s.cfg.ray_rotate = P.ray_rotate;
+    s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)

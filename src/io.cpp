@@ -72,6 +72,11 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   } else if (key == "c_reduced") {
     p.c_reduced = std::stod(val);
     if (!(p.c_reduced > 0)) throw std::runtime_error("c_reduced must be > 0");
+  } else if (key == "ray_rotate") {
+    p.ray_rotate = std::stoi(val);
+    if (p.ray_rotate < 0 || p.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
+  } else if (key == "ray_rotate_seed") {
+    p.ray_rotate_seed = std::stoll(val);
   } else if (key == "legacy_physics") {
     p.legacy_physics = std::stoi(val);
     if (p.legacy_physics != 0 && p.legacy_physics != 1)

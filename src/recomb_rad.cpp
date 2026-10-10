@@ -318,13 +318,23 @@ void ray_source_recomb(Simulation& s, int irt, int jrt, int krt) {
   }
   std::int64_t indx[rayp::nray_init];
   ray_create(s, nray, indx);
+  // B16 fix (ray_rotate != 0): rotated HEALPix frame, as in ray_source
+  const bool rotate = s.cfg.ray_rotate != 0;
+  double rot[3][3];
+  if (rotate) ray_frame_rotation(s, irt, jrt, krt, rot, 1);
   for (int i = 0; i < nray; ++i) {
     double dx[3];
     healpix::pix2vec_nest(ns, i, dx);
+    int ipix = i;
+    if (rotate) {
+      const double v[3] = {dx[0], dx[1], dx[2]};
+      for (int d = 0; d < 3; ++d) dx[d] = rot[d][0] * v[0] + rot[d][1] * v[1] + rot[d][2] * v[2];
+      ipix = healpix::vec2pix_nest(ns, dx);
+    }
     const std::int64_t ir = indx[i];
     Ray& ry = R.at(ir);
     ry.nside = ns;
-    ry.ipix = i;
+    ry.ipix = ipix;
     ry.r = 0;
     ry.dr = static_cast<float>(dr);
     for (int d = 0; d < 3; ++d) {

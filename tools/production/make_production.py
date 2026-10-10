@@ -15,7 +15,8 @@ and restart after an interruption with
 
 The configuration: all fixes on (legacy_rt = legacy_physics = 0), the
 deterministic parallel ray tracing, reduced speed of light, exact total RT
-substeps (rt_substep_carry), on-the-fly FoF sources, RT from z = 15 (the
+substeps (rt_substep_carry), the source-ray frame rotated every RT substep
+and source (ray_rotate = 3, the B16 fix; --ray-rotate), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5.5, movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
 docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
@@ -53,6 +54,9 @@ def main():
     ap.add_argument("--f-esc", type=float, default=0.0,
                     help="escape fraction with --am-params (calibrated to tau_es)")
     ap.add_argument("--restart-every", type=int, default=1)
+    ap.add_argument("--ray-rotate", type=int, default=3, choices=(0, 1, 2, 3),
+                    help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
+                         "3: every RT substep and source (production), 0: the original")
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.join(a.outdir, "ics")
@@ -77,6 +81,7 @@ def main():
         "deterministic_parallel = 1",
         f"c_reduced = {a.c_reduced:g}",
         "rt_substep_carry = 1",
+        f"ray_rotate = {a.ray_rotate}",
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",
         f"restart_every = {a.restart_every}",

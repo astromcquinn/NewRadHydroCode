@@ -276,3 +276,20 @@ policy on klone, and deleting the merged branches.
   - `moment_nsub = 4` (C = 1/4; 1/3 decouples odd and even cells);
   - the OTVET source-cell self-weight 1/(0.5 cell)²;
   - `auto` switching between the direct sum and the FFT for the tensor.
+
+## B16 fix thread (2026-10-10): `ray_rotate`
+
+* **The user asked for the per-substep random rotation** of the source
+  ray frame (after the question of its cost). It is behind the new flag
+  `ray_rotate` (default 0 = the original). It is not tied to `legacy_rt`:
+  the original stays the default, and the Fortran harnesses need no mirror
+  (the 2026-10-08 rule for new flags).
+* Implementation choice: rotate at emission only, and keep `ipix` in the
+  grid frame (the pixel containing the rotated direction). This avoids a
+  per-ray frame id and any re-indexing of live rays.
+* **Production uses `ray_rotate = 3`** (user decision 2026-10-10), written
+  by `make_production.py`. The user's caveat: the single-source tests
+  exaggerate the effect for a full cosmological run, where many
+  overlapping sources fill each other's coverage gaps, so the 3–10 %
+  single-thread ray-tracing cost buys less there than the uniform tests
+  suggest.

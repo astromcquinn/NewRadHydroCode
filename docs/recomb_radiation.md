@@ -143,6 +143,9 @@ The ionised radius R = (3V_HII/4π)^(1/3), in cells:
   - the diffuse photons fill the holes that the stellar rays' HEALPix
     sampling leaves inside the case-B sphere along the grid axes (B16): the
     shell at r ≈ 7 has x_HII = 0.95 with case B and 1.00 with RR.
+    (These runs use the original frame. With `ray_rotate = 3`, the
+    production setting, those holes are gone; see `docs/port_notes.md`
+    B16. That part of the 4.7% should shrink; not re-measured.)
 - With block 1 the 32³ test pool (`nray_max_factor` 64 of 32³) has room for
   only 32% of the emission, so 68% is on the spot (case B). The result is
   then close to case B, as it should be.

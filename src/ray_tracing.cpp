@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -315,6 +316,56 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
 // ray_source
 // ---------------------------------------------------------------------------
 
+namespace {
+// splitmix64 (Steele, Lea & Flood 2014): a 64-bit mixing step
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+// uniform double in [0,1) from the top 53 bits
+double unit_double(std::uint64_t x) { return static_cast<double>(x >> 11) * 0x1p-53; }
+}  // namespace
+
+// B16 fix: the frame rotation of ray_source (ray_tracing.hpp)
+void ray_frame_rotation(const Simulation& s, int irt, int jrt, int krt, double rot[3][3],
+                        std::uint64_t stream) {
+  const int mode = s.cfg.ray_rotate;
+  std::uint64_t h = splitmix64(s.cfg.ray_rotate_seed ^ 0x52a7f0e1c3d5b697ULL);
+  if (stream != 0) h = splitmix64(h ^ stream);
+  if (mode >= 2) {
+    std::uint64_t abits;
+    static_assert(sizeof(abits) == sizeof(s.clk.scalefactor), "double");
+    std::memcpy(&abits, &s.clk.scalefactor, sizeof(abits));
+    h = splitmix64(h ^ abits);
+    h = splitmix64(h ^ static_cast<std::uint64_t>(s.clk.istep_rt));
+  }
+  if (mode >= 3) {
+    const std::uint64_t cell = (static_cast<std::uint64_t>(irt) << 42) ^
+                               (static_cast<std::uint64_t>(jrt) << 21) ^
+                               static_cast<std::uint64_t>(krt);
+    h = splitmix64(h ^ cell);
+  }
+  // Uniform random unit quaternion (Shoemake 1992, Graphics Gems III)
+  const double u1 = unit_double(h = splitmix64(h));
+  const double u2 = unit_double(h = splitmix64(h));
+  const double u3 = unit_double(splitmix64(h));
+  const double twopi = 6.283185307179586;
+  const double a = std::sqrt(1 - u1), b = std::sqrt(u1);
+  const double qx = a * std::sin(twopi * u2), qy = a * std::cos(twopi * u2);
+  const double qz = b * std::sin(twopi * u3), qw = b * std::cos(twopi * u3);
+  rot[0][0] = 1 - 2 * (qy * qy + qz * qz);
+  rot[0][1] = 2 * (qx * qy - qz * qw);
+  rot[0][2] = 2 * (qx * qz + qy * qw);
+  rot[1][0] = 2 * (qx * qy + qz * qw);
+  rot[1][1] = 1 - 2 * (qx * qx + qz * qz);
+  rot[1][2] = 2 * (qy * qz - qx * qw);
+  rot[2][0] = 2 * (qx * qz - qy * qw);
+  rot[2][1] = 2 * (qy * qz + qx * qw);
+  rot[2][2] = 1 - 2 * (qx * qx + qy * qy);
+}
+
 // ray_tracing_tools.f90: ray_source
 void ray_source(Simulation& s, int irt, int jrt, int krt) {
   RTGrid& G = s.rt;
@@ -365,10 +416,23 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
     ngam[n] = ngam[n] / u.vol_rt / u.nH_avg / nray_init;
   }
 
+  // B16 fix (ray_rotate != 0): rotated HEALPix frame
+  const bool rotate = s.cfg.ray_rotate != 0;
+  double rot[3][3];
+  if (rotate) ray_frame_rotation(s, irt, jrt, krt, rot);
+
   for (int i = 1; i <= nray_init; ++i) {
-    const int ipix = i - 1;
+    int ipix = i - 1;
     double dx[3];
     healpix::pix2vec_nest(nside_init, ipix, dx);
+    if (rotate) {
+      // Rotated direction; ipix becomes the grid-frame pixel containing it,
+      // so that ray_cast_split keeps the deviation dx - centre(ipix), as for
+      // a merged ray
+      const double v[3] = {dx[0], dx[1], dx[2]};
+      for (int d = 0; d < 3; ++d) dx[d] = rot[d][0] * v[0] + rot[d][1] * v[1] + rot[d][2] * v[2];
+      ipix = healpix::vec2pix_nest(nside_init, dx);
+    }
 
     const std::int64_t ir = indx[i - 1];
     Ray& ry = R.at(ir);
