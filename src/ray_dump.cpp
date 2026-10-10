@@ -169,6 +169,7 @@ void ray_dump_write(const Simulation& s, const std::string& stem) {
     o << "  \"box\": " << num(s.cfg.box) << ",\n";
     o << "  \"nray_max\": " << s.cfg.Nray_max << ",\n";
     o << "  \"legacy_rt\": " << (s.cfg.legacy_rt ? 1 : 0) << ",\n";
+    o << "  \"ray_rotate\": " << s.cfg.ray_rotate << ",\n";
     o << "  \"legacy_physics\": " << (s.cfg.legacy_physics ? 1 : 0) << ",\n";
     o << "  \"istep\": " << s.clk.istep << ",\n";
     o << "  \"istep_rt\": " << s.clk.istep_rt << ",\n";

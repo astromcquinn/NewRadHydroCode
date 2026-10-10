@@ -247,3 +247,15 @@ open ones are listed in `docs/STATUS.md` ("Decisions needed from the
 user"): AMReX for Stage D, the production `c_reduced` (0.1 recommended)
 and N (256), `hydro_scheme` for production, the stored-RT-reference
 policy on klone, and deleting the merged branches.
+
+## B16 fix thread (2026-10-10): `ray_rotate`
+
+* **The user asked for the per-substep random rotation** of the source
+  ray frame (after the question of its cost). It is behind the new flag
+  `ray_rotate` (default 0 = the original). It is not tied to `legacy_rt`:
+  the original stays the default, and the Fortran harnesses need no mirror
+  (the 2026-10-08 rule for new flags).
+* Implementation choice: rotate at emission only, and keep `ipix` in the
+  grid frame (the pixel containing the rotated direction). This avoids a
+  per-ray frame id and any re-indexing of live rays.
+

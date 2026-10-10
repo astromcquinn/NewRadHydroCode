@@ -82,6 +82,19 @@ struct Config {
   // only a few cells of light travel. false: the original rounding.
   bool rt_substep_carry = false;
 
+  // Rotation of the HEALPix frame of the rays a source emits, against the
+  // grid-aligned photon deficit B16 (docs/port_notes.md). 0 (default): the
+  // original frame, fixed to the grid. 1: one fixed rotation for the whole
+  // run. 2: a new rotation every RT substep (the same for all sources).
+  // 3: a new rotation every RT substep and source cell. Only emission
+  // changes: a rotated ray keeps its direction in dx and the grid-frame
+  // pixel containing it in ipix, so splits and merges are unchanged
+  // (ray_frame_rotation in ray_tracing.hpp). Deterministic: the rotation is
+  // a hash of ray_rotate_seed, the substep and the cell, independent of the
+  // thread count.
+  int ray_rotate = 0;
+  std::uint64_t ray_rotate_seed = 0;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled

@@ -76,6 +76,8 @@ int main(int argc, char** argv) {
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    s.cfg.ray_rotate = P.ray_rotate;
+    s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
@@ -108,6 +110,7 @@ int main(int argc, char** argv) {
               << " legacy_phys: " << P.legacy_physics << "\n"
               << " c_reduced  : " << P.c_reduced << "\n"
               << " det_par    : " << P.deterministic_parallel << "\n"
+              << " ray_rotate : " << P.ray_rotate << "\n"
               << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";
 

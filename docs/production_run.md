@@ -17,6 +17,7 @@ the original behaviour:
 | `deterministic_parallel` | 0 | 1: parallel ray tracing, thread-count independent (`docs/parallel.md`); needs `legacy_rt = 0` |
 | `threads` | 0 | OpenMP threads (0: `OMP_NUM_THREADS` / all cores) |
 | `rt_substep_carry` | 0 | 1: carry the rounding of `nstep_rt` to the next hydro step, so the total RT substeps equal the light travel at ĉ exactly (`legacy_rt = 0` only) |
+| `ray_rotate`, `ray_rotate_seed` | 0, 0 | rotate the HEALPix frame of emitted rays against the grid-aligned deficit B16: 1 fixed, 2 every RT substep, 3 every substep and source (recommended; `docs/port_notes.md` B16); also `rt_driver` |
 | `ra_max` | the original 0.1 | max expansion per hydro step, da/a ≤ ra_max/(1−ra_max) (`legacy_rt = 0` only) |
 | `movie_dz`, `movie_z0`, `movie_fields` | 0, first zdata1, `fHI,temp` | movie frames every `movie_dz` in redshift, written from inside the RT substeps (section 4) |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes |

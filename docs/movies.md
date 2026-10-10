@@ -177,10 +177,12 @@ Artefacts, all in the data rather than the rendering:
 
     ![axis deficit](figures/axis_deficit.png)
 
-  - **Still open:** in uniform gas the front lags by about one cell on the
-    axes. The cosmological streaks are deeper, about 7 cells. They need a
-    dedicated look before any science run, and a fix behind a flag, e.g. a
-    rotation of the HEALPix frame per source or per step.
+  - **Fixed behind a flag (2026-10-10):** `ray_rotate = 3` (or 2) rotates
+    the HEALPix frame of the emitted rays every RT substep and source. The
+    streaks and crosses disappear at no measurable cost, with slightly more
+    cell-to-cell noise inside bubbles (`docs/port_notes.md` B16):
+
+    ![B16 fix, 64³ stills](figures/ray_rotate_stills64.png)
 - **Radial spokes.** Faint spokes inside the bubbles follow the ray
   directions.
 

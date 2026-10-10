@@ -311,23 +311,77 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
     the fixed flags and `deterministic_parallel`.
   * **Cosmological runs:** visible as one-cell streaks and "+" crosses on
     sources (`docs/movies.md`).
-  * **Not fixed yet** (on hold, user decision 2026-10-08). The fix options
-    and their costs:
-    1. One fixed global rotation of the HEALPix frame: a 3×3 rotation
-       after `pix2vec_nest` and its transpose before `vec2pix_nest`, at
-       emission, split and merge. Well under 1% of the RT cost, with no
-       change to the ray size, and cross-source merging stays consistent.
-       It does not average out the radial spokes. This is the one to try
-       first.
-    2. Emit from the luminosity-weighted sub-cell source position instead
-       of the cell centre. Also nearly free (about 3 floats per source cell).
-    3. A rotation per substep or per source, as in Abel & Wandelt 2002.
-       This also smooths the spokes, but costs more:
-       - per substep: every live ray needs a new pixel index (one
-         `vec2pix` per ray per substep, an estimated 5–10% of the RT);
-       - per source: a frame id on each ray (+4 B), and a frame rule for
-         rays merged from different sources.
-    Check any fix with `tools/analysis/axis_deficit.py` and the 64³ movie.
+  * **Fix: `ray_rotate`** (params.txt / `--set`, default 0 = the original;
+    2026-10-10, user request). `ray_source` rotates its 192 HEALPix
+    directions by a uniformly random rotation, `dx = rot · pix2vec`, and
+    stores in `ipix` the grid-frame pixel containing the rotated direction
+    (`vec2pix`). Nothing else changes: a ray carries its direction in `dx`,
+    and `ray_cast_split` already keeps the deviation `dx − centre(ipix)`
+    (needed for merged rays anyway), so splits and merges need no frame id
+    and no extra ray memory. Modes: 1 = one fixed rotation for the run;
+    2 = a new rotation every RT substep, the same for all sources;
+    3 = a new one every RT substep and source cell. The rotation is a
+    splitmix64 hash of `ray_rotate_seed`, the substep (scalefactor bits and
+    `istep_rt`, so it survives restarts) and, for mode 3, the cell; results
+    do not depend on the thread count. Independent of `legacy_rt` and
+    `legacy_physics`. `ray_frame_rotation` in `ray_tracing.hpp`; tests
+    `rays` (unit) and `ray_rotate` (below).
+  * **Cost:** the emission itself is negligible (a 3×3 product and one
+    `vec2pix` per emitted ray), but ray tracing gets 3–10 % slower
+    single-threaded (`rt_driver`, 30 steps, fixed flags, ray_tracing_1+3,
+    3 repeats): `uniform_1src` 0.68 → 0.71 s, `uniform_8src` 3.36 → 3.76 s,
+    `lognormal_16src` 33.7 → 35.7 s. On `lognormal_16src` the rotated rays
+    cast about 4 % more and split 3 % more. Callgrind on `uniform_8src`
+    (10 steps): 5–6 % more instructions in `ray_cast_1/3` and
+    `ray_segment`, with branch mispredicts unchanged, so it is extra work,
+    not a slower pipeline. The cause is not pinned down; it is not the
+    face crossings per unit length (the mean |x|+|y|+|z| of the grid-frame
+    pixel centres is 1.500, as for random directions). Mode 1 (one fixed rotation) costs the same as
+    2 and 3, so the cost comes from breaking the grid alignment, not from
+    changing frames. In the 64³ `radhydro` run at 4 threads the difference
+    is within the noise (RT 40.8 s with mode 0, 39.1 s with mode 3).
+  * **Effect** (`tools/analysis/ray_rotate_compare.py`,
+    `docs/figures/ray_rotate_uniform.png`; `uniform_1src`, 30 steps).
+    Most negative axis-cell-minus-shell-mean x_HII over the three axes and
+    steps 1–30 (axis and step of the worst cell):
+
+    | ray_rotate | legacy flags | legacy, `c_reduced = 0.1` | fixed flags |
+    |---|---|---|---|
+    | 0 | −0.46 (x, 15) | −0.47 (x, 18) | −0.46 (x, 16) |
+    | 1 | −0.10 (x, 18) | – | – |
+    | 2 | −0.019 (z, 6) | −0.017 (x, 17) | – |
+    | 3 | −0.018 (y, 6) | −0.024 (y, 9) | −0.017 (y, 6) |
+
+    (The −0.25 quoted above comes from steps 5, 10, 20 and 30 only; the
+    deficit peaks between them.) With rotation the worst cell is on any
+    axis, at the level of the front's ordinary cell-to-cell scatter.
+    A fixed rotation (1) is not enough: the split children are still laid
+    out on the grid-frame pixel pattern (shifted by the parent's
+    deviation), and a residual deficit stays on one axis. Modes 2 and 3
+    average it out. They also lower the rms of x_HII over spherical shells
+    by 20–35 % (it measures every angular non-uniformity, not only the
+    axes), and the front radius and emitted photons are unchanged.
+  * **The 12-fold ring is B16 too.** The isolated neutral, cold cells in
+    a ring inside the 1-source sphere (`uniform_1src`, 240 steps, fixed
+    flags, `nray_max_factor = 16`; `docs/ray_compression.md` §6) vanish with
+    `ray_rotate = 3`: 36 → 0 cells with x_HII < 0.9 within 8 cells of the
+    source, and the scatter of log T there falls from 0.52 to 0.03 dex
+    (`docs/figures/ray_rotate_ring240.png`).
+  * **64³ cosmological run** (`docs/figures/ray_rotate_stills64.png`, slice
+    z = 32, modes 0 and 3): the "+" crosses, the neutral streak at
+    x = 31 and the faint grid lines through bubbles are gone; the
+    reionisation history is the same to the printed digits (x_HII,V =
+    0.15, 0.35, 0.65, 0.89 at z = 8.03, 7.48, 6.99, 6.52). The price is
+    noise: the coverage gaps between rays now move every substep instead
+    of staying put, so isolated cells inside bubbles show a lower
+    instantaneous photoionisation rate. The cell-to-cell scatter of
+    log x_HI in ionised cells (x_HI < 0.01, about a 3³ median) rises from
+    0.28 to 0.31 dex at z = 7.5 and 0.19 to 0.21 dex at z = 6.5, and is
+    the same by z = 6 (0.141 against 0.145); the mean x_HI of ionised cells
+    rises by 1–14 %. More rays per source (a larger `nside_init`) would
+    lower both; not tried.
+  * **Recommendation:** `ray_rotate = 3` for science runs (2 is
+    equivalent in these tests; 3 also decorrelates neighbouring sources).
 
 ## 5a. The `legacy_rt` switch (phase 1b)
 
