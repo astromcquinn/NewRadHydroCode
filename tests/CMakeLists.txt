@@ -624,11 +624,17 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
   set(amrex_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_runs)
   # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
   # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
-  foreach(case "u8;uniform_8src;" "ln16;lognormal_16src_smallbuf;"
-               "ln16p0;lognormal_16src_smallbuf;--set;legacy_physics=0")
+  foreach(case "u8;uniform_8src;-" "ln16;lognormal_16src_smallbuf;-"
+               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0")
     list(GET case 0 tag)
     list(GET case 1 prob)
-    list(SUBLIST case 2 -1 extra)
+    list(GET case 2 xs)  # one extra key=value, or -
+    set(extra)
+    set(xset "")
+    if(NOT xs STREQUAL "-")
+      set(extra --set ${xs})
+      set(xset ",${xs}")
+    endif()
     add_test(NAME amrex_ref_${tag}
              COMMAND rt_serial ${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob} ${amrex_runs}/ref_${tag}
                      --set legacy_rt=0 ${extra})
@@ -646,8 +652,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                  -DDRIVER=$<TARGET_FILE:rt_driver>
                  -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob}
                  -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/ref_${tag}
-                 "-DSET=legacy_rt=0,rt_backend=amrex,amrex_max_grid_size=${mgs}"
-                 -DEXTRA=${extra}
+                 "-DSET=legacy_rt=0,rt_backend=amrex,amrex_max_grid_size=${mgs}${xset}"
                  -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
                  -DSTRICT=1
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
