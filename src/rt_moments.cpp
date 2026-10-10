@@ -1,5 +1,6 @@
 // Moment-based radiative transfer (rt_moments.hpp, docs/rt_moments.md).
 #include "radray/rt_moments.hpp"
+#include "radray/recomb_rad.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -22,6 +23,7 @@ using namespace cp;
 // ---------------------------------------------------------------------------
 
 bool set_rt_method_param(Config& c, const std::string& key, const std::string& val) {
+  if (set_recomb_param(c, key, val)) return true;  // recomb_rad.hpp
   if (key == "rt_method") {
     if (val == "rays")
       c.rt_method = RTMethod::Rays;
@@ -56,6 +58,7 @@ void copy_rt_method(const Config& from, Config& to) {
   to.rt_method = from.rt_method;
   to.moment_nsub = from.moment_nsub;
   to.otvet_tensor = from.otvet_tensor;
+  copy_recomb_param(from, to);
 }
 
 const char* rt_method_name(RTMethod m) {
@@ -76,6 +79,11 @@ std::string rt_method_summary(const Config& c) {
            (c.otvet_tensor == 0 ? "auto" : c.otvet_tensor == 1 ? "direct" : "fft");
     s += ")";
   }
+  // recomb_rad.hpp; printed only when not the original's case B
+  if (c.recomb_case_A) s += ", recomb_case = A";
+  if (c.recomb_rad)
+    s += ", recomb_rad = 1 (nside " + std::to_string(c.recomb_rad_nside) + ", block " +
+         std::to_string(c.recomb_rad_block) + ", pool " + std::to_string(c.recomb_rad_pool).substr(0, 4) + ")";
   return s;
 }
 

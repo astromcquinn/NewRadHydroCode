@@ -31,6 +31,7 @@
 #include "radray/ray_dump.hpp"
 #include "radray/parallel.hpp"
 #include "radray/rt.hpp"
+#include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 
@@ -79,6 +80,7 @@ int main(int argc, char** argv) {
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
+    check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
