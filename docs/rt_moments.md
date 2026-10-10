@@ -1,6 +1,7 @@
 # Moment RT: M1 and OTVET as alternatives to the ray tracing
 
-*Written 2026-10-10 (branch `claude/elegant-bell-rqd3l1`). New methods, not
+*Written 2026-10-10 (branch `claude/elegant-bell-rqd3l1`, merged into `main`
+the same day). New methods, not
 in the original code. The default, `rt_method = rays`, is unchanged and stays
 bit-identical to the Fortran: the full fast suite (93 tests, including the
 live gfortran comparisons) passes unchanged.*

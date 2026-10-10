@@ -1,8 +1,8 @@
 # Project status
 
-*Last updated: 2026-10-10, moment RT (M1, OTVET) on branch `claude/elegant-bell-rqd3l1` (not yet merged), with the 256³ klone comparison run; before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+*Last updated: 2026-10-10, moment RT (M1, OTVET) and its 256³ klone comparison with the rays, merged into `main` (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
 
-## In progress (branch `claude/elegant-bell-rqd3l1`, not merged)
+## Done, merged into `main` 2026-10-10 (branch `claude/elegant-bell-rqd3l1`)
 
 **Moment RT: M1 and OTVET as alternatives to the ray tracing
 (`docs/rt_moments.md`).**
