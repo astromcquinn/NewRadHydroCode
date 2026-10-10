@@ -36,7 +36,18 @@ its fast suite (job 41705532: 94/104, the known 10), the B16 thread merged
 the same branch as PR #20. The duplicate merge was dropped and
 `production-256` branched from `main` at 6dab3d1.
 
-Progress of the remaining steps is tracked at the end of this section.
+**Progress (updated as the thread goes):**
+
+| step | state |
+|---|---|
+| 2. build and test `main` on a node | fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures of `docs/cluster.md` §3); nightly suite job 41705709 running |
+| 3. 256³ mass function | done: `docs/hmf_validation.md` (256³ section), `data/hmf/fof_256_10mpc.txt`, `data/uv_lf/am_params_256_10mpc.txt`; run `$RUNS/hmf256` (2 min 15 s on 96 threads) |
+| 4. f_esc at 0.1c | done: **f_esc = 0.28** (`docs/production_run.md` §8, runs `$RUNS/cal128/fesc_*`, 9–10 min each on 96 threads); the 256³ τ_es check is the production run itself |
+| 5. production run | `$RUNS/reion256_prod` running on a whole node (job 41706017); `docs/production_256.md` when it finishes |
+| 6. c convergence | 128³ runs at f_esc = 0.28: 0.1c (`$RUNS/cal128/fesc_0.28`, done, τ_es = 0.0541), 0.3c (`$RUNS/cal128_c03`, job 41706019) and 1.0c (`$RUNS/cal128_c10`, job 41706020) running |
+| 7. ray-precision check | done: `docs/ray_compression.md` §6.2 (`$RUNS/p128/prec`, job array 41705715) |
+| 8. STATUS, PLAN, PR | pending |
+
 
 *Last updated: 2026-10-10: B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
@@ -220,8 +231,9 @@ figure.
   12–14 B per ray as with 17 sources.
 - Recommendation: R-struct with 8 dithered photon bits as the Stage D
   in-memory format, and rANS for checkpoints and MPI.
-- Not yet run: the 128³ production-configuration precision check
-  (`tools/production/hyak_precision.sbatch`).
+- The 128³ production-configuration precision check
+  (`tools/production/hyak_precision.sbatch`) was run on 2026-10-10
+  (`docs/ray_compression.md` §6.2): the 64³ conclusion holds.
 
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
