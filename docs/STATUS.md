@@ -563,7 +563,7 @@ the stored-reference policy on klone; deleting the merged branches.
    | nray_max_factor | 16 |
    | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on a whole node) |
    | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry |
-   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c |
+   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c so that reionization ends at z = 5.5 (user, 2026-10-10; τ_es as the check) |
    | hydro_scheme | user decision pending (`unsplit` fixes the cold-gas overheating; `make_production.py` does not set it yet) |
    | Before the run | B16 fix (item 5), 256³ HMF and f_esc |
 

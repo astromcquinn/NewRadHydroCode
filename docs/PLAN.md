@@ -155,6 +155,10 @@ and adaptive calculations.
   2026-10-09; this replaces Tinker), so the box's LF matches the
   observations.
 * **f_esc:** start the production run with f_esc = 0.5 (2026-10-09).
+  **Calibration target (user, 2026-10-10): ideally the f_esc tuning
+  results in reionization ending at z = 5.5** (τ_es is the weaker
+  constraint, `docs/production_run.md` §8; the recalibration is at 0.1c
+  and 256³).
 * **Dust:** no correction.
 * **ξ_ion:** a JWST-era value, log ξ_ion = 25.38, with a single f_esc
   calibrated to τ_es.

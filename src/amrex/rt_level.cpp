@@ -457,58 +457,8 @@ struct Level : LevelBase {
     T.cell += t1 - t0;
     s.timers.calc_rt1 += t1 - t0;
 
-    // ---- 1b. calc_ray_1: histograms of the live rays -> thresholds, pool guard ----
-    i128 ngam_sum = 0;
-    {
-      const int Np = rrk::pdf_nbins();
-      zero(hist);
-      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-        auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
-        const int np = static_cast<int>(pt.numParticles());
-        const PTD p = pt.getParticleTileData();
-        ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
-          const RayP r = Enc::load(p, n, ectx);
-          const double ntot = rrk::sum_ngam(r);
-          const int b = rrk::pdf_bin(ntot, Np);
-          ax::HostDevice::Atomic::Add(hist_p + b, Long(1));
-          if (r.dr < 0 && r.nside < rayp::nside_max) ax::HostDevice::Atomic::Add(hist_p + rrk::kNpdfMax + b, Long(1));
-          if (ntot > 0) ax::HostDevice::Atomic::Add(hist_p + 2 * rrk::kNpdfMax, Long(1));
-        });
-        // exact sum of the photons (ngam_avg of ray.log), serial per box
-        for (int n = 0; n < np; ++n) ngam_sum += to_fx128(rrk::sum_ngam(Enc::load(p, n, ectx)), kBitsNgam);
-      }
-      std::vector<Long> h(2 * rrk::kNpdfMax + 1);
-      ax::Gpu::copy(ax::Gpu::deviceToHost, hist.begin(), hist.end(), h.begin());
-      ax::ParallelDescriptor::ReduceLongSum(h.data(), 2 * rrk::kNpdfMax + 1);
-      allreduce_i128(&ngam_sum, 1);
-      std::vector<std::int64_t> ngam_pdf(h.begin(), h.begin() + rrk::kNpdfMax);
-      std::vector<std::int64_t> spl_pdf(h.begin() + rrk::kNpdfMax, h.begin() + 2 * rrk::kNpdfMax);
-      std::int64_t L = 0;
-      for (int n = 1; n <= Np; ++n) L += ngam_pdf[n];
-      const double ngam_avg = h[2 * rrk::kNpdfMax] > 0 ? from_fx128(ngam_sum, kBitsNgam) : 0.0;
-      calc_ngam_ray(ngam_pdf.data(), Np, ngam_avg, L > 0 ? L : 1, s.rays.Nray_max, false,
-                    s.rays.ngam_ray, s.raylog);
-      // F3 pool guard: source cells (stellar) of the level
-      std::int64_t nsrc = 0;
-      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-        auto c = C.const_array(mfi);
-        const Box_t bx = mfi.validbox();
-        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
-        for (int k = lo.z; k <= hi.z; ++k)
-          for (int j = lo.y; j <= hi.y; ++j)
-            for (int i = lo.x; i <= hi.x; ++i)
-              if (static_cast<double>(cf(c, i, j, k, kSfr)) > sfr_min) ++nsrc;
-      }
-      ax::ParallelDescriptor::ReduceLongSum(nsrc);
-      pool_guard(spl_pdf.data(), Np, L, nsrc, 0, s.rays.Nray_max, s.rays.ngam_ray, s.rays.npool_limited,
-                 s.rays.npool_forced, s.raylog);
-    }
-    const rrk::RTP P = rt_params(s);
-    double t2 = now();
-    T.hist += t2 - t1;
-    s.timers.calc_ray1 += t2 - t1;
-
-    // ---- gather rays per box into cell-sorted scratch (DenseBins) ----
+    // ---- gather rays per box into cell-sorted scratch (DenseBins): one
+    // decode per ray per substep; the histograms below read the scratch ----
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       BoxScratch& S = scratch[mfi.LocalIndex()];
       auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
@@ -541,8 +491,60 @@ struct Level : LevelBase {
       ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) { rays[n] = Enc::load(p, perm[n], ectx); });
     }
     check_err("gather");
-    double t2b = now();
-    T.sort += t2b - t2;
+    double t1b = now();
+    T.sort += t1b - t1;
+    // ---- 1b. calc_ray_1: histograms of the live rays -> thresholds, pool guard ----
+    i128 ngam_sum = 0;
+    {
+      const int Np = rrk::pdf_nbins();
+      zero(hist);
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        BoxScratch& S = scratch[mfi.LocalIndex()];
+        const int np = static_cast<int>(S.rays.size());
+        const RayP* rays = S.rays.data();
+        ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
+          const RayP& r = rays[n];
+          const double ntot = rrk::sum_ngam(r);
+          const int b = rrk::pdf_bin(ntot, Np);
+          ax::HostDevice::Atomic::Add(hist_p + b, Long(1));
+          if (r.dr < 0 && r.nside < rayp::nside_max) ax::HostDevice::Atomic::Add(hist_p + rrk::kNpdfMax + b, Long(1));
+          if (ntot > 0) ax::HostDevice::Atomic::Add(hist_p + 2 * rrk::kNpdfMax, Long(1));
+        });
+        // exact sum of the photons (ngam_avg of ray.log), serial per box
+        for (int n = 0; n < np; ++n) ngam_sum += to_fx128(rrk::sum_ngam(rays[n]), kBitsNgam);
+      }
+      std::vector<Long> h(2 * rrk::kNpdfMax + 1);
+      ax::Gpu::copy(ax::Gpu::deviceToHost, hist.begin(), hist.end(), h.begin());
+      ax::ParallelDescriptor::ReduceLongSum(h.data(), 2 * rrk::kNpdfMax + 1);
+      allreduce_i128(&ngam_sum, 1);
+      std::vector<std::int64_t> ngam_pdf(h.begin(), h.begin() + rrk::kNpdfMax);
+      std::vector<std::int64_t> spl_pdf(h.begin() + rrk::kNpdfMax, h.begin() + 2 * rrk::kNpdfMax);
+      std::int64_t L = 0;
+      for (int n = 1; n <= Np; ++n) L += ngam_pdf[n];
+      const double ngam_avg = h[2 * rrk::kNpdfMax] > 0 ? from_fx128(ngam_sum, kBitsNgam) : 0.0;
+      calc_ngam_ray(ngam_pdf.data(), Np, ngam_avg, L > 0 ? L : 1, s.rays.Nray_max, false,
+                    s.rays.ngam_ray, s.raylog);
+      // F3 pool guard: source cells (stellar) of the level
+      std::int64_t nsrc = 0;
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        auto c = C.const_array(mfi);
+        const Box_t bx = mfi.validbox();
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+        for (int k = lo.z; k <= hi.z; ++k)
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i)
+              if (static_cast<double>(cf(c, i, j, k, kSfr)) > sfr_min) ++nsrc;
+      }
+      ax::ParallelDescriptor::ReduceLongSum(nsrc);
+      pool_guard(spl_pdf.data(), Np, L, nsrc, 0, s.rays.Nray_max, s.rays.ngam_ray, s.rays.npool_limited,
+                 s.rays.npool_forced, s.raylog);
+    }
+    const rrk::RTP P = rt_params(s);
+    double t2 = now();
+    T.hist += t2 - t1b;
+    s.timers.calc_ray1 += t2 - t1b;
+
+    double t2b = t2;
 
     // ---- 1d. per-cell emit/classify/split/merge: count, scan, write ----
     zero(cstat);
