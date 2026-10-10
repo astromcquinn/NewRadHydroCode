@@ -215,9 +215,32 @@ struct Level : LevelBase {
   ax::Gpu::DeviceVector<Long> hist;   // ngam_pdf[kNpdfMax] + spl_pdf[kNpdfMax] + npos
   ax::Gpu::DeviceVector<Long> cstat;  // ncst, nspl, nmrg, ndel
   ax::Gpu::DeviceVector<int> err;
+  // the atomic-rate tables in device memory (host memory on CPU builds),
+  // refreshed when the host tables change (legacy_physics)
+  ax::Gpu::DeviceVector<double> d_cool, d_alpha, d_gcol;
+  const double* rates_src = nullptr;
   double sig_init[3][5];
   Timers T;
   Long ray_substeps = 0;
+
+  rrk::RatesView rates_view(const Simulation& s) {
+    const AtomicRates& R = s.rates;
+    if (rates_src != R.coef_cool_.data() || d_cool.size() != R.coef_cool_.size()) {
+      d_cool.resize(R.coef_cool_.size());
+      d_alpha.resize(R.alpha_rec_.size());
+      d_gcol.resize(R.gamma_col_.size());
+      ax::Gpu::copy(ax::Gpu::hostToDevice, R.coef_cool_.begin(), R.coef_cool_.end(), d_cool.begin());
+      ax::Gpu::copy(ax::Gpu::hostToDevice, R.alpha_rec_.begin(), R.alpha_rec_.end(), d_alpha.begin());
+      ax::Gpu::copy(ax::Gpu::hostToDevice, R.gamma_col_.begin(), R.gamma_col_.end(), d_gcol.begin());
+      rates_src = R.coef_cool_.data();
+    }
+    rrk::RatesView v;
+    v.cool = d_cool.data();
+    v.alpha = d_alpha.data();
+    v.gcol = d_gcol.data();
+    v.legacy_physics = s.cfg.legacy_physics;
+    return v;
+  }
 
   Level(const Config& cfg, bool with_e) {
     N = cfg.Nrt;
@@ -662,10 +685,7 @@ struct Level : LevelBase {
     {
       rrk::PhysCtx X;
       X.u = s.units;
-      X.rates.cool = s.rates.coef_cool_.data();
-      X.rates.alpha = s.rates.alpha_rec_.data();
-      X.rates.gcol = s.rates.gamma_col_.data();
-      X.rates.legacy_physics = s.cfg.legacy_physics;
+      X.rates = rates_view(s);
       X.dtsec_rt = s.clk.dtsec_rt;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;

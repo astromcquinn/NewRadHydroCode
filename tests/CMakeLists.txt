@@ -598,6 +598,139 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 # ---------------------------------------------------------------------------
+# AMReX backend (rt_backend = amrex, docs/stage_d.md; label amrex, only with
+# RADRAY_AMREX=ON). The sorted-ray-array RT must be bitwise identical to
+# spike/serial rt_serial for any rank count, box size and thread count, and
+# agree with the serial port (legacy_rt = 0) to round-off; restarts and the
+# full loop are checked as for the serial code.
+if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
+  # the sorted-array reference of the spike, built against the library
+  add_executable(rt_serial ${PROJECT_SOURCE_DIR}/spike/serial/rt_serial.cpp)
+  target_include_directories(rt_serial PRIVATE ${PROJECT_SOURCE_DIR}/spike/common)
+  target_link_libraries(rt_serial PRIVATE ${RADRAY_RT_BACKEND_LIB})
+  target_compile_options(rt_serial PRIVATE -ffp-contract=off -fno-fast-math)
+  # The MPI launcher of the tests: mpiexec from FindMPI (set RADRAY_MPIEXEC
+  # and RADRAY_MPIEXEC_FLAGS for another one, e.g. srun on a cluster)
+  find_package(MPI COMPONENTS CXX QUIET)
+  set(RADRAY_MPIEXEC "${MPIEXEC_EXECUTABLE}" CACHE STRING "MPI launcher of the amrex tests")
+  set(RADRAY_MPIEXEC_FLAGS "--oversubscribe;--allow-run-as-root;--bind-to;none" CACHE STRING
+      "launcher flags (OpenMPI defaults; empty for srun)")
+  set(RADRAY_MPIEXEC_NP "-np" CACHE STRING "launcher flag for the rank count")
+  set(amrex_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_runs)
+  # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
+  # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
+  foreach(case "u8;uniform_8src;" "ln16;lognormal_16src_smallbuf;"
+               "ln16p0;lognormal_16src_smallbuf;--set;legacy_physics=0")
+    list(GET case 0 tag)
+    list(GET case 1 prob)
+    list(SUBLIST case 2 -1 extra)
+    add_test(NAME amrex_ref_${tag}
+             COMMAND rt_serial ${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob} ${amrex_runs}/ref_${tag}
+                     --set legacy_rt=0 ${extra})
+    set_tests_properties(amrex_ref_${tag} PROPERTIES FIXTURES_SETUP amrex_ref_${tag} LABELS amrex
+                         ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800)
+    foreach(cfg "1;1;32" "1;2;16" "2;1;16" "2;2;8" "4;1;16" "4;2;8" "8;1;8" "8;2;16")
+      list(GET cfg 0 np)
+      list(GET cfg 1 nt)
+      list(GET cfg 2 mgs)
+      set(tname amrex_bitwise_${tag}_r${np}t${nt}_mgs${mgs})
+      add_test(NAME ${tname}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob}
+                 -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/ref_${tag}
+                 "-DSET=legacy_rt=0,rt_backend=amrex,amrex_max_grid_size=${mgs}"
+                 -DEXTRA=${extra}
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                 -DSTRICT=1
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_ref_${tag} LABELS amrex
+                           ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 1800 PROCESSORS ${np})
+    endforeach()
+  endforeach()
+  # round-off against the serial port (rt_driver, legacy_rt = 0) on the five
+  # RT problems: tolerances of docs/framework_decision.md section 2 (dx in
+  # source cells is the sum of 192 symmetric directions: float noise vs an
+  # exact integer sum; fgam in a few I-front cells)
+  foreach(p uniform_1src uniform_8src lognormal_16src uniform_8src_smallbuf lognormal_16src_smallbuf)
+    add_test(NAME amrex_serial_ref_${p}
+             COMMAND rt_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems/${p} ${amrex_runs}/serial_${p}
+                     --set legacy_rt=0)
+    set_tests_properties(amrex_serial_ref_${p} PROPERTIES FIXTURES_SETUP amrex_serial_${p} LABELS amrex
+                         TIMEOUT 1800)
+    add_test(NAME amrex_roundoff_${p}
+             COMMAND ${CMAKE_COMMAND}
+               -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+               -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+               -DDRIVER=$<TARGET_FILE:rt_driver>
+               -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+               -DOUT=${amrex_runs}/roundoff_${p} -DREF=${amrex_runs}/serial_${p}
+               "-DSET=legacy_rt=0,rt_backend=amrex"
+               -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+               -DSTRICT=0
+               -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+    set_tests_properties(amrex_roundoff_${p} PROPERTIES FIXTURES_REQUIRED amrex_serial_${p} LABELS amrex
+                         ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS 2)
+  endforeach()
+  # thread-count independence of the backend (1 rank)
+  add_test(NAME amrex_thread_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${amrex_runs}/thread_lognormal_16src $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set legacy_rt=0
+                   --set legacy_physics=0 --set rt_backend=amrex --set nsteps=6)
+  set_tests_properties(amrex_thread_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS "amrex;threads"
+                       ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  # the R-struct encoding runs and stays close to the float layout
+  add_test(NAME amrex_rstruct_lognormal_16src
+           COMMAND ${CMAKE_COMMAND}
+             -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+             -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=1
+             -DDRIVER=$<TARGET_FILE:rt_driver>
+             -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
+             -DOUT=${amrex_runs}/rstruct_lognormal_16src -DREF=${amrex_runs}/serial_lognormal_16src
+             "-DSET=legacy_rt=0,rt_backend=amrex,ray_encoding=rstruct"
+             -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+             -DSTRICT=lossy
+             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+  set_tests_properties(amrex_rstruct_lognormal_16src PROPERTIES FIXTURES_REQUIRED amrex_serial_lognormal_16src
+                       LABELS amrex ENVIRONMENT OMP_NUM_THREADS=1 TIMEOUT 1800 PROCESSORS 2)
+  if(RADRAY_HAVE_PM)
+    # the full loop: 1 and 2 ranks byte-identical (fields, movie frames,
+    # checkpoints), and a bit-identical restart with the backend
+    add_test(NAME amrex_full_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/full_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP}
+                     "1 2" $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet
+                     --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                     --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_full_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/restart 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set movie_dz=0.5 --set movie_z0=25)
+    set_tests_properties(amrex_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;restart")
+    # the unsplit hydro scheme's dual-energy field through the backend
+    add_test(NAME amrex_restart_smoke_unsplit
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/restart_unsplit 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit)
+    set_tests_properties(amrex_restart_smoke_unsplit PROPERTIES TIMEOUT 1800 LABELS "amrex;restart")
+    # nightly: the 64^3 production configuration, backend vs serial
+    # (history, tau_es, per-cell fields; docs/stage_d.md section 4)
+    add_test(NAME amrex_full64_vs_serial
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/amrex_full64_check.py
+                     $<TARGET_FILE:radhydro> ${amrex_runs}/full64 ${PROJECT_SOURCE_DIR}/tools)
+    set_tests_properties(amrex_full64_vs_serial PROPERTIES TIMEOUT 14400 LABELS "amrex;full;nightly"
+                         ENVIRONMENT OMP_NUM_THREADS=4 RUN_SERIAL TRUE DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # OpenMP: every test runs with 2 threads unless it sets OMP_NUM_THREADS
 # itself (ctest -j runs several tests at once; results do not depend on the
 # thread count, see docs/parallel.md and the thread_* tests).
