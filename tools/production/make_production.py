@@ -58,6 +58,9 @@ def main():
                     help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
                          "3: every RT substep and source (production), 0: the original")
     a = ap.parse_args()
+    if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
+        sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
+                 f"int32 ray links (rays.hpp); use at most {(2 ** 31 - 1) // a.N ** 3}")
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.join(a.outdir, "ics")
     if not a.no_ics and not os.path.exists(os.path.join(ics, "u_gas.init")):
