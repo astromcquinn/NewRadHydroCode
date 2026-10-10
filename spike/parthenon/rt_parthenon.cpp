@@ -19,6 +19,9 @@
 //
 // usage: rt_parthenon -i rt.in <problem_dir> <outdir> [--nsteps n] [--set k=v]...
 //                     [--no-output] [--mb 16] [block/par=value ...]
+#include <algorithm>
+#include <cstdlib>
+#include <vector>
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -156,6 +159,28 @@ KOKKOS_INLINE_FUNCTION int local_img(int gi, int off, int n, int N) {
   if (d + N >= -G && d + N < n + G) return d + N + G;
   if (d - N >= -G && d - N < n + G) return d - N + G;
   return -1;
+}
+
+// Integer atomics on long long. In this Kokkos 4.6 CUDA build,
+// Kokkos::atomic_add on 64-bit integers (long long and unsigned long long
+// alike) compiles to a compare-and-swap loop (cuobjdump: no ATOMG.E.ADD.64),
+// which collapses under contention: the photon histogram, where every ray
+// hits the same counter, took ~200 s per 128^3 substep. Device code calls the
+// native atomicAdd(unsigned long long*) instead; two's-complement adds give
+// identical bits. Host code keeps the plain Kokkos call.
+KOKKOS_FORCEINLINE_FUNCTION void ll_add(long long* p, long long v) {
+#ifdef __CUDA_ARCH__
+  atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v));
+#else
+  Kokkos::atomic_add(p, v);
+#endif
+}
+KOKKOS_FORCEINLINE_FUNCTION long long ll_fetch_add(long long* p, long long v) {
+#ifdef __CUDA_ARCH__
+  return static_cast<long long>(atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v)));
+#else
+  return Kokkos::atomic_fetch_add(p, v);
+#endif
 }
 
 struct Sig {
@@ -515,7 +540,12 @@ int main(int argc, char** argv) {
     Timers T;
     Fold F;
     long long ray_substeps = 0;
+#ifdef KOKKOS_ENABLE_CUDA
+    const int nthreads = 1;  // one GPU per rank (concurrency() would be the device thread count)
+#else
     const int nthreads = sp::num_threads();
+#endif
+    std::vector<double> sub_wall;  // wall time of each RT substep on rank 0 (fenced phases)
     MPI_Barrier(comm);
     const double t_start = sp::now();
 
@@ -537,6 +567,7 @@ int main(int argc, char** argv) {
       }
       rrhost::StepStats st;
       for (int sub = 1; sub <= nsub; ++sub) {
+        const double tsub = sp::now();
         // 0. rays: swarm -> cell-sorted array (counting sort), swarm emptied
         double t0 = sp::now();
         for (auto& B : blks) {
@@ -566,7 +597,7 @@ int main(int argc, char** argv) {
                     Kokkos::abort("ray not in its home block after migration");
                   const int c = li + nx * (lj + ny * lk);
                   pcell(n) = c;
-                  Kokkos::atomic_add(&cnt(c), 1LL);
+                  ll_add(&cnt(c), 1LL);
                 });
           }
           const int ncell = B.ncell;
@@ -581,7 +612,7 @@ int main(int argc, char** argv) {
                 "rt_scatter", 0, nmax, KOKKOS_LAMBDA(const int n) {
                   if (!sd.IsActive(n)) return;
                   const int c = pcell(n);
-                  const long long p = start(c) + Kokkos::atomic_fetch_add(&fill(c), 1LL);
+                  const long long p = start(c) + ll_fetch_add(&fill(c), 1LL);
                   rays(p) = load_ray(ri, rf, n);
                   sd.MarkParticleForRemoval(n);
                 });
@@ -631,8 +662,8 @@ int main(int argc, char** argv) {
               Kokkos::parallel_for(
                   "rt_hist", B.nr, KOKKOS_LAMBDA(const long long r) {
                     const double ntot = rrk::sum_ngam(rays(r));
-                    Kokkos::atomic_add(&h(rrk::pdf_bin(ntot, Np)), 1LL);
-                    if (ntot > 0) Kokkos::atomic_add(&h(rrk::kNpdfMax), 1LL);
+                    ll_add(&h(rrk::pdf_bin(ntot, Np)), 1LL);
+                    if (ntot > 0) ll_add(&h(rrk::kNpdfMax), 1LL);
                   });
             auto hh = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), h);
             for (int q = 0; q <= rrk::kNpdfMax; ++q) hist[q] += hh(q);
@@ -661,10 +692,10 @@ int main(int argc, char** argv) {
                 rrk::CellStats cs;
                 cnt(c) = rrk::step1_count(&rays(0) + start(c), static_cast<int>(start(c + 1) - start(c)), src, thick,
                                           ox + i, oy + j, oz + k, d.Luv, P, cs);
-                if (cs.ncst) Kokkos::atomic_add(&stats(0), cs.ncst);
-                if (cs.nspl) Kokkos::atomic_add(&stats(1), cs.nspl);
-                if (cs.nmrg) Kokkos::atomic_add(&stats(2), cs.nmrg);
-                if (cs.ndel) Kokkos::atomic_add(&stats(3), cs.ndel);
+                if (cs.ncst) ll_add(&stats(0), cs.ncst);
+                if (cs.nspl) ll_add(&stats(1), cs.nspl);
+                if (cs.nmrg) ll_add(&stats(2), cs.nmrg);
+                if (cs.ndel) ll_add(&stats(3), cs.ndel);
               });
           const int ncell = B.ncell;
           Kokkos::parallel_scan(
@@ -693,7 +724,7 @@ int main(int argc, char** argv) {
                   double v[NDEP];
                   rrk::source_thick_deposit(d.Luv, P, v);
                   for (int m = 0; m < NDEP; ++m)
-                    Kokkos::atomic_add(&acc(k + G, j + G, i + G, m), rrk::to_fx(v[m], rrk::dep_scale(m)));
+                    ll_add(&acc(k + G, j + G, i + G, m), rrk::to_fx(v[m], rrk::dep_scale(m)));
                 }
                 if (cnt(c) == 0) return;
                 const int w = rrk::step1_write(&rays(0) + start(c), static_cast<int>(start(c + 1) - start(c)), src,
@@ -724,7 +755,7 @@ int main(int argc, char** argv) {
                   const int li = local_img(i, ox, nx, N), lj = local_img(j, oy, ny, N), lk = local_img(k, oz, nz, N);
                   if (li < 0 || lj < 0 || lk < 0) Kokkos::abort("cast_1 deposit outside the ghost zone");
                   for (int m = 0; m < NDEP; ++m)
-                    Kokkos::atomic_add(&acc(lk, lj, li, m), rrk::to_fx(v[m], rrk::dep_scale(m)));
+                    ll_add(&acc(lk, lj, li, m), rrk::to_fx(v[m], rrk::dep_scale(m)));
                 };
                 rrk::cast_1(out(r), P, tau, dep);
               });
@@ -791,7 +822,7 @@ int main(int argc, char** argv) {
                   fgam = &tf(lk, lj, li, 5);
                 };
                 keep(r) = rrk::cast_3(out(r), P, tfn) ? 1 : 0;
-                if (!keep(r)) Kokkos::atomic_add(&stats(4), 1LL);
+                if (!keep(r)) ll_add(&stats(4), 1LL);
               });
         }
         Kokkos::fence();
@@ -855,6 +886,12 @@ int main(int argc, char** argv) {
         st.nmrg1 = sv[2];
         st.ndel1 = sv[3] + sv[4];
         run.end_substep();
+        sub_wall.push_back(sp::now() - tsub);
+        if (rank == 0 && std::getenv("RT_SUBSTEP_LOG"))
+          std::printf(" substep %d.%d  %.4f s  cell %.3f halo %.3f hist %.3f step1 %.3f cast1 %.3f fold %.3f phys %.3f "
+                      "cast3 %.3f sort %.3f migrate %.3f (cumulative)\n",
+                      run.clk.istep, sub, sub_wall.back(), T.cell, T.halo, T.hist, T.step1, T.cast1, T.fold, T.phys,
+                      T.cast3, T.sort, T.migrate);
       }
       // post_rt: redshift rays, final gas/tau
       const double t7 = sp::now();
@@ -938,6 +975,12 @@ int main(int argc, char** argv) {
                   "ns/ray-substep*threads*ranks %.1f\n",
                   nranks, nthreads, static_cast<int>(pmesh->nbtotal), mb, tt, ray_substeps,
                   1e9 * tt * nthreads * nranks / (ray_substeps > 0 ? ray_substeps : 1));
+      if (!sub_wall.empty()) {
+        std::vector<double> sw = sub_wall;
+        std::sort(sw.begin(), sw.end());
+        std::printf(" substeps %d  substep time min %.4f median %.4f max %.4f s\n", static_cast<int>(sw.size()),
+                    sw.front(), sw[sw.size() / 2], sw.back());
+      }
       std::printf(" timers (max over ranks): cell %.3f halo %.3f hist %.3f step1 %.3f cast1 %.3f fold %.3f "
                   "phys %.3f cast3 %.3f sort %.3f migrate %.3f post %.3f\n",
                   tv[0], tv[1], tv[2], tv[3], tv[4], tv[5], tv[6], tv[7], tv[8], tv[9], tv[10]);

@@ -1,0 +1,7 @@
+kernel,code,ranks,threads,block,wall_s,work,ns_per_unit_core
+rt,parthenon-cuda-a100,1,1,32,56.800,2835088334,20.03
+rt,parthenon-cuda-a100,1,1,64,24.142,2835088334,8.52
+rt,parthenon-cuda-a100,1,1,128,16.945,2835088334,5.98
+rt,parthenon-cuda-h200,1,1,32,45.372,2835088334,16.00
+rt,parthenon-cuda-h200,1,1,64,15.979,2835088334,5.64
+rt,parthenon-cuda-h200,1,1,128,11.040,2835088334,3.89
