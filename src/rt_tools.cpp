@@ -17,6 +17,7 @@
 #include "radray/ray_quant.hpp"
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
+#include "radray/rt_moments.hpp"
 
 namespace radray {
 
@@ -278,19 +279,29 @@ void radiative_transfer(Simulation& s) {
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
 
-    if (s.raydump_state) {
+    const bool moments = use_moments(s.cfg);
+    if (s.raydump_state && !moments) {
       s.rays.prov_substep = ++s.raydump_state->substep;
     }
     rt_step_1(s);
     rt_step_2(s);
     rt_step_3(s);
-    if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
-    if (s.raydump_state) ray_dump_after_substep(s);
+    if (!moments) {
+      if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
+      if (s.raydump_state) ray_dump_after_substep(s);
+    }
 
     const std::int64_t nr = s.rays.Nray - s.rays.save.nfree;
     const float fnr = static_cast<float>(static_cast<double>(nr) /
                                          static_cast<double>(s.rays.Nray_max));
-    if (L) {
+    if (L && moments) {
+      // rt_method = m1 | otvet (rt_moments.hpp): no rays
+      *L << " Sources    : " << s.rt_save.nsfill << " "
+         << static_cast<float>(s.rt_save.nsfill / s.cfg.nrtcr) << "\n";
+      *L << " Photons    : " << s.rt_save.ngfill << " "
+         << static_cast<float>(s.rt_save.ngfill / s.cfg.nrtcr) << "\n";
+      if (clk.istep_rt == clk.nstep_rt) *L << "\n";
+    } else if (L) {
       const RayStat& rs = s.rays.save;
       *L << " Sources    : " << s.rt_save.nsfill << " "
          << static_cast<float>(s.rt_save.nsfill / s.cfg.nrtcr) << "\n";
@@ -420,6 +431,12 @@ void prep_rt(Simulation& s) {
         store_gas_state(G, G.cell(irt, jrt, krt), g, s.units);
       }
 
+  // rt_method = m1 | otvet: no ray pool (rt_moments.hpp)
+  if (use_moments(s.cfg)) {
+    moment_prep(s);
+    return;
+  }
+
   if (s.cfg.det_parallel) {
     // deterministic_parallel: per-thread free lists instead of the Fortran
     // buffers (Nrbuf, ray_buffer_*); Nray is the live count.
@@ -453,10 +470,15 @@ void post_rt(Simulation& s) {
     double t0;
     ~Acc() { t += wall_seconds() - t0; }
   } acc{s.timers.post, wall_seconds()};
-  // deterministic_parallel: there are no Fortran buffers to return, and
-  // freed slots are already zero.
-  if (!s.cfg.det_parallel) ray_buffer_deallocate(s);
-  ray_redshifting(s);
+  const bool moments = use_moments(s.cfg);
+  if (moments) {
+    moment_redshift(s);  // rt_method = m1 | otvet (rt_moments.hpp)
+  } else {
+    // deterministic_parallel: there are no Fortran buffers to return, and
+    // freed slots are already zero.
+    if (!s.cfg.det_parallel) ray_buffer_deallocate(s);
+    ray_redshifting(s);
+  }
 
   RTGrid& G = s.rt;
   RayState& R = s.rays;
@@ -486,6 +508,8 @@ void post_rt(Simulation& s) {
           tau[i] = static_cast<float>(sm * s.units.len_rt);
         }
       }
+
+  if (moments) return;  // (the ray PDFs below)
 
   // calc_ray_f (diagnostic PDFs for ray.log)
   auto bin = [](double ngam) {
@@ -565,6 +589,10 @@ void post_rt(Simulation& s) {
 
 // rt_tools.f90: rt_step_1
 void rt_step_1(Simulation& s) {
+  if (use_moments(s.cfg)) {
+    moment_step_1(s);  // rt_method = m1 | otvet (rt_moments.hpp)
+    return;
+  }
   double tw = wall_seconds();
   auto lap = [&](double& t) {
     const double now = wall_seconds();
@@ -1305,7 +1333,9 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
 void rt_step_3(Simulation& s) {
   RTGrid& G = s.rt;
   const double tw0 = wall_seconds();
-  if (s.cfg.det_parallel) {
+  if (use_moments(s.cfg)) {
+    moment_step_3(s);  // rt_method = m1 | otvet (rt_moments.hpp)
+  } else if (s.cfg.det_parallel) {
     det_sweep(s, [&](const std::array<int, 6>& box) { ray_tracing_3(s, box); });
     det_fold(s.rays);
   } else {
@@ -1316,7 +1346,7 @@ void rt_step_3(Simulation& s) {
     }
   }
   const double tw1 = wall_seconds();
-  s.timers.trace3 += tw1 - tw0;
+  if (!use_moments(s.cfg)) s.timers.trace3 += tw1 - tw0;
   struct Acc {
     double& t;
     double t0;
@@ -1415,6 +1445,8 @@ std::int64_t count_live_rays(const Simulation& s) {
 double ngam_rays_total(const Simulation& s) {
   // Live rays = those linked in the cell chains. Summed in storage order
   // over slots with nside > 0; valid after post_rt (dead slots zeroed).
+  // rt_method = m1 | otvet: the photons of the moment solver
+  if (use_moments(s.cfg)) return moment_photons_total(s);
   double t = 0;
   if (s.cfg.det_parallel) {
     // deterministic_parallel: storage slots depend on thread timing; sum in

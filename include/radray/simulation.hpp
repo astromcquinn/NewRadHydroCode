@@ -20,6 +20,7 @@
 namespace radray {
 
 struct RayDump;  // radray/ray_dump.hpp
+struct MomentState;  // radray/rt_moments.hpp
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -84,6 +85,9 @@ struct Simulation {
   std::shared_ptr<RayDump> raydump_state;
   // Lossy ray-precision experiment (ray_quant.hpp); off by default.
   RayQuantConfig ray_quant;
+  // Moment RT state (rt_method = m1 | otvet, rt_moments.hpp); null with the
+  // ray tracing.
+  std::shared_ptr<MomentState> moments;
 };
 
 }  // namespace radray

@@ -12,6 +12,13 @@ namespace radray {
 // formulation (src/hydro_unsplit.cpp, kernels/hydro_mh.hpp).
 enum class HydroScheme { Legacy, Unsplit };
 
+// Radiative transfer method (docs/rt_moments.md): Rays = the original's
+// adaptive ray tracing (default, bit-identical to the Fortran); M1 and OTVET
+// = the two-moment photon solver of src/rt_moments.cpp with the M1
+// (Levermore 1984) closure or the optically thin variable Eddington tensor
+// (Gnedin & Abel 2001). New methods, not in the original.
+enum class RTMethod { Rays, M1, OTVET };
+
 struct Config {
   // radhydro_global.f90: Ncpu. The reference is run with ONE thread, and the
   // port is serial; Ncpu enters ray-buffer sizes and the domain
@@ -119,6 +126,17 @@ struct Config {
   //                comparison of docs/hydro_unsplit.md section 2.
   bool dual_eta2_local = false;
   bool dual_p_old = false;
+
+  // params.txt rt_method = rays (default) | m1 | otvet and the parameters
+  // of the moment solver (set_rt_method_param in rt_moments.hpp):
+  //   moment_nsub: transport subcycles per RT substep (Courant number
+  //                1/moment_nsub of the explicit GLF scheme; >= 3 in 3-D,
+  //                and 3 decouples odd and even cells, docs/rt_moments.md);
+  //   otvet_tensor: how the OTVET tensor is summed over the sources:
+  //                0 = auto, 1 = direct sum, 2 = FFT convolution.
+  RTMethod rt_method = RTMethod::Rays;
+  int moment_nsub = 4;
+  int otvet_tensor = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
