@@ -625,7 +625,101 @@ In the cloud (branch + PR each):
 6. **Stage D: sorted-ray-array RT in AMReX** on a uniform grid, with the
    R-struct encoding (8 dithered photon bits), validated against
    `rt_driver --set legacy_rt=0` as the spike was. AMReX is confirmed
-   (2026-10-10), so this can start.
+   (2026-10-10), so this can start. Opening prompt (2026-10-10):
+
+   > Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md, docs/ROADMAP.md, then
+   > docs/framework_decision.md (§1, §2, §6 Stage D, §8),
+   > docs/design_parallel_and_encoding.md (§0.1, §2, §3, §4.2) and
+   > docs/ray_compression.md (the R-struct recommendation). This is
+   > Stage D of the roadmap: the ray-tracing RT on AMReX, uniform grid,
+   > no refinement, CPU first. Branch `stage-d-amrex` off `main`; commit
+   > often and push; one PR at the end (or one per milestone below).
+   >
+   > Starting point: `spike/` (`spike/README.md`, `spike/amrex/README.md`).
+   > `spike/amrex/rt_amrex.cpp` already does the whole RT substep on
+   > AMReX (sorted rays, two-pass emission/split/merge, canonical merge
+   > order, int64 deposits with SumBoundary, Redistribute) and is bitwise
+   > identical to `spike/serial/rt_serial` for 1–8 ranks and to round-off
+   > against `rt_driver --set legacy_rt=0` on the five RT problems. Build
+   > AMReX 26.10 with `-DSPIKE_FETCH_AMREX=ON` (MPI, OpenMP, 3D, particles
+   > in single precision) as the spike did; cache the install.
+   >
+   > Ground rules: the serial port stays the bit-for-bit legacy reference
+   > and every stored-reference, live-Fortran, restart and thread test
+   > must keep passing unchanged. The AMReX path is a new option
+   > (`rt_backend = amrex`, default the current code), implemented only
+   > for `legacy_rt = 0` (sorted arrays cannot reproduce the zombie-ray
+   > thresholds, design doc §0.1). AMReX is an optional dependency:
+   > `-DRADRAY_AMREX=ON`, found with `find_package` or fetched; the
+   > default build and the fast suite must not need it.
+   >
+   > Milestones, each validated before the next:
+   > 1. **One physics implementation.** Move the ray and RT-cell kernels of
+   >    `spike/common` (`ray_kernels.hpp`, `rt_cell.hpp`, `healpix_hd.hpp`,
+   >    `consts_hd.hpp`) to `include/radray/kernels/`, as PR #15 did for
+   >    `hydro_mh.hpp`, and make `src/ray_tracing.cpp` and
+   >    `src/rt_tools.cpp` call them, so cast, advance, split, merge,
+   >    emission, redshifting and `photo_cell` exist once. Bit-identical
+   >    results in every flag combination (the whole fast suite, then the
+   >    nightly label). Carry the serial code's newer physics into the
+   >    kernels where it belongs: `ray_rotate` (if merged by then; it is
+   >    on `claude/exciting-clarke-zn62ih`), the recombination-radiation
+   >    emission (`recomb_rad`), and the `rt_substep_carry` / `ra_max`
+   >    bookkeeping. Leave the moment solvers (`rt_method = m1|otvet`) on
+   >    the serial path.
+   > 2. **Library component.** Turn `rt_amrex` into
+   >    `src/amrex/rt_level.cpp` (+ header) working on one level: a
+   >    `ParticleContainerPureSoA` of rays, cell `FabArray`s, int64
+   >    deposits with `SumBoundary`, 2 ghost layers with the assertion on
+   >    the ray reach, `Redistribute` after every substep. Add what the
+   >    prototype lacks: the full source model (`halo_sources`, including
+   >    `sfr_model = abundance` and the local-deposit branch for thick
+   >    source cells), redshifting and `post_rt` inside the hydro loop,
+   >    the ray pool guard, movie frames, and checkpoints (a new section
+   >    of the checkpoint format, version 5). Wire it into `rt_driver` and
+   >    `radhydro` behind `rt_backend = amrex`.
+   > 3. **Encoding.** Store the rays as the R-struct of
+   >    docs/ray_compression.md (direction as HEALPix index + quantised
+   >    offset, position as an in-cell offset, float photon total + 8-bit
+   >    dithered log-quantised spectral shape, never-merged flag), decoded
+   >    to float/double in registers. Keep a `ray_encoding = float|rstruct`
+   >    switch so the float layout remains for bitwise validation; measure
+   >    bytes per ray and the x_HII(z), τ_es and T errors of the encoded
+   >    run against the float one on `lognormal_16src` and the 64³
+   >    production configuration (the acceptance metrics of
+   >    docs/ROADMAP.md: x_HII within 1–2 %, τ_es within 1 %).
+   > 4. **Validation and tests** (CTest label `amrex`, skipped when AMReX
+   >    is off): bitwise against `rt_serial` for 1, 2, 4, 8 ranks × 1, 2
+   >    threads and box sizes 16³/32³ (the spike's `validate.sh` matrix);
+   >    round-off against `rt_driver --set legacy_rt=0` on the five RT
+   >    problems with `tools/compare/compare.py`; rank- and thread-count
+   >    independence; bit-identical restarts; a full 64³ `radhydro` run
+   >    compared with the serial one (history, τ_es, per-cell fields).
+   >    Timing: `rt_backend = amrex` against the serial OpenMP code on the
+   >    4-core VM at 64³ and 128³ (`tools/production/timing_table.py`),
+   >    and a klone job script in `tools/hyak/` for 24 ranks × 8 threads
+   >    at 256³ to compare with `docs/cluster.md` §6 (the user runs it).
+   > 5. **GPU, last and optional:** add the CUDA target
+   >    (`-DAMReX_GPU_BACKEND=CUDA`, nvcc ≥ 12.2, `--fmad=false`), rate
+   >    tables in device memory, a team-level step-1 for source cells, and
+   >    a klone `ckpt` job script (`spike/hyak/build_gpu.sh` is the start).
+   >    Compile-only is acceptable here; the A100/H200 runs are the user's.
+   >    Record the ratio against one node in docs/framework_decision.md §4
+   >    (PLAN.md: ≥ 5× on H200 reopens the ACCESS question).
+   >
+   > Known traps: AMReX's `ParallelCopy`/`FillBoundary` need `operator+=`,
+   > so struct FABs do not work (use component FABs); `ParallelFor` is
+   > serial on CPU without MFIter tiling + OpenMP; particle precision is
+   > build-wide (SINGLE, the original's `real(4)` for DM); the merge must
+   > use the canonical order (cone, payload hash, bytes) or results depend
+   > on the rank layout. Don't fix the AMReX multi-node hydro slowdown of
+   > `docs/framework_decision.md` §3.3 here (Stage E), but note anything
+   > you learn about it.
+   >
+   > Write `docs/stage_d.md` (design as built, validation tables,
+   > timings, encoding errors, what is left for Stage E), update
+   > docs/STATUS.md, docs/PLAN.md (decisions taken) and CLAUDE.md's layout
+   > table, and open the PR.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
 8. Smaller: the stored-RT-reference platform policy; the 2 % growth
    deficit; the unsplit open items (Sedov radius convergence, cold-gas
