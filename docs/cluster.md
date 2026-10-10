@@ -124,11 +124,28 @@ not regenerated (CLAUDE.md). The PM, hydro and full-loop stored references
 `/gscratch/astro/mcquinn/logs/rt_live.sh`; its output is in
 `/gscratch/astro/mcquinn/work/rt_live/summary.txt`.
 
+### Test results on klone (2026-10-10, `main` at 6dab3d1, after PR #20)
+
+Built by the production-256 thread from the worktree
+`/gscratch/astro/mcquinn/radhydro/prod256-worktree` (logs in
+`/gscratch/astro/mcquinn/radhydro/logs/prod256/`):
+
+| suite | result |
+|---|---|
+| fast (`-LE "long\|nightly"`, job 41705708, 32 cores) | **94/104 passed, 10 failed**: the 8 RT stored references above plus `ray_dump_legacy_lognormal_16src_smallbuf` and `ray_dump_fixed_lognormal_16src_smallbuf`, which compare against the same references (the "known 10" of STATUS) |
+| nightly (`-DRADRAY_NIGHTLY_TESTS=ON -L nightly`, job 41705709, 8 parallel) | **20/20 passed** in 58 min: the four full-loop references, the live pool-guard comparison, `recomb_stromgren`, and the 14 full hydro-suite tiers of both schemes (the longest, `hydro_suite_full_unsplit_sedov`, 43 min) |
+
+The same `build_hyak.sh` job must be submitted with `sbatch` from the
+repository root (it reads `SLURM_SUBMIT_DIR`); `sbatch --chdir` does not
+work. The job's exit status is ctest's, so Slurm reports the fast suite as
+FAILED whenever the 10 platform failures are present.
+
 ## 4. Where things live
 
 ```
 /gscratch/astro/mcquinn/
-  NewRadHydroCode/            the repository (branch hyak-setup); build/, build-nightly/, build-znver4/
+  NewRadHydroCode/            the repository (main checkout); build/, build-nightly/, build-znver4/
+  radhydro/                   worktrees (prod256-worktree, main-worktree, spike-worktree), runs/, logs/ (moved here 2026-10-09)
   sw/                         fftw-3.3.10-float, conda-envs/radray, conda-pkgs, src, fftw-variants (the SIMD test)
   runs/                       production problems (params.txt, ics/, run/, run.log)
     reion128/                 128³, 0.01c (all checkpoints kept)

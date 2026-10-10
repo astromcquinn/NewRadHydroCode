@@ -40,7 +40,7 @@ the same branch as PR #20. The duplicate merge was dropped and
 
 | step | state |
 |---|---|
-| 2. build and test `main` on a node | fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures of `docs/cluster.md` §3); nightly suite job 41705709 running |
+| 2. build and test `main` on a node | done: fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures), nightly 20/20 (job 41705709, 58 min); `docs/cluster.md` §3 |
 | 3. 256³ mass function | done: `docs/hmf_validation.md` (256³ section), `data/hmf/fof_256_10mpc.txt`, `data/uv_lf/am_params_256_10mpc.txt`; run `$RUNS/hmf256` (2 min 15 s on 96 threads) |
 | 4. f_esc at 0.1c | done: **f_esc = 0.28** (`docs/production_run.md` §8, runs `$RUNS/cal128/fesc_*`, 9–10 min each on 96 threads); the 256³ τ_es check is the production run itself |
 | 5. production run | `$RUNS/reion256_prod` running on a whole node (job 41706017); `docs/production_256.md` when it finishes |
