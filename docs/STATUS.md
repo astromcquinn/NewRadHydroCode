@@ -2,6 +2,26 @@
 
 *Last updated: 2026-10-10: recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
+## In progress 2026-10-10, branch `fesc-z` (not yet merged)
+
+**Redshift-dependent escape fraction and the emissivity of the runs.**
+- `f_esc_beta`, `f_esc_z0`, `f_esc_max` (abundance-matched sources):
+  f_esc(z) = min(f_esc_max, f_esc ((1+z)/(1+f_esc_z0))^β), the power law of
+  D'Aloisio et al. (declining emissivity near the end of reionization).
+  β = 0 (default) is the constant f_esc exactly. Unit test in
+  `test_abundance_matching`; `make_production.py --f-esc-beta`.
+- `tools/analysis/emissivity.py` (on `main`): escaped ṅ_ion(z) of the runs
+  from FoF catalogs (hmf256: same ICs), vs the Lopez et al. median read by
+  eye from D'Aloisio et al. Fig. 1. `reion256_prod` (f_esc = 0.28) matches
+  that median at z ≳ 9 but is 2–2.5× above it at z < 7.5. Matching it with
+  these halos needs f_esc ≈ 0.123 ((1+z)/7)^1.31 (0.12 at z = 6, 0.22 at
+  z = 10), a milder decline than their β = 2.6–3, because the
+  abundance-matched intrinsic emissivity already flattens at z < 7.
+- Run `reion256_fz131` (that law, to z = 5, writes its halo catalogs);
+  post-processing in `$RUNS/emissivity/fz131/`.
+- Production runs now end at z = 5 (user, 2026-10-10: Lyα forest
+  comparison); `make_production.py` default.
+
 ## Done, merged into `main` 2026-10-10 (branch `recomb-moments`)
 
 **Recombination radiation with the moment RT, the photon energy, and the
