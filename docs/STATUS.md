@@ -1,5 +1,43 @@
 # Project status
 
+## Production run at 256³ (branch `production-256`, started 2026-10-10)
+
+The production thread of the 2026-10-09 list ("Threads to launch", item 2),
+run on klone from the worktree `/gscratch/astro/mcquinn/radhydro/prod256-worktree`
+with runs under `$RUNS = /gscratch/astro/mcquinn/radhydro/runs` and Slurm logs
+in `/gscratch/astro/mcquinn/radhydro/logs/prod256/`. Settings (user decisions):
+256³, 10 Mpc/h, `c_reduced = 0.1`, `nray_max_factor = 16`,
+`legacy_rt = legacy_physics = 0`, `deterministic_parallel`, `rt_substep_carry`,
+`ray_rotate = 3`, `sfr_model = abundance`, log ξ_ion = 25.38, f_esc calibrated
+to τ_es = 0.054, and **`hydro_scheme = unsplit`** (the recommendation of
+`docs/hydro_unsplit.md` §10; the decision placeholder in the thread brief was
+not filled in, so this thread took the documented recommendation; every
+earlier 256³ run used `legacy`). `make_production.py` gained `--hydro-scheme`.
+
+**Step 0, recovery of the earlier attempt (2026-10-09 16:35–16:46).** `sacct`
+shows no production, calibration or no-source run from that attempt: its
+build jobs 41686559/60 were cancelled, 41686777 is the fast suite (the 10
+known stored-reference failures, hence "FAILED") and 41686778 the nightly
+suite (19/19). The run directories it left: `$RUNS/cal128_c01/` (only the
+`ics -> ../reion128/ics` link, no runs) and `$RUNS/hmf256/` (ICs and a
+`params.txt` with `tvir_min = 1e30`, never run; its ICs are byte-identical
+to `reion256/ics`, seed 7). Its draft `--c-reduced` option for
+`calibrate_fesc.py` sits uncommitted in the main checkout; this thread uses
+`--extra c_reduced=0.1` instead. Nothing was reusable except the ICs: the
+finished 256³ runs of `docs/cluster.md` §7 and the rt_methods / recomb
+siblings all use the global source model and `ray_rotate = 0`, so the
+no-source, calibration and production runs below are all new. The older
+root `/gscratch/astro/$USER/runs` no longer exists (moved to
+`radhydro/runs` on 2026-10-09).
+
+**Step 1.** `ray_rotate` was not on `main` at the start of the thread; while
+this thread's merge of `main` into `claude/exciting-clarke-zn62ih` was in
+its fast suite (job 41705532: 94/104, the known 10), the B16 thread merged
+the same branch as PR #20. The duplicate merge was dropped and
+`production-256` branched from `main` at 6dab3d1.
+
+Progress of the remaining steps is tracked at the end of this section.
+
 *Last updated: 2026-10-10: B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
