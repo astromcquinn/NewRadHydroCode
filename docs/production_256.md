@@ -91,8 +91,99 @@ run `reion256_c01` of `docs/cluster.md` §7 (same ICs and c, legacy hydro,
 
 ## 3. Tuning f_esc to end reionization at z = 5.5
 
-By the 128³ slope of the end point, Δz(99 %) = 1.4 per e-fold in f_esc
-(`docs/production_run.md` §8), the 256³ end at f_esc = 0.28 (z = 6.44)
-moves to z = 5.5 at f_esc ≈ 0.14. Runs at the round values f_esc = 0.2
-(`$RUNS/reion256_f0.2`, job 41707183) and 0.1 (`$RUNS/reion256_f0.1`, job
-41707184) bracket it; see §4.
+The user's decisions (`docs/PLAN.md`, 2026-10-10): round values of f_esc,
+the end of reionization at z ≈ 5.5 as the target, τ_es only reported.
+Runs at f_esc = 0.2 (`$RUNS/reion256_f0.2`, job 41707183) and 0.1
+(`$RUNS/reion256_f0.1`, job 41707184), same configuration, each 1 h 30 min
+on a whole node:
+
+| f_esc | z(10%) | z(50%) | z(90%) | z(99%) | z(99.9%) | x_HII,V at z = 6 | τ_es |
+|---|---|---|---|---|---|---|---|
+| 0.28 | 10.34 | 7.63 | 6.78 | 6.44 | 6.30 | 1.000 | 0.0631 |
+| **0.2** | 9.48 | 7.03 | 6.10 | **5.74** | **5.60** | 0.933 | 0.0566 |
+| 0.1 | 7.64 | (x_M = 0.5 at z = 5.70) | | | | 0.341 | 0.0445 (to z = 5.4) |
+| 0.15 | job 41707783, pending at the time of writing (§5) | | | | | | |
+
+(volume-weighted; the mass-weighted redshifts are 0.0–0.3 higher early
+on and the same at the end.)
+
+* **f_esc = 0.2 ends reionization at z = 5.6–5.7** (x_V = 0.99 at 5.74,
+  0.999 at 5.60), the round value nearest the target. f_esc = 0.1 leaves
+  the box half neutral by mass at z = 5.7 and 52 % neutral by volume at
+  z = 5.5. The 256³ end point moves by Δz = 2.1 per e-fold in f_esc, 1.5×
+  the 128³ slope.
+* With 0.1c the end is late by Δz ≈ 0.4 against full c
+  (`docs/production_run.md` §9), so at full c this f_esc would end
+  reionization at z ≈ 6.0–6.1. τ_es = 0.057 is 0.4σ above Planck.
+
+## 4. The production run: f_esc = 0.2 (`$RUNS/reion256_f0.2`, job 41707183)
+
+| | |
+|---|---|
+| Wall time | **1 h 29 min 47 s** on 192 threads (RT 4731 s, IO 396 s, hydro 162 s, FoF 24 s, PM 21 s) |
+| Peak RSS | 30.9 GB |
+| Hydro steps / RT substeps | 48 / 4049 (RT from z = 13.1) |
+| Sources at the end | about 5100 halos |
+| Rays | peak 1.45×10⁸ (0.54 Nray_max); the pool guard never acted |
+| Disk | 140 GB (346 movie frames, the last checkpoint 16 GB); `run/reion.txt`, `run/stills/`, `run/movie/cosmo.mp4` |
+
+History (`$RUNS/reion256_f0.2/analysis/history.md`), with the global-model
+run `reion256_c01` of `docs/cluster.md` §7 (same ICs and c, the
+uncalibrated Trac & Cen source model, legacy hydro, `ray_rotate = 0`):
+
+| run | weighting | z(10%) | z(25%) | z(50%) | z(75%) | z(90%) | z(99%) | z(99.9%) | τ_es |
+|---|---|---|---|---|---|---|---|---|---|
+| production, f_esc = 0.2 | V | 9.48 | 7.90 | 7.03 | 6.46 | 6.10 | 5.74 | 5.60 | 0.0566 |
+| | M | 10.32 | 8.33 | 7.26 | 6.56 | 6.13 | 5.72 | 5.55 | |
+| global model (`reion256_c01`) | V | 12.64 | 11.48 | 10.38 | 9.66 | 9.25 | 8.83 | 8.65 | 0.0904 |
+| | M | 12.89 | 11.76 | 10.56 | 9.75 | 9.29 | 8.82 | 8.64 | |
+
+| run | weighting | z = 10 | z = 9 | z = 8 | z = 7.5 | z = 7 | z = 6.5 | z = 6 | z = 5.5 |
+|---|---|---|---|---|---|---|---|---|---|
+| production, f_esc = 0.2 | V | 0.078 | 0.123 | 0.230 | 0.344 | 0.513 | 0.730 | 0.933 | 1.000 |
+| | M | 0.118 | 0.177 | 0.309 | 0.430 | 0.588 | 0.771 | 0.936 | 1.000 |
+| global model | V | 0.622 | 0.965 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| | M | 0.666 | 0.966 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+
+![history](figures/production_256_history.png)
+
+![stills](figures/production_256_stills.png)
+
+*`tools/movies/stills.py`: gas density, neutral fraction and temperature
+in a 2-cell slab at z = 12, 9, 7.5 and 6.5.*
+
+**Movie:** `docs/movies/production_256_c01.mp4` (2.5 MB, 346 frames at
+12 fps, `tools/movies/make_movie.py` style `cosmo`: x_HI, T, ρ_gas with
+the x_HII(z) and τ_es panels).
+
+* **Against the global model** the calibrated sources reionize the box
+  3.1–3.4 units of redshift later (midpoint 7.0 against 10.4, end 5.7
+  against 8.8), over a longer interval (x_V 10 % → 99 % in Δz = 3.7
+  against 3.8, but 50 % → 99 % in 1.3 against 1.6), with τ_es 0.057
+  against 0.090. The ionized fraction is 0.12 at z = 9 where the global
+  model's was 0.97. The global model's emissivity was never calibrated;
+  this history is tied to the observed UV LFs through L(M) and to the
+  z ≈ 5.5 end point through f_esc.
+* **Morphology** (stills): the largest bubbles grow around the densest
+  knots and overlap between z = 7.5 and 6.5, with the last neutral
+  islands in the voids far from the filaments. No grid-aligned "+"
+  crosses on the sources or neutral streaks along the axes
+  (`ray_rotate = 3`, B16), which every earlier 256³ still showed.
+* **Temperatures:** ionized gas at 1–2×10⁴ K, the neutral IGM below
+  100 K (the unsplit hydro: the legacy scheme held it near 10⁴ K,
+  `docs/hydro_tests.md`), the filaments and knots at 10²–10³ K before
+  the fronts arrive.
+* **Cost** is the same as the global-model run and the f_esc = 0.28 run
+  (1 h 30–33 min): the RT cost per substep follows the ray population,
+  which saturates at about half the pool once the box is largely ionized.
+
+## 5. Open
+
+* The f_esc = 0.15 run (job 41707783) completes the bracket; add its row
+  to §3 when it finishes.
+* The 0.1c bias on the end of reionization (Δz ≈ 0.4) and the 0.2–0.3 mag
+  bright-end offset of the 256³ L(M) fit (`docs/hmf_validation.md`) are
+  the known systematics of this calibration.
+* The 128³ and 256³ boxes are different realisations
+  (`docs/cluster.md` §7), so the N dependence of the calibration mixes
+  resolution and cosmic variance.

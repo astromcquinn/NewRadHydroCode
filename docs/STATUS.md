@@ -43,10 +43,10 @@ the same branch as PR #20. The duplicate merge was dropped and
 | 2. build and test `main` on a node | done: fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures), nightly 20/20 (job 41705709, 58 min); `docs/cluster.md` §3 |
 | 3. 256³ mass function | done: `docs/hmf_validation.md` (256³ section), `data/hmf/fof_256_10mpc.txt`, `data/uv_lf/am_params_256_10mpc.txt`; run `$RUNS/hmf256` (2 min 15 s on 96 threads) |
 | 4. f_esc at 0.1c | done: **f_esc = 0.28** (`docs/production_run.md` §8, runs `$RUNS/cal128/fesc_*`, 9–10 min each on 96 threads); the 256³ τ_es check is the production run itself |
-| 5. production run | the f_esc = 0.28 run (`$RUNS/reion256_prod`, 1 h 32 min, τ_es = 0.063, ends at z = 6.44) is the 256³ calibration point (`docs/production_256.md` §2); after the user's decisions (round f_esc, end at z = 5.5, no Planck matching) the candidates `$RUNS/reion256_f0.2` and `reion256_f0.1` are running (jobs 41707183/4) |
+| 5. production run | **done: `$RUNS/reion256_f0.2`, f_esc = 0.2** (`docs/production_256.md`): 1 h 30 min on a whole node, reionization ends at z = 5.6–5.7, τ_es = 0.057; movie `docs/movies/production_256_c01.mp4`. The f_esc = 0.28 run (`reion256_prod`, ends z = 6.44, τ_es = 0.063) and 0.1 (`reion256_f0.1`, does not finish) bracket it; 0.15 (job 41707783) running |
 | 6. c convergence | done: `docs/production_run.md` §9; 0.1c delays the end of reionization by Δz = 0.4 against full c (0.3c: 0.14), the midpoint by 0.15, τ_es 2.5 % low |
 | 7. ray-precision check | done: `docs/ray_compression.md` §6.2 (`$RUNS/p128/prec`, job array 41705715) |
-| 8. STATUS, PLAN, PR | pending |
+| 8. STATUS, PLAN, PR | this entry; PR opened for `production-256` |
 
 
 *Last updated: 2026-10-10: B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
@@ -603,8 +603,11 @@ the stored-reference policy on klone; deleting the merged branches.
    `docs/abundance_matching.md`). **Open: recalibrate f_esc at 0.1c and
    256³** (`docs/production_run.md` §8, `calibrate_fesc.py`); the 0.01c
    value is 0.5.
-3. **Production reionisation run and movie** on one klone node
-   (`docs/production_run.md` §7–8, `docs/cluster.md` §5, `docs/movies.md`).
+3. ~~Production reionisation run and movie~~ **Done 2026-10-10**
+   (`docs/production_256.md`: 256³, 0.1c, abundance-matched sources with
+   f_esc = 0.2, `hydro_scheme = unsplit`, `ray_rotate = 3`; reionization
+   ends at z = 5.6–5.7, τ_es = 0.057, 1.5 h on a whole node). The table
+   below was the plan.
 
    | Setting | Value |
    |---|---|
@@ -613,8 +616,8 @@ the stored-reference policy on klone; deleting the merged branches.
    | nray_max_factor | 16 |
    | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on a whole node) |
    | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry, ray_rotate = 3 |
-   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c |
-   | hydro_scheme | user decision pending (`unsplit` fixes the cold-gas overheating; `make_production.py` does not set it yet) |
+   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc = 0.2 (end of reionization at z ≈ 5.5, user decision) |
+   | hydro_scheme | `unsplit` (production-256 thread; `make_production.py --hydro-scheme`) |
    | Before the run | 256³ HMF and f_esc |
 
 4. **User's cluster: UW Hyak `klone`, account `astro`.**
