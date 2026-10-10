@@ -522,7 +522,65 @@ and it fixes the production choice at ~8 bits rather than 1–2.
 
 Caveats: 32³ boxes over ≤ 240 hydro steps, and one 64³ run in the
 production configuration. The 128³ check (`tools/production/
-hyak_precision.sbatch`, §9) is set up and not yet run.
+hyak_precision.sbatch`, §9) is §6.2.
+
+### 6.2 The production configuration at 128³ (klone, 2026-10-10)
+
+`hyak_precision.sbatch` on klone (job array 41705715, six tasks of 24
+threads on shared nodes; the baseline took 3 min, the `ray_quant` variants
+10–12 min and `struct_o10_d8` 26 min: the instrument is not optimised).
+`make_production.py $RUNS/p128 --N 128 --movie-dz 0`: 10 Mpc/h, 0.01c,
+`nray_max_factor` 16, `ray_rotate = 3`, the ICs of `reion128`, 20-particle
+FoF sources with the global SFR model, 190 RT substeps from z = 12.6 to
+5.27, 12 field outputs. Metrics as in §6.1
+(`docs/data/ray_compression/precision_metrics_prod128.json`; τ_es and the
+photoionisation count are again unavailable):
+
+| variant | x_HII vol | x_HII mass | T mass | T rms, ionised cells | I-front shift (cells), max / at x_V ≤ 0.85 | photons in rays |
+|---|---|---|---|---|---|---|
+| d8 (8 dithered bits) | 6.1e-5 | 4.1e-5 | 7.2e-5 | 1.7e-2 | 0.20 / 0.058 | 6.9e-5 |
+| d4 | 3.2e-4 | 2.6e-4 | 1.3e-3 | 1.8e-2 | 0.20 / 0.089 | 2.8e-4 |
+| struct_o10_d8 | 2.0e-4 | 2.2e-4 | 3.3e-4 | 1.8e-2 | 0.21 / 0.092 | 1.4e-4 |
+| d1 (1 dithered bit) | 3.3e-3 | 2.6e-3 | 7.2e-3 | 2.6e-2 | 0.27 / 0.13 | 2.4e-2 |
+| r6 (6 bits, nearest) | **1.9e-2** | **1.5e-2** | **1.6e-2** | 2.5e-2 | 0.30 / 0.25 | 2.6e-2 |
+
+The history of the volume-weighted x_HII (baseline 0.043, 0.21, 0.42,
+0.63, 0.83, 0.95, 0.99 at z = 11.3, 10.1, 8.9, 8.0, 7.3, 6.7, 6.2):
+
+| variant | z = 10.1 | z = 8.9 | z = 8.0 | z = 7.3 | z = 6.7 |
+|---|---|---|---|---|---|
+| d8 | 0.2110 | 0.4172 | 0.6344 | 0.8314 | 0.9467 |
+| d1 | 0.2104 | 0.4158 | 0.6324 | 0.8292 | 0.9453 |
+| r6 | 0.2136 | 0.4247 | 0.6463 | 0.8431 | 0.9535 |
+
+![slices, 128³ production configuration](figures/raycomp_slices_p128_z8.png)
+
+*Slice through the largest neutral island at z = 8.0 (x_HII,V = 0.63), the
+slab with the most ionised cells (k = 111).*
+
+* **The 64³ conclusion holds at 128³.** 8 dithered bits stay at the
+  10⁻⁴ level in every global quantity (6×10⁻⁵ in x_HII, 7×10⁻⁵ in the
+  mass-weighted T), and the R-struct round trip with 10-bit offsets adds
+  a few 10⁻⁴. 1 dithered bit is at 0.3–0.7 %, within the targets but
+  with ten times the 32³ error, as at 64³. Round-to-nearest at 6 bits
+  biases the history by +1.5–2 % (fronts run ahead: the coherent red rim
+  in the slice) and is the only variant beyond a target.
+* **The I-front shift saturates at 0.2 cells for every variant, 8 bits
+  included**, once the box is more than 85 % ionised (z < 8). The metric
+  divides the cells whose ionisation state differs by the number of
+  ionised–neutral faces, which shrinks as the last islands vanish, and
+  each variant's perturbation is amplified by the chaotic ray order over
+  190 substeps: this is the algorithm's own sensitivity (the `nrmf32`
+  reference of §6 reached 0.10 in 32³). Before that, the shift follows
+  the bit count: 0.001–0.06 cells (d8), 0.015–0.09 (d4), 0.09–0.13 (d1),
+  0.02–0.25 (r6).
+* **The per-cell temperature scatter in ionised cells is 1.7 % at 8 bits**
+  (against 1.1 % at 64³ and 0.5 % in 32³), 2.5 % at 1 bit, and sits on the
+  I-fronts (the rms is dominated by front cells whose baseline T is
+  10²–10³ K); inside the bubbles the T ratio is at the 10⁻³ level.
+
+The recommendation of §8 stands: the R-struct with 8 dithered photon bits.
+
 
 ## 7. Bytes per ray, summary
 
@@ -593,13 +651,14 @@ python3 tools/ray_compression/study.py figures --codec codec.json \
 ```
 
 Production-configuration precision check on Hyak (one job array, six
-variants, ~30 min each on 24 cores):
+variants, 3–26 min each on 24 cores; run 2026-10-10, §6.2):
 
 ```
 python3 tools/production/make_production.py RUNS/p128 --N 128 --movie-dz 0
 sbatch --export=ALL,ROOT=$PWD/RUNS/p128 tools/production/hyak_precision.sbatch
 python3 tools/ray_compression/precision_metrics.py RUNS/p128/prec --N 128 --json metrics.json
-python3 tools/ray_compression/slices.py RUNS/p128/prec p128 --N 128 --out slices.png
+python3 tools/ray_compression/slices.py RUNS/p128/prec p128 --N 128 --out slices.png \
+    --step 23 --variants d1 d4 d8 r6 struct_o10_d8     # step 23 is z = 8.0; the default is the last output
 ```
 
 The 64³ version of the same (`make_production.py --N 64`, the variants run
