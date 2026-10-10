@@ -14,6 +14,11 @@ add_executable(test_rays test_rays.cpp)
 target_link_libraries(test_rays PRIVATE radray)
 add_test(NAME rays COMMAND test_rays)
 
+# The ray encodings of the AMReX backend (no AMReX needed; docs/stage_d.md 3)
+add_executable(test_ray_encoding test_ray_encoding.cpp)
+target_link_libraries(test_ray_encoding PRIVATE radray)
+add_test(NAME ray_encoding COMMAND test_ray_encoding)
+
 # Moment RT (rt_method = m1 | otvet, docs/rt_moments.md)
 add_executable(test_moments test_moments.cpp)
 target_link_libraries(test_moments PRIVATE radray)

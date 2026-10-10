@@ -28,6 +28,15 @@
 #include "radray/constants.hpp"
 #include "radray/kernels/ray_kernels.hpp"
 
+// Usable without AMReX (tests/test_ray_encoding.cpp): the tile data type is
+// anything with m_rdata[comp][n] and m_idata[comp][n]
+#ifndef AMREX_GPU_HOST_DEVICE
+#define AMREX_GPU_HOST_DEVICE
+#endif
+#ifndef AMREX_FORCE_INLINE
+#define AMREX_FORCE_INLINE inline
+#endif
+
 namespace radray {
 namespace amrex_enc {
 
