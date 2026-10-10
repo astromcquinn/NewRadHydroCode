@@ -47,6 +47,19 @@ LOPEZ_Z = [4, 5, 6, 7, 8, 9, 10, 11, 12]
 LOPEZ_LOG = [50.40, 50.64, 50.71, 50.73, 50.70, 50.62, 50.51, 50.40, 50.24]
 
 
+def read_obs(path):
+    """Blocks of data/igm/igm_z5_6.txt: {name: [(z, v, +err, -err, ref)]}."""
+    out, cur = {}, None
+    for l in open(path):
+        t = l.split()
+        if l.startswith("# block"):
+            cur = t[2]
+            out[cur] = []
+        elif t and not l.startswith("#") and cur:
+            out[cur].append((float(t[0]), float(t[1]), float(t[2]), float(t[3]), t[4]))
+    return out
+
+
 def nH_comoving():
     """Mean comoving hydrogen number density [cm^-3]."""
     return (1 - YHE) * OMEGAB * RHO_CRIT100 * H0 ** 2 / MH_G
@@ -117,6 +130,8 @@ def main():
     ap.add_argument("--nmin", type=int, default=20)
     ap.add_argument("--beta", type=float, default=2.8)
     ap.add_argument("--f6", type=float, default=None)
+    ap.add_argument("--obs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                  "..", "..", "data", "igm", "igm_z5_6.txt"))
     ap.add_argument("--out", default="emissivity.png")
     a = ap.parse_args()
     import matplotlib
@@ -127,8 +142,17 @@ def main():
     fig, (ax, axf, axx) = plt.subplots(3, 1, figsize=(6.4, 9.6), sharex=True,
                                        gridspec_kw={"height_ratios": [2.2, 1.2, 1]},
                                   constrained_layout=True)
-    ax.plot(LOPEZ_Z, 10 ** np.array(LOPEZ_LOG), "k-", lw=1.2,
-            label="Lopez+ in prep. median (by eye, D'Aloisio+ Fig. 1)")
+    ax.plot(LOPEZ_Z, 10 ** np.array(LOPEZ_LOG), "-", color="0.6", lw=1.0,
+            label="Lopez+ in prep. model median (by eye, D'Aloisio+ Fig. 1)")
+    if a.obs and os.path.exists(a.obs):
+        obs = read_obs(a.obs)
+        for blk, mk, lab in (("ndot", "s", "Becker+21 (Γ, λ$_{mfp}$)"),
+                             ("ndot_gz", "D", "Gaikwad+23 Γ + Zhu+23 λ$_{mfp}$")):
+            r = np.array([o[:4] for o in obs.get(blk, [])])
+            if len(r):
+                v = 10 ** r[:, 1]
+                ax.errorbar(r[:, 0], v, yerr=[v - 10 ** (r[:, 1] - r[:, 3]), 10 ** (r[:, 1] + r[:, 2]) - v],
+                            fmt=mk, color="k", ms=5, capsize=2, zorder=5, label=lab)
     rows = []
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     first = None
@@ -152,7 +176,7 @@ def main():
         freq = 10 ** np.interp(z[ok], LOPEZ_Z, LOPEZ_LOG) / nint[ok]
         lx = np.log10((1 + z[ok]) / 7.0)
         bfit, lf6 = np.polyfit(lx, np.log10(freq), 1)
-        axf.plot(z[ok], freq, "o", color="k", ms=3.5, label="Lopez median / intrinsic")
+        axf.plot(z[ok], freq, "o", color="0.6", ms=3, label="Lopez model median / intrinsic")
         axf.plot(z, fesc, "-", color=c, lw=2, label=f"{label}: {desc}")
         zz = np.linspace(5, 13.5, 100)
         curves = [(10 ** lf6, bfit, "-", "fit"), (None, a.beta, "--", "D'Aloisio+ toy")]
@@ -169,6 +193,19 @@ def main():
             print(f"# f_esc(z) = {f6:.4g} ((1+z)/7)^{beta:.3g} ({what}): f_esc(z=6, 8, 10, 12) = "
                   + ", ".join(f"{min(1, f6 * ((1 + q) / 7) ** beta):.3f}" for q in (6, 8, 10, 12)))
             rows.append((f"{label}, f_esc(z) {what}", z, fz * nint))
+        if a.obs and os.path.exists(a.obs):
+            for blk, mk, lab in (("ndot", "s", "Becker+21 / intrinsic"),
+                                 ("ndot_gz", "D", "Gaikwad+23 Γ + Zhu+23 λ / intrinsic")):
+                r = np.array([o[:4] for o in read_obs(a.obs).get(blk, [])])
+                if len(r):
+                    li = np.interp(r[:, 0], z[::-1], np.log10(nint[::-1])) if z[0] > z[-1] else \
+                        np.interp(r[:, 0], z, np.log10(nint))
+                    fv = 10 ** (r[:, 1] - li)
+                    axf.errorbar(r[:, 0], fv, yerr=[fv - 10 ** (r[:, 1] - r[:, 3] - li),
+                                                    10 ** (r[:, 1] + r[:, 2] - li) - fv],
+                                 fmt=mk, color="k", mfc="w", ms=5, capsize=2, label=lab)
+                    for q, f_ in zip(r[:, 0], fv):
+                        print(f"# f_esc needed for {blk} at z = {q:.2f}: {f_:.3f}")
         axf.set_yscale("log")
         axf.set_ylim(0.03, 1.1)
         axf.set_ylabel(r"$f_{\rm esc}$")

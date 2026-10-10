@@ -1,0 +1,67 @@
+# IGM measurements at 4.8 < z < 6.2 used to calibrate the ionizing emissivity of
+# the sources (tools/analysis/emissivity.py --obs, docs/production_run.md).
+# Values transcribed from the papers supplied by the user on 2026-10-10 (not from
+# memory). Errors are 68%. One block per quantity, "# block <name> <columns>".
+#
+# Becker et al. 2021, MNRAS (arXiv:2103.16610v2), "The mean free path of ionizing
+#   photons at 5 < z < 6": lambda_mfp (abstract) and the emissivity
+#   of their section 4.2 (eq. 10, local-source approximation, alpha_s = 2.0,
+#   beta_N = 1.3).
+# Zhu et al. 2023, ApJ 955, 115, "Probing ultralate reionization": lambda_mfp
+#   (Table 2, "Measured", all errors included; adopts the Gaikwad et al. Gamma).
+# Bosman et al. 2022, MNRAS 514, 55 (XQR-30): mean Lya transmission (Table 4,
+#   bootstrap 16th/84th percentiles, Delta z = 0.1 bins).
+# Gaikwad et al. 2023 (arXiv:2304.02038v2): <Gamma_HI> (Table 3, total 1 sigma).
+#   Their lambda_mfp and ndot are also in Table 3 but are not used here: the user
+#   (2026-10-10) trusts their Gamma but not their mean free path inferences.
+#
+# Derived here (block ndot_gz): ndot from the Gaikwad Gamma (linearly interpolated
+# to the Zhu redshifts) and the Zhu lambda_mfp with Becker et al. eq. 10,
+#   ndot = Gamma / (sigma_912 lambda_mfp (1+z)^3) (alpha_bg + 2.75) / alpha_s,
+#   sigma_912 = 6.30e-18 cm^2, alpha_s = 2, alpha_bg = alpha_s - 2.75 (beta_N - 1),
+#   beta_N = 1.3; errors of Gamma and lambda combined in quadrature in dex.
+#
+# block lambda_mfp  z  lambda[pMpc]  +err  -err  ref
+5.10  9.09  1.62  1.28  Becker21
+6.00  0.75  0.65  0.45  Becker21
+5.08  9.33  2.06  1.80  Zhu23
+5.31  5.40  1.47  1.40  Zhu23
+5.65  3.31  2.74  1.34  Zhu23
+5.93  0.81  0.73  0.48  Zhu23
+# block ndot  z  log10_ndot[s^-1 cMpc^-3]  +err  -err  ref
+5.10  51.00  0.16  0.17  Becker21
+6.00  51.54  0.43  0.31  Becker21
+# block ndot_gz  z  log10_ndot[s^-1 cMpc^-3]  +err  -err  ref
+5.08  50.86  0.24  0.23  Gaikwad23_Gamma+Zhu23_lambda
+5.31  50.94  0.26  0.22  Gaikwad23_Gamma+Zhu23_lambda
+5.65  50.92  0.33  0.36  Gaikwad23_Gamma+Zhu23_lambda
+5.93  51.22  0.50  0.44  Gaikwad23_Gamma+Zhu23_lambda
+# block gamma  z  Gamma_HI[1e-12 s^-1]  +err  -err  ref
+4.90  0.501  0.275  0.232  Gaikwad23
+5.00  0.557  0.376  0.218  Gaikwad23
+5.10  0.508  0.324  0.192  Gaikwad23
+5.20  0.502  0.292  0.193  Gaikwad23
+5.30  0.404  0.272  0.147  Gaikwad23
+5.40  0.372  0.217  0.126  Gaikwad23
+5.50  0.344  0.219  0.130  Gaikwad23
+5.60  0.319  0.194  0.120  Gaikwad23
+5.70  0.224  0.223  0.112  Gaikwad23
+5.80  0.178  0.194  0.078  Gaikwad23
+5.90  0.151  0.151  0.079  Gaikwad23
+6.00  0.145  0.157  0.087  Gaikwad23
+# block mean_flux  z  <F_Lya>  +err  -err  ref
+4.8  0.194   0.018   0.015   Bosman22
+4.9  0.171   0.014   0.014   Bosman22
+5.0  0.1581  0.0082  0.0089  Bosman22
+5.1  0.1428  0.0068  0.0054  Bosman22
+5.2  0.1222  0.0046  0.0054  Bosman22
+5.3  0.1031  0.0056  0.0050  Bosman22
+5.4  0.0801  0.0061  0.0048  Bosman22
+5.5  0.0591  0.0039  0.0035  Bosman22
+5.6  0.0447  0.0033  0.0036  Bosman22
+5.7  0.0256  0.0031  0.0029  Bosman22
+5.8  0.0172  0.0022  0.0028  Bosman22
+5.9  0.0114  0.0029  0.0030  Bosman22
+6.0  0.0089  0.0033  0.0029  Bosman22
+6.1  0.0088  0.0082  0.0074  Bosman22
+6.2  0.0047  0.0045  0.0044  Bosman22
