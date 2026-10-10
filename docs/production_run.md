@@ -630,6 +630,7 @@ tools/production/calibrate_fesc.py $RUNS/cal128 --N 128 --am-params data/uv_lf/a
 | f_esc | τ_es | z(x_V = 0.1) | z(x_V = 0.5) | z(x_V = 0.99) | x_HII,M at the end (z = 5.27) |
 |---|---|---|---|---|---|
 | 0.2 | 0.0499 | 8.23 | 6.69 | 5.57 | 0.9986 |
+| **0.28** | **0.0541** | 8.66 | 7.14 | 6.05 | 0.9999 |
 | 0.35 | 0.0568 | 8.87 | 7.39 | 6.35 | 1.0000 |
 | 0.5 | 0.0609 | 9.46 | 7.82 | 6.78 | 1.0000 |
 | 0.8 | 0.0662 | 10.03 | 8.35 | 7.28 | 1.0000 |
@@ -637,10 +638,11 @@ tools/production/calibrate_fesc.py $RUNS/cal128 --N 128 --am-params data/uv_lf/a
 ![calibration at 0.1c](figures/fesc_calibration_128_c01.png)
 
 * **The interpolation in log f_esc gives f_esc = 0.28** for τ_es = 0.054
-  (f_esc ξ_ion = 10^24.83). That is 1.8× below the 0.01c value of 0.5,
+  (f_esc ξ_ion = 10^24.83); the run at 0.28 (made afterwards as the 0.1c
+  reference of the c-convergence check, §9) gives τ_es = 0.0541. That is 1.8× below the 0.01c value of 0.5,
   as the 0.01c bias predicted (§7: 0.01c lowers τ_es by 20 %).
 * At 0.1c the box finishes reionizing: with f_esc = 0.28 the midpoint is
-  z ≈ 7.1 and x_V = 0.99 at z ≈ 6.1 (interpolating the table), against
+  z = 7.14 and x_V = 0.99 at z = 6.05, against
   z = 6.7 and "not by z = 5.3" at 0.01c and f_esc = 0.5. The end of
   reionization now falls in the Lyα-forest range without pushing τ_es
   above Planck.
