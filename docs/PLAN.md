@@ -311,6 +311,7 @@ policy on klone, and deleting the merged branches.
 * **Speed of light:** c_reduced = 0.2 is acceptable, but it must stay at
   that value through the end of reionization (z ≈ 5.5) before it is
   changed (raised for z = 5.5 → 5). Which reduced c is optimal is worth
-  measuring.
+  measuring. **Revised the same day: the first 512³ run uses
+  c_reduced = 0.1** (to z = 5.5, as above).
 * **f_esc:** with the bigger box err on the side of a smaller escape
   fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
