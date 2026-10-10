@@ -56,6 +56,9 @@
 #include <AMReX_Particles.H>
 #include <AMReX_Reduce.H>
 #include <AMReX_Scan.H>
+#ifdef AMREX_USE_OMP
+#include <omp.h>
+#endif
 
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
@@ -158,6 +161,7 @@ struct Timers {
   double cell = 0, hist = 0, step1 = 0, cast1 = 0, phys = 0, cast3 = 0, sort = 0, migrate = 0,
          post = 0, prep = 0, sync = 0;
   double fillbnd = 0, sumbnd = 0, zero = 0;
+  double bins = 0, gather = 0, writeback = 0, depred = 0;  // parts of sort / cast1
 };
 
 // Per-box scratch, kept across substeps
@@ -172,8 +176,31 @@ struct BoxScratch {
   ax::Gpu::DeviceVector<int> keep, wpos;         // cast_3 survivors / compaction offsets
   ax::Gpu::DeviceVector<Long> cmax;              // per-cell cast/split/merge counts (maxima)
   ax::Gpu::DeviceVector<CellPhys> phys;          // per-cell statistics
+  ax::Gpu::DeviceVector<Long> depbuf;            // per-thread deposit buffers (CPU)
   Long nout = 0;
 };
+
+// A parallel loop over n items with dynamic scheduling on the CPU (the
+// per-cell work of step 1 and of the physics is very uneven: source cells
+// emit 192 rays, most cells hold none); ParallelFor on the GPU.
+template <class F>
+void par_for_dyn(int n, F&& f) {
+#if defined(AMREX_USE_OMP) && !defined(AMREX_USE_GPU)
+#pragma omp parallel for schedule(dynamic, 64)
+  for (int i = 0; i < n; ++i) f(i);
+#else
+  ax::ParallelFor(n, std::forward<F>(f));
+#endif
+}
+#if defined(AMREX_USE_OMP) && !defined(AMREX_USE_GPU)
+constexpr bool kThreadBuffers = true;  // per-thread deposit buffers instead of atomics
+inline int nthreads_max() { return omp_get_max_threads(); }
+inline int thread_id() { return omp_get_thread_num(); }
+#else
+constexpr bool kThreadBuffers = false;
+inline int nthreads_max() { return 1; }
+inline int thread_id() { return 0; }
+#endif
 
 void zero(ax::Gpu::DeviceVector<Long>& v) {
   Long* p = v.data();
@@ -468,6 +495,7 @@ struct Level : LevelBase {
       const auto lo = ax::lbound(bx), len = ax::length(bx);
       S.hcell.resize(np);
       int* hc = S.hcell.data();
+      const double tg0 = now();
       ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
         const int i = static_cast<int>(p.m_rdata[0][n]) - lo.x;
         const int j = static_cast<int>(p.m_rdata[1][n]) - lo.y;
@@ -485,10 +513,13 @@ struct Level : LevelBase {
       S.bins.build(ax::BinPolicy::OpenMP, np, S.hcell.data(), static_cast<int>(bx.numPts()),
                    [=](int h) { return h; });
 #endif
+      const double tg1 = now();
+      T.bins += tg1 - tg0;
       S.rays.resize(np);
       RayP* rays = S.rays.data();
       const int* perm = S.bins.permutationPtr();
       ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) { rays[n] = Enc::load(p, perm[n], ectx); });
+      T.gather += now() - tg1;
     }
     check_err("gather");
     double t1b = now();
@@ -502,16 +533,45 @@ struct Level : LevelBase {
         BoxScratch& S = scratch[mfi.LocalIndex()];
         const int np = static_cast<int>(S.rays.size());
         const RayP* rays = S.rays.data();
-        ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
-          const RayP& r = rays[n];
-          const double ntot = rrk::sum_ngam(r);
-          const int b = rrk::pdf_bin(ntot, Np);
-          ax::HostDevice::Atomic::Add(hist_p + b, Long(1));
-          if (r.dr < 0 && r.nside < rayp::nside_max) ax::HostDevice::Atomic::Add(hist_p + rrk::kNpdfMax + b, Long(1));
-          if (ntot > 0) ax::HostDevice::Atomic::Add(hist_p + 2 * rrk::kNpdfMax, Long(1));
-        });
-        // exact sum of the photons (ngam_avg of ray.log), serial per box
-        for (int n = 0; n < np; ++n) ngam_sum += to_fx128(rrk::sum_ngam(rays[n]), kBitsNgam);
+        if (kThreadBuffers) {
+          // CPU: per-thread histograms (a shared histogram with atomics
+          // serialises the threads), folded serially; the exact photon sum
+          // per thread in 128 bits
+          const int nt = nthreads_max();
+          std::vector<Long> h(static_cast<std::size_t>(nt) * (2 * rrk::kNpdfMax + 1), 0);
+          std::vector<i128> gs(nt, 0);
+#pragma omp parallel
+          {
+            Long* ht = h.data() + static_cast<std::size_t>(thread_id()) * (2 * rrk::kNpdfMax + 1);
+            i128 g = 0;
+#pragma omp for schedule(static)
+            for (int n = 0; n < np; ++n) {
+              const RayP& r = rays[n];
+              const double ntot = rrk::sum_ngam(r);
+              const int b = rrk::pdf_bin(ntot, Np);
+              ht[b] += 1;
+              if (r.dr < 0 && r.nside < rayp::nside_max) ht[rrk::kNpdfMax + b] += 1;
+              if (ntot > 0) ht[2 * rrk::kNpdfMax] += 1;
+              g += to_fx128(ntot, kBitsNgam);
+            }
+            gs[thread_id()] = g;
+          }
+          for (int t = 0; t < nt; ++t) {
+            for (int b = 0; b < 2 * rrk::kNpdfMax + 1; ++b) hist_p[b] += h[static_cast<std::size_t>(t) * (2 * rrk::kNpdfMax + 1) + b];
+            ngam_sum += gs[t];
+          }
+        } else {
+          ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
+            const RayP& r = rays[n];
+            const double ntot = rrk::sum_ngam(r);
+            const int b = rrk::pdf_bin(ntot, Np);
+            ax::HostDevice::Atomic::Add(hist_p + b, Long(1));
+            if (r.dr < 0 && r.nside < rayp::nside_max) ax::HostDevice::Atomic::Add(hist_p + rrk::kNpdfMax + b, Long(1));
+            if (ntot > 0) ax::HostDevice::Atomic::Add(hist_p + 2 * rrk::kNpdfMax, Long(1));
+          });
+          // exact sum of the photons (ngam_avg of ray.log), serial per box
+          for (int n = 0; n < np; ++n) ngam_sum += to_fx128(rrk::sum_ngam(rays[n]), kBitsNgam);
+        }
       }
       std::vector<Long> h(2 * rrk::kNpdfMax + 1);
       ax::Gpu::copy(ax::Gpu::deviceToHost, hist.begin(), hist.end(), h.begin());
@@ -567,7 +627,7 @@ struct Level : LevelBase {
       S.cmax.resize(3 * ncb);
       Long* cnt = S.cnt.data();
       Long* cm = S.cmax.data();
-      ax::ParallelForOMP(ncb + 1, [=] AMREX_GPU_DEVICE(int q) {
+      par_for_dyn(ncb + 1, [=] AMREX_GPU_DEVICE(int q) {
         if (q == ncb) {
           cnt[q] = 0;
           return;
@@ -601,7 +661,7 @@ struct Level : LevelBase {
       int* ocell = S.ocell.data();
       int* idx = S.idx.data();
       rrk::MergeKey* key = S.key.data();
-      ax::ParallelForOMP(ncb, [=] AMREX_GPU_DEVICE(int q) {
+      par_for_dyn(ncb, [=] AMREX_GPU_DEVICE(int q) {
         const int i = lo.x + q % len.x, j = lo.y + (q / len.x) % len.y, k = lo.z + q / (len.x * len.y);
         float tau[5];
         for (int m = 0; m < 5; ++m) tau[m] = cf(c, i, j, k, kTau + m);
@@ -639,6 +699,17 @@ struct Level : LevelBase {
       auto acc = A.array(mfi);
       const RayP* out = S.out.data();
       const int* ocell = S.ocell.data();
+      // CPU: each thread deposits into its own buffer of the grown box
+      // (no atomics; adjacent rays target the same cells), the buffers are
+      // then summed into A cell by cell (integers: any order)
+      const int nt = kThreadBuffers ? nthreads_max() : 1;
+      const Long ngc = gbx.numPts();
+      const auto glen = ax::length(gbx);
+      if (kThreadBuffers) {
+        S.depbuf.resize(static_cast<std::size_t>(nt) * ngc * rrk::kNdep);
+        std::fill(S.depbuf.begin(), S.depbuf.end(), Long(0));
+      }
+      Long* const dbuf = S.depbuf.data();
       ax::ParallelForOMP(S.nout, [=] AMREX_GPU_DEVICE(Long r) {
         const int q = ocell[r];
         const int hi = lo.x + q % len.x, hj = lo.y + (q / len.x) % len.y, hk = lo.z + q / (len.x * len.y);
@@ -661,15 +732,33 @@ struct Level : LevelBase {
           for (int m = 0; m < 5; ++m) tb[m] = tfa(ii, jj, kk, m);
           return tb;
         };
+        Long* mine = kThreadBuffers ? dbuf + static_cast<std::size_t>(thread_id()) * ngc * rrk::kNdep : nullptr;
         auto dep = [&](int i, int j, int k, const double* v) {
           int ii, jj, kk;
           map(i, j, k, ii, jj, kk);
-          for (int m = 0; m < rrk::kNdep; ++m)
-            ax::HostDevice::Atomic::Add(&acc(ii, jj, kk, m), Long(rrk::to_fx(v[m], rrk::dep_scale(m))));
+          if (kThreadBuffers) {
+            Long* d = mine + (static_cast<Long>(ii - glo.x) + glen.x * (static_cast<Long>(jj - glo.y) + glen.y * static_cast<Long>(kk - glo.z))) * rrk::kNdep;
+            for (int m = 0; m < rrk::kNdep; ++m) d[m] += rrk::to_fx(v[m], rrk::dep_scale(m));
+          } else {
+            for (int m = 0; m < rrk::kNdep; ++m)
+              ax::HostDevice::Atomic::Add(&acc(ii, jj, kk, m), Long(rrk::to_fx(v[m], rrk::dep_scale(m))));
+          }
         };
         rrk::cast_1(out[r], P, tau, dep);
         if (bad) ax::HostDevice::Atomic::Add(err_p, 1);
       });
+      if (kThreadBuffers) {
+        const double tr0 = now();
+        ax::ParallelForOMP(gbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          const Long cidx = (static_cast<Long>(i - glo.x) + glen.x * (static_cast<Long>(j - glo.y) + glen.y * static_cast<Long>(k - glo.z))) * rrk::kNdep;
+          for (int m = 0; m < rrk::kNdep; ++m) {
+            Long sum = 0;
+            for (int t = 0; t < nt; ++t) sum += dbuf[static_cast<std::size_t>(t) * ngc * rrk::kNdep + cidx + m];
+            acc(i, j, k, m) += sum;
+          }
+        });
+        T.depred += now() - tr0;
+      }
       ray_substeps += S.nout;
     }
     const double tsb = now();
@@ -706,7 +795,7 @@ struct Level : LevelBase {
         auto acc = A.const_array(mfi);
         S.phys.resize(ncb);
         CellPhys* ph = S.phys.data();
-        ax::ParallelForOMP(ncb, [=] AMREX_GPU_DEVICE(int q) {
+        par_for_dyn(ncb, [=] AMREX_GPU_DEVICE(int q) {
           const int i = lo.x + q % len.x, j = lo.y + (q / len.x) % len.y, k = lo.z + q / (len.x * len.y);
           RTCell& d = c(i, j, k);
           for (int m = 0; m < 5; ++m) d.ngam[m] = static_cast<float>(rrk::from_fx(acc(i, j, k, m), rrk::kScaleNgam));
@@ -830,6 +919,7 @@ struct Level : LevelBase {
     }
     double t7 = now();
     T.sort += t7 - t6;
+    T.writeback += t7 - t6;
     // ---- migrate rays to the owners of their new home cells ----
     if (redist_local > 0)
       pc->Redistribute(0, 0, 0, redist_local);
@@ -995,9 +1085,11 @@ struct Level : LevelBase {
     std::snprintf(buf, sizeof buf,
                   "AMReX RT timers [s]: prep %.3f cell %.3f hist %.3f step1 %.3f cast1 %.3f phys %.3f "
                   "cast3 %.3f sort %.3f migrate %.3f post %.3f sync %.3f (FillBoundary %.3f SumBoundary %.3f "
-                  "setVal %.3f); ray-substeps %lld",
+                  "setVal %.3f; sort: bins %.3f gather %.3f writeback %.3f; cast1: deposit reduce %.3f); "
+                  "ray-substeps %lld",
                   T.prep, T.cell, T.hist, T.step1, T.cast1, T.phys, T.cast3, T.sort, T.migrate, T.post, T.sync,
-                  T.fillbnd, T.sumbnd, T.zero, static_cast<long long>(ray_substeps));
+                  T.fillbnd, T.sumbnd, T.zero, T.bins, T.gather, T.writeback, T.depred,
+                  static_cast<long long>(ray_substeps));
     return buf;
   }
 };
