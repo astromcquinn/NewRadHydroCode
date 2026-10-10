@@ -655,3 +655,45 @@ tools/production/calibrate_fesc.py $RUNS/cal128 --N 128 --am-params data/uv_lf/a
   observed LFs, so the box's emissivity is the same by construction down
   to the 256³ resolution limit, which adds the 10⁸–10⁹ M☉ halos that the
   128³ box does not resolve.
+
+## 9. Speed-of-light convergence at 128³ (production-256 thread, 2026-10-10)
+
+Three 128³ runs with the sources of the 0.1c calibration at f_esc = 0.28
+(§8, the same ICs, L(M), `ray_rotate = 3`, `hydro_scheme = unsplit`) and
+`c_reduced` = 0.1, 0.3 and 1.0 (`$RUNS/cal128/fesc_0.28`,
+`$RUNS/cal128_c03/fesc_0.28`, `$RUNS/cal128_c10/fesc_0.28`; jobs 41706018–20,
+96 threads on shared nodes). `tools/analysis/reion_history.py`:
+
+| c_reduced | RT substeps | wall (96 threads) | z(10%) | z(50%) | z(90%) | z(99%) | z(99.9%) | τ_es |
+|---|---|---|---|---|---|---|---|---|
+| 0.1 | 1 834 | 9 min | 8.66 | 7.14 | 6.39 | 6.05 | 5.92 | 0.0541 |
+| 0.3 | 5 509 | 28 min | 8.71 | 7.25 | 6.58 | 6.32 | 6.23 | 0.0551 |
+| 1.0 | 18 361 | 1 h 28 min | 8.72 | 7.29 | 6.66 | 6.46 | 6.40 | 0.0555 |
+
+| c_reduced | x_HII,V at z = 9 | 8 | 7.5 | 7 | 6.5 | 6 |
+|---|---|---|---|---|---|---|
+| 0.1 | 0.065 | 0.195 | 0.341 | 0.577 | 0.850 | 0.995 |
+| 0.3 | 0.066 | 0.214 | 0.372 | 0.643 | 0.937 | 1.000 |
+| 1.0 | 0.068 | 0.221 | 0.383 | 0.671 | 0.979 | 1.000 |
+
+![c convergence at 128³](figures/cconv_128_fesc0.28.png)
+
+* **0.1c is close to converged, and the residual is in the end of
+  reionization.** Against full c, 0.1c delays the midpoint by Δz = 0.15,
+  x_V = 0.99 by Δz = 0.41 and x_V = 0.999 by Δz = 0.48, and lowers τ_es by
+  2.5 %; 0.3c halves each of these (Δz = 0.04, 0.14, 0.17; τ_es 0.7 % low).
+  Compare 0.01c, which delayed the midpoint by Δz ≈ 2 (`docs/cluster.md`
+  §7). The 0.1c bias on the end of reionization, 0.4 in z, is the size of
+  the f_esc step between round values (§8: Δz(99 %) = 0.48 between 0.2 and
+  0.28), so **f_esc tuned at 0.1c to end reionization at z = 5.5 would end
+  it at z ≈ 5.9 at full c**. If that matters, tune at 0.3c (3× the cost)
+  or correct the target by Δz ≈ 0.4.
+* The early history (z ≥ 8, x_V ≤ 0.2) is converged to 0.01 in x_V at
+  0.1c: the I-fronts of isolated bubbles are source-limited, not
+  light-travel-limited, at this emissivity.
+* The last 1 % is where ĉ matters most: the fronts crossing the
+  remaining neutral voids move at ĉ, so x_V goes from 0.99 to 0.999 over
+  Δz = 0.13 at 0.1c, 0.09 at 0.3c and 0.06 at full c.
+* Cost scales with the substep count: 3.0× from 0.1c to 0.3c and 9.8×
+  to full c, so full c at 256³ would take about 15 h on a whole node, as
+  `docs/cluster.md` §8 projected.
