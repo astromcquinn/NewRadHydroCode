@@ -7,6 +7,7 @@
 // --set ray_dump_dir=DIR --set ray_dump_every=K (or ray_dump_at="k1 k2").
 // Lossy-precision experiment (changes results; research only):
 // --set ray_quant_bits=m [--set ray_quant_dither=0] [--set ray_quant_struct=1].
+// Moment RT instead of the rays (docs/rt_moments.md): --set rt_method=m1|otvet.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -30,6 +31,8 @@
 #include "radray/ray_dump.hpp"
 #include "radray/parallel.hpp"
 #include "radray/rt.hpp"
+#include "radray/recomb_rad.hpp"
+#include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 
 int main(int argc, char** argv) {
@@ -76,6 +79,8 @@ int main(int argc, char** argv) {
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
+    check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
@@ -108,6 +113,7 @@ int main(int argc, char** argv) {
               << " legacy_phys: " << P.legacy_physics << "\n"
               << " c_reduced  : " << P.c_reduced << "\n"
               << " det_par    : " << P.deterministic_parallel << "\n"
+              << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
               << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";
 

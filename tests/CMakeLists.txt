@@ -14,6 +14,12 @@ add_executable(test_rays test_rays.cpp)
 target_link_libraries(test_rays PRIVATE radray)
 add_test(NAME rays COMMAND test_rays)
 
+# Moment RT (rt_method = m1 | otvet, docs/rt_moments.md)
+add_executable(test_moments test_moments.cpp)
+target_link_libraries(test_moments PRIVATE radray)
+add_test(NAME moments COMMAND test_moments)
+set_tests_properties(moments PROPERTIES LABELS moments)
+
 # Halo finder and sources (docs/halos_and_sources.md)
 add_executable(test_halos test_halos.cpp)
 target_link_libraries(test_halos PRIVATE radray_halos)
@@ -161,6 +167,26 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
                    ${CMAKE_CURRENT_BINARY_DIR}/ifront_rsla)
   set_tests_properties(ifront_rsla PROPERTIES TIMEOUT 600 LABELS physics)
+  # the same with the moment RT (docs/rt_moments.md); the first-order
+  # moment fronts are checked from R = 5 cells (numerical diffusion)
+  foreach(m m1 otvet)
+    add_test(NAME ifront_rsla_${m}
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/ifront_rsla_check.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${CMAKE_CURRENT_BINARY_DIR}/ifront_rsla_${m} --set rt_method=${m} --rmin 5)
+    set_tests_properties(ifront_rsla_${m} PROPERTIES TIMEOUT 600 LABELS "physics;moments")
+  endforeach()
+
+  # Stromgren sphere: case A, case B and case A + recombination radiation
+  # (docs/recomb_radiation.md section 3); ~10 min with 4 threads
+  if(RADRAY_NIGHTLY_TESTS)
+    add_test(NAME recomb_stromgren
+             COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/recomb_stromgren.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${CMAKE_CURRENT_BINARY_DIR}/recomb_stromgren --check --threads 4)
+    set_tests_properties(recomb_stromgren PROPERTIES TIMEOUT 3600
+                         LABELS "nightly;physics;recomb" ENVIRONMENT OMP_NUM_THREADS=4)
+  endif()
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
@@ -462,6 +488,26 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=4)
   set_tests_properties(thread_rt_legacy_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
                        ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  # moment RT (docs/rt_moments.md): transport, OTVET tensor, physics
+  foreach(m m1 otvet)
+    add_test(NAME thread_rt_${m}_lognormal_16src
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_${m} $<TARGET_FILE:rt_driver>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=3
+                     --set rt_method=${m} --set legacy_physics=0)
+    set_tests_properties(thread_rt_${m}_lognormal_16src PROPERTIES TIMEOUT 1800
+                         LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  endforeach()
+  # recombination radiation (docs/recomb_radiation.md): emission, block
+  # rotation, pool budget and on-the-spot deposits, vs threads
+  add_test(NAME thread_rt_recomb_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_recomb $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set legacy_rt=0
+                   --set legacy_physics=0 --set deterministic_parallel=1 --set nsteps=6
+                   --set recomb_case=A --set recomb_rad=1)
+  set_tests_properties(thread_rt_recomb_lognormal_16src PROPERTIES TIMEOUT 1800
+                       LABELS "threads;recomb" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   if(RADRAY_HAVE_PM)
     # hydro, PM, summaries, FoF (N = 32, 22 steps before RT)
     add_test(NAME thread_full_legacy_hydro_pm
@@ -526,6 +572,23 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/unsplit 13 --set hydro_scheme=unsplit)
+    # the moment RT state through the checkpoint (docs/rt_moments.md)
+    foreach(m m1 otvet)
+      add_test(NAME restart_smoke_${m}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/${m} 13 --set rt_method=${m})
+      set_tests_properties(restart_smoke_${m} PROPERTIES TIMEOUT 600 LABELS "restart;moments")
+    endforeach()
+    # the recombination-radiation buffers through the checkpoint
+    # (docs/recomb_radiation.md)
+    add_test(NAME restart_smoke_recomb
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1
+                     --set recomb_case=A --set recomb_rad=1)
+    set_tests_properties(restart_smoke_recomb PROPERTIES TIMEOUT 600 LABELS "restart;recomb")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          PROPERTIES TIMEOUT 600 LABELS restart)
   endif()

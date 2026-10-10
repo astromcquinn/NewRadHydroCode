@@ -1,6 +1,9 @@
 // Complete binary checkpoint (see checkpoint.hpp).
 #include "radray/checkpoint.hpp"
 
+#include "radray/recomb_rad.hpp"
+#include "radray/rt_moments.hpp"
+
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -15,7 +18,13 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // Version 2 (hydro_scheme = unsplit, docs/hydro_unsplit.md): the internal
 // energy density gas.e (empty with the legacy scheme) and the unsplit
 // counters after the hydro scalars. Version 1 files are still read (e empty).
-constexpr std::int32_t kVersion = 2;
+// Version 3 (rt_method = m1 | otvet, docs/rt_moments.md): the moment RT
+// state before the trailer (empty with the rays). Versions 1-2 are read as
+// ray runs.
+// Version 4 (recomb_rad = 1, docs/recomb_radiation.md): the recombination
+// photon buffers, on-the-spot counts, cell modes and budget before the
+// trailer (empty when off).
+constexpr std::int32_t kVersion = 4;
 
 struct Out {
   std::ofstream f;
@@ -139,6 +148,33 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     dz.movie_frame = d.movie_frame;
     dz.movie_next = d.movie_next;
     o.pod(dz);
+    // moment RT (version 3)
+    const std::int32_t method = static_cast<std::int32_t>(s.cfg.rt_method);
+    o.pod(method);
+    const std::vector<float> none;
+    const MomentState* M = s.moments.get();
+    for (int q = 0; q < 5; ++q) {
+      const std::vector<float>* v[5] = {&none, &none, &none, &none, &none};
+      if (M) {
+        v[0] = &M->n;
+        v[1] = &M->fx;
+        v[2] = &M->fy;
+        v[3] = &M->fz;
+        v[4] = &M->e;
+      }
+      o.vec(*v[q]);
+    }
+    const double budget[3] = {M ? M->injected : 0, M ? M->absorbed : 0, M ? M->lost : 0};
+    o.pod(budget);
+    // recombination radiation (version 4)
+    const RecombState* Rc = s.recomb.get();
+    const std::vector<std::uint8_t> none8;
+    o.vec(Rc ? Rc->ngam : none);
+    o.vec(Rc ? Rc->egam : none);
+    o.vec(Rc ? Rc->ots : none);
+    o.vec(Rc ? Rc->mode : none8);
+    const double rbud[3] = {Rc ? Rc->launched : 0, Rc ? Rc->dropped : 0, Rc ? Rc->onspot : 0};
+    o.pod(rbud);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -161,7 +197,7 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.pod(Ngas);
   in.pod(Ndm);
   in.pod(nrmax);
-  if (ver != 1 && ver != kVersion)
+  if (ver < 1 || ver > kVersion)
     throw std::runtime_error("checkpoint version mismatch: " + path);
   if (Ngas != s.cfg.Ngas || Ndm != s.cfg.Ndm || nrmax != s.cfg.Nray_max)
     throw std::runtime_error("checkpoint is for N = " + std::to_string(Ngas) + ", Ndm = " +
@@ -215,6 +251,60 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.vec(pm.xv, static_cast<std::int64_t>(pm.xv.size()));
   in.pod(pm.dm_cpu);
   in.pod(d);
+  std::int32_t method = 0;
+  if (ver >= 3) in.pod(method);
+  if (method != static_cast<std::int32_t>(s.cfg.rt_method))
+    throw std::runtime_error(std::string("checkpoint was written with rt_method = ") +
+                             rt_method_name(static_cast<RTMethod>(method)) +
+                             ", this run has rt_method = " + rt_method_name(s.cfg.rt_method));
+  if (ver >= 3) {
+    std::vector<float> v[5];
+    for (int q = 0; q < 5; ++q) in.vec(v[q]);
+    double budget[3];
+    in.pod(budget);
+    if (use_moments(s.cfg)) {
+      moment_init(s);
+      MomentState& M = *s.moments;
+      const std::int64_t n = kNfreq * M.ncell;
+      std::vector<float>* dst[5] = {&M.n, &M.fx, &M.fy, &M.fz, &M.e};
+      for (int q = 0; q < 5; ++q) {
+        if (static_cast<std::int64_t>(v[q].size()) != n)
+          throw std::runtime_error("checkpoint: moment RT state of the wrong size: " + path);
+        *dst[q] = std::move(v[q]);
+      }
+      M.injected = budget[0];
+      M.absorbed = budget[1];
+      M.lost = budget[2];
+    }
+  }
+  if (ver >= 4) {
+    std::vector<float> ng, eg, ots;
+    std::vector<std::uint8_t> mode;
+    in.vec(ng);
+    in.vec(eg);
+    in.vec(ots);
+    in.vec(mode);
+    double rbud[3];
+    in.pod(rbud);
+    if (s.cfg.recomb_rad != !ng.empty())
+      throw std::runtime_error("checkpoint and run differ in recomb_rad: " + path);
+    if (s.cfg.recomb_rad) {
+      recomb_init(s);
+      RecombState& Rc = *s.recomb;
+      if (ng.size() != Rc.ngam.size() || eg.size() != Rc.egam.size() ||
+          ots.size() != Rc.ots.size() || mode.size() != Rc.mode.size())
+        throw std::runtime_error("checkpoint: recombination buffers of the wrong size: " + path);
+      Rc.ngam = std::move(ng);
+      Rc.egam = std::move(eg);
+      Rc.ots = std::move(ots);
+      Rc.mode = std::move(mode);
+      Rc.launched = rbud[0];
+      Rc.dropped = rbud[1];
+      Rc.onspot = rbud[2];
+    }
+  } else if (s.cfg.recomb_rad) {
+    throw std::runtime_error("checkpoint has no recombination radiation state: " + path);
+  }
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)
     throw std::runtime_error("checkpoint trailer missing: " + path);

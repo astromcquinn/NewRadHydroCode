@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "radray/simulation.hpp"
 
@@ -55,6 +56,24 @@ double rmax_from_nside(int nside);
 
 // ray_tracing_tools.f90: ray_redshifting (non-FREQ1 redshift_ray)
 void ray_redshifting(Simulation& s);
+
+// The redshift of one 5-group spectrum, shared by the rays and the moment
+// RT (rt_moments.hpp). make_redshift_table builds the tables of
+// ray_redshifting; redshift_spectrum is redshift_ray without the rays'
+// final minimum: nu, ngam (per group) are updated in place, keep[g] and
+// down[g] are the fractions of the photons of group g that stay in g and
+// move to g-1 (both 0 for a group at or below ngam_min).
+struct RedshiftTable {
+  double bmin = -6, bmax = 6;
+  double bdel = static_cast<double>(0.1f);
+  int Nbin = 121;  // 1 + nint((bmax-bmin)/bdel)
+  double freq[kNfreq + 1] = {};
+  std::vector<std::vector<double>> tab;
+  double rmin = 0, rmax = 0;
+};
+RedshiftTable make_redshift_table();
+void redshift_spectrum(const RedshiftTable& T, double fscale, double ngam_min, double* nu,
+                       double* ngam, double* keep, double* down);
 
 // ray_tracing_tools.f90: ray_buffer_allocate / _supplement / _deallocate
 void ray_buffer_allocate(Simulation& s);
