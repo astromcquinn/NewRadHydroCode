@@ -30,7 +30,9 @@ bool set_recomb_param(Config& c, const std::string& key, const std::string& val)
     return true;
   }
   if (key == "recomb_rad") {
-    c.recomb_rad = std::stoi(val) != 0;
+    const int v = std::stoi(val);
+    if (v < 0 || v > 1) throw std::runtime_error("recomb_rad must be 0 or 1");
+    c.recomb_rad = v != 0;
     return true;
   }
   if (key == "recomb_rad_nside") {

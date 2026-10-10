@@ -402,7 +402,7 @@ thread's `reionization_production.md`):
 - The production run was to start at f_esc = 0.5 (user decision), but the
   calibration **must be redone at 0.1c** (`docs/cluster.md` §7: 0.01c
   lowers τ_es by 20 %) and at 256³; `tools/production/calibrate_fesc.py`.
-- Movie, test movie `docs/figures/reion_test_128.mp4` (the thread's own
+- Movie, test movie `docs/movies/reion_test_128.mp4` (the thread's own
   movie tool was dropped in favour of `tools/movies/make_movie.py` from
   PR #12; `reion_production.slurm` now runs `reion.py`, the stills and the
   movie when a run finishes). `make_production.py` gained `--am-params`,
@@ -465,7 +465,7 @@ The survey found three branches off `main`; they were merged in the order
 `hyak-setup` (PR #17), `movies` (PR #12), `production-run` (PR #7), with
 these resolutions: the `tools/hyak/` scripts of `hyak-setup` were kept
 over the older copies on `production-run` (plus the post-run `reion.py`,
-stills and movie calls); `tools/movie/make_movie.py` of `production-run`
+stills and movie calls); `tools/movie/make_movie.py` (sic) of `production-run`
 was dropped for `tools/movies/make_movie.py` of PR #12;
 `docs/reionization_production.md` was folded into `docs/production_run.md`
 §8. Remote branches with no commits beyond `main` after the merges:

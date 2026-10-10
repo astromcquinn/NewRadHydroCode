@@ -112,7 +112,7 @@ table, the standard-output formatting of `hydro_step` and `calc_timestep`
    `particle_mesh` and RT; `summarize_gas`. The initial state is read from
    `u_gas.bin`, `w_gas.bin` and optionally `v_gas.bin` (0 otherwise, as
    `init_hydro` leaves it), followed by `calc_sim_var` and `summarize_gas`.
-2. **Time step.** `fixed`: `da_sim` given, `calc_dt_from_da` (the
+2. **Time step** (`timestep = fixed | courant` in the hydro driver's `params.txt`). `fixed`: `da_sim` given, `calc_dt_from_da` (the
    `istep == 0` form). `courant`: the original `istep > 0` branch from the
    first step on, with `amax_dm = 0`, i.e. `dt_ap = dt_pm_factor/sqrt(0) =
    +Infinity` (computed as such in both codes). The original `istep == 0`

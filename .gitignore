@@ -6,3 +6,5 @@ build-*/
 /out/
 /out_*/
 /runs/
+/build-*.log
+/ctest-*.log
