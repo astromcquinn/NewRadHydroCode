@@ -11,12 +11,12 @@
 # tools/hyak/build_hyak.sh has built build/radhydro from this branch):
 #   tools/hyak/rt_methods_runs.sh [BASE ...]
 # default BASE: $RUNS/reion256_c01 $RUNS/reion256 with
-# RUNS=/gscratch/astro/$USER/runs.
+# RUNS=/gscratch/astro/$USER/radhydro/runs.
 # Environment: METHODS (default "m1 otvet"), DRYRUN=1 (make the directories
 # and print the sbatch commands only), SBATCH_ARGS (default: a whole node,
 # --exclusive -c 192 --mem=256G --time=2-00:00:00), THREADS (default 192).
 set -eu
-RUNS="${RUNS:-/gscratch/astro/$USER/runs}"
+RUNS="${RUNS:-/gscratch/astro/$USER/radhydro/runs}"
 METHODS="${METHODS:-m1 otvet}"
 THREADS="${THREADS:-192}"
 SBATCH_ARGS="${SBATCH_ARGS:---exclusive --cpus-per-task=192 --mem=256G --time=2-00:00:00}"

@@ -231,48 +231,232 @@ measure it on the cluster. Cells whose stencil holds no photons are skipped.
 
 ## 6. Production comparison on Hyak (256³)
 
-Not yet run; nothing here was measured on klone. To compare the methods on
-the production boxes, run M1 and OTVET siblings of the existing ray runs
-(`reion256_c01`, 0.1c; `reion256`, 0.01c; `docs/cluster.md` §4–§7). They
-share the ICs and every parameter except `rt_method`.
+*Run on klone 2026-10-09/10 (branch `claude/elegant-bell-rqd3l1`, one
+whole cpu-g2 node, 192 threads per run).* Two sets, each with three runs that
+share the ICs and every parameter except `rt_method`:
+- `reion256_c01`: c_reduced = 0.1.
+- `reion256`: c_reduced = 0.01.
+
+The ray runs are the existing production runs (`docs/cluster.md` §4–§7).
+Every run uses `legacy_rt = legacy_physics = 0`, 10 Mpc/h, 256³, on-the-fly
+sources, and goes from z = 100 to z = 5.4.
+
+### 6.1 Reproduce
 
 ```
 # on klone, repository at this branch (or main after the merge)
-sbatch tools/hyak/build_hyak.sh                         # build/ + fast suite
-tools/hyak/rt_methods_runs.sh                           # DRYRUN=1 to only print
+sbatch tools/hyak/build_hyak.sh                     # build/ + fast suite
+export RUNS=/gscratch/astro/$USER/radhydro/runs
+tools/hyak/rt_methods_runs.sh                       # DRYRUN=1 to only print
 #  -> $RUNS/reion256_c01_{m1,otvet}, $RUNS/reion256_{m1,otvet}: params.txt +
 #     rt_method, ics -> the base ICs; one whole-node job each
 #     (reion_production.slurm: auto-restart, DONE, reion.py, movie)
-# when they are done:
-python3 tools/analysis/rt_methods_runs.py \
-    $RUNS/reion256_c01/run:rays $RUNS/reion256_c01_m1/run:M1 \
-    $RUNS/reion256_c01_otvet/run:OTVET --outdir $RUNS/rt_methods_c01
-python3 tools/analysis/rt_methods_runs.py \
-    $RUNS/reion256/run:rays $RUNS/reion256_m1/run:M1 \
-    $RUNS/reion256_otvet/run:OTVET --outdir $RUNS/rt_methods_c001
+sbatch --dependency=afterany:<the four jobs> tools/hyak/rt_methods_post.slurm
+#  -> $RUNS/rt_methods_{c01,c001}/: compare.txt, history.png, maps_z*.png,
+#     compare.mp4 + compare_stills/ (tools/movies/compare_movie.py)
 ```
 
-`rt_methods_runs.py` writes:
-- `history.png` and the z(x_HII) table with τ_es (from `movie/frames.txt`);
-- for each `zdata1` output common to the runs: x_HII and T slices, the
-  volume- and mass-weighted x_HII, partly ionised cells, the median T of
-  ionised gas, cells off by more than 0.1 from the rays, the correlation of
-  log T, and P_x(k) relative to the rays;
-- the RT time and peak memory from `<run>.log`.
+- The fast suite on klone: 90 of 100 pass. The 10 failures are the known
+  1-ulp platform differences of the stored RT references (`docs/cluster.md`
+  §3): its 8, plus `ray_dump_{legacy,fixed}_lognormal_16src_smallbuf`, which
+  compare with the same `lognormal_16src_smallbuf` references and show the
+  same mismatches. Every `moments`, restart and thread test passes.
+- `rt_methods_runs.py` compares the fields at the **movie frames** nearest
+  to the reference's zdata1 redshifts. The zdata1 outputs themselves drift
+  apart once the Courant step feels the different temperatures: by up to
+  Δz = 0.1 after z ≈ 11 at 0.01c.
+  - The movie frames are written at the same `movie_dz` redshifts from
+    inside the RT substeps. They agree to Δz ≤ 0.003 at 0.1c, and to within
+    one RT substep (Δz ≤ 0.05) at 0.01c. The `z_run` column of
+    `compare.txt` gives each run's frame.
+  - ⟨x⟩_M comes from `frames.txt`, since the frames carry no `rhog`.
 
-Expected cost (an extrapolation from the 32³ timings, to be checked):
-- The transport is about 0.7 µs per cell per substep on one thread, about
-  12 s per substep at 256³. With memory-bound scaling of perhaps 40–80× on
-  192 threads, that is 0.15–0.3 s per substep: 10–20 min for the 4064
-  substeps of the 0.1c run (the rays took 1 h 32 min), and a few minutes at
-  0.01c (404 substeps).
-- The OTVET tensor is about 7 serial 256³ FFTs per hydro step.
-- Memory is about 3 GB of moment state, and checkpoints are 1–2 GB (no
-  rays).
+Full tables: [`figures/rt_methods_256_c01.txt`](figures/rt_methods_256_c01.txt),
+[`figures/rt_methods_256_c001.txt`](figures/rt_methods_256_c001.txt).
 
-Things to look at:
-- **Small fronts.** At 256³ the early fronts around the first, faint sources
-  are a few cells across, where the first-order diffusion runs ahead (§4).
-  Expect earlier ionisation at the start and a smaller difference later.
-- **The 0.01c runs.** There the light-travel resolution per hydro step is
-  coarse for both methods.
+### 6.2 Movies
+
+Side by side (rays | M1 | OTVET), with slices of x_HII and T at the box
+centre and x_HII,V(z) of all three runs:
+- [`movies/rt_methods_256_c01.mp4`](movies/rt_methods_256_c01.mp4)
+  (0.1c, 173 frames, 2.6 MB);
+- [`movies/rt_methods_256_c001.mp4`](movies/rt_methods_256_c001.mp4)
+  (0.01c, 171 frames, 3.1 MB).
+
+Each run's own movie (x_HII, T, ρ and τ_es) is
+`$RUNS/<run>/run/movie/cosmo.mp4`.
+
+![0.1c, z = 10.35](figures/rt_methods_256_c01_z10.35.png)
+
+*0.1c at z = 10.35, x_HII,V ≈ 0.51.*
+
+![0.01c, z = 8.94](figures/rt_methods_256_c001_z8.94.png)
+
+*0.01c at z = 8.94, x_HII,V ≈ 0.50.*
+
+### 6.3 Reionization history
+
+![history 0.1c](figures/rt_methods_256_c01_history.png)
+
+*0.1c: x_HII (left) and the difference from the rays in x_HII,V (right).*
+
+![history 0.01c](figures/rt_methods_256_c001_history.png)
+
+*Same for 0.01c.*
+
+| set | run | z(x_V = 0.1) | 0.5 | 0.9 | 0.99 | z(x_M = 0.5) | τ_es |
+|---|---|---|---|---|---|---|---|
+| 0.1c | rays | 12.639 | 10.379 | 9.248 | 8.826 | 10.565 | 0.0904 |
+| | M1 | 12.645 | 10.373 | 9.262 | 8.909 | 10.573 | 0.0905 |
+| | OTVET | 12.624 | 10.367 | 9.282 | 8.897 | 10.577 | 0.0906 |
+| 0.01c | rays | 11.645 | 8.960 | 7.291 | 6.494 | 9.352 | 0.0761 |
+| | M1 | 11.710 | 9.029 | 7.309 | 6.517 | 9.416 | 0.0768 |
+| | OTVET | 11.679 | 8.934 | 7.217 | 6.373 | 9.373 | 0.0764 |
+
+- **The global history is the same to |Δx_HII,V| ≤ 0.018 at every z.**
+  - At 0.1c: up to x_V = 0.9, z agrees to 0.04, and τ_es to 0.2%. The
+    largest differences, ±0.012, come in the last stage of overlap
+    (z ≈ 9–10). The end of reionization (x_V = 0.99) is Δz = 0.07–0.08
+    later with the moment methods.
+  - At 0.01c: M1 runs ahead by up to +0.018 (z ≈ 8.4), and OTVET falls
+    behind by up to −0.015 (z ≈ 7.8). τ_es agrees to 1%. OTVET finishes
+    Δz = 0.12 earlier at x_V = 0.99.
+- **Small early fronts (§4) show at 0.01c only.** At z = 13.12 the moment
+  runs have 17–20% more ionised volume (x_V = 0.0199 and 0.0195 against
+  0.0166). They also have 1.4–1.5× the x_HII power at k = 2, and the median T
+  of their ionised gas is 13% lower (15 100–15 200 K against 17 400 K).
+  - The difference shrinks to 2–5% by z = 11.5.
+  - At 0.1c the fronts are already larger at that redshift (x_V = 0.057),
+    and the three runs agree to 2%.
+
+### 6.4 Morphology and temperature
+
+| set | z | x_V (rays) | cells with \|Δx\| > 0.1: M1 / OTVET | corr(log T): M1 / OTVET | partly ionised: rays / M1 / OTVET |
+|---|---|---|---|---|---|
+| 0.1c | 12.30 | 0.137 | 5.1% / 2.5% | 0.902 / 0.977 | 1.5 / 2.5 / 2.3% |
+| | 10.90 | 0.364 | 13.3% / 5.9% | 0.818 / 0.959 | 4.4 / 5.3 / 4.6% |
+| | 9.80 | 0.700 | 19.9% / 7.9% | 0.597 / 0.912 | 5.4 / 5.0 / 4.8% |
+| | 9.00 | 0.965 | 6.0% / 2.2% | 0.083 / 0.796 | 1.0 / 0.9 / 0.8% |
+| | 6.80 | 1.000 | – | 0.934 / 0.989 | – |
+| 0.01c | 11.54 | 0.108 | 2.9% / 2.6% | 0.962 / 0.976 | 2.2 / 3.1 / 2.9% |
+| | 8.99 | 0.494 | 10.3% / 7.0% | 0.889 / 0.951 | 4.2 / 5.9 / 5.3% |
+| | 7.44 | 0.870 | 9.9% / 5.8% | 0.674 / 0.893 | 3.5 / 3.5 / 3.5% |
+| | 6.85 | 0.966 | 4.2% / 2.4% | 0.541 / 0.867 | 1.4 / 1.5 / 1.5% |
+
+- **OTVET matches the rays' ionisation and temperature morphology much better
+  than M1.**
+  - It has 2–2.5× fewer cells off by more than 0.1 in x_HII during the
+    middle of reionization.
+  - Its log T correlates with the rays' at 0.91–0.99 at 0.1c and 0.87–0.98
+    at 0.01c.
+  - For M1 the correlation drops through overlap (0.60 at x_V = 0.7, at
+    0.1c).
+  - This is consistent with the known weakness of M1 where radiation from
+    many sources crosses: the local closure gives a single flux direction
+    per cell. That is an interpretation, not tested here.
+- **The last neutral islands are in different places** (0.1c, z = 9.0,
+  x_V = 0.965–0.977, below). In the M1 run they have moved so far that its
+  log T correlates with the rays' at only 0.08. OTVET's are closer: 0.80.
+  - Tests that depend on where the islands survive late, such as the
+    Lyα forest after overlap, are therefore sensitive to the RT method at
+    this level.
+- **Fronts.** The moment fronts are smooth, while the rays' are ragged:
+  - the rays' HEALPix sampling leaves holes at large radius, worst at 0.01c
+    (§4);
+  - the moment methods have up to 1.4× as many partly ionised cells
+    (5.9% against 4.2%) while the bubbles grow;
+  - at overlap the fraction of partly ionised cells is the same for all
+    three methods.
+- **The temperature of ionised gas agrees to 1–2%** from z ≈ 11 on. Medians
+  for rays / M1 / OTVET:
+  - 0.1c, z = 6.80: 6194 / 6290 / 6225 K;
+  - 0.1c, z = 5.45: 5042 / 5123 / 5099 K;
+  - 0.01c, z = 7.44: 9584 / 9473 / 9648 K.
+
+  The moment runs are slightly hotter after overlap at 0.1c.
+- **x_HII power after overlap.** At 0.1c, M1's residual neutral-fraction
+  power is 0.82–1.09 of the rays' at k = 2–16, and OTVET's is 0.58–0.89.
+  OTVET's residual x_HI fluctuations are smoother. With x_V > 0.999 (0.01c,
+  z ≤ 5.9) the ratio only says whether a last patch survives in the box,
+  and is meaningless.
+
+![last islands, 0.1c](figures/rt_methods_256_c01_maps_z9.0.png)
+
+*0.1c at z = 9.0: the last neutral regions (dark) in the middle plane.*
+
+### 6.5 Cost
+
+Whole node, 192 threads. The RT time is the sum of the RT timers in
+`run.log`. Wall time is the whole run, including hydro, PM, FoF and output.
+
+| set | run | substeps | wall | RT | transport | photo-chemistry | other RT | peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| 0.1c | rays | 4064 | 1:32:42 | 5032 s | 3552 s | 1382 s | 98 s | 27.0 GB |
+| | M1 | 4037 | 49:35 | 2823 s | 1206 s | 1549 s | 68 s | 13.5 GB |
+| | OTVET | 4035 | 51:39 | 2952 s | 1229 s | 1553 s | 170 s | 14.3 GB |
+| 0.01c | rays | 404 | 26:17 | 882 s | 641 s | 181 s | 60 s | 23.1 GB |
+| | M1 | 403 | 6:50 | 265 s | 116 s | 136 s | 13 s | 14.2 GB |
+| | OTVET | 401 | 8:28 | 366 s | 116 s | 132 s | 118 s | 14.4 GB |
+
+What the columns contain:
+- **transport:** for the rays, `calc_ray_1 + ray_tracing_1 + ray_tracing_3`.
+  For the moment methods, `ray_tracing_1` (the GLF subcycles and the
+  deposit) plus `ray_tracing_3` (scaling by the surviving fraction).
+- **photo-chemistry:** `radiative_physics`.
+- **other RT:** `prep`, `calc_rt_1`, `sync` and `post_rt`. OTVET's `prep`
+  is the FFT tensor, 106 s in all for the hydro steps with sources.
+
+Findings:
+- **Speed-up over the rays: 1.8× in RT time at 0.1c** (1.9× wall for M1,
+  1.8× for OTVET), and 2.4–3.3× at 0.01c (3.1–3.9× wall).
+- **Memory:** about half the rays' at 0.1c.
+- **The transport met the estimate; the total did not.** The moment
+  transport costs 0.29–0.30 s per substep at both light speeds (0.26–0.27 s
+  of it in `ray_tracing_1`). That is inside the 0.15–0.3 s expected from
+  the 32³ timings, and 2.9× cheaper than the ray tracing per substep at
+  0.1c.
+  - It is 3.1 µs of thread time per cell per substep, against 0.7 µs on
+    one thread at 32³: the 192 threads give a 44× speed-up, at the low end
+    of the 40–80× guessed for memory-bound scaling.
+  - The 10–20 min estimate counted only the transport, though.
+    `radiative_physics` (`photo_cell`, unchanged) costs as much as with the
+    rays (0.33–0.45 s per substep) and is now **51–55% of the moment RT
+    time**.
+  - A faster RT now needs faster photo-chemistry. Its cost does not depend
+    on the RT method.
+- **Time per substep follows the ionised volume, not the number of sources**
+  (wall time per hydro step ÷ substeps, 0.1c):
+
+  | z | 11.6 | 9.8 | 8.6 | 7.8 | 6.8 | 5.5 |
+  |---|---|---|---|---|---|---|
+  | x_V (rays) | 0.24 | 0.70 | 1.00 | 1.00 | 1.00 | 1.00 |
+  | N_source | 278 | 1020 | 2140 | 3200 | 4500 | 5300 |
+  | rays [s] | 1.15 | 1.42 | 1.56 | 1.56 | 1.45 | 1.55 |
+  | M1 [s] | 0.39 | 0.70 | 0.86 | 0.88 | 0.88 | 0.88 |
+  | OTVET [s] | 0.40 | 0.71 | 0.90 | 0.92 | 0.92 | 0.95 |
+
+  - The moment cost per substep doubles between x_V = 0.24 and overlap,
+    then stays flat while N_source grows 2.5×.
+  - The transport skips cells whose stencil holds no photons (§4). The
+    rise is consistent with more cells holding photons, for the transport
+    and the photo-chemistry, until photons fill the box at overlap. Not
+    checked with per-step timers.
+  - OTVET's tensor grows only with the source count (`auto` → FFT here, a
+    fixed cost per hydro step).
+- **Photon budget** (M1, 0.1c, `ray.log` at the end): injected 11.38,
+  absorbed 2.54, lost 2.47 and in flight 6.36 photons per H atom. That
+  closes to the printed digits.
+
+### 6.6 Conclusions
+
+- At 256³ in a 10 Mpc/h box, both moment methods reproduce the rays'
+  reionization history to |Δx_V| ≤ 0.02 and τ_es to 1%. They take
+  roughly half the RT time and half the memory at 0.1c.
+- **OTVET is the better match** for morphology and temperature: 2–3× fewer
+  discrepant cells than M1, and corr(log T) ≥ 0.87 throughout.
+  - M1's last neutral islands and its temperature structure near overlap
+    differ substantially from the rays'.
+  - OTVET costs 5% more than M1 at 0.1c (the FFT tensor). At 0.01c, with
+    few substeps per hydro step, it costs 38% more.
+- **Next for speed:** `radiative_physics`. Beyond that, a second-order
+  transport would sharpen the fronts (§5).
