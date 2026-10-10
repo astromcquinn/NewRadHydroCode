@@ -2,7 +2,8 @@
 
 *Written 2026-10-10 (branch `recomb-radiation`). New options, not in the
 original. With the defaults (`recomb_case = B`, `recomb_rad = 0`) the code
-is the original. On klone the fast suite gives the same 90/100 as `main`,
+is the original. On klone the fast suite gives 92/102 (the two new
+fast `recomb` tests pass; `main` gives 90/100),
 with byte-identical mismatch details: the 10 failures are the known 1-ulp
 platform differences of `docs/cluster.md` §3.*
 
@@ -213,8 +214,96 @@ Per-cell comparison with case B, at matched movie frames:
 
 ### 4.2 256³
 
-*Pending: `reion256_c01_caseA` and `reion256_c01_caseA_rr` (block 4) are
-running; the case-B run is the existing `reion256_c01`.*
+The case-B run is the existing `reion256_c01`. Case A + RR uses
+`recomb_rad_block = 4`. All three use the same ICs, 192 threads and one
+klone node. Full table: [`figures/recomb256.txt`](figures/recomb256.txt).
+Movie: [`movies/recomb_256_c01.mp4`](movies/recomb_256_c01.mp4), with
+x_HII and T side by side.
+
+| run | z(x_V = 0.25) | z(x_V = 0.5) | z(x_V = 0.99) | τ_es | wall | RT | ray tracing (1 + 3) | peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| case B | 11.478 | 10.379 | 8.826 | 0.0904 | 1:32:42 | 1.40 h | 3400 s | 27.0 GB |
+| case A | 11.275 | 10.114 | 8.574 | 0.0880 | 1:33:51 | 1.40 h | 3408 s | 26.9 GB |
+| case A + RR, block 4 | 11.481 | 10.390 | 8.836 | 0.0905 | 2:16:39 | 2.00 h | 5351 s | 30.5 GB |
+
+![history 256](figures/recomb256_history.png)
+
+*256³: x_HII and its difference from case B. Case A lags by up to 0.10 in
+x_V near z = 9.6. With the recombination radiation transported, the run
+stays within +0.005 of case B.*
+
+![maps z 9.8](figures/recomb256_maps_z9.8.png)
+
+*Middle plane at z = 9.8 (x_V = 0.70 in case B). The case-A bubbles are
+visibly smaller. Case A + RR cannot be told apart from case B by eye.*
+
+Per-cell comparison with case B, at matched movie frames:
+
+| z | x_V (B) | cells off by > 0.1 in x: A / RR | corr(log T): A / RR | median T of ionised gas: B / A / RR |
+|---|---|---|---|---|
+| 12.29 | 0.137 | 2.5% / 0.6% | 0.973 / 0.998 | 13 016 / 13 659 / 13 401 K |
+| 10.91 | 0.364 | 8.0% / 1.7% | 0.927 / 0.996 | 11 625 / 12 583 / 11 971 K |
+| 9.81 | 0.700 | 13.6% / 2.3% | 0.813 / 0.995 | 11 342 / 12 471 / 11 537 K |
+| 8.98 | 0.965 | 8.1% / 0.8% | 0.480 / 0.987 | 10 470 / 12 188 / 10 633 K |
+| 7.41 | 1.000 | – | 0.992 / 0.976 | 6 958 / 8 710 / 7 501 K |
+| 6.00 | 1.000 | – | 0.991 / 0.975 | 5 421 / 6 794 / 6 176 K |
+
+![maps z 6](figures/recomb256_maps_z6.0.png)
+
+- **Before overlap, the recombination radiation recovers case B.** This
+  confirms the 128³ result:
+  - τ_es agrees to 10⁻⁴;
+  - every x_V milestone is within Δz = 0.013;
+  - at most 2.3% of cells differ by more than 0.1 in x_HII;
+  - the x_HII power spectrum agrees to 1% down to z = 9.8, and is 5–8% low
+    at z = 9.0 as overlap ends;
+  - ionised gas is 1.3–3% hotter.
+
+  Case A alone delays reionization by Δz = 0.20–0.27 (from x_V = 0.25
+  on) and makes ionised gas 2–16% hotter.
+- **After overlap, case A + RR moves toward case A, and that is the
+  physically expected result.**
+  - The ionised IGM is optically thin to its own recombination photons.
+    Most of them travel far and are absorbed in the residual HI elsewhere,
+    or redshift below 13.6 eV, rather than on the spot. Locally, the gas is
+    close to case A.
+  - The residual neutral fraction scales as x_HI ∝ α. Its power,
+    P_x/P_B ≈ 2.3–3.0 in both case-A runs, is close to (α_A/α_B)².
+  - Photoheating per volume scales with the recombination rate. At z = 6
+    the ionised gas is therefore 25% hotter in case A and 14% hotter in
+    case A + RR than in case B.
+  - The on-the-spot approximation is good up to overlap but overstates how
+    much the gas is shielded afterwards. This matters for the post-overlap
+    IGM temperature and for the neutral fraction in voids.
+- **Recombination budget** (from `Log/ray.log`, cumulative ground-state
+  recombination photons per ⟨n_H⟩):
+
+  | up to z | launched | on the spot (case B) | launched fraction |
+  |---|---|---|---|
+  | 11.57 | 0.056 | 0.0001 | 99.8% |
+  | 10.33 | 0.113 | 0.034 | 77% |
+  | 8.98 | 0.173 | 0.153 | 53% |
+  | 8.63 | 0.217 | 0.169 | 56% |
+  | 7.82 | 0.352 | 0.180 | 66% |
+  | 5.44 (end) | 0.922 | 0.201 | 82% |
+
+  - During overlap (z ≈ 10.3–8.6) the stellar rays fill the pool. In 389
+    of those 744 substeps there was no room for any recombination rays, so
+    whole blocks fell back to case B.
+  - The fallback is case B, so no photons are lost. That is why the
+    history still follows case B through overlap.
+  - Afterwards the pool frees up and almost all the emission is launched.
+  - The dropped share (blocks below `ngam_min`) is 8 × 10⁻¹⁰.
+  - No stellar split was ever limited: `ray.log` has no `Pool guard`
+    line.
+- **Cost.**
+  - Wall time is 1.46× case A, and RT time 1.43×. The extra time is
+    almost all ray tracing: ray_tracing_1 + 3 take 5351 s against 3408 s.
+    Radiative physics takes 1497 s against 1367 s.
+  - The final pool occupancy is 0.70 against 0.49, with 189 M rays against
+    131 M.
+  - Peak memory rises by 13%, because of the larger pool.
+  - Case A itself costs the same as case B.
 
 ## 5. Caveats
 

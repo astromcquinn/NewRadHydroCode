@@ -1,6 +1,55 @@
 # Project status
 
-*Last updated: 2026-10-10, moment RT (M1, OTVET) and its 256³ klone comparison with the rays, merged into `main` (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+*Last updated: 2026-10-10, case A recombination and recombination radiation (branch `recomb-radiation`, not yet merged); before that, moment RT (M1, OTVET) and its 256³ klone comparison with the rays, merged into `main` (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+
+## Done 2026-10-10, branch `recomb-radiation` (not yet pushed or merged)
+
+**Case A recombination and recombination radiation transported by the rays
+(`docs/recomb_radiation.md`).**
+- New flags, all off by default:
+  - `recomb_case = A|B`;
+  - `recomb_rad = 1`, which needs case A, the rays and `legacy_rt = 0`;
+  - `recomb_rad_nside`, `recomb_rad_block`, `recomb_rad_pool`.
+- How it works:
+  - Each ionised cell's ground-state recombinations (α_A − α_B, for HII,
+    HeII and HeIII) are buffered.
+  - Each b³ block launches them as 12·nside² rays from one rotating cell,
+    while there is room in the ray pool. The stellar splits are reserved
+    first.
+  - Blocks that are optically thick, too faint, or have no room fall back
+    to case B on the spot, so no photons are lost.
+  - Checkpoint version 4.
+- With the defaults the code is bit-identical. The fast suite gives
+  92/102: the same 10 known 1-ulp failures, with mismatch details
+  byte-identical to `main`.
+- New tests:
+  - fast: `thread_rt_recomb_lognormal_16src`, `restart_smoke_recomb`;
+  - nightly: `recomb_stromgren`, run by `tools/analysis/recomb_stromgren.py`.
+- Strömgren check: case A gives R_A/R_B to 1% of the temperature-corrected
+  value, and case A + RR recovers R_B (1.002 with block 1).
+- 256³ at 0.1c (block 4), runs
+  `/gscratch/astro/mcquinn/radhydro/runs/reion256_c01_caseA{,_rr}`, comparison
+  in `.../recomb_reion256_c01/`. Movie: `docs/movies/recomb_256_c01.mp4`.
+  - Case A alone delays reionization by Δz ≈ 0.25 and lowers τ_es from
+    0.0904 to 0.0880.
+  - Case A + RR follows case B to Δz ≤ 0.013 up to overlap (τ_es 0.0905),
+    with ionised gas 1–3% hotter.
+  - After overlap it moves toward case A, as it physically should, since
+    the ionised IGM is thin to its own recombination photons. At z = 6 the
+    ionised gas is 14% hotter than case B (case A: 25%), and the residual
+    x_HI is about α_A/α_B higher.
+  - The pool is full during overlap, so only 53–56% of the recombinations
+    up to then are launched; 82% are by the end.
+  - Cost: 1.46× wall (2:16:39 against 1:33:51), with 13% more memory.
+- Tools: `tools/hyak/recomb_runs.sh` and `tools/hyak/recomb_post.slurm`.
+- Found, not caused by this work: with `deterministic_parallel`,
+  `lognormal_16src_smallbuf` (`nray_max_factor = 1`) overflows the ray pool
+  on `main` too.
+- Open:
+  - transport HeII Lyα and the other ionising recombination lines;
+  - a larger pool, or coarser emission during overlap, so that more of the
+    emission is launched;
+  - tag recombination rays to measure their losses separately.
 
 ## Done, merged into `main` 2026-10-10 (branch `claude/elegant-bell-rqd3l1`)
 
