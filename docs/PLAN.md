@@ -293,3 +293,24 @@ policy on klone, and deleting the merged branches.
   overlapping sources fill each other's coverage gaps, so the 3–10 %
   single-thread ray-tracing cost buys less there than the uniform tests
   suggest.
+
+## Emissivity calibration thread (2026-10-10): 40 Mpc/h, 512³
+
+* **Production runs end at z = 5** (Lyα forest comparison); the
+  `make_production.py` default since 2026-10-10.
+* **Calibrate the sources on bigger boxes against the observed IGM at
+  z = 5–6**, not on the source models from the literature ("I don't think
+  they are based on much"). Box: **40 Mpc/h, 512³** (m_p = 5.1e7 M☉, the
+  same mass and cell resolution as the 10 Mpc/h 128³ box, so the 128³
+  FoF-corrected abundance matching `data/uv_lf/am_params_128_10mpc.txt`
+  applies).
+* **Data** (papers supplied by the user; `data/igm/igm_z5_6.txt` on branch
+  `fesc-z`): Becker+21 (λ_mfp, ṅ), Zhu+23 (λ_mfp), Bosman+22 (⟨F_Lyα⟩) and
+  Gaikwad+23 **Γ_HI only**: the user is skeptical of Gaikwad's mean free path
+  inferences (and so of their ṅ), not of their Γ.
+* **Speed of light:** c_reduced = 0.2 is acceptable, but it must stay at
+  that value through the end of reionization (z ≈ 5.5) before it is
+  changed (raised for z = 5.5 → 5). Which reduced c is optimal is worth
+  measuring.
+* **f_esc:** with the bigger box err on the side of a smaller escape
+  fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
