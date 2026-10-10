@@ -1,6 +1,42 @@
 # Project status
 
-*Last updated: 2026-10-10: status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-10: recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done, merged into `main` 2026-10-10 (branch `recomb-moments`)
+
+**Recombination radiation with the moment RT, the photon energy, and the
+helium lines (`docs/recomb_radiation.md` §2.1–2.3, §3, §4.3).**
+- **Moment RT:** `recomb_rad = 1` now works with `rt_method = m1 | otvet`.
+  - Every cell adds its recombination photons to its own photon density
+    (isotropic, zero flux), with no blocks or pool, and case A everywhere.
+  - Strömgren: R/R_B = 1.007 (M1) and 1.006 (OTVET).
+  - 256³ at 0.1c (`reion256_c01_{m1,otvet}_caseA_rr`):
+    - history within Δz ≤ 0.03 of the same method's case B, τ_es
+      unchanged;
+    - ionised gas 3–5% hotter before overlap and 18% hotter at z = 6 (rays:
+      14%);
+    - about 20% of the recombination photons are lost to redshift;
+    - cost +4% RT time (rays: +43%).
+  - Movie: `docs/movies/recomb_256_c01_moments.mp4`.
+- **Photon energy:** the mean excess over threshold now comes from the
+  Milne relation, integrated with the code's cross-sections, replacing kT.
+  - H: 0.96 kT at 10⁴ K and 0.88 kT at 4×10⁴ K.
+  - This matches the extra case-A cooling of the Hui & Gnedin fits to 2–3%
+    of kT, so the energy is consistent with `legacy_physics = 0`.
+- **`recomb_rad_lines = 1`:** H-ionising helium recombination photons:
+  - HeI 19.8 and 21.2 eV lines and two-photon decay: 0.97 per HeII
+    recombination;
+  - HeII Lyα, two-photon decay (1.42 photons per decay) and Balmer
+    continuum.
+  - Strömgren with M1: +3.2% in R, as expected for ~8% extra photons.
+  - **The branching fractions are from memory (Osterbrock & Ferland ch. 4;
+    Nussbaumer & Schmutz 1984 two-photon fit) and need checking against
+    the sources.**
+- Fast suite: 94/104, the same 10 known failures. New tests:
+  - fast: `thread_rt_recomb_m1_lognormal_16src` and
+    `restart_smoke_recomb_otvet`, both with the lines;
+  - nightly: `recomb_stromgren_{m1,otvet}`.
+- Open: no 256³ run with the lines (user, 2026-10-10: helium is unimportant enough that one is not needed); helium branching fractions and the two-photon fit still to check against Osterbrock & Ferland (2006) and Nussbaumer & Schmutz (1984).
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
 

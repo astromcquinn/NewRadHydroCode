@@ -81,7 +81,10 @@ std::string rt_method_summary(const Config& c) {
   }
   // recomb_rad.hpp; printed only when not the original's case B
   if (c.recomb_case_A) s += ", recomb_case = A";
-  if (c.recomb_rad)
+  if (c.recomb_rad_lines) s += ", recomb_rad_lines = 1";
+  if (c.recomb_rad && use_moments(c))
+    s += ", recomb_rad = 1 (every cell emits into the moments)";
+  else if (c.recomb_rad)
     s += ", recomb_rad = 1 (nside " + std::to_string(c.recomb_rad_nside) + ", block " +
          std::to_string(c.recomb_rad_block) + ", pool " + std::to_string(c.recomb_rad_pool).substr(0, 4) + ")";
   return s;
@@ -491,6 +494,32 @@ void moment_step_1(Simulation& s) {
   }
   M.injected += inj / s.cfg.nrtcr;
 
+  // recomb_rad = 1 (recomb_rad.hpp): the ground-state recombination photons
+  // photo_cell counted in the last substep, emitted isotropically where they
+  // were made (every cell is in launch mode, i.e. case A; no blocks, no pool)
+  if (s.recomb && s.recomb->active()) {
+    RecombState& Rc = *s.recomb;
+    const double rec = plane_sum(Nrt, [&](int k) {
+      double t = 0;
+      const std::int64_t c0 = static_cast<std::int64_t>(k) * Nrt * Nrt;
+      for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(Nrt) * Nrt; ++c)
+        for (int g = 0; g < kNfreq; ++g) {
+          const std::size_t kb = static_cast<std::size_t>(c) * kNfreq + g;
+          if (!(Rc.ngam[kb] > 0)) continue;
+          const std::int64_t i = g * nc + c;
+          const float n0 = M.n[i];
+          M.n[i] = static_cast<float>(static_cast<double>(n0) + static_cast<double>(Rc.ngam[kb]));
+          M.e[i] = static_cast<float>(static_cast<double>(M.e[i]) + static_cast<double>(Rc.egam[kb]));
+          t += static_cast<double>(M.n[i]) - static_cast<double>(n0);
+          Rc.ngam[kb] = 0;
+          Rc.egam[kb] = 0;
+        }
+      return t;
+    });
+    M.injected += rec / s.cfg.nrtcr;
+    Rc.launched += rec / s.cfg.nrtcr;
+  }
+
   // Transport: moment_nsub GLF subcycles of Courant number 1/moment_nsub
   // (one cell of light travel per RT substep)
   if (M.P.size() != static_cast<std::size_t>(9 * nc)) {
@@ -615,6 +644,9 @@ void moment_redshift(Simulation& s) {
               << " injected " << static_cast<float>(M.injected) << " absorbed "
               << static_cast<float>(M.absorbed) << " lost " << static_cast<float>(M.lost)
               << "\n";
+  if (s.raylog && s.recomb && s.recomb->active())
+    *s.raylog << " Recomb     : emitted " << static_cast<float>(s.recomb->launched)
+              << " (included in injected)\n";
 }
 
 }  // namespace radray

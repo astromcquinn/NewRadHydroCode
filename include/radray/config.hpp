@@ -157,7 +157,11 @@ struct Config {
   //                and cooling in photo_cell (on-the-spot); A = case A.
   //   recomb_rad:  1 = the ground-state recombinations (alpha_A - alpha_B)
   //                of every ionised cell are emitted as rays (requires
-  //                recomb_case = A, rt_method = rays, legacy_rt = 0).
+  //                recomb_case = A; with the rays legacy_rt = 0; with
+  //                rt_method = m1 | otvet every cell emits into the moments).
+  //   recomb_rad_lines: 1 = also the helium recombination photons that
+  //                ionise H (HeI 19.8/21.2 eV lines and 2-photon, HeII
+  //                Lya, 2-photon and Balmer continuum; needs recomb_rad).
   //   recomb_rad_nside: HEALPix nside of the emitted rays (12 nside^2 rays
   //                per emission; default 1, i.e. 12 rays).
   //   recomb_rad_block: emission is gathered over blocks of b^3 RT cells and
@@ -168,6 +172,7 @@ struct Config {
   //                the emission is absorbed on the spot (default 0.75).
   bool recomb_case_A = false;
   bool recomb_rad = false;
+  bool recomb_rad_lines = false;
   int recomb_rad_nside = 1;
   int recomb_rad_block = 2;
   double recomb_rad_pool = 0.75;
