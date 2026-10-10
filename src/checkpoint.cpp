@@ -66,6 +66,14 @@ struct In {
     f.read(reinterpret_cast<char*>(&x), sizeof x);
     if (!f) throw std::runtime_error("checkpoint truncated: " + path);
   }
+  // skips a vector written by Out::vec
+  template <class T>
+  void skip_vec() {
+    std::int64_t n = 0;
+    pod(n);
+    f.seekg(static_cast<std::streamoff>(n * static_cast<std::int64_t>(sizeof(T))), std::ios::cur);
+    if (!f) throw std::runtime_error("checkpoint truncated: " + path);
+  }
   template <class T>
   void vec(std::vector<T>& v, std::int64_t expect = -1) {
     std::int64_t n = 0;
@@ -257,7 +265,13 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   std::int64_t hwm = 0;
   in.pod(hwm);
   if (hwm > R.Nray_max) throw std::runtime_error("checkpoint: ray high-water mark > Nray_max");
-  if (hwm > 0) {
+  // rt_backend = amrex: only rank 0 needs the serial rays (they go to the
+  // level through rank 0); the other ranks skip them
+  const bool skip_rays = use_amrex(s.cfg) && !io_rank();
+  if (hwm > 0 && skip_rays) {
+    in.f.seekg(static_cast<std::streamoff>(hwm * static_cast<std::int64_t>(sizeof(Ray))), std::ios::cur);
+    if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+  } else if (hwm > 0) {
     in.f.read(reinterpret_cast<char*>(&R.ray[1]), static_cast<std::streamsize>(hwm * sizeof(Ray)));
     if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
     if (ver <= 4) {
@@ -357,7 +371,10 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   std::vector<rrk::RayP> brays;
   if (ver >= 5) {
     in.pod(backend);
-    in.vec(brays);
+    if (skip_rays)
+      in.skip_vec<rrk::RayP>();
+    else
+      in.vec(brays);
     in.pod(s.ngam_total_backend);
   }
   if (backend == 0 && use_amrex(s.cfg)) {
@@ -368,9 +385,15 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     // released.
     if (s.cfg.legacy_rt) throw std::runtime_error("rt_backend = amrex needs a legacy_rt = 0 checkpoint");
     brays.clear();
-    for (std::int64_t c = 0; c < G.ncell; ++c)
-      for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = R.at(ir).next) brays.push_back(R.at(ir));
-    s.ngam_total_backend = ngam_rays_total_serial(s);
+    double tot = 0;
+    if (!skip_rays) {
+      for (std::int64_t c = 0; c < G.ncell; ++c)
+        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = R.at(ir).next) brays.push_back(R.at(ir));
+      tot = ngam_rays_total_serial(s);
+    }
+    // (rank 0 writes the outputs and checkpoints; the other ranks keep 0
+    // until the next post_rt sets the reduced total on every rank)
+    s.ngam_total_backend = tot;
     R.init(R.Nray_max, R.Nfree_max);
     std::fill(G.htoc.begin(), G.htoc.end(), 0);
     R.Nray = static_cast<std::int64_t>(brays.size());

@@ -519,6 +519,12 @@ struct Level : LevelBase {
       RayP* rays = S.rays.data();
       const int* perm = S.bins.permutationPtr();
       ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) { rays[n] = Enc::load(p, perm[n], ectx); });
+      // the tile is rewritten from the survivors at the end of the substep:
+      // release it, so at most two copies of the rays exist at any time
+      // (tile + scratch here, scratch + output in step 1, output + tile at
+      // the write-back); the arena reuses the freed blocks
+      pt.resize(0);
+      pt.shrink_to_fit();
       T.gather += now() - tg1;
     }
     check_err("gather");
@@ -686,6 +692,20 @@ struct Level : LevelBase {
       });
     }
     check_err("step1");
+    // the cell-sorted input and its sort scratch are no longer needed
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      BoxScratch& S = scratch[mfi.LocalIndex()];
+      for (auto* v : {&S.rays}) {
+        v->clear();
+        v->shrink_to_fit();
+      }
+      S.idx.clear();
+      S.idx.shrink_to_fit();
+      S.key.clear();
+      S.key.shrink_to_fit();
+      S.hcell.clear();
+      S.hcell.shrink_to_fit();
+    }
     double t3 = now();
     T.step1 += t3 - t2b;
 
@@ -916,6 +936,18 @@ struct Level : LevelBase {
         const int h[3] = {lo.x + q % len.x, lo.y + (q / len.x) % len.y, lo.z + q / (len.x * len.y)};
         store_ray(p, wpos[r], out[r], NN, myproc, h, ectx);
       });
+    }
+    // the output rays are in the tiles now
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      BoxScratch& S = scratch[mfi.LocalIndex()];
+      S.out.clear();
+      S.out.shrink_to_fit();
+      S.ocell.clear();
+      S.ocell.shrink_to_fit();
+      S.keep.clear();
+      S.keep.shrink_to_fit();
+      S.wpos.clear();
+      S.wpos.shrink_to_fit();
     }
     double t7 = now();
     T.sort += t7 - t6;
