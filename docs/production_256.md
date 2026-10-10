@@ -38,7 +38,7 @@ reionization ending at z = 5.5 as the only target), so it serves as the
 | Peak RSS | 30.8 GB |
 | Hydro steps / RT substeps | 48 / 4042 (RT from z = 13.1) |
 | Sources at the end | 5144 halos |
-| Rays | peak 1.0×10⁸ live rays (0.37 Nray_max); the pool guard never acted |
+| Rays | peak 1.43×10⁸ live rays (0.53 Nray_max; `reion256_c01`: 1.31×10⁸); the pool guard never acted |
 | Disk | 139 GB (296 movie frames of 3 × 64 MB, the last checkpoint 16 GB) |
 
 The history (`tools/analysis/reion_history.py`), against the global-model
