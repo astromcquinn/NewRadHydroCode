@@ -198,27 +198,93 @@ Reading:
   threads), so the parallel numbers here say little about Genoa. **The
   Hyak runs below are the ones that count.**
 
-### 3.2 Hyak (to run)
+### 3.2 Hyak klone, one `cpu-g2` node (AMD Genoa, 2 × 96 cores)
 
-`spike/hyak/README.md` has the commands. `spike/hyak/bench_node.sbatch`
-measures one `cpu-g2` node:
-- 128³ (512 sources) and 256³ RT boxes, and a 256³ hydro blast;
-- layouts 1:192, 2:96, 8:24 (one rank per NUMA domain), 24:8 (one per CCD),
-  48:4, 96:2 and 192:1, plus a thread-scaling curve.
+Built with `spike/hyak/build.sh` (gcc 13.2, OpenMPI 4.1.6, `-march=znver4`,
+`-ffp-contract=off`) and checked bitwise on the node first: AMReX quick
+matrix 49/49 PASS, Parthenon 52/52 PASS. Jobs 41688290 (128³) and 41688291
+(256³), 2026-10-09: `spike/bench/results/hyak_node_N128_41688290.csv`,
+`hyak_node_N256_41688291.csv`. The same matrix was run on 2026-10-08
+(`hyak_20261008_*.csv`); RT wall times agree to a median 0.4–1.6% between
+the two days, except the pure-OpenMP 1 × 192 layouts, which are unstable
+(up to 30%) and in any case the worst.
 
-`spike/hyak/bench_scale.sbatch` runs 1, 2 and 4 nodes:
-- strong scaling at 256³;
-- weak scaling at 192³, 240³ and 304³.
+RT, log-normal box, 4 steps. 128³ with 512 sources (2.84e9 ray-substeps);
+256³ with 512 sources (3.83e10 ray-substeps). Wall seconds; "b" is the box
+or meshblock edge. `rt_serial` is OpenMP only (one rank).
 
-Copy the CSVs into `spike/bench/results/` and update this section. The
-build script uses `-march=znver4`, and the projects keep
-`-ffp-contract=off`. Step 3 of the README re-runs the bitwise validation on
-the node.
+| layout (ranks × threads) | serial | AMReX b32 | AMReX b16 | Parthenon b32 | Parthenon b16 | 256³ AMReX b32 | 256³ Parthenon b32 | 256³ serial |
+|---|---|---|---|---|---|---|---|---|
+| 1 × 12 | 267 | 457 | 487 | 484 | 567 | | | |
+| 1 × 192 | **55.6** | 255 | 395 | 304 | 809 | 3382 | 4251 | 738 |
+| 2 × 96 | | 143 | 172 | 177 | 314 | 1684 | 2150 | |
+| 8 × 24 (1/NUMA) | | 83.9 | 84.7 | 85.6 | 107 | 771 | 1171 | |
+| 24 × 8 (1/CCD) | | 69.1 | **65.1** | **56.7** | 59.6 | **550** | **572** | |
+| 48 × 4 | | 97.3 | 68.9 | 57.2 | 68.8 | 647 | 580 | |
+| 96 × 2 | | 96.3 | 69.9 | — ¹ | 64.5 | 770 | 800 | |
+| 192 × 1 | | 193 | 83.6 | — ¹ | 81.1 | 1073 | 977 | |
 
-What would change the recommendation: if Parthenon came within about 10%
-of AMReX at the best Genoa layout with 32³–64³ blocks, the AMR/particle
-argument still decides. The CPU numbers only confirm or refute the
-secondary point.
+¹ 128³ has only 64 blocks of 32³, fewer than the ranks; Parthenon aborts.
+
+Hydro, 256³ blast, 10 steps (1.68e8 cell updates): best AMReX 0.43 s (48 × 4,
+b32), best Parthenon 0.33 s (24 × 8 and 48 × 4, b32), serial OpenMP 0.75 s.
+
+Reading:
+- **24 ranks × 8 threads (one rank per CCD) is the best layout** for both
+  frameworks and both sizes. It is the default `LAYOUT` of the scaling job.
+- At **256³, the production-like size, AMReX is 4% faster than Parthenon**
+  (550 vs 572 s) and **1.34× faster than the frameworkless OpenMP code**
+  (738 s), which cannot use MPI. At 128³ Parthenon is 13% faster (56.7 vs
+  65.1 s) and the serial code ties with it. Either way the two frameworks
+  are within the 10% band of §3.1's criterion, so the CPU numbers do not
+  change the recommendation; the AMR/particle argument decides.
+- Pure OpenMP across the whole node is poor for both frameworks (3.9–7.4×
+  slower than 24 × 8), so production should run several ranks per node.
+- Per-core efficiency still drops from 12 to 192 cores: AMReX at 1 × 12 needs
+  1.9 µs per ray-substep·core, at 24 × 8 on 192 cores 4.4 µs. Memory
+  bandwidth per core on Genoa is the likely limit; it is worth a profile in
+  Stage D.
+
+### 3.3 Hyak, 1, 2 and 4 nodes
+
+Job 41688292 (`hyak_scale_41688292.csv`), 24 × 8 per node, 2026-10-09.
+
+Strong scaling, RT 256³, b32 (3.83e10 ray-substeps):
+
+| nodes | AMReX wall | speed-up | efficiency | Parthenon wall | speed-up | efficiency |
+|---|---|---|---|---|---|---|
+| 1 | 550 s | 1 | 100% | 574 s | 1 | 100% |
+| 2 | 389 s | 1.42 | 71% | 345 s | 1.67 | 83% |
+| 4 | 259 s | 2.13 | 53% | 268 s | 2.15 | 54% |
+
+Weak scaling, RT at 192³ / 240³ / 304³ on 1 / 2 / 4 nodes (sources ∝
+volume), b16. The ray work per node is not constant (8.9e9, 13.6e9,
+20.5e9 ray-substeps per node), so the table compares the cost per unit of
+work, ns per ray-substep·core:
+
+| nodes | AMReX | efficiency | Parthenon | efficiency |
+|---|---|---|---|---|
+| 1 | 4669 | 100% | 5073 | 100% |
+| 2 | 6006 | 78% | 7455 | 68% |
+| 4 | 6190 | 75% | 6763 | 75% |
+
+Reading:
+- 256³ is small for 4 nodes: 512 boxes over 96 ranks is about 5 boxes
+  per rank, and the sources are clustered, so the 4-node strong-scaling
+  efficiency (53–54%) is mostly load imbalance. The ray-weighted
+  `DistributionMapping` planned for Stage E (§6, item E4) targets exactly
+  this. The weak-scaling efficiency of 75% at 4 nodes is the more relevant
+  production number.
+- **AMReX hydro across nodes is anomalous**: 6.8–7.6 µs per cell-update·core
+  on 2 and 4 nodes against 0.69 on one node, while Parthenon goes from 0.63
+  to 1.0–1.5. The RT, which uses the same `FillBoundary` across nodes, does
+  not show it. Not investigated yet. Likely candidates are the many small
+  16³ boxes per message or the ghost-cell fill pattern in
+  `spike/amrex/hydro_amrex.cpp`. Look at it first in Stage E, before using
+  the AMReX hydro at scale.
+- The CPU results confirm the recommendation: AMReX and Parthenon are within
+  ~10% on RT at the best layout and on multi-node RT; AMReX stays the
+  choice for AMR with particles.
 
 ## 4. GPU
 
