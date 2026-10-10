@@ -7,6 +7,8 @@ Hyak CPU and GPU results (§3.2–3.3, §4) added 2026-10-10 on branch
 
 ## Recommendation
 
+**Adopted 2026-10-10 by the user.** No ACCESS proposal for now (§4.4).
+
 **Adopt AMReX (26.10) for Stages D–G.** Keep the spike's
 framework-independent kernel layer (`spike/common`) as the place where all
 physics lives, so the framework only owns the mesh, the particles and the
@@ -516,11 +518,9 @@ swarms gain AMR support. Watch its CHANGELOG.
 
 ## 7. Open points for the user
 
-- Approve AMReX as the framework. The Hyak numbers (§3.2–3.3) are in and
-  do not change the recommendation.
-- ACCESS: one H200 is worth 5.0–5.9 `cpu-g2` nodes on the RT, an A100
-  3.3–3.8 (§4.4). Decide whether to prepare a proposal for H100/H200-class
-  GPUs now or after the AMReX CUDA port confirms the ratio.
+- ~~Approve AMReX as the framework~~ Approved by the user, 2026-10-10.
+- ~~ACCESS proposal~~ Not now (user, 2026-10-10); revisit with the AMReX
+  CUDA numbers of Stage D.
 - Moving `spike/common` into the main library (Stage D item 1) touches
   `src/rt_tools.cpp` and `src/ray_tracing.cpp`. PR #10 (production
   readiness, OpenMP) is merged, so this can start.
