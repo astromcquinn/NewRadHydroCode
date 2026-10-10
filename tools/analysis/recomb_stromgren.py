@@ -4,7 +4,7 @@
 
 usage: recomb_stromgren.py RT_DRIVER UNIFORM_PROBLEM_DIR WORKDIR [--plot PNG]
                            [--check] [--threads n] [--reuse]
-                           [--method rays|m1|otvet]
+                           [--method rays|m1|otvet] [--lines]
 
 Builds a uniform problem from UNIFORM_PROBLEM_DIR (tests/problems/
 uniform_1src, mean density, N = 32) at 30x the mean density and z = 30
@@ -32,6 +32,11 @@ temperature of each run's ionised gas),
     for both blocks. It comes out a few per cent above 1: the diffuse
     photons widen the soft edge, and they fill the holes that the stellar
     rays' HEALPix sampling leaves inside the case B sphere (B16).
+--lines adds recomb_rad_lines = 1 (the H-ionising helium recombination
+photons) to the A+RR runs. These are photons that case B ignores: about one
+per HeII recombination, i.e. ~8% of the H recombinations in this sphere, so
+R should grow by up to (1 - 0.08)^(-1/3) ~ 1.03; the upper bound of the
+check is then 1.10.
 --method m1 | otvet runs the three cases with the moment RT instead (A+RR
 once: every cell emits into the moments, no blocks). The radii are compared
 with that method's own case B.
@@ -139,6 +144,7 @@ def main():
     ap.add_argument("--threads", type=int, default=1)
     ap.add_argument("--reuse", action="store_true", help="keep finished runs in WORKDIR")
     ap.add_argument("--method", default="rays", choices=["rays", "m1", "otvet"])
+    ap.add_argument("--lines", action="store_true", help="recomb_rad_lines = 1 in the A+RR runs")
     a = ap.parse_args()
     prob = os.path.join(a.work, "stromgren")
     make_problem(a.uniform, prob)
@@ -148,6 +154,9 @@ def main():
     if a.method != "rays":
         cases = [(lab, sets + [f"rt_method={a.method}"]) for lab, sets in cases[:3]]
         cases[2] = ("A+RR", cases[2][1])
+    if a.lines:
+        cases = [(lab + " lines", sets + ["recomb_rad_lines=1"]) if lab.startswith("A+RR") else (lab, sets)
+                 for lab, sets in cases]
     res = {}
     for lab, sets in cases:
         tag = lab.replace(" ", "").replace("(", "_").replace(")", "").replace("+", "p")
@@ -184,9 +193,10 @@ def main():
         if lab == "A" and abs(rat - 1) > 0.04:
             ok = False
             print("    FAIL: case A radius off (alpha_B/alpha_A)^(1/3) R_B by more than 4%")
-        if lab.startswith("A+RR") and not (0.97 <= rat <= 1.06):
+        hi = 1.10 if a.lines else 1.06
+        if lab.startswith("A+RR") and not (0.97 <= rat <= hi):
             ok = False
-            print("    FAIL: R(A+RR) outside [0.97, 1.06] of the temperature-corrected R_B")
+            print(f"    FAIL: R(A+RR) outside [0.97, {hi}] of the temperature-corrected R_B")
     if a.plot:
         import matplotlib
         matplotlib.use("Agg")

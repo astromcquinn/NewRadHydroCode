@@ -186,6 +186,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/recomb_stromgren --check --threads 4)
     set_tests_properties(recomb_stromgren PROPERTIES TIMEOUT 3600
                          LABELS "nightly;physics;recomb" ENVIRONMENT OMP_NUM_THREADS=4)
+    foreach(m m1 otvet)
+      add_test(NAME recomb_stromgren_${m}
+               COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/recomb_stromgren.py
+                       $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                       ${CMAKE_CURRENT_BINARY_DIR}/recomb_stromgren --method ${m} --check --threads 4)
+      set_tests_properties(recomb_stromgren_${m} PROPERTIES TIMEOUT 3600
+                           LABELS "nightly;physics;recomb;moments" ENVIRONMENT OMP_NUM_THREADS=4)
+    endforeach()
   endif()
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
@@ -508,13 +516,14 @@ if(Python3_Interpreter_FOUND)
                    --set recomb_case=A --set recomb_rad=1)
   set_tests_properties(thread_rt_recomb_lognormal_16src PROPERTIES TIMEOUT 1800
                        LABELS "threads;recomb" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
-  # the same with the moment RT (every cell emits into the moments)
+  # the same with the moment RT (every cell emits into the moments) and the
+  # helium recombination lines
   add_test(NAME thread_rt_recomb_m1_lognormal_16src
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
                    ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_recomb_m1 $<TARGET_FILE:rt_driver>
                    ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=3
                    --set rt_method=m1 --set legacy_physics=0
-                   --set recomb_case=A --set recomb_rad=1)
+                   --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
   set_tests_properties(thread_rt_recomb_m1_lognormal_16src PROPERTIES TIMEOUT 1800
                        LABELS "threads;recomb;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   if(RADRAY_HAVE_PM)
@@ -602,7 +611,7 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_otvet 13 --set rt_method=otvet
-                     --set recomb_case=A --set recomb_rad=1)
+                     --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
     set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          PROPERTIES TIMEOUT 600 LABELS restart)

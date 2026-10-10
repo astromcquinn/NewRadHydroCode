@@ -81,6 +81,7 @@ std::string rt_method_summary(const Config& c) {
   }
   // recomb_rad.hpp; printed only when not the original's case B
   if (c.recomb_case_A) s += ", recomb_case = A";
+  if (c.recomb_rad_lines) s += ", recomb_rad_lines = 1";
   if (c.recomb_rad && use_moments(c))
     s += ", recomb_rad = 1 (every cell emits into the moments)";
   else if (c.recomb_rad)
