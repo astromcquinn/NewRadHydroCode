@@ -21,6 +21,8 @@ import os
 
 import numpy as np
 
+trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  # numpy < 2.0
+
 OM, OB, H, Y = 0.27, 0.045, 0.70, 0.24
 SIGMA_T = 6.6524587e-25          # cm^2
 C = 2.99792458e10                # cm/s
@@ -58,7 +60,7 @@ def tau_es(z, xm):
     xe[low] = 1 + FHE + np.where(zz[low] < 3, FHE, 0)
     xe[~low] = xm[::-1] * (1 + FHE)
     f = xe * (1 + zz) ** 2 / hz(zz)
-    return SIGMA_T * C * NH0 * np.trapezoid(f, zz)
+    return SIGMA_T * C * NH0 * trapezoid(f, zz)
 
 
 def main():
