@@ -10,7 +10,9 @@
 #SBATCH --ntasks-per-node=192
 #SBATCH --cpus-per-task=1
 #SBATCH --exclusive
-#SBATCH --mem=0
+# whole node via --exclusive; --mem=0 asks for all 1.5 TB, above the astro group
+# memory limit while other members run jobs
+#SBATCH --mem=256G
 #SBATCH --time=08:00:00
 #SBATCH --output=spike-scale-%j.log
 set -u
@@ -23,7 +25,7 @@ RPN=${LAYOUT%%:*}; TPR=${LAYOUT##*:}
 export CODES="amrex parthenon"
 mk() { local N=$1 P="$SPIKE_WORK/problems/bench_N$1"
   [ -f "$P/gas.bin" ] || python3 "$SPIKE_REPO/spike/bench/make_bench_problem.py" \
-      --N $N --nsrc $((N * N * N / 32768)) --nsteps 4 --nray-max-factor 16 --out "$P"
+      --N $N --nsrc $((N * N * N / 32768)) --nsteps 4 --nray-max-factor 16 --out "$P" >&2
   echo "$P"; }
 for nodes in 1 2 4; do
   [ "$nodes" -le "$SLURM_JOB_NUM_NODES" ] || continue

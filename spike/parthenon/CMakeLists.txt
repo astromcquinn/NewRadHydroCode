@@ -59,3 +59,12 @@ add_executable(rt_parthenon_aos rt_parthenon.cpp)
 target_compile_definitions(rt_parthenon_aos PRIVATE RT_CELLS_AOS)
 target_link_libraries(rt_parthenon_aos PRIVATE parthenon spike_common MPI::MPI_CXX)
 target_compile_options(rt_parthenon_aos PRIVATE -ffp-contract=off -fno-fast-math)
+
+# CUDA: nvcc contracts a*b+c into FMAs in device code by default
+# (--fmad=true), which -ffp-contract=off does not reach; turn it off so the
+# device results can match the serial reference.
+if(Kokkos_ENABLE_CUDA)
+  foreach(app rt_parthenon hydro_parthenon rt_parthenon_aos)
+    target_compile_options(${app} PRIVATE --fmad=false)
+  endforeach()
+endif()
