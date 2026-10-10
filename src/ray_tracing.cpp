@@ -1073,21 +1073,15 @@ double interpolate_lin(double x, const double* fa, int n, int a, int b) {
 // ray_redshifting (non-FREQ1)
 // ---------------------------------------------------------------------------
 
-// ray_tracing_tools.f90: ray_redshifting / redshift_ray (#else FREQ1)
-void ray_redshifting(Simulation& s) {
-  RayState& R = s.rays;
-  if (R.Nray <= 0) return;
-  const Units& u = s.units;
-
-  const double bmin = -6, bmax = 6;
-  const double bdel = static_cast<double>(0.1f);
-  const int Nbin = 1 + f::nint((bmax - bmin) / bdel);  // 121
+// ray_tracing_tools.f90: the tables of ray_redshifting (Nfreq = 5 case)
+RedshiftTable make_redshift_table() {
+  RedshiftTable T;
   constexpr int NF = kNfreq;
-
-  const double fscale = (s.clk.scalefactor - s.clk.da_sim) / s.clk.scalefactor;
-
+  const double bmin = T.bmin, bdel = T.bdel;
+  const int Nbin = 1 + f::nint((T.bmax - bmin) / bdel);  // 121
+  if (Nbin != T.Nbin) throw std::logic_error("make_redshift_table: Nbin");
+  double* freq = T.freq;
   // Frequency edges (Nfreq = 5 case)
-  double freq[NF + 1];
   freq[0] = pc::HI_eV;
   freq[1] = std::sqrt(pc::HI_eV * pc::HeI_eV);
   freq[2] = pc::HeI_eV;
@@ -1096,7 +1090,7 @@ void ray_redshifting(Simulation& s) {
   freq[5] = static_cast<double>(1e2f);
 
   // Lookup table indx(2,Nbin,Nfreq-1) stored as tab[j][2*(i-1)+(row-1)]
-  std::vector<std::vector<double>> tab(NF - 1, std::vector<double>(2 * Nbin));
+  T.tab.assign(NF - 1, std::vector<double>(2 * Nbin));
   double rmax = 0.;
   double rmin = static_cast<double>(f::huge_r4);
   for (int j = 1; j <= NF - 1; ++j) {
@@ -1111,12 +1105,100 @@ void ray_redshifting(Simulation& s) {
       } else {
         v = (std::pow(fj2, c) - std::pow(fj1, c)) / (std::pow(fj1, c) - std::pow(fj, c));
       }
-      tab[j - 1][2 * (i - 1) + 1] = b;
-      tab[j - 1][2 * (i - 1) + 0] = v;
+      T.tab[j - 1][2 * (i - 1) + 1] = b;
+      T.tab[j - 1][2 * (i - 1) + 0] = v;
       rmax = f::max(rmax, v);
       rmin = f::min(rmin, v);
     }
   }
+  T.rmin = rmin;
+  T.rmax = rmax;
+  return T;
+}
+
+// ray_tracing_tools.f90: redshift_ray (#else FREQ1), without the final
+// "minimum for stability" of the rays
+void redshift_spectrum(const RedshiftTable& T, double fscale, double ngam_min, double* nu,
+                       double* ngam, double* keep, double* down) {
+  constexpr int NF = kNfreq;
+  const double bmin = T.bmin, bmax = T.bmax, bdel = T.bdel;
+  const int Nbin = T.Nbin;
+  const double* freq = T.freq;
+  const double rmin = T.rmin, rmax = T.rmax;
+  double egam[NF], ngam1[NF], egam1[NF];
+  for (int i = 0; i < NF; ++i) {
+    egam[i] = nu[i] * ngam[i];
+    ngam1[i] = 0;
+    egam1[i] = 0;
+    keep[i] = 0;
+    down[i] = 0;
+  }
+
+  for (int i = 1; i <= NF; ++i) {
+    const int im = i - 1, ip = i + 1;
+    if (ngam[i - 1] > ngam_min) {
+      const double fq = freq[i - 1] / fscale;
+      double rN, rE, b;
+      if (i < NF) {
+        rN = ngam[ip - 1] / ngam[i - 1];
+        rN = f::min(f::max(rN, rmin), rmax);
+        b = interpolate_lin(rN, T.tab[i - 1].data(), Nbin, 1, 2);
+        b = f::min(f::max(b, bmin), bmax);
+      } else {
+        rN = ngam[i - 1] / f::max(ngam[im - 1], ngam_min);
+        rN = f::min(f::max(rN, rmin), rmax);
+        b = interpolate_lin(rN, T.tab[im - 1].data(), Nbin, 1, 2);
+        b = f::min(f::max(b, bmin), bmax);
+      }
+      const double c = b + 1;
+      const double d = b + 2;
+      const double fi = freq[i - 1], fip = freq[ip - 1];
+
+      if (std::fabs(c) < bdel / 1e2)
+        rN = std::log(fq / fi) / std::log(fip / fi);
+      else
+        rN = (std::pow(fq, c) - std::pow(fi, c)) / (std::pow(fip, c) - std::pow(fi, c));
+
+      if (std::fabs(d) < bdel / 1e2)
+        rE = std::log(fq / fi) / std::log(fip / fi);
+      else
+        rE = (std::pow(fq, d) - std::pow(fi, d)) / (std::pow(fip, d) - std::pow(fi, d));
+
+      rN = f::min(f::max(rN, 0.0), 1.0);
+      rE = f::min(f::max(rE, 0.0), 1.0);
+      ngam1[i - 1] = (1 - rN) * ngam[i - 1];
+      egam1[i - 1] = (1 - rE) * egam[i - 1];
+      keep[i - 1] = 1 - rN;
+
+      if (i > 1) {
+        ngam1[im - 1] = ngam1[im - 1] + rN * ngam[i - 1];
+        egam1[im - 1] = egam1[im - 1] + rE * egam[i - 1];
+        down[i - 1] = rN;
+      }
+    }
+  }
+
+  for (int i = 1; i <= NF; ++i) {
+    if (ngam1[i - 1] < ngam_min) {
+      nu[i - 1] = cp::freq_init[i - 1];
+      ngam[i - 1] = 0;
+    } else {
+      nu[i - 1] = egam1[i - 1] / ngam1[i - 1] * fscale;
+      nu[i - 1] = f::min(f::max(nu[i - 1], freq[i - 1]), freq[i]);
+      ngam[i - 1] = ngam1[i - 1];
+    }
+  }
+}
+
+// ray_tracing_tools.f90: ray_redshifting / redshift_ray (#else FREQ1)
+void ray_redshifting(Simulation& s) {
+  RayState& R = s.rays;
+  if (R.Nray <= 0) return;
+  const Units& u = s.units;
+  constexpr int NF = kNfreq;
+
+  const double fscale = (s.clk.scalefactor - s.clk.da_sim) / s.clk.scalefactor;
+  const RedshiftTable T = make_redshift_table();
 
   // every ray is redshifted independently
   const std::int64_t top = R.hwm();
@@ -1125,67 +1207,12 @@ void ray_redshifting(Simulation& s) {
     Ray& ry = R.at(ir);
     if (!(ry.nside > 0)) continue;
 
-    double nu[NF], ngam[NF], egam[NF], ngam1[NF], egam1[NF];
+    double nu[NF], ngam[NF], keep[NF], down[NF];
     for (int i = 0; i < NF; ++i) {
       nu[i] = ry.nu[i];
       ngam[i] = ry.ngam[i];
-      egam[i] = nu[i] * ngam[i];
-      ngam1[i] = 0;
-      egam1[i] = 0;
     }
-
-    for (int i = 1; i <= NF; ++i) {
-      const int im = i - 1, ip = i + 1;
-      if (ngam[i - 1] > u.ngam_min) {
-        const double fq = freq[i - 1] / fscale;
-        double rN, rE, b;
-        if (i < NF) {
-          rN = ngam[ip - 1] / ngam[i - 1];
-          rN = f::min(f::max(rN, rmin), rmax);
-          b = interpolate_lin(rN, tab[i - 1].data(), Nbin, 1, 2);
-          b = f::min(f::max(b, bmin), bmax);
-        } else {
-          rN = ngam[i - 1] / f::max(ngam[im - 1], u.ngam_min);
-          rN = f::min(f::max(rN, rmin), rmax);
-          b = interpolate_lin(rN, tab[im - 1].data(), Nbin, 1, 2);
-          b = f::min(f::max(b, bmin), bmax);
-        }
-        const double c = b + 1;
-        const double d = b + 2;
-        const double fi = freq[i - 1], fip = freq[ip - 1];
-
-        if (std::fabs(c) < bdel / 1e2)
-          rN = std::log(fq / fi) / std::log(fip / fi);
-        else
-          rN = (std::pow(fq, c) - std::pow(fi, c)) / (std::pow(fip, c) - std::pow(fi, c));
-
-        if (std::fabs(d) < bdel / 1e2)
-          rE = std::log(fq / fi) / std::log(fip / fi);
-        else
-          rE = (std::pow(fq, d) - std::pow(fi, d)) / (std::pow(fip, d) - std::pow(fi, d));
-
-        rN = f::min(f::max(rN, 0.0), 1.0);
-        rE = f::min(f::max(rE, 0.0), 1.0);
-        ngam1[i - 1] = (1 - rN) * ngam[i - 1];
-        egam1[i - 1] = (1 - rE) * egam[i - 1];
-
-        if (i > 1) {
-          ngam1[im - 1] = ngam1[im - 1] + rN * ngam[i - 1];
-          egam1[im - 1] = egam1[im - 1] + rE * egam[i - 1];
-        }
-      }
-    }
-
-    for (int i = 1; i <= NF; ++i) {
-      if (ngam1[i - 1] < u.ngam_min) {
-        nu[i - 1] = cp::freq_init[i - 1];
-        ngam[i - 1] = 0;
-      } else {
-        nu[i - 1] = egam1[i - 1] / ngam1[i - 1] * fscale;
-        nu[i - 1] = f::min(f::max(nu[i - 1], freq[i - 1]), freq[i]);
-        ngam[i - 1] = ngam1[i - 1];
-      }
-    }
+    redshift_spectrum(T, fscale, u.ngam_min, nu, ngam, keep, down);
     for (int i = 0; i < NF; ++i) {
       ry.nu[i] = static_cast<float>(nu[i]);
       ry.ngam[i] = static_cast<float>(ngam[i]);

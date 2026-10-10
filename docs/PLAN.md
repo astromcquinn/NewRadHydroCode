@@ -247,3 +247,21 @@ open ones are listed in `docs/STATUS.md` ("Decisions needed from the
 user"): AMReX for Stage D, the production `c_reduced` (0.1 recommended)
 and N (256), `hydro_scheme` for production, the stored-RT-reference
 policy on klone, and deleting the merged branches.
+
+## Moment RT thread (2026-10-10)
+
+* **Request (user):** "implement OTVET and M1 closure methods for the RT as
+  an alternative compared to the ray tracing".
+* **Done as:** a new runtime option `rt_method = rays | m1 | otvet`
+  (default `rays`, bit-identical to the original), following ground rule 3
+  (new behaviour behind a flag whose default is the original). No Fortran
+  mirror, per the 2026-10-08 decision. The physics coupling
+  (`radiative_physics`) is shared with the rays, unchanged.
+* **Choices made in this thread** (open to revision; `docs/rt_moments.md`):
+  - one explicit two-moment GLF solver for both closures, as in RAMSES-RT;
+  - OTVET in the time-dependent form, not the implicit diffusion form of
+    Petkova & Springel 2009;
+  - first order in space and time;
+  - `moment_nsub = 4` (C = 1/4; 1/3 decouples odd and even cells);
+  - the OTVET source-cell self-weight 1/(0.5 cell)²;
+  - `auto` switching between the direct sum and the FFT for the tensor.

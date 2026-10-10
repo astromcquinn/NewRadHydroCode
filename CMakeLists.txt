@@ -28,8 +28,19 @@ add_library(radray
   src/rt_tools.cpp
   src/ray_dump.cpp
   src/ray_quant.cpp
+  src/rt_moments.cpp
+  src/rt_moments_fft.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
+
+# Moment RT (docs/rt_moments.md): the OTVET tensor uses an FFT convolution
+# when FFTW3f is available (otherwise only the direct sum).
+find_path(FFTW3F_INCLUDE_DIR fftw3.h)
+find_library(FFTW3F_LIBRARY fftw3f)
+if(FFTW3F_INCLUDE_DIR AND FFTW3F_LIBRARY)
+  target_include_directories(radray PRIVATE ${FFTW3F_INCLUDE_DIR})
+  target_link_libraries(radray PUBLIC ${FFTW3F_LIBRARY})
+endif()
 
 # OpenMP (docs/parallel.md): hot loops of RT, hydro, PM, FoF and the
 # summaries. Results are bit-identical for any thread count; the ray tracing

@@ -119,7 +119,8 @@ stages:
      I-front indicator;
    - fewer rays in fully ionised, optically thin regions, for example by
      handing radiation over to a cheap moment (M1) or background field
-     after overlap;
+     after overlap (standalone M1 and OTVET solvers now exist:
+     `rt_method = m1 | otvet`, `docs/rt_moments.md`);
    - casting multiple cells per substep where the gas is transparent;
    - the reduced speed of light (now in progress);
    - frequency-group experiments.
