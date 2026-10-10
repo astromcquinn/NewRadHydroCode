@@ -1,9 +1,13 @@
 # Framework decision: AMReX vs Parthenon (Stage C spike)
 
 *Written 2026-10-08 on branch `framework-spike`. Prototypes in `spike/`,
-benchmarks in `spike/bench/results/`, Hyak job scripts in `spike/hyak/`.*
+benchmarks in `spike/bench/results/`, Hyak job scripts in `spike/hyak/`.
+Hyak CPU and GPU results (§3.2–3.3, §4) added 2026-10-10 on branch
+`spike-hyak-bench`.*
 
 ## Recommendation
+
+**Adopted 2026-10-10 by the user.** No ACCESS proposal for now (§4.4).
 
 **Adopt AMReX (26.10) for Stages D–G.** Keep the spike's
 framework-independent kernel layer (`spike/common`) as the place where all
@@ -33,7 +37,10 @@ the later stages and to CPU cost:
    particle–mesh layer.
 4. **CPU cost**, the production platform. On this 4-core VM, AMReX ran the
    RT about 1.3× slower than the frameworkless reference on one core.
-   Parthenon ran it about 1.8× slower. Both match the reference on the ray
+   Parthenon ran it about 1.8× slower. On a Hyak `cpu-g2` node (§3.2) the
+   two are within 13% of each other at their best layout (AMReX 4% faster
+   at 256³), and AMReX beats the OpenMP-only reference by 1.34× at 256³.
+   Both match the reference on the ray
    kernels themselves; the difference is mesh bookkeeping (§3).
 5. **Ease of use for a newcomer.** AMReX has the largest documentation set
    (a sphinx manual of about 30 chapters, many tutorials) and a large user
@@ -50,14 +57,15 @@ What Parthenon would have given us, and what we give up:
 
 AMReX is GPU-native too, through CUDA, HIP and SYCL backends. That is
 enough for our secondary GPU target. Its constraints are C++20 and
-nvcc ≥ 12.2, which is why it could not be compiled for GPU here (§4).
+nvcc ≥ 12.2. Both are available on Hyak (gcc 13.2, CUDA 12.4.1), where
+the AMReX CUDA library builds (§4).
 
 **Main risks of AMReX:**
 - Its SoA FABs fit badly with per-cell struct kernels on the CPU.
 - Keeping RT deposits consistent between coarse and fine levels is ours to
   write.
-- It needs C++20 (gcc ≥ 11) and, for GPU, nvcc ≥ 12.2. Check the Hyak
-  modules before Stage D.
+- It needs C++20 (gcc ≥ 11) and, for GPU, nvcc ≥ 12.2. Checked on Hyak:
+  gcc 13.2 and CUDA 12.4.1 work.
 
 None of these is a blocker; each has a mitigation in the plan below.
 
@@ -198,49 +206,198 @@ Reading:
   threads), so the parallel numbers here say little about Genoa. **The
   Hyak runs below are the ones that count.**
 
-### 3.2 Hyak (to run)
+### 3.2 Hyak klone, one `cpu-g2` node (AMD Genoa, 2 × 96 cores)
 
-`spike/hyak/README.md` has the commands. `spike/hyak/bench_node.sbatch`
-measures one `cpu-g2` node:
-- 128³ (512 sources) and 256³ RT boxes, and a 256³ hydro blast;
-- layouts 1:192, 2:96, 8:24 (one rank per NUMA domain), 24:8 (one per CCD),
-  48:4, 96:2 and 192:1, plus a thread-scaling curve.
+Built with `spike/hyak/build.sh` (gcc 13.2, OpenMPI 4.1.6, `-march=znver4`,
+`-ffp-contract=off`) and checked bitwise on the node first: AMReX quick
+matrix 49/49 PASS, Parthenon 52/52 PASS. Jobs 41688290 (128³) and 41688291
+(256³), 2026-10-09: `spike/bench/results/hyak_node_N128_41688290.csv`,
+`hyak_node_N256_41688291.csv`. The same matrix was run on 2026-10-08
+(`hyak_20261008_*.csv`); RT wall times agree to a median 0.4–1.6% between
+the two days, except the pure-OpenMP 1 × 192 layouts, which are unstable
+(up to 30%) and in any case the worst.
 
-`spike/hyak/bench_scale.sbatch` runs 1, 2 and 4 nodes:
-- strong scaling at 256³;
-- weak scaling at 192³, 240³ and 304³.
+RT, log-normal box, 4 steps. 128³ with 512 sources (2.84e9 ray-substeps);
+256³ with 512 sources (3.83e10 ray-substeps). Wall seconds; "b" is the box
+or meshblock edge. `rt_serial` is OpenMP only (one rank).
 
-Copy the CSVs into `spike/bench/results/` and update this section. The
-build script uses `-march=znver4`, and the projects keep
-`-ffp-contract=off`. Step 3 of the README re-runs the bitwise validation on
-the node.
+| layout (ranks × threads) | serial | AMReX b32 | AMReX b16 | Parthenon b32 | Parthenon b16 | 256³ AMReX b32 | 256³ Parthenon b32 | 256³ serial |
+|---|---|---|---|---|---|---|---|---|
+| 1 × 12 | 267 | 457 | 487 | 484 | 567 | | | |
+| 1 × 192 | **55.6** | 255 | 395 | 304 | 809 | 3382 | 4251 | 738 |
+| 2 × 96 | | 143 | 172 | 177 | 314 | 1684 | 2150 | |
+| 8 × 24 (1/NUMA) | | 83.9 | 84.7 | 85.6 | 107 | 771 | 1171 | |
+| 24 × 8 (1/CCD) | | 69.1 | **65.1** | **56.7** | 59.6 | **550** | **572** | |
+| 48 × 4 | | 97.3 | 68.9 | 57.2 | 68.8 | 647 | 580 | |
+| 96 × 2 | | 96.3 | 69.9 | — ¹ | 64.5 | 770 | 800 | |
+| 192 × 1 | | 193 | 83.6 | — ¹ | 81.1 | 1073 | 977 | |
 
-What would change the recommendation: if Parthenon came within about 10%
-of AMReX at the best Genoa layout with 32³–64³ blocks, the AMR/particle
-argument still decides. The CPU numbers only confirm or refute the
-secondary point.
+¹ 128³ has only 64 blocks of 32³, fewer than the ranks; Parthenon aborts.
+
+Hydro, 256³ blast, 10 steps (1.68e8 cell updates): best AMReX 0.43 s (48 × 4,
+b32), best Parthenon 0.33 s (24 × 8 and 48 × 4, b32), serial OpenMP 0.75 s.
+
+Reading:
+- **24 ranks × 8 threads (one rank per CCD) is the best layout** for both
+  frameworks and both sizes. It is the default `LAYOUT` of the scaling job.
+- At **256³, the production-like size, AMReX is 4% faster than Parthenon**
+  (550 vs 572 s) and **1.34× faster than the frameworkless OpenMP code**
+  (738 s), which cannot use MPI. At 128³ Parthenon is 13% faster (56.7 vs
+  65.1 s) and the serial code ties with it. Either way the two frameworks
+  are within the 10% band of §3.1's criterion, so the CPU numbers do not
+  change the recommendation; the AMR/particle argument decides.
+- Pure OpenMP across the whole node is poor for both frameworks (3.9–7.4×
+  slower than 24 × 8), so production should run several ranks per node.
+- Per-core efficiency still drops from 12 to 192 cores: AMReX at 1 × 12 needs
+  1.9 µs per ray-substep·core, at 24 × 8 on 192 cores 4.4 µs. Memory
+  bandwidth per core on Genoa is the likely limit; it is worth a profile in
+  Stage D.
+
+### 3.3 Hyak, 1, 2 and 4 nodes
+
+Job 41688292 (`hyak_scale_41688292.csv`), 24 × 8 per node, 2026-10-09.
+
+Strong scaling, RT 256³, b32 (3.83e10 ray-substeps):
+
+| nodes | AMReX wall | speed-up | efficiency | Parthenon wall | speed-up | efficiency |
+|---|---|---|---|---|---|---|
+| 1 | 550 s | 1 | 100% | 574 s | 1 | 100% |
+| 2 | 389 s | 1.42 | 71% | 345 s | 1.67 | 83% |
+| 4 | 259 s | 2.13 | 53% | 268 s | 2.15 | 54% |
+
+Weak scaling, RT at 192³ / 240³ / 304³ on 1 / 2 / 4 nodes (sources ∝
+volume), b16. The ray work per node is not constant (8.9e9, 13.6e9,
+20.5e9 ray-substeps per node), so the table compares the cost per unit of
+work, ns per ray-substep·core:
+
+| nodes | AMReX | efficiency | Parthenon | efficiency |
+|---|---|---|---|---|
+| 1 | 4669 | 100% | 5073 | 100% |
+| 2 | 6006 | 78% | 7455 | 68% |
+| 4 | 6190 | 75% | 6763 | 75% |
+
+Reading:
+- 256³ is small for 4 nodes: 512 boxes over 96 ranks is about 5 boxes
+  per rank, and the sources are clustered, so the 4-node strong-scaling
+  efficiency (53–54%) is mostly load imbalance. The ray-weighted
+  `DistributionMapping` planned for Stage E (§6, item E4) targets exactly
+  this. The weak-scaling efficiency of 75% at 4 nodes is the more relevant
+  production number.
+- **AMReX hydro across nodes is anomalous**: 6.8–7.6 µs per cell-update·core
+  on 2 and 4 nodes against 0.69 on one node, while Parthenon goes from 0.63
+  to 1.0–1.5. The RT, which uses the same `FillBoundary` across nodes, does
+  not show it. Not investigated yet. Likely candidates are the many small
+  16³ boxes per message or the ghost-cell fill pattern in
+  `spike/amrex/hydro_amrex.cpp`. Look at it first in Stage E, before using
+  the AMReX hydro at scale.
+- The CPU results confirm the recommendation: AMReX and Parthenon are within
+  ~10% on RT at the best layout and on multi-node RT; AMReX stays the
+  choice for AMR with particles.
 
 ## 4. GPU
 
-- `spike/common` compiles as CUDA device code (nvcc 12.0, sm_80,
-  `spike/gpu/kernels_compile_test.cu`). Array constants had to move into
-  function-local `constexpr` arrays.
-- The Parthenon prototype builds with Kokkos CUDA (nvcc 12.0, sm_80),
-  compile only.
-- AMReX 26.10 refuses nvcc < 12.2 at configure time, and only 12.0 is
-  installable here. The AMReX prototype's loops are all device lambdas;
-  its CMake has no CUDA target yet.
-- Nothing has been run on a GPU. Known blockers before a GPU run:
-  - `PhysCtx` holds host pointers to the rate tables; they must be copied
-    to device memory;
-  - host-side setup and output loops;
-  - per-cell `step1` serialises in source cells (192 rays each), so it
-    needs a team-level kernel there;
-  - AoS layouts are uncoalesced.
-- `spike/hyak/build_gpu.sh` builds AMReX with CUDA and the Parthenon
-  prototype with Kokkos CUDA on a `ckpt` node, needing a CUDA module
-  ≥ 12.2. This is the Stage D GPU benchmark from PLAN.md (≥5× of a node
-  ⇒ apply to ACCESS).
+### 4.1 What runs
+
+- `spike/common` compiles as CUDA device code. Array constants had to move
+  into function-local `constexpr` arrays.
+- **The Parthenon prototype runs on Hyak GPUs** (Kokkos 4.6 CUDA, CUDA
+  12.4.1, gcc 13.2; A100 80GB PCIe as sm_80, H200 as sm_90; one rank, one
+  GPU). `spike/hyak/build_gpu.sh` builds it on a `ckpt` node. Two fixes
+  were needed:
+  - `--fmad=false` for the CUDA targets (`spike/parthenon/CMakeLists.txt`).
+    nvcc contracts a·b+c into FMAs in device code by default, which
+    `-ffp-contract=off` does not reach.
+  - Native 64-bit integer atomics (`ll_add`/`ll_fetch_add` in
+    `rt_parthenon.cpp`). In this Kokkos build `Kokkos::atomic_add` on
+    `long long` compiles to a compare-and-swap loop (no `ATOMG.ADD.64`
+    in `cuobjdump`). On the photon histogram, where every ray adds to one
+    counter, that made a 128³ substep take about 200 s. Device code now
+    calls CUDA's `atomicAdd(unsigned long long*)`, which gives the same
+    bits; host code is unchanged.
+  The CPU builds of the final source still pass the quick validation
+  bitwise (AMReX 49/49, Parthenon 52/52, job 41703917).
+- **The AMReX prototype still has no CUDA target.** The AMReX 26.10 CUDA
+  library itself builds on klone (nvcc 12.4). Adding the target and running
+  it is Stage D item 4. **All GPU numbers below are therefore from
+  Parthenon**, on the same shared kernels.
+
+### 4.2 Validation on the GPU
+
+Run against `rt_serial`/`hydro_serial` with `compare.py --rtol 0
+--atol-frac 0` / `cmp`. A100 and H200 give identical results.
+- Hydro Sod (no transcendental functions): **bitwise PASS**, mb 32 and 16.
+- Hydro blast: round-off differences. Its initial Gaussian is computed with
+  `exp` on the device.
+- RT (`uniform_8src`, `lognormal_16src_smallbuf` with `legacy_physics` 1
+  and 0, `legacy_rt=0`):
+  - **all ray statistics are identical in every step** (casts, splits,
+    merges, deletions, live rays);
+  - fHI, fHeI, fHeII, temp, rhog, tau and the gas velocities are bitwise
+    identical;
+  - ngam and fgam differ by at most 1e-16 to 5e-16 in 10–450 cells per
+    step, where one side is 0 or a few fixed-point quanta, and 1–2 cells of
+    nu, dx, gamma and lambda differ at the float-ulp level.
+  The cause is the absorbed fraction `1 - exp(-tau·dl)`
+  (`ray_kernels.hpp:158, 217`). CUDA's double `exp` is accurate to 1 ulp
+  while glibc's is essentially correctly rounded, and a 1-ulp difference
+  can flip the 2⁻⁴⁴ fixed-point rounding of a deposit. On the 128³ bench,
+  over 196 substeps, this changed 1 ray-substep in 2.8e9. Bitwise GPU = CPU
+  results would need the same correctly rounded `exp` (e.g. CORE-MATH or a
+  table) in both builds. That is a Stage D design decision; the integer
+  bookkeeping itself is already exact on the GPU.
+
+### 4.3 Timing: 128³ bench problem on one GPU vs one `cpu-g2` node
+
+The same problem as the node benchmark (`bench_N128`, 512 sources, 4 steps
+× 49 RT substeps = 196 substeps, 2.84e9 ray-substeps).
+`spike/bench/results/hyak_gpu_N128.csv`, notes and per-phase timers in
+`hyak_gpu_N128_notes.md`.
+
+| GPU | mb (blocks) | wall, 4 steps | median RT substep | ns per ray-substep |
+|---|---|---|---|---|
+| A100 | 32 (64) | 56.8 s | 283 ms | 20.0 |
+| A100 | 64 (8) | 24.1 s | 122 ms | 8.5 |
+| A100 | 128 (1) | 16.9 s | 94 ms | 6.0 |
+| H200 | 32 (64) | 45.4 s | 234 ms | 16.0 |
+| H200 | 64 (8) | 16.0 s | 86 ms | 5.6 |
+| H200 | 128 (1) | **11.0 s** | **62 ms** | 3.9 |
+
+Small blocks are slow because each block is a separate set of kernel
+launches. The largest phase on the H200 at mb 128 is `step1` (3.9 of
+11.0 s): one thread per cell, with a serial sort in source cells. Then sort
+1.7 s, halo 1.2 s, cast_1 1.2 s, migrate 0.9 s.
+
+Against one `cpu-g2` node (2026-10-09, §3.2, same problem):
+
+| one GPU (mb 128) vs one node | best CPU code: `rt_serial` 1 × 192, 55.6 s | Parthenon 24 × 8, 56.7 s | AMReX 24 × 8, 65.1 s |
+|---|---|---|---|
+| H200, 11.0 s | **5.0×** | **5.1×** | **5.9×** |
+| A100, 16.9 s | 3.3× | 3.4× | 3.8× |
+
+### 4.4 Is one GPU worth ≥ 5 cpu-g2 nodes? (PLAN.md, NSF ACCESS rule)
+
+**H200: just, at 5.0–5.9×. A100: no, at 3.3–3.8×.** This holds on the RT
+alone, which dominates the cost.
+
+The ratio understates what a GPU code could do:
+- the GPU code is untuned: one thread per cell in `step1`, per-block
+  kernel launches, host synchronisation every substep, AoS ray layout;
+- 128³ is small for a GPU.
+
+It also flatters the GPU in two ways:
+- at mb 128 the whole box is one block, so the GPU pays no exchange
+  between blocks, while the CPU runs do; a multi-GPU run would pay
+  exchange between GPUs;
+- the comparison covers the RT only, not hydro or gravity.
+
+The ratio is measured with Parthenon, not AMReX, the chosen framework.
+
+**Reading:** the ACCESS threshold is met on H200-class GPUs, without
+tuning, on the dominant kernel. An ACCESS proposal is justified if it
+targets H100/H200-class nodes, not A100s. Before writing the
+performance section of a proposal, confirm the ratio with the AMReX CUDA
+build and a team-level `step1` (Stage D item 4), at 256³ and on more than
+one GPU.
 
 ## 5. Assessment by criterion
 
@@ -255,7 +412,7 @@ secondary point.
 | Reverse ghost exchange (deposits) | `SumBoundary` / `ParallelAdd`, stock | **missing**, about 100 lines written by hand |
 | CPU threading | MFIter tiling + OpenMP (`ParallelFor` alone is serial on CPU; `ParallelForOMP` exists but is not in the docs) | Kokkos OpenMP, but the default `SIMDFOR_LOOP` layout is not threaded; needs `PAR_LOOP_LAYOUT=MANUAL1D_LOOP`; design assumes one rank per core |
 | Data types | `FabArray<BaseFab<T>>` for float, int64 and structs; `ParallelCopy`/`FillBoundary` need `operator+=` so not on struct FABs | variables are `Real` (double unless the whole build is single); component-slowest |
-| GPU | CUDA/HIP/SYCL native; needs C++20, nvcc ≥ 12.2 | Kokkos (CUDA/HIP/SYCL/OpenMP); compile-only CUDA build done; per-block launches would need packs |
+| GPU | CUDA/HIP/SYCL native; needs C++20, nvcc ≥ 12.2 | Kokkos (CUDA/HIP/SYCL/OpenMP); CUDA build runs on A100/H200 (§4); per-block launches would need packs |
 | Build complexity | CMake, library build 3 min (-j4), prototype 21 s; install + `find_package` | CMake `add_subdirectory` of Parthenon + Kokkos, 5–7 min (-j2/-j4), 4 min with our code at -j4; rebuilt per application |
 | Documentation | very large sphinx manual, guided tutorials, Doxygen; plus the gotchas below | good sphinx manual (about 30 pages) and examples; particle and boundary-comm docs thin; several traps found only by reading source |
 | Community / heritage | ECP/DOE-funded, large: Nyx (cosmology), Castro, WarpX, Pele, AMR-Wind, Quokka (RHD) **[project list from memory]** | LANL-led: AthenaPK, KHARMA, Phoebus, Artemis **[from memory]**; smaller |
@@ -361,7 +518,9 @@ swarms gain AMR support. Watch its CHANGELOG.
 
 ## 7. Open points for the user
 
-- Approve AMReX as the framework, or wait for the Hyak numbers first.
+- ~~Approve AMReX as the framework~~ Approved by the user, 2026-10-10.
+- ~~ACCESS proposal~~ Not now (user, 2026-10-10); revisit with the AMReX
+  CUDA numbers of Stage D.
 - Moving `spike/common` into the main library (Stage D item 1) touches
   `src/rt_tools.cpp` and `src/ray_tracing.cpp`. PR #10 (production
   readiness, OpenMP) is merged, so this can start.

@@ -1,0 +1,3 @@
+kernel,code,ranks,threads,block,wall_s,work,ns_per_unit_core
+rt,amrex,24,8,16,216.296,8863741296,4685.2
+rt,parthenon,24,8,16,235.895,8863741296,5109.8

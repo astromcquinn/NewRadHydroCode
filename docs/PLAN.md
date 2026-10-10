@@ -238,6 +238,17 @@ scheme spuriously heats cold supersonic gas (`docs/hydro_tests.md` §6, §7,
   per scheme. No Fortran harness copy (new physics beyond the original
   needs none, see the Fortran harness scope above).
 
+## Framework and ACCESS decisions (2026-10-10)
+
+* **AMReX is the framework for Stages D–G** (approved by the user after the
+  Hyak CPU and GPU benchmarks, `docs/framework_decision.md`). The migration
+  plan is §6 of that document.
+* **No NSF ACCESS proposal for now.** The 128³ RT benchmark put one H200
+  at 5.0–5.9 `cpu-g2` nodes and one A100 at 3.3–3.8
+  (`docs/framework_decision.md` §4.4). GPU portability stays a requirement
+  (`docs/ROADMAP.md`, NSF ACCESS); the question can be reopened with the
+  AMReX CUDA numbers of Stage D.
+
 ## Merge thread (2026-10-09): no decisions
 
 The survey (PR #16) and the merges of `hyak-setup` (PR #17), `movies`

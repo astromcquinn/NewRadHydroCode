@@ -5,7 +5,7 @@ Everything here is for the `astro` account on `cpu-g2` (AMD Genoa,
 Claude thread (`claude remote-control` in tmux on a login node).
 
 ```
-cd NewRadHydroCode && git checkout framework-spike
+cd NewRadHydroCode   # the spike is on main
 # 1. environment: adjust module names if they differ (module avail gcc ompi cmake)
 export SPIKE_MODULES="gcc ompi cmake"          # e.g. "gcc/13.2.0 ompi/4.1.6 cmake/3.28.3"
 export SPIKE_WORK=/gscratch/astro/$USER/spike   # deps, builds, problems, results
@@ -16,7 +16,8 @@ salloc -A astro -p cpu-g2 -c 32 --mem=64G --time=1:00:00 bash spike/hyak/build.s
 # 3. quick correctness check on the compute node (bitwise vs the serial reference)
 bash spike/amrex/validate.sh $SPIKE_BUILD/serial $SPIKE_BUILD/amrex $SPIKE_WORK/val quick
 # 4. benchmarks
-sbatch spike/hyak/bench_node.sbatch               # one node, MPI x OpenMP layouts
+NODE_N=128 sbatch spike/hyak/bench_node.sbatch    # one node, MPI x OpenMP layouts
+NODE_N=256 sbatch spike/hyak/bench_node.sbatch    # (~3 h and ~6 h; together > 8 h)
 sbatch --nodes=4 spike/hyak/bench_scale.sbatch    # 1, 2, 4 nodes; LAYOUT=24:8 default
 ```
 
@@ -43,5 +44,6 @@ Notes:
   the serial reference (the quick validation in step 3 checks this on the
   node).
 - GPU (`ckpt` partitions, preemptible): `build_gpu.sh` builds AMReX with CUDA
-  and the Parthenon prototype with Kokkos CUDA. Nothing has been run on a
-  GPU yet; see the header of that script.
+  and the Parthenon prototype with Kokkos CUDA. Run on a `ckpt` A100 or
+  H200 node with `SPIKE_MODULES="gcc/13.2.0 ompi/4.1.6-2 cuda/12.4.1"` and
+  `CUDA_ARCH=80` or `90`; results in `docs/framework_decision.md` §4.

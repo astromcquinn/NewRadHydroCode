@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-10, case A recombination and recombination radiation (branch `recomb-radiation`, merged into `main`); before that, moment RT (M1, OTVET) and its 256³ klone comparison with the rays, merged into `main` (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+*Last updated: 2026-10-10, framework-spike Hyak CPU and GPU benchmarks merged (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now); the same day, case A recombination and recombination radiation (branch `recomb-radiation`) and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`) merged into `main`; before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
 
@@ -392,11 +392,27 @@ At 0.01c the light horizon is only about 16 Mpc/h over z = 15 → 5.5.
   26.6 s, Parthenon 35.7 s (64³, 400k rays, 32³ blocks).
 - **Recommendation: AMReX** (`docs/framework_decision.md`). Parthenon swarms
   do not support AMR, there is no sub-cycling, and the mesh overhead was
-  higher. **Pending the user's decision** and the Hyak runs
-  (`spike/hyak/README.md`: single-node layouts, 1–4 nodes).
-- GPU: the shared kernels and the Parthenon prototype compile with CUDA
-  (nvcc 12.0, compile only). AMReX needs nvcc ≥ 12.2: build on Hyak
-  `ckpt` with `spike/hyak/build_gpu.sh`. Nothing has been run on a GPU yet.
+  higher. **Approved by the user on 2026-10-10.**
+- Hyak CPU (2026-10-09, branch `spike-hyak-bench`, `docs/framework_decision.md`
+  §3.2–3.3; built and validated bitwise on the node, AMReX 49/49, Parthenon
+  52/52):
+  - best layout 24 ranks × 8 threads per node (one rank per CCD);
+  - RT 256³ on one node: AMReX 550 s, Parthenon 572 s, OpenMP-only
+    `rt_serial` 738 s; at 128³ Parthenon is 13% faster than AMReX;
+  - 1 → 4 nodes: weak scaling 75% (both), strong scaling at 256³ 53–54%
+    (too small a problem for 96 ranks);
+  - open: AMReX *hydro* across nodes is ~10× slower per cell than on one
+    node (Parthenon is not); investigate before Stage E.
+  The numbers do not change the recommendation. **AMReX approved by the
+  user on 2026-10-10** (`docs/PLAN.md`).
+- GPU (2026-10-10, §4): the Parthenon prototype runs on A100 and H200
+  (Kokkos CUDA, CUDA 12.4.1) after two fixes: `--fmad=false` and native
+  64-bit `atomicAdd` (Kokkos used CAS loops). Ray statistics are identical
+  to `rt_serial`; deposits differ at the 1e-16 level from CUDA's `exp`
+  (explained in §4.2). One GPU vs one `cpu-g2` node on the 128³ bench:
+  **H200 5.0–5.9×, A100 3.3–3.8×**, so the ACCESS ≥ 5× rule is just met
+  on H200-class GPUs, untuned. The AMReX prototype still has no CUDA
+  target. **No ACCESS proposal for now** (user, 2026-10-10).
 
 ## Branches and PRs (merged on 2026-10-09)
 
@@ -460,11 +476,9 @@ On Hyak (`claude remote-control` in tmux, or batch jobs):
    movie on a whole node (1.5 h), and one 0.3c or 1c run at 128³ for the
    c convergence. Decide `hydro_scheme = unsplit` for it (the legacy scheme
    overheats cold gas; `make_production.py` does not set it yet).
-3. **Framework-spike benchmarks** (`spike/hyak/README.md`): `bench_node`
-   (MPI × OpenMP layouts on one node), `bench_scale` on 1–4 nodes, and the
-   GPU build on `ckpt` (`build_gpu.sh`, nvcc ≥ 12.2). Copy the CSVs into
-   `spike/bench/results/` and update `docs/framework_decision.md`. These
-   numbers confirm the AMReX choice and feed the NSF ACCESS decision rule.
+3. ~~Framework-spike benchmarks~~ Done 2026-10-10 (branch
+   `spike-hyak-bench`; `docs/framework_decision.md` §3.2–4). AMReX
+   approved and no ACCESS proposal for now (user, 2026-10-10).
 4. **Ray-compression 128³ precision check**
    (`tools/production/hyak_precision.sbatch`), the one unrun item of the
    compression study.
@@ -482,7 +496,7 @@ In the cloud (branch + PR each):
    deficit; the unsplit open items (Sedov radius convergence, cold-gas
    time-step sensitivity at 128³).
 
-**Decisions needed from the user:** confirm AMReX (Stage D); production
+**Decisions needed from the user:** production
 `c_reduced` (0.1 recommended) and N (256); `hydro_scheme` for production;
 the stored-reference policy on klone; deleting the merged branches.
 
@@ -535,8 +549,8 @@ the stored-reference policy on klone; deleting the merged branches.
    - ray compression study: done (`docs/ray_compression.md`); 64³
      production-configuration check done, 128³ job script ready for Hyak;
    - framework spike (AMReX vs Parthenon): done, AMReX recommended
-     (`docs/framework_decision.md`), pending the user's confirmation; Hyak benchmarks to run
-     (`spike/hyak/README.md`);
+     (`docs/framework_decision.md`), **approved 2026-10-10**; Hyak CPU and GPU
+     benchmarks done (H200 ≈ 5 nodes on the RT; no ACCESS proposal yet);
    - ray data-structure rewrite;
    - MPI;
    - AMR for gas, then RT;
