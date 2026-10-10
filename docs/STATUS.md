@@ -37,7 +37,12 @@ bit-for-bit legacy reference and the AMReX path is the new option
   the five round-off comparisons, threads, R-struct, 1 vs 2 ranks of the
   full loop, restarts; nightly `amrex_full64_vs_serial`). The 64³
   production run on the backend reproduces the serial history to 1e-5
-  (τ_es = 0.05224 in both). Timing: see `docs/stage_d.md` §4.3; the klone
+  (τ_es = 0.05224 in both). Timing (4-core VM, 64³, two hydro steps
+  from a production checkpoint): serial OpenMP 23.5 s of RT on 4 threads,
+  backend 24–27 s for any of 1×4, 2×2, 4×1 ranks×threads, 74 s on one
+  core (serial 87 s), R-struct +30 %; after removing the CPU atomics
+  (first measurement 137 s: a shared histogram and 13 atomics per
+  deposit serialised the threads). 128³: `docs/stage_d.md` §4.3; the klone
   256³ job (24 ranks × 8 threads) is `tools/hyak/amrex_scaling.slurm`,
   **the user runs it**.
 - **Milestone 5, GPU:** scaffolding only (CUDA CMake target, device rate

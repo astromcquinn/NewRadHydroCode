@@ -275,9 +275,41 @@ R-struct run has the smaller ray tiles (48 B against 100 B per particle).
 
 ### 4.3 Timing
 
-`rt_backend = amrex` against the serial OpenMP code on the 4-core VM at 64³
-and 128³ (`tools/production/timing_table.py` constants from the measured
-runs): TBD.
+`rt_backend = amrex` against the serial OpenMP code on the 4-core VM
+(idle; OpenMPI 4.1.6, `--bind-to none`): two hydro steps restarted from
+the last checkpoint of a production run (`make_production.py`, 10 Mpc/h,
+0.01c, factor 16; 64³: z = 4.9, 17 substeps, 3.2 M live rays), the RT
+time of `timing.txt` summed over the two steps. The serial code uses
+`deterministic_parallel`; the backend `amrex_max_grid_size = 16` unless
+noted. The serial checkpoint restarts on the backend directly (its live
+rays go to the level).
+
+| 64³, 2 hydro steps | RT [s] | peak RSS of rank 0 [MB] |
+|---|---|---|
+| serial, 4 threads | 23.5 | 401 |
+| serial, 1 thread | 86.8 | 401 |
+| backend, 1 rank × 4 threads | 26.9 | 1983 |
+| backend, 2 ranks × 2 threads | 24.3 | 1363 |
+| backend, 4 ranks × 1 thread | 24.4 | 1300 |
+| backend, 4 × 1, `amrex_max_grid_size = 32` | 24.7 | 1206 |
+| backend, 1 rank × 1 thread | 73.7 | 1818 |
+| backend, 4 × 1, R-struct rays | 31.8 | 839 |
+
+So on 4 cores the backend is within 4–15 % of the serial OpenMP code
+whatever the rank/thread split, and on one core it is 15 % faster than the
+serial code (the sorted arrays against the chains; the spike measured
+1.3–1.5× slower, before the contention fix of §6 and with the AoS cell
+FAB). The R-struct run costs 30 % more (the decode, one `pix2vec` per ray
+per substep, plus a second one for the on-centre test at encode) and
+halves the memory of the rays. The backend's memory is dominated by the
+redundant serial state plus the level (§2.2); the 1-rank case also holds
+the flat gather buffer.
+
+128³ (z = TBD, TBD substeps, TBD live rays): TBD.
+
+The RT cost model of `tools/production/timing_table.py` (`--a-cell`,
+`--b-ray` per substep) is unchanged for the backend to within these
+ratios; its constants are those of `docs/production_run.md` §5.
 
 Klone: `tools/hyak/amrex_scaling.slurm` runs one hydro step of a 256³
 production checkpoint with 24 ranks × 8 threads (one rank per CCD) and the
