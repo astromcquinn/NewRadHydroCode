@@ -314,6 +314,12 @@ policy on klone, and deleting the merged branches.
   appears at z ≲ 2 (`docs/hydro_unsplit.md` §6). `make_production.py
   --hydro-scheme` writes the line.
 * **f_esc = 0.28** (interpolated at 0.1c; `docs/production_run.md` §8).
+* **User decision (2026-10-10, during the thread): f_esc should ideally
+  make reionization end at z = 5.5**, with τ_es as the check against
+  Planck. At 128³ and 0.1c that is f_esc ≈ 0.19–0.20 (x_V = 0.99 at
+  z = 5.57 and τ_es = 0.050 for 0.2, 0.6σ below Planck). The 256³ run at
+  0.28 is kept as the 256³ calibration point; the final production run
+  uses the f_esc that puts the 256³ end of reionization at z = 5.5.
 * The 256³ run at that f_esc is made in the production configuration
   (movie every Δz = 0.025, checkpoint every 4 steps), so it is both the
   256³ τ_es check of the brief's step 4 and the production run of step 5
