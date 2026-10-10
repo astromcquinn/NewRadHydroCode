@@ -198,11 +198,17 @@ a few percent, I-front within half a cell):
 | Run | x_HII,V | x_HII,M | T_M | T per ionised cell (rms) | τ_es | front shift [cells] |
 |---|---|---|---|---|---|---|
 | `lognormal_16src`, 10 steps, 32³ | 1.3e-4 | 5.0e-6 | 2.8e-5 | 1.2e-3 | 3.4e-6 | 4.7e-4 |
-| `lognormal_16src`, 100 steps, factor 16 (the study's setting) | TBD | | | | | |
-| `uniform_8src`, 100 steps, factor 16 | TBD | | | | | |
-| 64³ production configuration (0.01c, z = 15 → 5.5) | TBD | | | | | |
+| `lognormal_16src`, 100 steps, factor 16 (the study's setting; x_HII,V = 0.95 at the end) | 5.2e-4 | 9.2e-5 | 5.9e-4 | 1.3e-2 | 4.4e-6 | 2.7e-2 |
+| `uniform_8src`, 100 steps, factor 16 | 2.9e-5 | 2.9e-5 | 1.0e-3 | 7.8e-3 | 2.9e-6 | 8.3e-3 |
+| 64³ production configuration (10 Mpc/h, 0.01c, z = 100 → 5.5; §4.2) | 1.2e-4 | 1.2e-4 | 2.9e-4 | 1.1e-2 | < 1e-4 (0.05224 in both) | 2.8e-2 |
 
-TBD entries are filled in §4 below from the runs of this session.
+All within the acceptance metrics, with a margin of 10–100 on x_HII and
+τ_es; the per-cell temperature scatter of 1 % is the 1/16-octave shape
+quantisation averaging down over the rays of a cell, as the compression
+study predicted for dithered 8-bit photons. The decode (`pix2vec_nest`
+per ray) made the first R-struct run of the 64³ configuration about twice
+as slow as the float one; the substep now decodes each ray once (the
+histograms read the gathered scratch array), see §4.3.
 
 ## 4. Validation, tests and timing
 
@@ -233,7 +239,12 @@ empty flags on a cluster):
 - nightly: `amrex_full64_vs_serial`, the 64³ production configuration
   against the serial code (history, τ_es, per-cell fields).
 
-Results in this session (cloud VM, 4 cores, OpenMPI 4.1.6): TBD.
+Results in this session (cloud VM, 4 cores, OpenMPI 4.1.6): every test
+passes; the three round-off tests needed the 1e-3 field criterion
+(single I-front or removal-threshold cells at 1e-4; `fHeII` 2.5e-4 in one
+cell of `lognormal_16src_smallbuf`, where the pool guard and merges are
+active) and 1e-6 on the float stats (`ngam_rays_total`, a double sum in a
+different order). The bitwise block: see the run log in the PR.
 
 ### 4.2 The 64³ production configuration
 
@@ -241,7 +252,23 @@ Results in this session (cloud VM, 4 cores, OpenMPI 4.1.6): TBD.
 sources, legacy_rt = legacy_physics = 0): serial (deterministic_parallel),
 backend with float rays and backend with R-struct rays, 2 threads each.
 
-TBD: history, τ_es and per-cell comparison; wall times and peak memory.
+| Run (2 threads, 1 rank, loaded machine) | wall [s] | RT [s] | peak RSS [MB] | x_HII,V vs serial | T_M | T per ionised cell (rms) | front shift | τ_es |
+|---|---|---|---|---|---|---|---|---|
+| serial (`deterministic_parallel`) | 128 | 99 | 405 | | | | | 0.05224 |
+| backend, float rays | 359 | 323 | 1396 | 7.3e-6 | 4.0e-5 | 1.3e-3 | 1.2e-4 cells | 0.05224 |
+| backend, R-struct rays | 744 | 699 | 1252 | 1.2e-4 (vs float) | 2.9e-4 | 1.1e-2 | 2.8e-2 cells | 0.05224 |
+
+(`tools/ray_compression/precision_metrics.py` on the 10 zdata1 outputs;
+τ_es from `tools/analysis/reion.py` on the movie frames.) The backend's
+history is the serial one to 1e-5: the differences are the round-off of
+the deposit and merge order (design doc §2.2), which a reionisation run
+amplifies only to 1e-3 per ionised cell over 1479 substeps. The wall
+times here were taken with the nightly suite and the `amrex` label
+running on the same 4 cores; the clean comparison is §4.3. The peak memory
+of the backend is the serial state plus the level (cells 46 floats, tau
+and fgam with ghosts, 13 int64 deposits with ghosts, the particle tiles
+and per-box scratch) plus the flat gather buffer of `sync_fields`; the
+R-struct run has the smaller ray tiles (48 B against 100 B per particle).
 
 ### 4.3 Timing
 

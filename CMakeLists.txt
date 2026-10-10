@@ -76,6 +76,10 @@ if(RADRAY_AMREX)
   set(RADRAY_HAVE_AMREX ON)
   add_library(radray_amrex src/amrex/rt_level.cpp)
   target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
+  # rt_tools.cpp (in radray) calls the backend: every consumer of radray
+  # links radray_amrex too (a cycle between static libraries, which CMake
+  # resolves by repeating them on the link line)
+  target_link_libraries(radray INTERFACE radray_amrex)
   if(TARGET AMReX::Flags_INLINE)
     # AMReX does not pass its inlining flag to consumers; the communication
     # loops are header templates instantiated here (spike/amrex/README.md)

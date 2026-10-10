@@ -1,6 +1,51 @@
 # Project status
 
-*Last updated: 2026-10-10, framework-spike Hyak CPU and GPU benchmarks merged (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now); the same day, case A recombination and recombination radiation (branch `recomb-radiation`) and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`) merged into `main`; before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+*Last updated: 2026-10-10, Stage D (the RT on AMReX, branch `stage-d-amrex`, `docs/stage_d.md`) in progress; before that the framework-spike Hyak CPU and GPU benchmarks merged (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now); the same day, case A recombination and recombination radiation (branch `recomb-radiation`) and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`) merged into `main`; before that, 2026-10-09, after merging the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) into `main`.*
+
+## In progress: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, 2026-10-10)
+
+**`docs/stage_d.md`.** Uniform grid, CPU first; the serial port stays the
+bit-for-bit legacy reference and the AMReX path is the new option
+`rt_backend = amrex` (`legacy_rt = 0` only; AMReX optional,
+`-DRADRAY_AMREX=ON`).
+- **Milestone 1, one physics implementation:** the spike's ray and RT-cell
+  kernels moved to `include/radray/kernels/` (`ray_kernels.hpp`,
+  `rt_cell.hpp`, `healpix_hd.hpp`, `consts_hd.hpp`) and the serial port
+  calls them (`Ray` is `rrk::RayP` + links; cast, advance, split, merge,
+  emission, redshifting, `photo_cell`, rates, HEALPix exist once). Fast
+  suite 100/100 and the nightly label unchanged, every flag combination
+  byte-identical. Checkpoint version 5 (the old ray layout is read).
+- **Milestone 2, the library component** `src/amrex/rt_level.cpp`: rays in a
+  `ParticleContainerPureSoA`, cell FabArrays, int64 deposits with
+  `SumBoundary`, 2 ghost layers with the reach assertion, `Redistribute`
+  every substep, 128-bit fixed-point RT statistics; the full source model,
+  thick-source deposits, the pool guard, redshifting and `post_rt` in the
+  hydro loop, movie frames, checkpoints; wired into `rt_driver` and
+  `radhydro` (rank 0 writes; the hydro/PM run redundantly on every rank in
+  Stage D). Bitwise identical to `spike/serial rt_serial` for 1/2/4/8
+  ranks × 1/2 threads × box sizes 32/16/8 (and 4 ghosts, global
+  Redistribute); round-off against `rt_driver --set legacy_rt=0` on the
+  five RT problems; the full loop rank- and thread-independent with
+  bit-identical restarts.
+- **Milestone 3, R-struct:** `ray_encoding = rstruct`, 28 B of ray data per
+  ray (80 B float; 48 vs 100 B per particle with AMReX's position and id),
+  dithered. Errors against the float layout: x_HII ≤ 5e-4, τ_es ≤ 5e-6,
+  T_M ≤ 1e-3, 1 % rms per ionised cell, I-front ≤ 0.03 cell on
+  `lognormal_16src`/`uniform_8src` (100 steps) and the 64³ production
+  configuration, i.e. 10–100× inside the acceptance metrics.
+- **Milestone 4, tests:** `ctest -L amrex` (43 tests: the bitwise matrix,
+  the five round-off comparisons, threads, R-struct, 1 vs 2 ranks of the
+  full loop, restarts; nightly `amrex_full64_vs_serial`). The 64³
+  production run on the backend reproduces the serial history to 1e-5
+  (τ_es = 0.05224 in both). Timing: see `docs/stage_d.md` §4.3; the klone
+  256³ job (24 ranks × 8 threads) is `tools/hyak/amrex_scaling.slurm`,
+  **the user runs it**.
+- **Milestone 5, GPU:** scaffolding only (CUDA CMake target, device rate
+  tables, `tools/hyak/build_amrex_gpu.sh`, `amrex_gpu.slurm`); **not
+  compiled** (no nvcc ≥ 12.2 here).
+- Open: `recomb_rad` on the backend; the per-box serial folds and host
+  copies for a GPU build; a team-level step 1 for source cells; Stage E
+  (distributed hydro/PM, the §3.3 multi-node hydro slowdown).
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
 

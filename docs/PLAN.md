@@ -276,3 +276,44 @@ policy on klone, and deleting the merged branches.
   - `moment_nsub = 4` (C = 1/4; 1/3 decouples odd and even cells);
   - the OTVET source-cell self-weight 1/(0.5 cell)²;
   - `auto` switching between the direct sum and the FFT for the tensor.
+
+## Stage D thread (2026-10-10): the ray-tracing RT on AMReX
+
+* **Request (user):** Stage D of the roadmap on branch `stage-d-amrex`:
+  one physics implementation (`include/radray/kernels/`), the AMReX RT
+  level as a library component behind `rt_backend = amrex` (`legacy_rt = 0`
+  only, AMReX optional), the R-struct encoding behind `ray_encoding`,
+  the `amrex` test label, timings, and the CUDA target last and optional.
+  Report: `docs/stage_d.md`.
+* **Choices made in this thread** (open to revision):
+  - `radray::Ray` is `rrk::RayP` plus the chain links; the links moved to
+    the end of the struct, so the checkpoint format is version 5 and
+    versions ≤ 4 are converted on reading.
+  - The kernels take pointer views (`rrk::CellRef`) of the RT cell, so
+    the serial SoA grid and the backend's AoS cell share one function; the
+    rt_stat sums are returned per gas cell (`PhotoStats`) and added by
+    the host in its own order, which keeps the serial sums bit-identical.
+  - Stage D's MPI model: the hydro, PM, halo finder and sources run
+    redundantly on every rank on the full serial state; only the RT is
+    distributed, and the level's fields are gathered on rank 0 and
+    broadcast once per hydro step (plus before a movie frame). Stage E
+    distributes the rest.
+  - The RT statistics (the τ_es history among them) are summed in 128-bit
+    fixed point and reduced as 32-bit limbs, so they are rank- and
+    thread-independent like the fields.
+  - `spike/serial rt_serial` (now built against the library kernels, with
+    the pool guard) is the bitwise reference of the backend; the spike's
+    AMReX and Parthenon prototypes are frozen and no longer compile.
+  - R-struct: 28 B of ray data (7 int32 components), the photon shape as
+    5 × 8-bit log fractions at 1/16 octave with deterministic dithering,
+    the direction offset only for merged rays (on-centre flag), r at 1/8
+    cell with dr dropped, nu at 8 bits per band.
+  - Round-off tests against the serial port use rtol 1e-3 on the fields
+    (single I-front cells amplify the summation-order round-off to 1e-4)
+    with the source-cell `dx` excepted, and exact integer ray statistics.
+  - `recomb_rad`, the ray dumps and `ray_quant` stay serial-only for now.
+* **Not done here:** the GPU build (no nvcc ≥ 12.2 in the cloud
+  container; the CUDA target, device rate tables and the `ckpt` scripts
+  are in place), the klone 256³ timing (`tools/hyak/amrex_scaling.slurm`,
+  the user runs it), `ray_rotate` (its branch is not on the remote).
+
