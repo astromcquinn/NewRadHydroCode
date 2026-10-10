@@ -312,6 +312,14 @@ policy on klone, and deleting the merged branches.
   that value through the end of reionization (z ≈ 5.5) before it is
   changed (raised for z = 5.5 → 5). Which reduced c is optimal is worth
   measuring. **Revised the same day: the first 512³ run uses
-  c_reduced = 0.1** (to z = 5.5, as above).
+  c_reduced = 0.1 to z = 6.5, then 0.3 through overlap and on to z = 5**.
+  The user first suggested returning to 0.1c after overlap. Then two effects
+  of a low ĉ after overlap were pointed out: the slow relaxation of Γ
+  (λ/ĉ ≈ 100–300 Myr) and redshifting per unit time, i.e. c/ĉ too much per
+  distance (`ray_redshifting`). The user agreed to stay at 0.3c, and to a new
+  flag that redshifts per distance travelled (default off).
+* **IGM diagnostics** (`tools/analysis/igm_stats.py`, `docs/igm_diagnostics.md`):
+  f_esc is calibrated on ⟨F⟩, Γ_HI and ṅ. λ_mfp is a check only: it comes out
+  too long at fixed Γ in these boxes (unresolved absorbers, box ≲ λ).
 * **f_esc:** with the bigger box err on the side of a smaller escape
   fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
