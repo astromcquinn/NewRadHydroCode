@@ -320,6 +320,13 @@ policy on klone, and deleting the merged branches.
   z = 5.57 and τ_es = 0.050 for 0.2, 0.6σ below Planck). The 256³ run at
   0.28 is kept as the 256³ calibration point; the final production run
   uses the f_esc that puts the 256³ end of reionization at z = 5.5.
+* **User (same day): use round numbers for f_esc (0.3, 0.2, …) from now
+  on, and do not try to match the Planck τ_es**; the end of reionization
+  is the only calibration target, τ_es is just reported. The 256³ box at
+  f_esc = 0.28 reionizes much earlier than the 128³ one (x_V = 0.80
+  against 0.58 at z = 7: the resolved 10⁸–10⁹ M☉ halos), so the
+  production candidates are 256³ runs at f_esc = 0.2 and 0.1; the one
+  ending nearest z = 5.5 is the production run (0.15 if neither is).
 * The 256³ run at that f_esc is made in the production configuration
   (movie every Δz = 0.025, checkpoint every 4 steps), so it is both the
   256³ τ_es check of the brief's step 4 and the production run of step 5
