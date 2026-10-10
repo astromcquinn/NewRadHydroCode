@@ -2,6 +2,7 @@
 #include "radray/checkpoint.hpp"
 
 #include "radray/recomb_rad.hpp"
+#include "radray/rt.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
@@ -359,10 +360,25 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     in.vec(brays);
     in.pod(s.ngam_total_backend);
   }
-  if (backend != static_cast<std::int32_t>(s.cfg.rt_backend))
+  if (backend == 0 && use_amrex(s.cfg)) {
+    // A serial (legacy_rt = 0) checkpoint restarted on the backend: the
+    // live rays of the serial chains go to the level (the timing and
+    // scaling runs restart production checkpoints this way; the result is
+    // the backend's, not the serial continuation). The serial pool is then
+    // released.
+    if (s.cfg.legacy_rt) throw std::runtime_error("rt_backend = amrex needs a legacy_rt = 0 checkpoint");
+    brays.clear();
+    for (std::int64_t c = 0; c < G.ncell; ++c)
+      for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = R.at(ir).next) brays.push_back(R.at(ir));
+    s.ngam_total_backend = ngam_rays_total_serial(s);
+    R.init(R.Nray_max, R.Nfree_max);
+    std::fill(G.htoc.begin(), G.htoc.end(), 0);
+    R.Nray = static_cast<std::int64_t>(brays.size());
+  } else if (backend != static_cast<std::int32_t>(s.cfg.rt_backend)) {
     throw std::runtime_error("checkpoint was written with rt_backend = " +
                              std::string(backend ? "amrex" : "serial") + ", this run has " +
                              rt_backend_summary(s.cfg));
+  }
   if (use_amrex(s.cfg)) amrex_rt_scatter_rays(s, brays);
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)

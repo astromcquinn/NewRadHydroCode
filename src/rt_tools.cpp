@@ -1228,12 +1228,16 @@ std::int64_t count_live_rays(const Simulation& s) {
 }
 
 double ngam_rays_total(const Simulation& s) {
-  // Live rays = those linked in the cell chains. Summed in storage order
-  // over slots with nside > 0; valid after post_rt (dead slots zeroed).
   // rt_method = m1 | otvet: the photons of the moment solver
   if (use_moments(s.cfg)) return moment_photons_total(s);
   // rt_backend = amrex: the fixed-point sum over the level's rays
   if (use_amrex(s.cfg)) return s.ngam_total_backend;
+  return ngam_rays_total_serial(s);
+}
+
+double ngam_rays_total_serial(const Simulation& s) {
+  // Live rays = those linked in the cell chains. Summed in storage order
+  // over slots with nside > 0; valid after post_rt (dead slots zeroed).
   double t = 0;
   if (s.cfg.det_parallel) {
     // deterministic_parallel: storage slots depend on thread timing; sum in

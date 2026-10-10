@@ -67,5 +67,6 @@ std::string format_rt_timers(const RTTimers& t);
 // Diagnostics for the validation outputs
 std::int64_t count_live_rays(const Simulation& s);  // slots with nside > 0
 double ngam_rays_total(const Simulation& s);         // sum ngam, live rays
+double ngam_rays_total_serial(const Simulation& s);  // the serial chains' sum
 
 }  // namespace radray
