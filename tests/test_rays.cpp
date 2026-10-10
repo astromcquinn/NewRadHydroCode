@@ -306,6 +306,14 @@ static void test_ray_rotate() {
   CHECK(rotation(3, 0, 1, 1, 1, 1) != rotation(3, 0, 1, 1, 1, 2));  // per cell
   CHECK(rotation(3, 0, 1, 1, 1, 1) != rotation(3, 0, 2, 1, 1, 1));
   {
+    // the recombination-radiation stream differs from the stellar one
+    s.cfg.ray_rotate = 3;
+    double r0[3][3], r1[3][3];
+    ray_frame_rotation(s, 1, 1, 1, r0);
+    ray_frame_rotation(s, 1, 1, 1, r1, 1);
+    CHECK(r0[0][0] != r1[0][0] || r0[1][2] != r1[1][2]);
+  }
+  {
     const double a0 = s.clk.scalefactor;
     const auto m0 = rotation(2, 0, 1, 1, 1, 1);
     s.clk.scalefactor = a0 * (1 + 1e-6);  // next hydro step, same istep_rt

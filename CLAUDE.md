@@ -60,6 +60,7 @@ At the start of a session, read:
 |---|---|
 | `include/radray/`, `src/` | C++17 library, namespace `radray` |
 | `apps/rt_driver.cpp` | RT only (`docs/validation_spec.md`) |
+| `src/rt_moments.cpp` | moment RT, `rt_method = m1 \| otvet` (`docs/rt_moments.md`) |
 | `apps/hydro_driver.cpp` | hydro only |
 | `apps/pm_driver.cpp` | PM gravity only |
 | `apps/radhydro.cpp` | full `radhydro.f90` loop (`docs/full_run.md`) |

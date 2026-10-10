@@ -33,6 +33,9 @@ struct ProblemParams {
   int threads = 0;                 // OpenMP threads (0: OpenMP default)
   int ray_rotate = 0;              // B16 fix: Config::ray_rotate (0 = original)
   long long ray_rotate_seed = 0;   // Config::ray_rotate_seed
+  // rt_method = rays | m1 | otvet and the moment-solver parameters
+  // (set_rt_method_param, rt_moments.hpp; docs/rt_moments.md)
+  Config rtm;
 };
 
 // params.txt: `key = value` lines; '#' starts a comment.

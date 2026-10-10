@@ -1,6 +1,115 @@
 # Project status
 
-*Last updated: 2026-10-10: B16 fix `ray_rotate` on branch `claude/exciting-clarke-zn62ih` (not merged yet). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7) merged into `main`.*
+*Last updated: 2026-10-10: B16 fix `ray_rotate` (branch `claude/exciting-clarke-zn62ih`, merged into `main` with main's moment RT and recombination radiation); before that, case A recombination and recombination radiation (branch `recomb-radiation`), moment RT (M1, OTVET) and its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`); before that, 2026-10-09, the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done, merged into `main` 2026-10-10 (branch `recomb-radiation`)
+
+**Case A recombination and recombination radiation transported by the rays
+(`docs/recomb_radiation.md`).**
+- New flags, all off by default:
+  - `recomb_case = A|B`;
+  - `recomb_rad = 1`, which needs case A, the rays and `legacy_rt = 0`;
+  - `recomb_rad_nside`, `recomb_rad_block`, `recomb_rad_pool`.
+- How it works:
+  - Each ionised cell's ground-state recombinations (α_A − α_B, for HII,
+    HeII and HeIII) are buffered.
+  - Each b³ block launches them as 12·nside² rays from one rotating cell,
+    while there is room in the ray pool. The stellar splits are reserved
+    first.
+  - Blocks that are optically thick, too faint, or have no room fall back
+    to case B on the spot, so no photons are lost.
+  - Checkpoint version 4.
+- With the defaults the code is bit-identical. The fast suite gives
+  92/102: the same 10 known 1-ulp failures, with mismatch details
+  byte-identical to `main`.
+- New tests:
+  - fast: `thread_rt_recomb_lognormal_16src`, `restart_smoke_recomb`;
+  - nightly: `recomb_stromgren`, run by `tools/analysis/recomb_stromgren.py`.
+- Strömgren check: case A gives R_A/R_B to 1% of the temperature-corrected
+  value, and case A + RR recovers R_B (1.002 with block 1).
+- 256³ at 0.1c (block 4), runs
+  `/gscratch/astro/mcquinn/radhydro/runs/reion256_c01_caseA{,_rr}`, comparison
+  in `.../recomb_reion256_c01/`. Movie: `docs/movies/recomb_256_c01.mp4`.
+  - Case A alone delays reionization by Δz ≈ 0.25 and lowers τ_es from
+    0.0904 to 0.0880.
+  - Case A + RR follows case B to Δz ≤ 0.013 up to overlap (τ_es 0.0905),
+    with ionised gas 1–3% hotter.
+  - After overlap it moves toward case A, as it physically should, since
+    the ionised IGM is thin to its own recombination photons. At z = 6 the
+    ionised gas is 14% hotter than case B (case A: 25%), and the residual
+    x_HI is about α_A/α_B higher.
+  - The pool is full during overlap, so only 53–56% of the recombinations
+    up to then are launched; 82% are by the end.
+  - Cost: 1.46× wall (2:16:39 against 1:33:51), with 13% more memory.
+- Tools: `tools/hyak/recomb_runs.sh` and `tools/hyak/recomb_post.slurm`.
+- Found, not caused by this work: with `deterministic_parallel`,
+  `lognormal_16src_smallbuf` (`nray_max_factor = 1`) overflows the ray pool
+  on `main` too.
+- Open:
+  - transport HeII Lyα and the other ionising recombination lines;
+  - a larger pool, or coarser emission during overlap, so that more of the
+    emission is launched;
+  - tag recombination rays to measure their losses separately.
+
+## Done, merged into `main` 2026-10-10 (branch `claude/elegant-bell-rqd3l1`)
+
+**Moment RT: M1 and OTVET as alternatives to the ray tracing
+(`docs/rt_moments.md`).**
+- `rt_method = rays (default) | m1 | otvet` in `rt_driver` and `radhydro`.
+  A two-moment photon solver per frequency group on the RT grid
+  (`src/rt_moments.cpp`): explicit first-order GLF transport at ĉ,
+  `moment_nsub = 4` subcycles per RT substep, and the M1 closure or the
+  optically thin variable Eddington tensor (direct sum or FFT, every hydro
+  step).
+- Sources, `photo_cell` (absorption through `rt_grid%fgam`) and the redshift
+  are the rays' physics, unchanged. `ray_redshifting`'s spectrum update is
+  factored out (`redshift_spectrum`) with identical arithmetic.
+- The defaults are untouched: the full fast suite, 93 tests including the
+  live gfortran comparisons, passes. New: `ctest -L moments`, 7 tests (unit,
+  I-front vs finite c, threads, restarts). Checkpoint version 3.
+- Results:
+  - Photons are conserved to float precision.
+  - Thread-count independent; bit-identical restarts.
+  - I-fronts converge to the finite-c solution: +9% (M1) and +7% (OTVET)
+    at 10 cells of light travel, +2.5% and +1.6% at 30. The first-order
+    diffusion makes small fronts run ahead (+63% at 2 cells).
+  - Shadows behind a dense clump: OTVET sharp, M1 slightly filled in
+    (x_HII 0.06).
+  - 16-source lognormal box: the moment methods end 4–8% above the rays in
+    x_HII, with about 1.6× thicker fronts.
+  - 5.5–6.5× faster than the rays on that box (1 thread, 32³), at about
+    0.7 µs per cell-substep.
+- **256³ production comparison on klone, done** (`docs/rt_moments.md` §6).
+  M1 and OTVET siblings of `reion256_c01` (0.1c) and `reion256` (0.01c),
+  made by `tools/hyak/rt_methods_runs.sh` and post-processed by
+  `tools/hyak/rt_methods_post.slurm`. Runs are in
+  `/gscratch/astro/mcquinn/radhydro/runs/reion256{,_c01}_{m1,otvet}`, the
+  comparison in `.../rt_methods_{c01,c001}/`.
+  - History: |Δx_HII,V| ≤ 0.018 from the rays at every z, and τ_es within
+    1% (0.1c: 0.0904 / 0.0905 / 0.0906). The end of reionization moves by
+    Δz ≤ 0.12.
+  - Morphology: OTVET is much closer to the rays than M1. It has 2–3× fewer
+    cells off by more than 0.1 in x_HII, and corr(log T) ≥ 0.87, against
+    0.08–0.6 for M1 around overlap. The last neutral islands sit in
+    different places with M1.
+  - The temperature of ionised gas agrees to 1–2%.
+  - At 0.01c only, the small early fronts run ahead (+20% x_V at z = 13).
+  - Cost: 1.8× less RT time than the rays at 0.1c (49:35 and 51:39 wall,
+    against 1:32:42), and 2.4–3.3× less at 0.01c. Half the memory.
+    - The transport, 0.29 s per substep on 192 threads, meets the
+      projection.
+    - The unchanged `radiative_physics` is now 51–55% of the moment RT time.
+    - The cost per substep follows the ionised volume, not N_source.
+  - Side-by-side movies (rays | M1 | OTVET): `docs/movies/rt_methods_256_{c01,c001}.mp4`,
+    made with the new `tools/movies/compare_movie.py` (`docs/movies.md`).
+  - Fast suite on klone: 90/100. The 10 failures are the known 1-ulp
+    stored-RT-reference platform differences (`docs/cluster.md` §3, plus
+    the two ray-dump tests on the same references).
+  - `rt_methods_runs.py` now compares at matched movie frames. The zdata1
+    output redshifts drift apart once the hydro steps differ.
+- Open: second-order transport; Iliev-test validation; M1 crossing beams;
+  the OTVET formulation (time-dependent two-moment here; the published
+  implementations differ and could not be checked, no journal access).
 
 ## Done (merged into `main`)
 
@@ -224,7 +333,10 @@ covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
   there is no frame id and no extra ray memory. The rotation is a hash of
   `ray_rotate_seed`, the substep (restart-safe) and the cell, so it is
   deterministic and independent of the thread count. Works in
-  `rt_driver` and `radhydro`, with any `legacy_*` flags.
+  `rt_driver` and `radhydro`, with any `legacy_*` flags. It also rotates
+  the recombination-radiation rays (`recomb_rad`, merged from `main`; own
+  hash stream; checked thread-count independent). No effect with
+  `rt_method = m1 | otvet`.
 - Uniform test: the worst axis cell goes from −0.46 to −0.018 in x_HII
   (also −0.47 → −0.024 at `c_reduced = 0.1`). A fixed rotation (1) leaves
   −0.10 on one axis, so use 2 or 3. In the 240-step run with production
@@ -471,6 +583,13 @@ the stored-reference policy on klone; deleting the merged branches.
    - adaptive RT.
 
 ## Open questions for the user
+
+- Moment RT (`docs/rt_moments.md` §5–§6): whether to invest in second-order
+  transport or first in faster photo-chemistry (now half the moment RT
+  time), and whether the moment methods should become the
+  transparent-region hand-over of ROADMAP §4.5 or stay a standalone
+  alternative. Which OTVET formulation the user has in mind (the paper
+  could not be read here).
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see

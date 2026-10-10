@@ -142,6 +142,10 @@ struct RayState {
   // F3 pool guard (legacy_rt = 0): substeps in which the split threshold was
   // raised / splitting stopped and merging forced (cumulative)
   std::int64_t npool_limited = 0, npool_forced = 0;
+  // HEALPix nside of the direction bins in which ray_tracing_1 merges the
+  // faint rays of a cell: 2 in the original; recomb_prepare lowers it to 1
+  // while recombination rays crowd the pool (recomb_rad.hpp).
+  int nside_merge = 2;
 
   // deterministic_parallel = 1: shared pool of free slots (beyond the
   // per-thread lists) and the next never-used slot.

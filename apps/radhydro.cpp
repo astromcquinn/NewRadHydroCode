@@ -54,6 +54,8 @@
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
+#include "radray/recomb_rad.hpp"
+#include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 
 namespace {
@@ -123,6 +125,9 @@ struct RunParams {
   // hydro_scheme = legacy | unsplit and the unsplit parameters
   // (docs/hydro_unsplit.md), parsed by set_hydro_scheme_param
   Config hydro;
+  // rt_method = rays | m1 | otvet and the moment-solver parameters
+  // (docs/rt_moments.md), parsed by set_rt_method_param
+  Config rtm;
   // Ray snapshots for the compression study (radray/ray_dump.hpp); off by
   // default, no effect on results.
   RayDumpConfig ray_dump;
@@ -195,7 +200,9 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.max_steps = std::stoi(val);
   else if (key == "run_steps")
     P.run_steps = std::stoi(val);
-  else if (set_hydro_scheme_param(P.hydro, key, val)) {
+  else if (set_rt_method_param(P.rtm, key, val)) {
+    // moment RT (docs/rt_moments.md)
+  } else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
   } else if (key == "ray_dump_dir")
     P.ray_dump.dir = val;
@@ -464,6 +471,8 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     copy_hydro_scheme(P.hydro, s.cfg);
+    copy_rt_method(P.rtm, s.cfg);
+    check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);
@@ -517,7 +526,7 @@ int main(int argc, char** argv) {
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
-           << "\n " << hydro_scheme_summary(cfg)
+           << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")

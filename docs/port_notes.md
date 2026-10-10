@@ -324,7 +324,10 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
     splitmix64 hash of `ray_rotate_seed`, the substep (scalefactor bits and
     `istep_rt`, so it survives restarts) and, for mode 3, the cell; results
     do not depend on the thread count. Independent of `legacy_rt` and
-    `legacy_physics`. `ray_frame_rotation` in `ray_tracing.hpp`; tests
+    `legacy_physics`. The recombination-radiation rays
+    (`ray_source_recomb`, `docs/recomb_radiation.md`) are rotated the same
+    way, from a separate hash stream so that they do not share the stellar
+    rotation of their cell. `ray_frame_rotation` in `ray_tracing.hpp`; tests
     `rays` (unit) and `ray_rotate` (below).
   * **Cost:** the emission itself is negligible (a 3×3 product and one
     `vec2pix` per emitted ray), but ray tracing gets 3–10 % slower

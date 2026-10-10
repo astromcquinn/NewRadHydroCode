@@ -120,6 +120,31 @@ one, so it would still pass.
   `movie_dz = 0.1`, or `movie_fields = fHI,temp` (rhog then comes from the
   zdata1 field outputs), or set `movie_z0` close to the first source.
 
+## Comparing runs side by side
+
+`tools/movies/compare_movie.py` makes one movie of several runs that share
+the ICs, e.g. rays vs moment RT (`docs/rt_moments.md` §6):
+
+```
+python3 tools/movies/compare_movie.py OUT.mp4 RUNS/reion256_c01/run:rays \
+    RUNS/reion256_c01_m1/run:M1 RUNS/reion256_c01_otvet/run:OTVET --jobs 8
+```
+
+- One column per run, with slices of x_HII and log₁₀ T at the same
+  position. On the right is x_HII,V(z) for every run, drawn up to the
+  current frame (the whole curve is shown faintly).
+- The first run sets the frames. Each other run shows its movie frame
+  nearest in redshift, and the largest mismatch is printed. The frames are
+  written at the same `movie_dz` redshifts, so they agree to within a
+  substep.
+- The movie stops at the lowest redshift that all runs reached.
+- Stills (`OUT_stills/z*.png`) are taken where x_HII,V of the first run
+  reaches 0.1, 0.5 and 0.9, and at the last frame.
+- `--axis`, `--pos`, `--thick`, `--zmax`/`--zmin`, `--every`, `--range-xHII`
+  and `--range-temp` work as in `make_movie.py`.
+- `tools/movies/compare_stills.py` gives the same comparison as a single
+  PNG grid at a few redshifts.
+
 ## The test movie (64³)
 
 How the test movie was made:

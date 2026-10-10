@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "radray/simulation.hpp"
 
@@ -28,7 +29,10 @@ void ray_source(Simulation& s, int irt, int jrt, int krt);
 // (dx = rot * pix2vec) from a hash of (seed), (seed, substep) or
 // (seed, substep, cell) for ray_rotate = 1, 2, 3. The substep is identified
 // by the clock at its start (scalefactor, istep_rt), so it is restart-safe.
-void ray_frame_rotation(const Simulation& s, int irt, int jrt, int krt, double rot[3][3]);
+// stream separates emitters that share a cell: 0 for the stellar sources
+// (ray_source), 1 for the recombination radiation (ray_source_recomb).
+void ray_frame_rotation(const Simulation& s, int irt, int jrt, int krt, double rot[3][3],
+                        std::uint64_t stream = 0);
 // ray_tracing_tools.f90: ray_cast_split
 void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt);
 // ray_tracing_tools.f90: ray_cast_merge (irc: nrc ray indices of the cone)
@@ -62,6 +66,24 @@ double rmax_from_nside(int nside);
 
 // ray_tracing_tools.f90: ray_redshifting (non-FREQ1 redshift_ray)
 void ray_redshifting(Simulation& s);
+
+// The redshift of one 5-group spectrum, shared by the rays and the moment
+// RT (rt_moments.hpp). make_redshift_table builds the tables of
+// ray_redshifting; redshift_spectrum is redshift_ray without the rays'
+// final minimum: nu, ngam (per group) are updated in place, keep[g] and
+// down[g] are the fractions of the photons of group g that stay in g and
+// move to g-1 (both 0 for a group at or below ngam_min).
+struct RedshiftTable {
+  double bmin = -6, bmax = 6;
+  double bdel = static_cast<double>(0.1f);
+  int Nbin = 121;  // 1 + nint((bmax-bmin)/bdel)
+  double freq[kNfreq + 1] = {};
+  std::vector<std::vector<double>> tab;
+  double rmin = 0, rmax = 0;
+};
+RedshiftTable make_redshift_table();
+void redshift_spectrum(const RedshiftTable& T, double fscale, double ngam_min, double* nu,
+                       double* ngam, double* keep, double* down);
 
 // ray_tracing_tools.f90: ray_buffer_allocate / _supplement / _deallocate
 void ray_buffer_allocate(Simulation& s);
