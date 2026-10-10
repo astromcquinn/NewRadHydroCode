@@ -240,7 +240,10 @@ empty flags on a cluster):
   against the serial code (history, τ_es, per-cell fields).
 
 Results in this session (cloud VM, 4 cores, OpenMPI 4.1.6): every test
-passes; the three round-off tests needed the 1e-3 field criterion
+passes (the 27 bitwise tests, the 5 round-off, threads, R-struct, the
+full-loop rank check and the three restarts); the serial code's fast suite
+(100 tests) and the whole nightly label (20 tests) pass unchanged with the
+moved kernels. The three round-off tests needed the 1e-3 field criterion
 (single I-front or removal-threshold cells at 1e-4; `fHeII` 2.5e-4 in one
 cell of `lognormal_16src_smallbuf`, where the pool guard and merges are
 active) and 1e-6 on the float stats (`ngam_rays_total`, a double sum in a
