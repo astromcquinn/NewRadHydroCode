@@ -562,7 +562,7 @@ numbers from `results/*_full_unsplit.json`, legacy from `results/*_full.json`.
 | Strong shock, N = 128 | L1 ρ 0.116; pre-shock p 0.25 p_R; symmetry broken at 3 % | L1 ρ 0.082; pre-shock p = p_R exactly; symmetry exact; energy −1.6×10⁻⁴ (U4) | better |
 | 123 problem, N = 128 | L1 ρ/u/p 0.030/0.047/0.155 | 0.018/0.021/0.053; positive | better |
 | Galilean (§3), N = 64, 1 → 64 cells | L1 0.0235 → 0.0443 (×1.9) | 0.0114 → 0.0283 (×2.5); transverse-speed effect 1.0×10⁻² (U3); zero-velocity tube runs (no H1) | better in absolute terms, degrades faster |
-| Sedov (§4), N = 128 | R +0.9 %, aniso 0.50 %, L1 ρ 0.020, energy −4.9 % | R +1.5 %, aniso 0.37 %, L1 ρ 0.025, energy −0.6 % (U4) | better at N ≤ 64, slightly worse at 128 (slower convergence); 1 % radius target missed by 0.5 % |
+| Sedov (§4), N = 128 | R +0.9 %, aniso 0.50 %, L1 ρ 0.020, energy −4.9 % | R +1.5 %, aniso 0.37 %, L1 ρ 0.025, energy −0.6 % (U4) | better at N ≤ 64, slightly worse at 128 (slower convergence); 1 % radius target missed by 0.5 % (met at 256³: +0.6 % vs legacy −1.1 %, `hydro_unsplit.md` §6 convergence checks) |
 | Sound waves (§5) | k = 1 order 2.5; 15 % loss per period at 16 cells/λ | order 2.3; 6 % loss; same phase error | better |
 | Pancake (§6), infall median T/T_ad at N = 64, z = 10/7 | 7.0 / 20 | 1.000 / 1.001 (every N, z); centre cells hot near the caustic (U2) | fixed |
 | Pancake, post-caustic | shock within 0.5 cells, entropy of the infall off by 1–300 | shock within 1.15 cells at N = 128 (wall-heating spike confuses the detector at N = 64), entropy 10⁻⁴, symmetry 10⁻⁴ | better (entropy), equal (shock) |
