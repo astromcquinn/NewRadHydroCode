@@ -30,6 +30,10 @@
     x_HII, with about 1.6× thicker fronts.
   - 5.5–6.5× faster than the rays on that box (1 thread, 32³), at about
     0.7 µs per cell-substep.
+- Ready for klone, not yet run: `tools/hyak/rt_methods_runs.sh` launches M1
+  and OTVET siblings of `reion256_c01` and `reion256`;
+  `tools/analysis/rt_methods_runs.py` compares them with the rays
+  (`docs/rt_moments.md` §6).
 - Open: second-order transport; Iliev-test validation; M1 crossing beams;
   the OTVET formulation (time-dependent two-moment here; the published
   implementations differ and could not be checked, no journal access).
