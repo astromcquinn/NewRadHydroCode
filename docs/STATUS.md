@@ -1,6 +1,36 @@
 # Project status
 
-*Last updated: 2026-10-10: recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-10: IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-10, branch `igm-diagnostics` (not merged)
+
+**IGM diagnostics for the f_esc calibration (`docs/igm_diagnostics.md`).**
+- `tools/analysis/igm_stats.py` measures a run's snapshots (z ≤ 7.1) to
+  JSON:
+  - Γ_HI from the `gamma` field (s⁻¹, last RT substep): volume average,
+    ionized-cell averages, transmission-weighted;
+  - the 912 Å mean free path from random, ionized and source starts
+    (periodic random-direction sightlines, 1/e and exponential fit);
+  - the Lyα mean flux in redshift space (u_gas velocities, Doppler,
+    top-hat cells) and the τ rescaling A to Bosman+22;
+  - ṅ_ion at every hydro step from `stats.txt` `Luv`:
+    ṅ = 0.2·10^25.2·1.0001·Luv. **No C++ output is needed.**
+- `tools/analysis/igm_plot.py` makes the 4-panel comparison with
+  `data/igm/igm_z5_6.txt` (brought in from `fesc-z`) and a table.
+  `tools/hyak/igm_diag.slurm` runs both on a node.
+- 256³/10 Mpc/h runs: figure `docs/figures/igm_256.png`, outputs in
+  `runs/igm_diag/`.
+  - ⟨F⟩ and Γ both point to f_esc ≈ 0.23–0.25 at z = 5.4–6.
+  - ṅ(f_esc = 0.2) = 10^51.0 at z = 5.42, within the Becker+21 errors.
+  - At fixed Γ the simulated λ_mfp is ~2.7× longer than observed
+    (unresolved absorbers, box 2.2 pMpc < λ), so λ cannot calibrate these
+    runs.
+  - The RSLA (ĉ = 0.1c: delay λ/ĉ, enhanced ray redshifting) probably
+    lowers Γ/ṅ.
+- Open:
+  - run the tools on the 512³/40 Mpc/h run when it has z < 6.5 outputs
+    (the memory and time were checked on a synthetic 512³ snapshot);
+  - check the Gaikwad+23 Γ definition against the paper.
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-moments`)
 
