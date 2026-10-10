@@ -13,7 +13,7 @@
 # whole node via --exclusive; --mem=0 asks for all 1.5 TB, above the astro group
 # memory limit while other members run jobs
 #SBATCH --mem=256G
-#SBATCH --time=08:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=spike-node-%j.log
 set -u
 source "${SPIKE_REPO:-$SLURM_SUBMIT_DIR}/spike/hyak/env.sh"
@@ -36,6 +36,10 @@ done
 # and 24 CCDs: 8:24 and 24:8 are the NUMA- and CCD-aligned layouts.
 LAY192="1:192 2:96 8:24 24:8 48:4 96:2 192:1"
 LAYSMALL="1:12 1:48 8:6 24:2"
-"$SPIKE_REPO"/spike/bench/bench.sh "$OUT" "$SPIKE_WORK/problems/bench_N128" "$LAYSMALL $LAY192" "32 16" 256 10
-CODES="amrex parthenon serial" "$SPIKE_REPO"/spike/bench/bench.sh "$OUT" "$SPIKE_WORK/problems/bench_N256" "$LAY192" "32"
+# The two parts take ~8 h and ~6 h on klone (2026-10-08), so the job does not
+# fit 8 h with both; run them as two jobs with NODE_N=128 and NODE_N=256.
+for N in ${NODE_N:-128 256}; do case $N in
+  128) "$SPIKE_REPO"/spike/bench/bench.sh "$OUT" "$SPIKE_WORK/problems/bench_N128" "$LAYSMALL $LAY192" "32 16" 256 10 ;;
+  256) CODES="amrex parthenon serial" "$SPIKE_REPO"/spike/bench/bench.sh "$OUT" "$SPIKE_WORK/problems/bench_N256" "$LAY192" "32" ;;
+esac; done
 echo "results in $OUT"

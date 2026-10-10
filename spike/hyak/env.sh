@@ -33,7 +33,8 @@ SPIKE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 : "${SPIKE_WORK:=/gscratch/astro/$USER/spike}"
 export SPIKE_REPO SPIKE_WORK
 export SPIKE_DEPS="$SPIKE_WORK/deps"
-export SPIKE_BUILD="$SPIKE_WORK/build"
+: "${SPIKE_BUILD:=$SPIKE_WORK/build}"   # override to build elsewhere
+export SPIKE_BUILD
 mkdir -p "$SPIKE_DEPS" "$SPIKE_BUILD"
 
 # Pinned framework versions (the ones validated in spike/*/README.md)
