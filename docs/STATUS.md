@@ -1,6 +1,57 @@
 # Project status
 
-*Last updated: 2026-10-11: the 256³ production run (branch `production-256`, PR #23, below); 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-11: `pm_refine`, a PM mesh finer than the gas grid (branch `pm-refine`, below); the 256³ production run (branch `production-256`, PR #23, below); 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-11, branch `pm-refine` (from `production-256`; not merged)
+
+**`pm_refine`: a PM mesh of pm_refine·N cells for Ndm up to pm_refine·N
+particles (`docs/pm_refine.md`).** Goal: 1.3×10⁸ M☉ halos (20 particles)
+in the 40 Mpc/h, 512³ runs.
+- How it works:
+  - The gas density is spread onto the fine mesh and the mesh forces are
+    averaged back (adjoint) in `calc_kick` and `calc_kick_unsplit`.
+  - CIC, `link_dm` and the particle mass are on the mesh.
+  - `x_dm_gas = Ngas/Ndm` is now a real number (`summarize_dm`,
+    `halos.cpp` halo velocities).
+  - Threaded FFTW: `fftw-3.3.10-float-omp`, the same SSE2 build with
+    `--enable-openmp`, which `env.sh` now selects; capped at 32 threads.
+  - `make_ics.py` handles Ndm > Ngas and has `--phases-from-ndm`.
+  - `make_production.py --pm-refine 2 [--data-files dm]`.
+  - The checkpoint format is unchanged (the mesh has no state).
+- **pm_refine = 1 is byte-identical.** Fast suite 115/125 (the known 10
+  stored-RT failures); every PM and hydro stored reference passes;
+  nightly 22/22 with the OpenMP FFTW library.
+- Tests (all pass), 16 new:
+  - single-particle force against Ewald: the error is a function of the
+    distance in mesh cells, so pm_refine = 2 is as good at d/2;
+  - no self-force;
+  - momentum conserved to 3×10⁻⁹ for every kick variant;
+  - an r = 2 pancake is bit-identical to its r = 1 twin on a gas grid as
+    fine as the mesh;
+  - pancakes with r = 2;
+  - FFT and full-loop thread-count independence;
+  - restart with Ndm > N.
+- Gas+DM Zel'dovich pancake (both kicks): the DM errors of pm_refine = 2
+  at N equal those of the original at 2N, and the gas is as good or
+  better.
+- **HMF, 40 Mpc/h with 1024³ DM** (`$RUNS/hmf512_40mpc_r2`, 55 steps,
+  173 GB), against `hmf256`:
+  - 0.73–0.89 down to 20 particles (1.3×10⁸ M☉), with no extra falloff
+    near the limit;
+  - pm_refine = 1 (512³ DM) has none of these halos and 10–45% at
+    10⁹–10^9.5 M☉;
+  - 10 Mpc/h controls with the same DM ICs attribute the 10–25% deficit
+    to the gas grid being 2× coarser than the mesh;
+  - against the same-configuration 10 Mpc/h control the big box is flat
+    in particle number (0.84–0.94, sample variance).
+- Cost per step (no RT): ~57 s against 29 s, mostly the on-the-fly FoF on
+  10⁹ particles (30 s). PM ~9 s after the r > 1 speed-ups (parallel
+  `link_dm`, stored mesh force, FFT cap); +~70 GB.
+- **Open (user):**
+  - production with pm_refine = 2;
+  - which abundance-matching fit (the 1024³ particle mass is that of
+    10 Mpc/h 256³);
+  - FoF frequency.
 
 ## Production run at 256³ (branch `production-256`, started 2026-10-10)
 

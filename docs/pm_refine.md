@@ -196,13 +196,138 @@ Fortran full-loop comparison, and the hydro-suite full tier. It ran on the
 code before the r > 1 speed-ups of §4, which do not touch the r = 1
 paths.
 
-HMF
+### Halo mass function: 40 Mpc/h with 1024³ DM
+
+![HMF](figures/pm_refine_hmf.png)
+
+Runs (`$RUNS = /gscratch/astro/mcquinn/radhydro/runs`). All have on-the-fly
+FoF (b = 0.2, ≥ 20 particles) every step from z = 15, no sources
+(`tvir_min = 1e30`), and Zel'dovich ICs at z = 100, seed 7:
+
+| run | box | gas | Ndm | pm_refine | mesh spacing | m_p [M☉] | hydro |
+|---|---|---|---|---|---|---|---|
+| `hmf512_40mpc_r2` | 40 | 512³ | 1024³ | 2 | 39 kpc/h | 6.38e6 | unsplit |
+| `hmf512_40mpc_r1` | 40 | 512³ | 512³ | 1 | 78 kpc/h | 5.10e7 | unsplit |
+| `hmf256` (reference) | 10 | 256³ | 256³ | 1 | 39 kpc/h | 6.38e6 | legacy |
+| `hmf_ctrl10/B_n128_r2_legacy` | 10 | 128³ | 256³ | 2 | 39 kpc/h | 6.38e6 | legacy |
+| `hmf_ctrl10/C_n256_r1_unsplit` | 10 | 256³ | 256³ | 1 | 39 kpc/h | 6.38e6 | unsplit |
+| `hmf_ctrl10/D_n128_r2_unsplit` | 10 | 128³ | 256³ | 2 | 39 kpc/h | 6.38e6 | unsplit |
+
+The two 40 Mpc/h runs share their large scales (`--phases-from-ndm 512`).
+The 10 Mpc/h controls B–D have exactly the DM ICs of `hmf256` (byte-
+identical `xv_dm.init`) and differ from it only in the gas grid,
+pm_refine and the hydro scheme.
+
+```
+python3 tools/analysis/hmf_runs_compare.py --interp \
+  --run 40Mpc_r2_1024:$RUNS/hmf512_40mpc_r2/run/halos:40:1024 \
+  --run 40Mpc_r1_512:$RUNS/hmf512_40mpc_r1/run/halos:40:512 \
+  --run 10Mpc_r2_gas128:$RUNS/hmf_ctrl10/D_n128_r2_unsplit/run/halos:10:256 \
+  --run hmf256:$RUNS/hmf256/run/halos:10:256 --ref hmf256 --z 5.5 6 7 8 10 \
+  --out docs/figures/pm_refine_hmf.png --table docs/figures/pm_refine_hmf.txt
+```
+
+`--interp` interpolates each run's dn/dlogM to the requested z between its
+two nearest catalogs (the runs' time steps differ). Ratios to `hmf256`
+(table: `figures/pm_refine_hmf.txt`):
+
+| log M [M☉] | particles (6.4e6 M☉) | 40 Mpc/h, r = 2, z = 5.5 / 6 / 7 / 8 | 40 Mpc/h, r = 1 | 10 Mpc/h, r = 2, gas 128³ |
+|---|---|---|---|---|
+| 8.23 | 27 | 0.89 / 0.87 / 0.84 / 0.86 | — (< 20 particles) | 0.95 / 0.95 / 0.90 / 0.93 |
+| 8.48 | 47 | 0.83 / 0.84 / 0.81 / 0.75 | — | 0.94 / 0.91 / 0.86 / 0.84 |
+| 8.73 | 84 | 0.81 / 0.80 / 0.74 / 0.73 | — | 0.88 / 0.88 / 0.83 / 0.80 |
+| 8.98 | 150 | 0.76 / 0.75 / 0.83 / 0.77 | 0.17 / 0.15 / 0.14 / 0.10 | 0.88 / 0.84 / 0.91 / 0.92 |
+| 9.23 | 270 | 0.83 / 0.82 / 0.76 / 0.83 | 0.42 / 0.39 / 0.31 / 0.28 | 0.94 / 0.91 / 0.85 / 0.95 |
+| 9.48 | 470 | 0.92 / 0.85 / 0.77 / 0.84 | 0.45 / 0.39 / 0.31 / 0.31 | 1.05 / 0.96 / 0.95 / 0.76 |
+| 9.98 | 1500 | 1.03 / 1.12 / 1.19 / 0.95 | 0.78 / 0.78 / 0.73 / 0.55 | 1.04 / 1.05 / 0.86 / 1.22 |
+
+* **pm_refine = 2 resolves 1.3×10⁸ M☉ halos in the 40 Mpc/h box.** Down to
+  20 particles its mass function is 0.73–0.89 of the 10 Mpc/h 256³
+  reference at the same particle mass and mesh spacing, with no extra
+  falloff toward 20 particles. With pm_refine = 1 the same box has no
+  halos below 10⁹ M☉ (20 particles of 5.1e7). At 10⁹–10^9.5 M☉ it holds
+  only 10–45% of the reference (the PM deficit below ~150 particles,
+  `docs/hmf_validation.md`), against 75–92% with pm_refine = 2.
+* **The remaining 10–25% comes mostly from the gas grid, not from the
+  refined mesh.** With the same DM ICs, coarsening the gas from 256³ to
+  128³ under the same 256³ mesh (control D/B against `hmf256`) removes
+  5–20% of the 20–150-particle halos. That is about 17% of the mass (the
+  gas) smoothed over 2 mesh cells, so less of it collapses into the
+  smallest halos. The hydro scheme alone changes little: C/`hmf256` =
+  0.99–1.11. The refined mesh moves the DM exactly (the twin test).
+  Against control D, the 40 Mpc/h run is 0.84–0.94 at z = 5.5–10,
+  **flat from 20 to ~500 particles**, i.e. no resolution signature: the
+  big box finds the same halos per unit mass as the small box built the
+  same way. The flat offset is box-to-box sample variance: the
+  10 Mpc/h seed-7 box is high against Sheth–Tormen at all masses
+  (`docs/hmf_validation.md`).
+* The Poisson errors in the table treat the runs as independent. The
+  10 Mpc/h runs share their ICs and largely their halos, so their ratios
+  are much better determined than the ±.
+* Above ~10^9.7 M☉ (> 800 particles) all runs agree within the noise of
+  the small box; the 40 Mpc/h runs extend the function to 10^11.5–10^12 M☉.
+* **Abundance matching.** The 1024³ particle mass equals the 10 Mpc/h
+  256³ one, so the FoF fit `data/hmf/fof_256_10mpc.txt` and
+  `data/uv_lf/am_params_256_10mpc.txt` describe pm_refine = 2 runs better
+  than the 128³ ones the 512³ production uses. Their low-mass deficit is
+  10–25% larger, from the gas grid, as above. Not changed here; see
+  "Open".
 
 ## 4. Cost
 
-COST
+40 Mpc/h, gas 512³, one klone `cpu-g2` node (2×96 cores, 192 threads), no
+RT. Per hydro step at z ≈ 6, in seconds:
+
+| | hydro | PM | FoF | summaries | total | steps to z = 5.5 | peak RSS |
+|---|---|---|---|---|---|---|---|
+| pm_refine = 1, 512³ DM | 12.9 | 3.3 | 5.6 | 6.6 | 29 | 49 (21 min) | 105 GB |
+| pm_refine = 2, 1024³ DM, first build | 10–13 | 30 | 29–30 | 10.8 | 80–84 | 55 | 173 GB |
+| pm_refine = 2, final code (projected) | 10–13 | ~9 | 29–30 | 5.6 | ~57 | 55 | ~186 GB |
+
+The first validation build used serial FFTs (`RADRAY_FFTW` pointed at the
+serial library; §5) and none of the speed-ups below. The algorithm is the
+same, so its halos stand. The final PM stages on the 1024³ ICs
+(`pm_bench`, 192 threads, s per step; first build in parentheses): drift
+0.2 ×2, `link_dm` 0.5 (4.4), density 0.9, gravity 0.6 (13.3), kick 6.5–8.8
+(8.5–9.3), `summarize_dm` 0.17 (5.3). The speed-ups apply to
+pm_refine > 1 only:
+
+* **FFT threads capped at 32.** FFTW's OpenMP 1024³ transforms take
+  0.28 s with 32 threads but 3–10 s with 48–192, and the output is
+  identical for any count.
+* **`link_dm` builds its row chains in parallel** (32 chunks, joined per
+  row in ip order). The lists are identical to the serial build (unit
+  test).
+* **The mesh force is stored once per mesh cell** (`PMState::fmesh`,
+  3 floats per cell, 12.9 GB at 1024³) instead of being re-evaluated
+  8 times per particle. The values are identical.
+* **`summarize_dm`, `arms`, `vrms`** (diagnostics only) are summed over
+  fixed chunks or planes. They are thread-count independent, but no longer
+  in the serial order.
+
+Steps: `dt_ap = 0.5/sqrt(amax_dm)` is in mesh units, so the PM limit is √2
+shorter: 55 hydro steps against 49 from z = 100 to 5.5.
+
+**In the production configuration (with RT)** the 512³ runs spend most of
+each step in the RT: 6856 s of the 8772 s of the first f_esc = 0.1 leg,
+and more after overlap. pm_refine = 2 adds about 30 s per step, mostly the
+on-the-fly FoF on 8× more particles (30 s against 5.6 s), plus 6 s of PM.
+It also adds about 70 GB of memory: xv 26 GB, ll and hoc 17 GB, mesh
+force 13 GB, density 4 GB, FoF work arrays. The 512³ production peaked at
+200 GB, so pm_refine = 2 needs `--mem` ≳ 300G rather than the 256G of
+`docs/cluster.md`. Each checkpoint holds 26 GB more particles, and each
+`DM/xv_dm.*` output is 26 GB (`data_files = dm` or `norays` writes them at
+every zdata1 redshift).
 
 ## 5. Notes
+
+* **Open:**
+  * whether production should switch the abundance matching to the 256³
+    fit (or a fit to these 1024³ catalogs);
+  * whether the FoF should run less often than every step at 10⁹
+    particles;
+  * a production 512³ run with pm_refine = 2 (`make_production.py
+    --pm-refine 2`; it needs `--mem` ≳ 300G).
 
 * **Q14 (preserved).** The DM speed and acceleration diagnostics of the
   `calc_timestep` log (`vmax_dm`, `vrms_dm`, `amax_dm`, `arms_dm`) are
