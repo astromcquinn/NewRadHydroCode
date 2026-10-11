@@ -148,9 +148,18 @@ def tm_metrics(base, var, zmax):
     for key in ("T_M", "T_V"):
         tb = np.array([r.get(key, np.nan) for r in sb])
         tv = np.array([r.get(key, np.nan) for r in sv])
-        ob, ov = np.argsort(zb), np.argsort(zv)
-        ti = np.interp(zb[ob], zv[ov], tv[ov])
-        sel = (zb[ob] <= zmax) & (zb[ob] >= zv.min()) & np.isfinite(ti) & np.isfinite(tb[ob])
+        # T_M is NaN before the RT starts: interpolate over the finite values
+        # only (a NaN neighbour would turn the first RT step into NaN)
+        fv = np.isfinite(tv)
+        if not fv.any():
+            out[f"{key}_rel_max"] = float("nan")
+            continue
+        ob, ov = np.argsort(zb), np.argsort(zv[fv])
+        ti = np.interp(zb[ob], zv[fv][ov], tv[fv][ov])
+        # the step redshifts of two runs can differ in the last digits
+        tol = 1e-6 * (1 + np.abs(zb[ob]))
+        sel = ((zb[ob] <= zmax) & (zb[ob] >= zv[fv].min() - tol)
+               & (zb[ob] <= zv[fv].max() + tol) & np.isfinite(tb[ob]) & (tb[ob] > 0))
         out[f"{key}_rel_max"] = float(np.max(np.abs(ti[sel] / tb[ob][sel] - 1))) if sel.any() else 0.0
     return out
 
@@ -232,10 +241,14 @@ def figures(a, base, variants, bfields):
         st = step_stats(run)
         zs = np.array([r["redshift"] for r in st])
         tm = np.array([r["T_M"] for r in st])
+        fin = np.isfinite(tm)
+        zs, tm = zs[fin], tm[fin]
         os_ = np.argsort(zs)
         osb = np.argsort(zsb)
         ti = np.interp(zsb[osb], zs[os_], tm[os_])
-        sel = zsb[osb] <= a.zmax
+        tol = 1e-6 * (1 + np.abs(zsb[osb]))
+        sel = ((zsb[osb] <= a.zmax) & np.isfinite(tmb[osb]) & (zsb[osb] >= zs.min() - tol)
+               & (zsb[osb] <= zs.max() + tol))
         axs[2].plot(zsb[osb][sel], ti[sel] / tmb[osb][sel] - 1, "-", color=cols[i % 6])
     axs[0].set_ylabel("x_HII (solid: volume, dashed: mass)")
     axs[0].legend(fontsize=8)
