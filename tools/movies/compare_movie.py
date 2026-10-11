@@ -84,7 +84,7 @@ class Renderer:
             cb.set_label(st["label"], color="white")
             cb.ax.tick_params(colors="white")
             cb.outline.set_edgecolor("white")
-        xt = x0 + nr * (side + gap) + 0.09 * W
+        xt = x0 + nr * (side + gap) + (0.11 if "gamma" in rows else 0.09) * W
         # time panel(s): x_HII,V, and with the gamma row the median Gamma_HI
         # of the ionised cells below it
         tw = W - xt - 0.03 * W
@@ -98,8 +98,7 @@ class Renderer:
             a.set_xlim(z.max(), z.min())
             a.set_ylim(*mm.fixed_range("gamma", args))
             a.set_xlabel("redshift", color="white")
-            a.set_ylabel(r"$\log_{10}\,$median $\Gamma_{\rm HI}$ ($x_{\rm HII}>0.5$)",
-                         color="white")
+            a.set_ylabel(r"$\log_{10}\Gamma_{\rm HI}$ (median, ionised)", color="white")
             for j, lab in enumerate(labels):
                 c = COLORS[j % len(COLORS)]
                 a.plot(series["zfull"][j], series["gfull"][j], color=c, lw=1, alpha=0.25)
