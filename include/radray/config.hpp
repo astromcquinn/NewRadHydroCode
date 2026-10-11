@@ -126,8 +126,10 @@ struct Config {
   // cell. k > 1: nstep_rt = nint(dl_c/(k dl_rt)*cscale) substeps, each k
   // times longer, in which every ray moves k cells (up to 3k+1 segments),
   // so the light distance per hydro step is unchanged; the photo-ionisation
-  // rate of a cell uses the crossing speed k*len_rt/dtsec_rt and the split
-  // radius clamp is [rmin, rmin+k]. legacy_rt = 0 and rt_method = rays only;
+  // rate of a cell uses the crossing speed k*len_rt/dtsec_rt, the split
+  // radius clamp is [rmin, rmin+k], and for k > 4 sources emit at the nside
+  // whose split radius covers the first path (rrk::emit_nside: 768 rays for
+  // k = 5..8). legacy_rt = 0 and rt_method = rays only;
   // with rt_backend = amrex the ghost layers grow to k+1. The test of
   // coarse-substep RT for AMR (Stage F): a level-l region would move rays
   // 2^l fine cells per coarse substep.

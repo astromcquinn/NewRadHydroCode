@@ -541,19 +541,34 @@ RR_HD void source_thick_deposit(float Luv, const RTP& P, double v[kNdep]) {
   for (int d = 0; d < 3; ++d) v[10 + d] = 0;
 }
 
-// Emission of nside_init^2*12 rays of a stellar source cell (ray_source);
-// nu = freq_init, ngam = the cell's photons / nray_init per ray.
+// HEALPix nside of a stellar emission. nside_init (the original) unless the
+// rays cross more cells in their first substep than its split radius
+// (rt_cells_per_substep = k): a ray splits at most once per substep, so it
+// would stay at nside_init over its whole first path of k cells and beyond
+// (k = 8: about 4 cells^2 per ray at r = 8, against ray_per_cell = 1). The
+// smallest nside >= nside_init with rmax(nside) >= k - 1; from there one
+// split per substep keeps up (rmax doubles, r grows by k). k <= 4: nside_init.
+RR_HD int emit_nside(int cells) {
+  int n = radray::rayp::nside_init;
+  while (rmax_from_nside(n) < cells - 1 && n < radray::rayp::nside_max) n *= 2;
+  return n;
+}
+
+// Emission of 12 nside^2 rays of a stellar source cell (ray_source), nside =
+// emit_nside(P.cells) (nside_init = 4, 192 rays, for k <= 4); nu = freq_init,
+// ngam = the cell's photons / the number of rays per ray.
 RR_HD SourceSpec source_spec(int i, int j, int k, float Luv, const RTP& P) {
   using namespace radray;
   SourceSpec s;
-  s.nside = rayp::nside_init;
+  s.nside = emit_nside(P.cells);
   cell_centre(i, j, k, s.x);
-  s.dr = static_cast<float>(rmax_from_nside(rayp::nside_init));
+  s.dr = static_cast<float>(rmax_from_nside(s.nside));
+  const int nray = nray_from_nside(s.nside);
   double ngam[NF];
   source_photons(Luv, P, ngam);
   for (int n = 0; n < NF; ++n) {
     s.nu[n] = static_cast<float>(rrk::freq_init(n));
-    s.ngam[n] = static_cast<float>(ngam[n] / rayp::nray_init);
+    s.ngam[n] = static_cast<float>(ngam[n] / nray);
   }
   return s;
 }

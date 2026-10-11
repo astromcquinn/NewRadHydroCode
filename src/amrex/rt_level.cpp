@@ -609,7 +609,8 @@ struct Level : LevelBase {
       }
       ax::ParallelDescriptor::ReduceLongSum(nsrc);
       pool_guard(spl_pdf.data(), Np, L, nsrc, 0, s.rays.Nray_max, s.rays.ngam_ray, s.rays.npool_limited,
-                 s.rays.npool_forced, s.raylog);
+                 s.rays.npool_forced, s.raylog,
+                 rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
     }
     const rrk::RTP P = rt_params(s);
     double t2 = now();

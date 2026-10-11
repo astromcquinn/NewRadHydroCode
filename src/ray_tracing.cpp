@@ -372,10 +372,14 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
     return;
   }
 
-  // Generate new rays
+  // Generate new rays: nray_init, more with rt_cells_per_substep > 4
+  // (rrk::emit_nside)
   rrk::SourceSpec spec = rrk::source_spec(irt - 1, jrt - 1, krt - 1, G.Luv[c], P);
-  std::int64_t indx[nray_init];
-  ray_create(s, nray_init, indx);
+  const int nray = rrk::nray_from_nside(spec.nside);
+  static thread_local std::vector<std::int64_t> indx_buf;
+  if (static_cast<int>(indx_buf.size()) < nray) indx_buf.resize(nray);
+  std::int64_t* indx = indx_buf.data();
+  ray_create(s, nray, indx);
   // B16 fix (ray_rotate != 0): rotated HEALPix frame; the kernel's source_ray
   // rotates the direction and makes ipix the grid-frame pixel containing it,
   // so that ray_cast_split keeps the deviation dx - centre(ipix), as for a
@@ -385,7 +389,7 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
   if (rotate) ray_frame_rotation(s, irt, jrt, krt, rot);
   rrk::set_rotation(spec, rotate ? rot : nullptr);
 
-  for (int i = 1; i <= nray_init; ++i) {
+  for (int i = 1; i <= nray; ++i) {
     const int ipix = i - 1;
     const std::int64_t ir = indx[i - 1];
     Ray& ry = R.at(ir);
@@ -401,7 +405,7 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
   }
 
   // Update head in htoc_ray(1) since source rays added at head
-  G.htoc_ray(1, c) = indx[nray_init - 1];
+  G.htoc_ray(1, c) = indx[nray - 1];
   // Only update tail in htoc_ray(2) if initially empty
   if (G.htoc_ray(2, c) == 0) G.htoc_ray(2, c) = indx[0];
 }

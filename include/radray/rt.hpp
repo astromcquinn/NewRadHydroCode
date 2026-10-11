@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "radray/constants.hpp"
 #include "radray/simulation.hpp"
 
 namespace radray {
@@ -59,9 +60,12 @@ void calc_ngam_ray(const std::int64_t* ngam_pdf, int N_pdf, double ngam_avg, std
                    std::int64_t Nray_max, bool legacy, std::array<double, 64>& ngam_ray,
                    std::ostream* log);
 std::int64_t pool_split_candidates(const std::int64_t* spl_pdf, int N_pdf, double ngam_ray32);
+// nray_src: rays per stellar emission (nray_init = 192; more with
+// rt_cells_per_substep > 4, rrk::emit_nside).
 void pool_guard(const std::int64_t* spl_pdf, int N_pdf, std::int64_t L, std::int64_t nsrc,
                 std::int64_t nrec_rays, std::int64_t Nray_max, std::array<double, 64>& ngam_ray,
-                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log);
+                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log,
+                int nray_src = rayp::nray_init);
 
 // rt_tools.f90: summarize_rt (writes to s.out)
 void summarize_rt(Simulation& s);
