@@ -133,6 +133,14 @@ struct Config {
   // 2^l fine cells per coarse substep.
   int rt_cells_per_substep = 1;
 
+  // B17 fix (docs/port_notes.md, docs/rt_multicell.md): photo_cell's photon
+  // limit is iterated to convergence (at most rrk::kPhotonIterMax
+  // iterations) instead of ending with ne after at most 5 iterations, which
+  // lets photon-starved front cells ionise without the photons. false
+  // (default) is the original. Independent of legacy_physics (whose fixes
+  // the Fortran harnesses mirror); rays and the moment RT.
+  bool photon_conserve = false;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled

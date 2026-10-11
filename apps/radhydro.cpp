@@ -101,6 +101,7 @@ struct RunParams {
   long long ray_rotate_seed = 0;
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
+  int photon_conserve = 0;        // Config::photon_conserve (0 = original; B17 fix)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -178,6 +179,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "rt_cells_per_substep") {
     P.rt_cells_per_substep = std::stoi(val);
     if (P.rt_cells_per_substep < 1) throw std::runtime_error("rt_cells_per_substep must be >= 1");
+  }
+  else if (key == "photon_conserve") {
+    P.photon_conserve = std::stoi(val);
+    if (P.photon_conserve != 0 && P.photon_conserve != 1)
+      throw std::runtime_error("photon_conserve must be 0 or 1");
   }
   else if (key == "redshift_per_distance") {
     P.redshift_per_distance = std::stoi(val);
@@ -519,6 +525,7 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
+    s.cfg.photon_conserve = (P.photon_conserve == 1);      // B17 fix
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
@@ -583,6 +590,7 @@ int main(int argc, char** argv) {
            << (P.rt_cells_per_substep != 1
                    ? ", rt_cells_per_substep = " + std::to_string(P.rt_cells_per_substep)
                    : std::string())
+           << (P.photon_conserve ? ", photon_conserve = 1" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel

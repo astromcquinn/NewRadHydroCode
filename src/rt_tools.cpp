@@ -1036,6 +1036,7 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   X.rates.legacy_physics = s.cfg.legacy_physics;
   X.dtsec_rt = dtsec_rt;
   X.cells = s.cfg.rt_cells_per_substep;
+  X.photon_conserve = s.cfg.photon_conserve;
   X.want_nrab = static_cast<bool>(s.recomb);
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {

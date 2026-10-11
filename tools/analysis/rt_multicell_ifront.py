@@ -119,6 +119,7 @@ def run(driver, prob, out, c, k, nsteps, N, src, carry, threads, extra, profile_
     res = {"c": c, "k": k, "t": [], "R": [], "chat": [], "nstep": [], "ngam": 0.0,
            "wall": wall, "guard": guard, "profiles": {}}
     sec = 0.0
+    cells = 0.0
     nbin = N // 2
     for n in range(1, nsteps + 1):
         sd = os.path.join(out, f"step_{n:04d}")
@@ -127,11 +128,14 @@ def run(driver, prob, out, c, k, nsteps, N, src, carry, threads, extra, profile_
         dtsec_rt = st["dtsec_rt"][0]
         nstep = ns["nstep_rt"][0]
         sec += dtsec_rt * nstep
+        cells += k * nstep
         xhi, tt, fHI, T = radial_profiles(sd, N, src, nbin)
         V = np.sum(1 - fHI)
         res["t"].append(sec)
         res["R"].append((3 * V / (4 * np.pi)) ** (1 / 3))
-        res["chat"].append(k / dtsec_rt)  # cells per second: k cells per substep
+        # cells per second: the light front so far (k cells per substep) over t;
+        # with rt_substep_carry the per-step value alternates
+        res["chat"].append(cells / sec)
         res["nstep"].append(nstep)
         res["ngam"] += st["ngam"][0]
         if n in profile_steps:
@@ -196,6 +200,14 @@ def main():
             print(f" ran {tag}: {r['wall']:.1f} s, substeps/step {r['nstep'].min():g}-"
                   f"{r['nstep'].max():g}{'  (nstep_rt >= 1 guard active)' if r['guard'] else ''}",
                   flush=True)
+    # light distance against k = 1 at the same c: > 1 when light crosses
+    # fewer than k cells per hydro step and the nstep_rt >= 1 guard (applied
+    # silently with rt_substep_carry) makes it faster than c_reduced
+    for (c, k), r in runs.items():
+        r["light_ratio"] = float((r["chat"][-1] * r["t"][-1]) /
+                                 (runs[(c, 1)]["chat"][-1] * runs[(c, 1)]["t"][-1]))
+        if r["light_ratio"] > 1.02:
+            r["guard"] = True
     base = runs[(1.0, 1)]
     Rinf_t = np.concatenate([[0.0], base["t"] - base["R"] / base["chat"]])
     Rinf_R = np.concatenate([[0.0], base["R"]])
@@ -222,7 +234,7 @@ def main():
             ent = {
                 "c": c, "k": k, "wall": r["wall"], "guard": r["guard"],
                 "nstep_total": float(r["nstep"].sum()),
-                "chat_over_c": float(r["chat"][0] / (base["chat"][0] / 1.0)) if c != 1.0 or k != 1 else 1.0,
+                "light_ratio": r["light_ratio"],
                 "R": r["R"].tolist(), "t_myr": (r["t"] / MYR).tolist(), "pred": pred.tolist(),
                 "rel_err_max": float(np.max(np.abs(rel[sel]))) if sel.any() else 0.0,
                 "rel_err_rms": float(np.sqrt(np.mean(rel[sel] ** 2))) if sel.any() else 0.0,
@@ -241,7 +253,7 @@ def main():
             print(f"   k={k}: finite-c max|rel| {ent['rel_err_max']:.3f} rms {ent['rel_err_rms']:.3f}"
                   f"; max|R-R(k=1)| {ent['dR_vs_k1_max']:.3f} (last {ent['dR_vs_k1_last']:+.3f})"
                   f"; casts {ent['cast_total']:.3g}; wall {r['wall']:.1f} s"
-                  f"{'; GUARD' if r['guard'] else ''}")
+                  f"{'; GUARD: light %.2fx too far' % r['light_ratio'] if r['guard'] else ''}")
             if a.check and k != 1:
                 if ent["dR_vs_k1_max"] > 0.5:
                     print(f"  FAIL: c={c:g} k={k}: front more than 0.5 cells from k = 1")

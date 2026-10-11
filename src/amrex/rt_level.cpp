@@ -817,6 +817,7 @@ struct Level : LevelBase {
       X.rates = rates_view(s);
       X.dtsec_rt = s.clk.dtsec_rt;
       X.cells = s.cfg.rt_cells_per_substep;
+      X.photon_conserve = s.cfg.photon_conserve;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;
       const bool he = has_e;
