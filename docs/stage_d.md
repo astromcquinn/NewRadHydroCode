@@ -255,6 +255,13 @@ cell of `lognormal_16src_smallbuf`, where the pool guard and merges are
 active) and 1e-6 on the float stats (`ngam_rays_total`, a double sum in a
 different order). The bitwise block: see the run log in the PR.
 
+Known limit of the AMReX build: the live-Fortran full-loop tests
+(`full_vs_fortran_live_*`) fail to link there, because the Fortran harness
+links `libradray.a`, whose `rt_tools.cpp` now references the backend's
+`amrex_rt_*` symbols from the separate AMReX library. Run the fast suite in
+the default build and only `ctest -L amrex` in the AMReX build (as CI does);
+all seven live tests pass in the default build of the merged branch.
+
 ### 4.2 The 64³ production configuration
 
 `make_production.py --N 64` (10 Mpc/h, 0.01c, factor 16, on-the-fly
