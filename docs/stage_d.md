@@ -58,9 +58,15 @@ frequency group's photons to the `rt_stat%ngam` accumulator separately;
 summing the groups first changes the last bits of a diagnostic sum.
 `source_stats` therefore returns the per-group addends.
 
-Not carried: `ray_rotate` (branch `claude/exciting-clarke-zn62ih` is not on
-the remote; nothing to merge). The moment solvers (`rt_method = m1 |
-otvet`) stay on the serial path.
+Carried at the merge with `main` (2026-10-11): the B16 fix `ray_rotate`
+(the frame rotation is `rrk::frame_rotation`, keyed by `RTP::ray_rotate`,
+`rot_seed`, `rot_abits`, `rot_istep`; `SourceSpec` holds the rotation and
+`source_ray` applies it, so the serial `ray_source`, the recombination rays
+and the backend's emission share it; the backend rotates with the 1-based
+cell like the serial code), `redshift_per_distance` (`redshift_fscale` in
+`ray_redshifting` and the backend's `post_rt`) and `recomb_rad_lines`
+(`PhotoStats::nrB`, the case-B recombinations). The moment solvers
+(`rt_method = m1 | otvet`) stay on the serial path.
 
 `spike/common`'s copies of the kernels are deleted. `spike/serial
 rt_serial` (the bitwise reference of the backend) builds against the
