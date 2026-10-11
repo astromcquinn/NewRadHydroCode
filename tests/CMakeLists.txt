@@ -625,6 +625,16 @@ if(Python3_Interpreter_FOUND)
                      --set fields_every=1 --set hydro_scheme=unsplit)
     set_tests_properties(thread_full_pm_refine PROPERTIES TIMEOUT 1800 LABELS "threads;pm"
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # fof_dt_myr (FoF cadence, docs/pm_refine.md): 14 source updates from
+    # z = 12, of which 9 reuse the cached halos (drifted) with fof_dt_myr = 60
+    add_test(NAME thread_full_fof_cadence
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_fof_cadence $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2 --quiet
+                     --set "zdata1=12 7.5" --set ra_max=0.03 --set fof_dt_myr=60
+                     --set fields_every=4)
+    set_tests_properties(thread_full_fof_cadence PROPERTIES TIMEOUT 1800 LABELS "threads;pm"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     # ASan/UBSan builds with OpenMP, thread-count independence (parallel
     # paths: N = 32)
     if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
@@ -684,6 +694,14 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/pm_refine 22 --set hydro_scheme=unsplit)
     set_tests_properties(restart_smoke_pm_refine PROPERTIES TIMEOUT 900 LABELS "restart;pm")
+    # the FoF cache through the checkpoint (fof_dt_myr; checkpoint version 5):
+    # restart at step 77, between FoF calls with cached halos
+    add_test(NAME restart_smoke_fof_cadence
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/fof_cadence 77
+                     --set "zdata1=12 7.5" --set ra_max=0.03 --set fof_dt_myr=60)
+    set_tests_properties(restart_smoke_fof_cadence PROPERTIES TIMEOUT 900 LABELS "restart;pm")
     # the moment RT state through the checkpoint (docs/rt_moments.md)
     foreach(m m1 otvet)
       add_test(NAME restart_smoke_${m}

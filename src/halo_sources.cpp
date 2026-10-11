@@ -473,11 +473,62 @@ SourceCatalog onthefly_catalog(const Config& cfg, const SimClock& clk, const Uni
   return cat;
 }
 
+// fof_dt_myr > 0: FoF when due, else the cached halos drifted to now and
+// re-assigned at the current redshift (FofCache, halos.hpp)
+SourceCatalog cached_catalog(Simulation& s, const float* xv_dm, std::int64_t npart,
+                             const HaloSourceParams& p, bool& ran_fof) {
+  FofCache& c = s.fof;
+  const HaloUnits hu = make_halo_units(s.cfg, s.clk, s.units);
+  ran_fof = !c.valid || (s.clk.year - c.year) >= p.fof_dt_myr * 1e6;
+  std::vector<Halo> halos;
+  if (ran_fof) {
+    if (!xv_dm && npart > 0) throw std::invalid_argument("update_sources: xv_dm is null");
+    c.halos = find_halos(xv_dm, npart, hu, p.finder);
+    c.valid = true;
+    c.year = s.clk.year;
+    c.vel_unit = s.units.vel_unit;
+    c.dtau = 0;
+    ++c.nfof;
+    halos = c.halos;
+  } else {
+    // dx [gas cells] = v [km/s] 1e5 / vel_unit(FoF) * dtau, to comoving Mpc/h
+    c.dtau = c.dtau + s.clk.dt_sim;
+    ++c.nreuse;
+    const double cell = s.cfg.box / s.cfg.ngasr;
+    halos = c.halos;
+    for (Halo& h : halos)
+      for (int d = 0; d < 3; ++d) {
+        double x = h.x[d] + h.v[d] * 1e5 / c.vel_unit * c.dtau * cell;
+        x = std::fmod(x, s.cfg.box);
+        if (x < 0) x += s.cfg.box;
+        h.x[d] = x;
+      }
+  }
+  std::vector<SfrHistoryRow> table;
+  if (!p.model.sfr_history_path.empty()) table = read_sfr_history(p.model.sfr_history_path);
+  SourceCatalog cat = assign_sources(halos, hu, p.model,
+                                     p.model.sfr_history_path.empty() ? nullptr : &table);
+  if (ran_fof && !p.write_catalog_dir.empty() && !cat.tag.empty()) {
+    std::filesystem::create_directories(p.write_catalog_dir);
+    write_halo_catalog(p.write_catalog_dir + "/halo." + cat.tag, cat.halo);
+  }
+  return cat;
+}
+
 SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npart,
                              const HaloSourceParams& p, std::ostream* log) {
   SourceCatalog cat;
   if (p.mode == HaloSourceParams::Mode::Legacy) {
     cat = read_halo(p.dir_halo, s.clk.redshift, log);
+  } else if (p.fof_dt_myr > 0) {
+    bool ran = false;
+    cat = cached_catalog(s, xv_dm, npart, p, ran);
+    if (log)
+      *log << " Halos " << cat.halo.size() << " " << cat.Nsource
+           << (ran ? " (FoF)" : " (reused, FoF " +
+                                    std::to_string((s.clk.year - s.fof.year) / 1e6) +
+                                    " Myr ago)")
+           << "\n";
   } else {
     cat = onthefly_catalog(s.cfg, s.clk, s.units, xv_dm, npart, p);
     if (log) *log << " Halos " << cat.halo.size() << " " << cat.Nsource << "\n";
@@ -531,6 +582,9 @@ bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::stri
     p.model.L_per_sfr = num();
   } else if (key == "sfr_history") {
     p.model.sfr_history_path = val;
+  } else if (key == "fof_dt_myr") {
+    p.fof_dt_myr = num();
+    if (p.fof_dt_myr < 0) throw std::runtime_error("fof_dt_myr must be >= 0");
   } else if (key == "write_catalogs") {
     p.write_catalog_dir = val;
   } else if (key == "add_metals") {

@@ -548,6 +548,8 @@ int main(int argc, char** argv) {
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
+           << (P.halo.fof_dt_myr > 0 ? ", fof_dt_myr = " + std::to_string(P.halo.fof_dt_myr)
+                                     : std::string())
            << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
 
     Timers T;
@@ -886,6 +888,9 @@ int main(int argc, char** argv) {
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
            << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
+    if (P.halo.fof_dt_myr > 0)
+      timing << "# fof_dt_myr " << P.halo.fof_dt_myr << " fof_calls " << s.fof.nfof
+             << " reused " << s.fof.nreuse << "\n";
   } catch (const std::exception& e) {
     std::fprintf(stderr, "radhydro: error: %s (peak RSS %.1f MB)\n", e.what(), peak_rss_mb());
     return 1;

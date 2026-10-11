@@ -20,6 +20,7 @@ the original behaviour:
 | `ray_rotate`, `ray_rotate_seed` | 0, 0 | rotate the HEALPix frame of emitted rays against the grid-aligned deficit B16: 1 fixed, 2 every RT substep, 3 every substep and source (the production setting, written by `make_production.py`; `docs/port_notes.md` B16); also `rt_driver` |
 | `redshift_per_distance` | 0 | 1: redshift the radiation (rays and moment RT) per distance travelled instead of per time, fscale^s with s ≈ ĉ/c (section 1, "Redshifting per time or per distance"); only acts with `c_reduced < 1`; independent of `legacy_physics`; also `rt_driver` |
 | `pm_refine` | 1 | PM mesh of `pm_refine`·N cells per dimension (gas spread onto it, forces averaged back), for Ndm up to `pm_refine`·N particles; threaded FFTW (`docs/pm_refine.md`); also `pm_driver` and the hydro-suite driver; `make_production.py --pm-refine 2` |
+| `fof_dt_myr` | 0 | run the on-the-fly FoF only when ≥ this many Myr have passed since the last one; in between reuse its halos (drifted, sources re-assigned at the current z); 0: every hydro step (`docs/pm_refine.md` §5); `make_production.py --fof-dt-myr` |
 | `ra_max` | the original 0.1 | max expansion per hydro step, da/a ≤ ra_max/(1−ra_max) (`legacy_rt = 0` only) |
 | `movie_dz`, `movie_z0`, `movie_fields` | 0, first zdata1, `fHI,temp` | movie frames every `movie_dz` in redshift, written from inside the RT substeps (section 4) |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes |

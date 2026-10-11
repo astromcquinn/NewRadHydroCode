@@ -266,12 +266,9 @@ two nearest catalogs (the runs' time steps differ). Ratios to `hmf256`
   are much better determined than the ±.
 * Above ~10^9.7 M☉ (> 800 particles) all runs agree within the noise of
   the small box; the 40 Mpc/h runs extend the function to 10^11.5–10^12 M☉.
-* **Abundance matching.** The 1024³ particle mass equals the 10 Mpc/h
-  256³ one, so the FoF fit `data/hmf/fof_256_10mpc.txt` and
-  `data/uv_lf/am_params_256_10mpc.txt` describe pm_refine = 2 runs better
-  than the 128³ ones the 512³ production uses. Their low-mass deficit is
-  10–25% larger, from the gas grid, as above. Not changed here; see
-  "Open".
+* **Abundance matching.** pm_refine = 2 runs need their own FoF
+  correction. §6 has it, fitted to these catalogs:
+  `data/uv_lf/am_params_1024_40mpc_r2.txt`.
 
 ## 4. Cost
 
@@ -325,13 +322,127 @@ force 13 GB, density 4 GB, FoF work arrays. The 512³ production peaked at
 `DM/xv_dm.*` output is 26 GB (`data_files = dm` or `norays` writes them at
 every zdata1 redshift).
 
-## 5. Notes
+## 5. FoF cadence: `fof_dt_myr`
+
+User decision 2026-10-11: the on-the-fly FoF should run less often than
+every step. By default it runs at every `update_sources` call, i.e. once
+per hydro step after the first zdata1 output (z = 15 in production).
+
+`fof_dt_myr = Δt` (params.txt / `--set`; `make_production.py
+--fof-dt-myr`; default 0 = every hydro step, the original, byte-identical):
+
+* The FoF runs at the first source update and then whenever
+  `clk.year` − (time of the last FoF) ≥ Δt.
+* In between, the cached halos (`FofCache` in `halos.hpp`, held in
+  `Simulation::fof`) are reused:
+  * mass, N, R and T_vir stay those of the FoF;
+  * positions are drifted with each halo's mean velocity, x += v / vel_unit(FoF) ·
+    Σ dt_sim · (box/N) (comoving, periodic), with Σ dt_sim the code time
+    since the FoF;
+  * `assign_sources` is re-run at the **current** redshift, so the
+    abundance-matched luminosities and SFRs follow z.
+* `write_catalogs` writes a catalog only when the FoF runs.
+* stdout says `(FoF)` or `(reused, FoF x Myr ago)`.
+* `timing.txt` ends with `# fof_dt_myr … fof_calls … reused …`.
+* Checkpoint version 5 holds the cache (halos, time of the last FoF,
+  vel_unit, Σ dt_sim), so restarts stay bit-identical. Versions 1–4 are
+  read with an empty cache, so the next update runs the FoF.
+* Tests: `thread_full_fof_cadence` and `restart_smoke_fof_cadence`
+  (`onthefly_r2`, zdata1 = 12 7.5, ra_max = 0.03, fof_dt_myr = 60: 14
+  source updates, 5 FoF calls and 9 reuses, several with halos present;
+  the restart is at step 77, between FoF calls).
+
+**How many FoF calls?** From the redshifts of the hydro steps of the
+512³ production run (`reion512_40mpc_f0.1`: 57 steps, 39 of them with
+sources, z = 15 → 4.95). The steps are ~30 Myr apart at z = 7–15,
+24–28 Myr at z = 5.5–7 and 8 Myr after overlap (z < 5.5). The column on
+the right counts the `hmf512_40mpc_r2` steps (pm_refine = 2, z = 15 → 5.5,
+37 steps, median 21 Myr):
+
+| fof_dt_myr | FoF calls (512³ production, of 39) | FoF time saved at 1024³ (32 s/call) | FoF calls (pm_refine = 2 run, of 37) |
+|---|---|---|---|
+| 0 | 39 | — | 37 |
+| 10 | 36 | 1.6 min | 37 |
+| 20 | 33 | 3 min | 31 |
+| 30 | 22 | 9 min | 19 |
+| 50 | 16 | 12 min | 13 |
+
+With the present time steps the hydro steps are already 20–30 Myr apart
+until overlap. FoF every step costs ~20 min at 1024³ against a run of
+~8 h, so the cadence mainly thins the short post-overlap steps. It saves
+more if the steps get shorter (a smaller `ra_max`, more PM-limited steps).
+
+**Suggested value: 20 Myr (the user decides).** The halo dynamical time
+is ~0.1 t_H ≈ 140 Myr at z = 6 (t_H = 1/H = 1.4 Gyr), and the mass of
+10⁹ M☉ halos grows by an e-fold in ≳ 150 Myr. Masses held for ≤ 20 Myr are
+then low by ≲ 10–15% (L ∝ M^1.3: ≲ 15–20%). That is below the scatter of
+the abundance matching. The drift moves halos by ≲ 0.5 gas cell
+(300 km/s for 20 Myr). 30 Myr halves the calls before overlap at about
+twice the mass lag.
+
+## 6. Abundance matching for pm_refine = 2
+
+The abundance matching uses the **simulated** FoF mass function
+(`docs/abundance_matching.md`): n_halo = ST × R(N, z), with R fitted to a
+no-source run at the run's particle mass. R is "resolution-specific:
+refit it from a no-source run at each N". The 512³ production uses the
+128³/10 Mpc/h fit (m_p = 5.1e7 M☉). A pm_refine = 2 run has
+m_p = 6.4e6 M☉, so its fit comes from `hmf512_40mpc_r2`, made exactly as
+the 256³ one was (`docs/hmf_validation.md`):
+
+```
+python3 tools/analysis/fit_fof_hmf.py $RUNS/hmf512_40mpc_r2/run/halos --box 40 --N 1024 --out data/hmf/fof_1024_40mpc_r2.txt
+build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --sim-hmf data/hmf/fof_1024_40mpc_r2.txt --out am
+```
+
+→ `data/hmf/fof_1024_40mpc_r2.txt` and
+`data/uv_lf/am_params_1024_40mpc_r2.txt`. Use the latter with
+`make_production.py --pm-refine 2 --am-params …` for 40 Mpc/h, N = 512.
+
+| | r∞ | p | N_c0 | q |
+|---|---|---|---|---|
+| 256³ / 10 Mpc/h | 5.03 | 0.336 | 13 278 | 2.64 |
+| 1024³ / 40 Mpc/h (pm_refine = 2) | 1.7×10⁸ | 0.279 | 1.2×10³² | 3.20 |
+
+**The 1024³ fit sits at a degenerate corner.** N ≪ N_c everywhere, so
+R ≈ 0.19 N^0.28 ((1+z)/7)^−0.89, a pure power law. Measured FoF/ST of the
+1024³ catalogs against the two fits (z = 6.04):
+
+| particles | 27 | 47 | 150 | 474 | 1500 | 4743 | 15 000 |
+|---|---|---|---|---|---|---|---|
+| measured | 0.44 | 0.37 | 0.60 | 0.99 | 1.32 | 1.37 | 1.63 |
+| 1024³ fit | 0.46 | 0.55 | 0.75 | 1.04 | 1.43 | 1.97 | 2.72 |
+| 256³ fit | 0.55 | 0.66 | 0.91 | 1.23 | 1.63 | 2.08 | 2.56 |
+
+The form r∞/(1 + (N/N_c)^−p) with a z-independent r∞ cannot follow the
+data. The measured ratio rises steeply to ~500 particles and then
+flattens at 1.3–1.7 (z ≈ 6), but at high mass it grows with z (2.0–2.6 at
+z = 8–10). The model total counts are 4% high at z = 5.5 and 2× high at
+z = 13.3. The 256³ fit has the same problem; its 10 Mpc/h box had too few
+massive halos to show it. So the fit is good near 20–500 particles at
+z ≈ 6–8 and too high above ~10^10 M☉ and at z ≳ 11. **Open:** a better
+R(N, z) form (e.g. r∞(z)) in `fit_fof_hmf.py` and `am_fit`, or matching
+directly to the tabulated catalog counts.
+
+Resulting M_UV(M) (am_fit summary; 1024³ fit / 256³ fit):
+
+| z | 10^8.5 M☉ | 10^9 | 10^10 | 10^11 |
+|---|---|---|---|---|
+| 6 | −11.14 / −10.81 | −12.70 / −12.46 | −15.83 / −15.77 | −18.94 / −19.04 |
+| 8 | −12.25 / −11.91 | −13.84 / −13.57 | −17.03 / −16.89 | −20.12 / −20.11 |
+| 10 | −13.30 / −12.96 | −14.91 / −14.63 | −18.12 / −17.95 | −21.14 / −21.10 |
+
+The 1024³ fit makes the faint sources brighter: by 0.33–0.34 mag at
+10^8.5 M☉ (L +36%) and 0.24–0.28 mag at 10⁹ (+25%). The difference falls
+to 0.06–0.17 mag at 10¹⁰ M☉ and to ≲ 0.1 at 10¹¹. Its R is lower at
+47–500 particles, so the same LF is matched with fewer resolved halos per
+unit L. Overall source luminosity is in any case calibrated by f_esc.
+
+## 7. Notes
 
 * **Open:**
-  * whether production should switch the abundance matching to the 256³
-    fit (or a fit to these 1024³ catalogs);
-  * whether the FoF should run less often than every step at 10⁹
-    particles;
+  * the value of `fof_dt_myr` for production (§5; 20 Myr suggested);
+  * a better R(N, z) form for the abundance-matching correction (§6);
   * a production 512³ run with pm_refine = 2 (`make_production.py
     --pm-refine 2`; it needs `--mem` ≳ 300G).
 

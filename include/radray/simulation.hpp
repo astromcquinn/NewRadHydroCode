@@ -13,6 +13,7 @@
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/grid.hpp"
+#include "radray/halos.hpp"
 #include "radray/ray_quant.hpp"
 #include "radray/rays.hpp"
 #include "radray/rt_rates.hpp"
@@ -91,6 +92,8 @@ struct Simulation {
   std::shared_ptr<MomentState> moments;
   // Recombination radiation (recomb_rad = 1, recomb_rad.hpp); null otherwise.
   std::shared_ptr<RecombState> recomb;
+  // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
+  FofCache fof;
 };
 
 }  // namespace radray

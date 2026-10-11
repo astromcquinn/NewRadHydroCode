@@ -30,6 +30,12 @@ existing models are bit-identical to before.
      * Use `am_fit --hmf st --sim-hmf data/hmf/fof_128_10mpc.txt`. The
        correction is resolution-specific: refit it from a no-source run
        at each N.
+     * Fits so far: `fof_128_10mpc` (m_p = 5.1e7 M☉: 128³/10 Mpc/h and
+       512³/40 Mpc/h), `fof_256_10mpc` (6.4e6 M☉) and `fof_1024_40mpc_r2`
+       (6.4e6 M☉, 40 Mpc/h with pm_refine = 2, the parameters
+       `data/uv_lf/am_params_1024_40mpc_r2.txt`; `docs/pm_refine.md` §6,
+       which also shows that this R(N, z) form overshoots FoF/ST above
+       ~10^10 M☉).
    * Otherwise n_halo comes from the analytic Tinker et al. 2008
      (Δ = 200m) or Sheth–Tormen mass function, in the simulation cosmology
      (cosmo_parameters.f90: Ωm = 0.27, h = 0.7, σ8 = 0.8, n = 0.96), BBKS

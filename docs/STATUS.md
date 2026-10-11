@@ -47,11 +47,25 @@ in the 40 Mpc/h, 512³ runs.
 - Cost per step (no RT): ~60 s against 29 s, mostly the on-the-fly FoF on
   10⁹ particles (32 s). PM 13 s (30 s before the r > 1 speed-ups:
   parallel `link_dm`, stored mesh force, FFT cap); 174 GB peak.
+- **FoF cadence** (user: "FoF should definitely run less often than
+  every step"): `fof_dt_myr`.
+  - The FoF runs every Δt Myr; in between the cached halos are reused,
+    drifted, and the sources re-assigned at the current z.
+  - The cache is in the checkpoint (version 5).
+  - Default 0 = every hydro step (byte-identical).
+  - Tests: `thread_full_fof_cadence`, `restart_smoke_fof_cadence`.
+  - In the 512³ production schedule (39 source steps, 20–30 Myr apart
+    until overlap): 20 Myr → 33 FoF calls, 30 Myr → 22, 50 → 16. That is
+    only 3–12 min saved at 1024³; 20 Myr suggested.
+- **Abundance matching for pm_refine = 2:** refitted from the 1024³
+  catalogs (`data/uv_lf/am_params_1024_40mpc_r2.txt`). Faint sources are
+  brighter than with the 256³ fit (+0.33 mag at 10^8.5 M☉, +0.25 at
+  10⁹). The R(N, z) fit form overshoots FoF/ST above ~10^10 M☉ and at
+  z ≳ 11, for both fits (`docs/pm_refine.md` §6).
 - **Open (user):**
   - production with pm_refine = 2;
-  - which abundance-matching fit (the 1024³ particle mass is that of
-    10 Mpc/h 256³);
-  - FoF frequency.
+  - the fof_dt_myr value;
+  - a better R(N, z) form.
 
 ## Production run at 256³ (branch `production-256`, started 2026-10-10)
 

@@ -24,7 +24,9 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // Version 4 (recomb_rad = 1, docs/recomb_radiation.md): the recombination
 // photon buffers, on-the-spot counts, cell modes and budget before the
 // trailer (empty when off).
-constexpr std::int32_t kVersion = 4;
+// Version 5 (fof_dt_myr, docs/pm_refine.md): the on-the-fly FoF cache
+// before the trailer (empty when off). Versions 1-4 are read as "no cache".
+constexpr std::int32_t kVersion = 5;
 
 struct Out {
   std::ofstream f;
@@ -175,6 +177,15 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.vec(Rc ? Rc->mode : none8);
     const double rbud[3] = {Rc ? Rc->launched : 0, Rc ? Rc->dropped : 0, Rc ? Rc->onspot : 0};
     o.pod(rbud);
+    // FoF cache (version 5)
+    const FofCache& fc = s.fof;
+    const std::int32_t fvalid = fc.valid ? 1 : 0;
+    o.pod(fvalid);
+    const double fd[3] = {fc.year, fc.vel_unit, fc.dtau};
+    o.pod(fd);
+    const std::int64_t fn[2] = {fc.nfof, fc.nreuse};
+    o.pod(fn);
+    o.vec(fc.halos);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -304,6 +315,22 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     }
   } else if (s.cfg.recomb_rad) {
     throw std::runtime_error("checkpoint has no recombination radiation state: " + path);
+  }
+  s.fof = FofCache{};
+  if (ver >= 5) {
+    std::int32_t fvalid = 0;
+    double fd[3];
+    std::int64_t fn[2];
+    in.pod(fvalid);
+    in.pod(fd);
+    in.pod(fn);
+    in.vec(s.fof.halos);
+    s.fof.valid = fvalid != 0;
+    s.fof.year = fd[0];
+    s.fof.vel_unit = fd[1];
+    s.fof.dtau = fd[2];
+    s.fof.nfof = fn[0];
+    s.fof.nreuse = fn[1];
   }
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)

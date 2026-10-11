@@ -384,3 +384,10 @@ policy on klone, and deleting the merged branches.
   large-scale modes of the 512³ production ICs (`--phases-from-ndm 512`,
   seed 7); the validation run uses the production hydro (`unsplit`); FFT
   threads are capped at 32 (faster, results identical).
+* **FoF less often than every step** (user, 2026-10-11, after the cost
+  of FoF on 10⁹ particles: 32 s per hydro step). Implemented as
+  `fof_dt_myr` (default 0 = every hydro step; `docs/pm_refine.md` §5).
+  The production value is still open (20 Myr suggested).
+* The pm_refine = 2 abundance matching uses a FoF correction fitted to
+  the 40 Mpc/h 1024³ catalogs (the documented rule: refit at each
+  resolution); `data/uv_lf/am_params_1024_40mpc_r2.txt`.
