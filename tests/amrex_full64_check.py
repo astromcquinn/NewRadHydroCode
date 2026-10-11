@@ -46,8 +46,12 @@ def main():
     flags = os.environ.get("RADRAY_MPIEXEC_FLAGS", "--oversubscribe --allow-run-as-root --bind-to none").split()
     prob = os.path.join(work, "prob")
     if not os.path.exists(os.path.join(prob, "params.txt")):
+        # hydro_scheme and redshift_per_distance pinned to the configuration the tolerances were
+        # measured with (docs/stage_d.md section 4), before make_production.py's production
+        # defaults became unsplit and per distance (2026-10-11)
         run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
-             "--movie-dz", "0"], os.path.join(work, "make.log"))
+             "--movie-dz", "0", "--hydro-scheme", "legacy", "--redshift-per-distance", "0"],
+            os.path.join(work, "make.log"))
     common = ["--quiet", "--set", "restart_every=0", "--set", "movie_dz=0.25", "--set", "movie_z0=15"]
     runs = {"serial": [exe, prob, os.path.join(work, "serial")] + common,
             "amrex": [launch] + flags + ["-np", "2", "-x", "OMP_NUM_THREADS=2", exe, prob,

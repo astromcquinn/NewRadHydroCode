@@ -914,7 +914,8 @@ at 1–2 cells per layer, small-scale gas power, and speed per step.
 * Use `hydro_scheme = unsplit` (the defaults of §5) for every run whose
   cold gas matters: the plane-parallel / DM20-type runs, the
   pre-reionisation T–ρ relation, 21-cm, Jeans/filtering-mass work, and
-  the production reionisation runs, where it also costs less per hydro step.
+  the production reionisation runs, where it also costs less per hydro step
+  (user decision 2026-10-11: the `make_production.py` default).
   The original `ra_max` is converged for the 10 Mpc/h production box at
   z ≥ 3 (§6, convergence checks); `ra_max` ≈ 0.01–0.02 is a cheap
   safeguard (the RT substeps are set by the light travel). Large boxes
