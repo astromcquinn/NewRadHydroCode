@@ -7,8 +7,11 @@ OTVET; docs/rt_moments.md section 6, docs/movies.md).
                      [--fps 12] [--jobs 8] [--stills auto]
 
 RUN is a run directory (<problem>/run). Columns are runs; the rows are
-slices of x_HII and log10 T. A time panel shows x_HII,V(z) of every run
-up to the current frame. The first run sets the frames; each other run
+slices of x_HII and log10 T, and of log10 Gamma_HI (fixed range 1e-14 -
+1e-11 s^-1) when every run wrote gammaHI frames (--rows to choose). A time
+panel shows x_HII,V(z) of every run up to the current frame; with the
+gamma row a second one shows the median Gamma_HI of the ionised cells
+(movie/frames.txt). The first run sets the frames; each other run
 shows its movie frame nearest in redshift (the frames are written at the
 same movie_dz redshifts, so they agree to within an RT substep; the
 largest mismatch is printed). All runs must have the same N and box.
@@ -30,7 +33,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import Normalize  # noqa: E402
 
 COLORS = ["#4cc9f0", "#f72585", "#80ed99", "#ffd166"]
-ROWS = ("xHII", "temp")
+ROWS = ("xHII", "temp")  # default rows; "gamma" is added when every run has gammaHI frames
 
 
 class Renderer:
@@ -45,6 +48,7 @@ class Renderer:
         for r in runs[1:]:
             mm.plane_start(r, args, self.i0)
         self.thick = max(1, args.thick)
+        self.rows = rows = args.rows
         W, H = args.size
         plt.rcParams.update({"font.size": 12, "axes.titlesize": 13})
         self.fig = fig = plt.figure(figsize=(W / args.dpi, H / args.dpi), dpi=args.dpi,
@@ -52,15 +56,15 @@ class Renderer:
         nr = len(runs)
         # square slices on the left (rows: fields, columns: runs), the time
         # panel on the right; positions in pixels, converted to figure units
-        side = min(0.39 * H, 0.62 * W / nr)
         gap, x0, y0 = 0.012 * W, 0.045 * W, 0.08 * H
+        side = min((0.80 * H - (len(rows) - 1) * 2.5 * gap) / len(rows), 0.62 * W / nr)
         px = lambda x, y, w, h: [x / W, y / H, w / W, h / H]  # noqa: E731
         self.ims = {}
         hlab, vlab = mm.AXES[self.plane[0]], mm.AXES[self.plane[1]]
-        for i, fld in enumerate(ROWS):
+        for i, fld in enumerate(rows):
             st = mm.STYLE[fld]
             lo, hi = mm.fixed_range(fld, args)
-            yb = y0 + (len(ROWS) - 1 - i) * (side + 2.5 * gap)
+            yb = y0 + (len(rows) - 1 - i) * (side + 2.5 * gap)
             for j in range(nr):
                 a = fig.add_axes(px(x0 + j * (side + gap), yb, side, side))
                 im = a.imshow(np.zeros((2, 2)), origin="lower", cmap=st["cmap"],
@@ -70,7 +74,7 @@ class Renderer:
                 ticks = [t for t in np.arange(0, box, 2.0 if box > 5 else 1.0)]
                 a.set_xticks(ticks)
                 a.set_yticks(ticks)
-                a.set_xticks([]) if i < len(ROWS) - 1 else a.set_xlabel("%s [Mpc/h]" % hlab, color="white")
+                a.set_xticks([]) if i < len(rows) - 1 else a.set_xlabel("%s [Mpc/h]" % hlab, color="white")
                 a.set_yticks([]) if j > 0 else a.set_ylabel("%s [Mpc/h]" % vlab, color="white")
                 if i == 0:
                     a.set_title(labels[j], color=COLORS[j % len(COLORS)], fontsize=16)
@@ -81,11 +85,30 @@ class Renderer:
             cb.ax.tick_params(colors="white")
             cb.outline.set_edgecolor("white")
         xt = x0 + nr * (side + gap) + 0.09 * W
-        # time panel
-        a = self.tax = fig.add_axes(px(xt, y0 + 0.5 * side, W - xt - 0.03 * W,
-                                       len(ROWS) * side - 0.5 * side))
-        self._style(a)
+        # time panel(s): x_HII,V, and with the gamma row the median Gamma_HI
+        # of the ionised cells below it
+        tw = W - xt - 0.03 * W
+        tall = len(rows) * side + (len(rows) - 1) * 2.5 * gap
         z = series["z"]
+        self.glines = []
+        if "gamma" in rows:
+            th = 0.42 * tall
+            a = self.gax = fig.add_axes(px(xt, y0 + 0.05 * tall, tw, th))
+            self._style(a)
+            a.set_xlim(z.max(), z.min())
+            a.set_ylim(*mm.fixed_range("gamma", args))
+            a.set_xlabel("redshift", color="white")
+            a.set_ylabel(r"$\log_{10}\,$median $\Gamma_{\rm HI}$ ($x_{\rm HII}>0.5$)",
+                         color="white")
+            for j, lab in enumerate(labels):
+                c = COLORS[j % len(COLORS)]
+                a.plot(series["zfull"][j], series["gfull"][j], color=c, lw=1, alpha=0.25)
+                self.glines.append(a.plot([], [], color=c, lw=2.2)[0])
+            self.gvline = a.axvline(z.max(), color="white", lw=1, alpha=0.7)
+            a = self.tax = fig.add_axes(px(xt, y0 + 0.58 * tall, tw, 0.42 * tall))
+        else:
+            a = self.tax = fig.add_axes(px(xt, y0 + 0.5 * side, tw, tall - 0.5 * side))
+        self._style(a)
         a.set_xlim(z.max(), z.min())
         a.set_ylim(0, 1.02)
         a.set_xlabel("redshift", color="white")
@@ -113,7 +136,7 @@ class Renderer:
         s, args = self.s, self.args
         for j, run in enumerate(self.runs):
             fr = run.frames[self.match[j][k]]
-            for fld in ROWS:
+            for fld in self.rows:
                 path, _ = run.file_for(fr, mm.FILE_OF[fld])
                 im = self.ims[fld, j]
                 if path is None:
@@ -131,6 +154,10 @@ class Renderer:
         for j, ln in enumerate(self.lines):
             ln.set_data(s["z"][:k + 1], s["xV"][j][:k + 1])
         self.vline.set_xdata([z, z])
+        for j, ln in enumerate(self.glines):
+            ln.set_data(s["z"][:k + 1], s["g"][j][:k + 1])
+        if self.glines:
+            self.gvline.set_xdata([z, z])
         self.fig.canvas.draw()
         return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].tobytes()
 
@@ -159,6 +186,9 @@ def main():
     ap.add_argument("--every", type=int, default=1)
     ap.add_argument("--range-xHII", type=float, nargs=2)
     ap.add_argument("--range-temp", type=float, nargs=2)
+    ap.add_argument("--range-gamma", type=float, nargs=2, help="log10 Gamma_HI range")
+    ap.add_argument("--rows", default="auto", help="comma list of xHII, temp, gamma, rhog; auto: "
+                    "xHII,temp and gamma when every run has gammaHI frames")
     ap.add_argument("--size", type=int, nargs=2, default=[1920, 1080])
     ap.add_argument("--dpi", type=int, default=110)
     ap.add_argument("--fps", type=int, default=12)
@@ -176,6 +206,14 @@ def main():
     if len({(r.N, r.box) for r in runs}) != 1:
         sys.exit("runs differ in N or box")
     r0 = runs[0]
+    if a.rows == "auto":
+        a.rows = list(ROWS) + (["gamma"] if all("gammaHI" in r.frames[-1]["files"] for r in runs)
+                               else [])
+    else:
+        a.rows = a.rows.split(",")
+        for fld in a.rows:
+            if fld not in mm.STYLE or fld not in mm.FILE_OF:
+                sys.exit("--rows: unknown field " + fld)
     fr = [f for f in r0.frames if (a.zmax is None or f["redshift"] <= a.zmax)
           and (a.zmin is None or f["redshift"] >= a.zmin)]
     # stop at the last redshift that every run reached
@@ -192,9 +230,13 @@ def main():
         dzmax = max(dzmax, np.abs(zr[idx] - z).max())
         match.append(idx)
         xV.append(np.array([r.frames[i]["xHII_V"] for i in idx]))
+    lg = lambda v: np.log10(v) if v > 0 else np.nan  # noqa: E731
     series = dict(z=z, t=mm.cosmic_time_myr(z), xV=xV,
+                  g=[np.array([lg(r.frames[i]["GammaHI_ion_med"]) for i in idx]) for r, idx in
+                     zip(runs, match)],
                   zfull=[np.array([f["redshift"] for f in r.frames]) for r in runs],
-                  xfull=[np.array([f["xHII_V"] for f in r.frames]) for r in runs])
+                  xfull=[np.array([f["xHII_V"] for f in r.frames]) for r in runs],
+                  gfull=[np.array([lg(f["GammaHI_ion_med"]) for f in r.frames]) for r in runs])
     # slab frames: check the slice here, not in the render workers
     i0 = mm.plane_start(r0, a)
     for r in runs[1:]:

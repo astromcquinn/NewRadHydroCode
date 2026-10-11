@@ -7,12 +7,14 @@ RUNDIR is the radhydro output directory with movie/frames.txt and
 movie/frame_NNNNN_<field>.bin (float32 (N,N,N) rt_grid fields, Fortran
 order), or slab frames frame_NNNNN_<field>.slab (movie_slab > 0, geometry
 in movie/slab.txt; tools/movies/movie_frames.py). It shows fHI and temp,
-and the gas density when the run wrote it (movie_fields = fHI,temp,rhog).
+and the gas density and Gamma_HI (10^-14 - 10^-11 s^-1) when the run wrote
+them (movie_fields = fHI,temp,rhog,gammaHI).
 With slab frames --axis must be one of movie_slab_axes, the slab
 (--pos .. --pos + --slab - 1) must lie in the stored slab, and the default
 position is the most ionised --slab cells within the stored slab. Writes:
   stills_grid.png      rows = redshifts; columns = gas density, neutral
-                       fraction, temperature (thin slab through the box)
+                       fraction, temperature, Gamma_HI (thin slab through
+                       the box)
   stills_history.png   volume- and mass-weighted x_HII(z), frames marked
   still_zXX.png        one three-panel image per requested redshift
 """
@@ -32,6 +34,8 @@ MAPS = {
     "rhog": dict(cmap="bone", norm=LogNorm(0.1, 30), label=r"gas density  $\rho_b/\langle\rho_b\rangle$"),
     "fHI": dict(cmap="Blues_r", norm=LogNorm(1e-5, 1), label=r"neutral fraction  $x_{\rm HI}$"),
     "temp": dict(cmap="magma", norm=LogNorm(1e2, 1e5), label=r"temperature  $T$ [K]"),
+    "gammaHI": dict(cmap="plasma", norm=LogNorm(1e-14, 1e-11),
+                    label=r"HI photoionization rate  $\Gamma_{\rm HI}$ [s$^{-1}$]"),
 }
 INK = "#2b2b2b"
 MUTED = "#6b6b6b"
@@ -151,8 +155,8 @@ def main():
         i = int(np.argmin(np.abs(fr["z"] - z)))
         if fr[i]["frame"] not in [p["frame"] for p in picks]:
             picks.append(fr[i])
-    # rhog only if the run wrote it (movie_fields = fHI,temp in the production params)
-    fields = [f for f in ("rhog", "fHI", "temp") if has_field(a.run, picks[0]["frame"], f)]
+    # rhog and gammaHI only if the run wrote them (movie_fields)
+    fields = [f for f in ("rhog", "fHI", "temp", "gammaHI") if has_field(a.run, picks[0]["frame"], f)]
     if a.pos >= 0:
         k0 = a.pos
     else:

@@ -122,8 +122,8 @@ struct RunParams {
   std::string movie_slab_axes = "xyz";
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
-  // (without Ray/, which holds every ray: 96 B each) or dm (only xv_dm, as
-  // the original with one thread)
+  // (without Ray/, which holds every ray: 96 B each), dm (only xv_dm, as
+  // the original with one thread) or gas (only Gas/u_gas)
   std::string fields;
   std::string data_files = "all";
   // Sources
@@ -210,8 +210,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "fields")
     P.fields = val;
   else if (key == "data_files") {
-    if (val != "all" && val != "norays" && val != "dm")
-      throw std::runtime_error("data_files must be all, norays or dm");
+    if (val != "all" && val != "norays" && val != "dm" && val != "gas")
+      throw std::runtime_error("data_files must be all, norays, dm or gas");
     P.data_files = val;
   }
   else if (key == "deterministic_parallel") {
@@ -309,6 +309,11 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
 void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
                       const std::vector<float>& xv, const std::vector<float>& vgas, bool data1,
                       const std::string& which) {
+  if (which == "gas") {  // only Gas/u_gas (the Lya forest velocities of igm_stats.py)
+    std::filesystem::create_directories(odir + "/Gas");
+    write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
+    return;
+  }
   write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
   if (which == "dm") return;
   std::filesystem::create_directories(odir + "/Gas");

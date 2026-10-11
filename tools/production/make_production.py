@@ -76,6 +76,19 @@ def main():
                          "(tools/analysis/emissivity.py); 0: constant f_esc")
     ap.add_argument("--f-esc-z0", type=float, default=6.0)
     ap.add_argument("--restart-every", type=int, default=1)
+    ap.add_argument("--recomb-case", default="A", choices=("A", "B"),
+                    help="recombination case (docs/recomb_radiation.md); production default "
+                         "since 2026-10-11: A with the recombination radiation transported "
+                         "(--recomb-rad 1); B: on the spot, the original")
+    ap.add_argument("--recomb-rad", type=int, default=1, choices=(0, 1),
+                    help="transport the ground-state recombination photons (case A only)")
+    ap.add_argument("--recomb-rad-block", type=int, default=4,
+                    help="rays: recombination emission gathered over b^3 RT cells (4: 79%% "
+                         "launched at 78 kpc/h cells, docs/recomb_radiation.md section 4.1)")
+    ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
+                    help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
+                         "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
+                         "the source-start mean free path)")
     ap.add_argument("--restart-keep", type=int, default=0,
                     help="keep the newest n numbered checkpoints (restart_keep); 0: one "
                          "checkpoint.bin, rewritten (no line written)")
@@ -132,8 +145,13 @@ def main():
     ] + ([f"restart_keep = {a.restart_keep}"] if a.restart_keep > 0 else []) + [
         "fields_at_data1 = 1",
         f"fields = {a.fields}",
-        "data_files = norays",
+        f"data_files = {a.data_files}",
+        f"recomb_case = {a.recomb_case}",
     ]
+    if a.recomb_case == "A" and a.recomb_rad:
+        lines += ["recomb_rad = 1", f"recomb_rad_block = {a.recomb_rad_block}"]
+    elif a.recomb_rad and a.recomb_case == "B":
+        sys.exit("--recomb-rad 1 needs --recomb-case A (case B already absorbs them on the spot)")
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
     if a.redshift_per_distance:

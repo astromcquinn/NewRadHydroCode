@@ -67,7 +67,7 @@ AXES = "xyz"
 # memory (docs/movies.md): only a visual guide
 PLANCK_TAU = (0.054, 0.007)
 FIELDS = ("xHII", "temp", "rhog")
-FILE_OF = {"xHII": "fHI", "temp": "temp", "rhog": "rhog"}
+FILE_OF = {"xHII": "fHI", "temp": "temp", "rhog": "rhog", "gamma": "gammaHI"}
 # perceptually uniform maps, fixed scales (override with --range-*)
 STYLE = {
     "xHII": dict(cmap="cividis", label=r"$x_{\rm HII}$", log=False, range=(0.0, 1.0)),
@@ -75,6 +75,9 @@ STYLE = {
     "temp": dict(cmap="inferno", label=r"$\log_{10} T$ [K]", log=True, range=(2.5, 4.7)),
     "rhog": dict(cmap="viridis", label=r"$\log_{10} \rho_{\rm gas}/\bar\rho_{\rm gas}$",
                  log=True, range=(-1.0, 2.0)),
+    # Gamma_HI of the last RT substep (movie_fields gammaHI); 0 where no photons
+    "gamma": dict(cmap="plasma", label=r"$\log_{10} \Gamma_{\rm HI}$ [s$^{-1}$]", log=True,
+                  range=(-14.0, -11.0)),
 }
 
 
@@ -185,8 +188,12 @@ class Run:
                 f = line.split()
                 fr = dict(frame=int(f[0]), istep=int(f[1]), istep_rt=int(f[2]),
                           redshift=float(f[3]), xHII_V=float(f[4]), xHII_M=float(f[5]))
+                # whole-box Gamma_HI columns (runs since 2026-10-11; nan before)
+                for i, key in enumerate(("GammaHI_V", "GammaHI_ion_med", "GammaHI_ion_mean",
+                                         "fV_GammaHI")):
+                    fr[key] = float(f[6 + i]) if len(f) > 6 + i else float("nan")
                 fr["files"] = {}
-                for fld in ("fHI", "temp", "rhog", "fHeI", "fHeII", "gamma", "ngam"):
+                for fld in ("fHI", "temp", "rhog", "fHeI", "fHeII", "gamma", "gammaHI", "ngam"):
                     p = mf.frame_file(rundir, fr["frame"], fld)
                     if p:
                         fr["files"][fld] = p
@@ -222,7 +229,7 @@ class Run:
         self.N = n
         # field outputs per field, for fields missing from the movie frames
         self.field_steps = {}
-        for fld in ("fHI", "temp", "rhog"):
+        for fld in ("fHI", "temp", "rhog", "gammaHI"):
             self.field_steps[fld] = [(s["redshift"], os.path.join(s["dir"], fld + ".bin"), int(s["istep"]))
                                      for s in self.steps
                                      if os.path.exists(os.path.join(s["dir"], fld + ".bin"))]

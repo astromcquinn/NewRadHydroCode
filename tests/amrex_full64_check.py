@@ -47,7 +47,8 @@ def main():
     prob = os.path.join(work, "prob")
     if not os.path.exists(os.path.join(prob, "params.txt")):
         run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
-             "--movie-dz", "0"], os.path.join(work, "make.log"))
+             "--movie-dz", "0", "--recomb-case", "B", "--recomb-rad", "0"],  # recomb_rad: serial only
+            os.path.join(work, "make.log"))
     common = ["--quiet", "--set", "restart_every=0", "--set", "movie_dz=0.25", "--set", "movie_z0=15"]
     runs = {"serial": [exe, prob, os.path.join(work, "serial")] + common,
             "amrex": [launch] + flags + ["-np", "2", "-x", "OMP_NUM_THREADS=2", exe, prob,
