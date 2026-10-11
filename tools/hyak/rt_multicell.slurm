@@ -9,7 +9,8 @@
 #   sbatch --export=ALL,ROOT=/gscratch/astro/$USER/radhydro/runs/multicell128 \
 #          tools/hyak/rt_multicell.slurm
 # The scheme recommended by docs/rt_multicell.md (exposure deposit and the
-# converged photon limit) in a second directory, with the same ICs:
+# converged photon limit) in a second directory, with the same ICs (the more
+# useful of the two if only one is run; leave out ICS= to make new ICs):
 #   sbatch --export=ALL,ROOT=$RUNS/multicell128_px,ICS=$RUNS/multicell128/prob_k1/ics,\
 #          EXTRA_PROD="--photon-conserve 1 --ray-deposit exposure" tools/hyak/rt_multicell.slurm
 # The step-5 repeat at full c (fast fronts in a coarse step; about 10x the

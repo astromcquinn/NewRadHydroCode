@@ -39,7 +39,7 @@ substep with the lagged optical depth; k only makes the path longer.
 | source emission | nside_init = 4 (192 rays) | the same for k ≤ 4; for k > 4 the nside whose split radius covers the first path (§1.3; 768 rays for k = 5–8) |
 | `redshift_per_distance` | s = nstep_rt dl_rt/dl_c | s = nstep_rt **k** dl_rt/dl_c |
 | `deterministic_parallel` | 8³ domains; chain insertions within d/2 − 1 cells | d ≥ 2k + 2 (8 for k ≤ 3, 16 at 64³ for k = 4); insertions in step 1 within d/2 − k, in step 3 within d/2 |
-| AMReX backend | 2 ghost layers, local `Redistribute` over 3 cells | both at least k + 1 (the reach assertion is unchanged and passes, §2) |
+| AMReX backend | 2 ghost layers, local `Redistribute` over 3 cells | both at least k + 1 (the reach assertion is unchanged and passes, §3) |
 | checkpoint | version 5 | version 6 records k; a restart with another k converts the substep carry |
 
 Unchanged, because they are per substep: emission (ngam ∝ dtsec_rt, so a
@@ -57,7 +57,7 @@ solvers keep k = 1 and refuse k > 1), 1 ≤ k ≤ 16. **Light must cross at
 least k cells per hydro step**: otherwise the nstep_rt ≥ 1 guard (with the
 substep carry it is applied silently) makes the radiation faster than ĉ.
 The `ifront_rsla` problem at 0.1c has 2.3 cells of light per hydro step, so
-k = 4 runs at 1.7 ĉ there (§3).
+k = 4 runs at 1.7 ĉ there (§4).
 
 ### 1.3 Three generalisations that k forced (found in this study)
 
@@ -71,7 +71,7 @@ dtsec_rt) = k n_dep σ len_rt/dtsec_rt with n_dep = deposit/volume. The
 original's len_rt/dtsec_rt is ĉ for one cell per substep; the general form
 is k len_rt/dtsec_rt = ĉ. Without the factor, Γ in ionised gas is k times
 too low and x_HI there k times too high: 4.4× at k = 4 in the uniform test
-(§3, the `NORATE` diagnostic build), while the front radius hardly changes.
+(§4, a diagnostic build without the factor), while the front radius hardly changes.
 The `multicell` CTest checks the interior x_HI for this reason.
 
 **The split radius clamp.** A ray past its split radius has moved at most
@@ -79,16 +79,19 @@ one substep, 1 cell in the original, beyond it, and `split` clamps the
 daughters' radius to [rmin, rmin + 1] (it never binds for k = 1). With k
 cells per substep it would bind and move the effective origin forward by
 up to k − 1 cells; [rmin, rmin + k] keeps it a no-op. In the uniform tests
-the two clamps give identical results up to k = 4, because rays emitted at
-r = 0 and moving 4 cells per substep overshoot the split radii 3.9, 7.8,
-15.6, 31.3 cells by less than one cell until nside = 64; at k = 8 the
-overshoot is 4.1 cells at the first split (§5).
+the two clamps give identical results at k = 4 and 8 (a diagnostic build
+with [rmin, rmin + 1]), because rays emitted at r = 0 overshoot the split
+radii by less than one cell inside the box (k = 4: radii 3.9, 7.8, 15.6,
+31.3 cells reached at r = 4, 8, 16, 32; k = 8 with the emission rule below:
+7.8, 15.6, 31.3 at 8, 16, 32). In general (other split radii, other
+start points) the overshoot reaches k − 1 cells, where the old clamp would
+bind.
 
 **The emission nside for k > 4.** A ray splits at most once per substep. A
 source ray emitted at nside_init = 4 (split radius 3.9 cells) that travels
 8 cells in its first substep stays at nside 4 over that path and the next,
 about 4 cells² per ray at r = 8 against `ray_per_cell` = 1: the uniform
-I-front at k = 8 had partly neutral shells inside the sphere (§3).
+I-front at k = 8 had partly neutral shells inside the sphere (§4).
 `rrk::emit_nside(k)` emits at the smallest nside ≥ nside_init with
 rmax(nside) ≥ k − 1 (nside_init for k ≤ 4); after the first substep one
 split per substep keeps up, since rmax doubles while r grows by k.
@@ -137,7 +140,7 @@ deposited up to k − 1 cells beyond the I-front. With one cell per substep
 the jump stays inside a cell; with k cells it smears every front over
 about k cells, whatever the front speed. This is what makes the uniform
 I-front at k = 8 partly neutral inside its volume-equivalent radius even
-at c = 1 (§3).
+at c = 1 (§4).
 
 Physically every photon of the ray crosses every cell of its path during
 the substep, so a front reached in mid-path should get all photons that
