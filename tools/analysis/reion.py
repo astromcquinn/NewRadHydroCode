@@ -18,6 +18,11 @@ tau_es(z) = int_0^z sigma_T c n_e(z') dt/dz' dz', with
 The mass-weighted x_HII is the right weight: n_e is proportional to the
 local gas density times x_HII (clumping is included).
 
+Only frames.txt is read: radhydro sums x_HII,V and x_HII,M over the whole
+box at every frame, also when the frame files hold only slabs
+(movie_slab > 0, docs/movies.md), so the result does not depend on the
+frame layout.
+
 Planck 2018 (Planck Collaboration VI 2020, A&A 641, A6): tau = 0.054 +- 0.007.
 """
 import argparse

@@ -12,6 +12,8 @@ up to the current frame. The first run sets the frames; each other run
 shows its movie frame nearest in redshift (the frames are written at the
 same movie_dz redshifts, so they agree to within an RT substep; the
 largest mismatch is printed). All runs must have the same N and box.
+Full-cube and slab frames (movie_slab) both work; with slab frames the
+slice must lie in the stored slabs of every run.
 Uses the frame index, slab reader and colour scales of make_movie.py.
 """
 import argparse
@@ -39,7 +41,9 @@ class Renderer:
         self.N, self.cell = N, box / N
         self.ax = mm.AXES.index(args.axis)
         self.plane = [k for k in range(3) if k != self.ax]
-        self.i0 = int(np.floor(args.pos / self.cell)) % N if args.pos is not None else N // 2
+        self.i0 = mm.plane_start(r0, args)  # also checks slab frames (movie_slab)
+        for r in runs[1:]:
+            mm.plane_start(r, args, self.i0)
         self.thick = max(1, args.thick)
         W, H = args.size
         plt.rcParams.update({"font.size": 12, "axes.titlesize": 13})
@@ -191,6 +195,10 @@ def main():
     series = dict(z=z, t=mm.cosmic_time_myr(z), xV=xV,
                   zfull=[np.array([f["redshift"] for f in r.frames]) for r in runs],
                   xfull=[np.array([f["xHII_V"] for f in r.frames]) for r in runs])
+    # slab frames: check the slice here, not in the render workers
+    i0 = mm.plane_start(r0, a)
+    for r in runs[1:]:
+        mm.plane_start(r, a, i0)
     print("%d frames, z = %.2f -> %.2f; largest redshift mismatch between runs %.4f"
           % (len(fr), z.max(), z.min(), dzmax))
     W, H = a.size

@@ -24,8 +24,12 @@ against cosmic time.
 Memory is bounded: each frame's fields are memory-mapped and only the slab
 of the slice is read; rendered frames are piped to ffmpeg as raw RGB.
 
-Field files are float32 N^3 in Fortran order (x fastest); rhog is in units
-of the mean baryon density. The cosmology is the original's
+Field files are float32 N^3 in Fortran order (x fastest), or, with
+movie_slab > 0, slab frames (frame_NNNNN_<field>.slab, geometry in
+movie/slab.txt; tools/movies/movie_frames.py): then --axis must be one of
+movie_slab_axes and the cells --pos .. --pos + --thick must lie in the
+stored slab (by default the plane through the box centre, as for cubes).
+rhog is in units of the mean baryon density. The cosmology is the original's
 (cosmo_parameters.f90): Omega_m = 0.27, Omega_b = 0.045, h = 0.7,
 X = 0.76, Y = 0.24 (single-precision literals).
 """
@@ -39,6 +43,9 @@ import subprocess
 import sys
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import movie_frames as mf  # noqa: E402
 
 import matplotlib
 matplotlib.use("Agg")
@@ -180,8 +187,8 @@ class Run:
                           redshift=float(f[3]), xHII_V=float(f[4]), xHII_M=float(f[5]))
                 fr["files"] = {}
                 for fld in ("fHI", "temp", "rhog", "fHeI", "fHeII", "gamma", "ngam"):
-                    p = os.path.join(rundir, "movie", "frame_%05d_%s.bin" % (fr["frame"], fld))
-                    if os.path.exists(p):
+                    p = mf.frame_file(rundir, fr["frame"], fld)
+                    if p:
                         fr["files"][fld] = p
                 if not np.isfinite(fr["xHII_M"]):
                     # before the first RT step the rt_grid is not set up
@@ -203,10 +210,15 @@ class Run:
             self.source = "steps"
         if not self.frames:
             sys.exit("no movie frames and no field outputs in " + rundir)
+        # slab frames (movie_slab > 0): geometry from movie/slab.txt
+        self.slab = mf.run_slab_info(rundir) if self.source == "movie" else None
         p0 = next(iter(self.frames[0]["files"].values()))
-        n = round((os.path.getsize(p0) // 4) ** (1 / 3))
-        if n ** 3 * 4 != os.path.getsize(p0):
-            sys.exit("%s is not a float32 cube" % p0)
+        if mf.is_slab(p0):
+            n = self.slab["N"] if self.slab else sys.exit("%s: no movie/slab.txt" % p0)
+        else:
+            n = mf.cube_N(p0)
+            if n is None:
+                sys.exit("%s is not a float32 cube" % p0)
         self.N = n
         # field outputs per field, for fields missing from the movie frames
         self.field_steps = {}
@@ -232,11 +244,30 @@ def open_cube(path, N):
 
 def read_slab(path, N, axis, i0, thick):
     """Mean over cells i0..i0+thick-1 (periodic) along axis; returns a 2-D
-    array indexed [first remaining axis, second remaining axis]."""
-    a = open_cube(path, N)
-    idx = [(i0 + k) % N for k in range(thick)]
-    sl = np.take(a, idx, axis=axis).astype(np.float64)  # reads only the slab
-    return sl.mean(axis=axis)
+    array indexed [first remaining axis, second remaining axis]. Reads full
+    cubes and slab frames (movie_frames.read_plane)."""
+    return mf.read_plane(path, axis, i0, thick, N=None if mf.is_slab(path) else N)
+
+
+def plane_start(run, args, i0=None):
+    """First cell of the slice/projection along args.axis: i0 if given,
+    else from --pos, else the box centre (N//2 for full cubes; for slab
+    frames the plane centred in the stored slab). Exits if slab frames do
+    not hold it."""
+    N, ax = run.N, AXES.index(args.axis)
+    thick = max(1, args.thick)
+    if i0 is not None:
+        pass
+    elif args.pos is not None:
+        i0 = int(np.floor(args.pos / (run.box / N))) % N
+    else:
+        i0 = mf.default_i0(N, thick, run.slab)
+    for fr in run.frames:
+        for p in fr["files"].values():
+            err = mf.plane_error(p, ax, i0, thick)
+            if err:
+                sys.exit(err)
+    return i0
 
 
 # ----------------------------------------------------------------------------
@@ -265,7 +296,7 @@ class Renderer:
         ax = AXES.index(args.axis)
         self.plane = [k for k in range(3) if k != ax]  # remaining axes (h, v)
         self.ax = ax
-        self.i0 = int(np.floor(args.pos / self.cell)) % N if args.pos is not None else N // 2
+        self.i0 = plane_start(run, args)
         self.thick = max(1, args.thick)
         self.zoom = args.zoom or [0, box, 0, box]
         plt.rcParams.update({"font.size": 13, "axes.titlesize": 13})
@@ -446,13 +477,17 @@ def front_positions(run, args):
     ax = AXES.index(args.ray_axis)
     cell = run.box / run.N
     out = np.full(len(run.frames), np.nan)
+    noted = False
     for k, fr in enumerate(run.frames):
         path, _ = run.file_for(fr, "fHI")
         if path is None:
             continue
-        a = open_cube(path, run.N)
-        other = tuple(i for i in range(3) if i != ax)
-        prof = 1 - np.asarray(a, dtype=np.float64).mean(axis=other)
+        mean, note = mf.axis_profile(path, ax, None if mf.is_slab(path) else run.N)
+        if note and not noted:
+            print("front position from the slab frames: x_HII averaged over the %s, "
+                  "not the whole box" % note)
+            noted = True
+        prof = 1 - mean
         if args.source_face == "high":
             prof = prof[::-1]
         below = np.nonzero(prof < 0.5)[0]
@@ -551,6 +586,7 @@ def main():
                   xM=np.array([f["xHII_M"] for f in fr]),
                   tau=np.array([tau_of[f["frame"]] for f in fr]))
     series["tau_low"] = series["tau"] + np.array([tau_es_full_below(zz) for zz in z])
+    plane_start(run, args)  # slab frames: check the slice here, not in the render workers
     if args.style == "planar":
         series["front"] = front_positions(run, args)
     print("%s: N = %d, box = %g Mpc/h, %d frames (%s), z = %.2f -> %.2f; %d frames before "
