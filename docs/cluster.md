@@ -162,7 +162,13 @@ sbatch --exclusive -c 192 --mem=256G --export=ALL,PROB=...,THREADS=192 tools/hya
   for bit; `--requeue` makes it safe on `ckpt`. When the run reaches the last
   `zdata1` it writes `$PROB/run/DONE`, and later submissions exit at once;
 * has a 4-day limit. For longer runs chain jobs:
-  `sbatch --dependency=afterany:<jobid> ...` with the same arguments.
+  `sbatch --dependency=afterany:<jobid> ...` with the same arguments;
+* after every successful run or leg (exit 0) runs the post-processing,
+  `tools/hyak/reion_post.slurm` (stills, `reion.py`, `make_movie.py`).
+  `POST=1` (default) runs it in the same job; `POST=0` skips it;
+  `POST=sbatch` submits it as a separate 16-core job (`POST_CPUS`,
+  `POST_MEM`, log `POST_OUT`, default `$PROB/post-%j.out`) and frees the big
+  node at once. Example: `--export=ALL,PROB=...,THREADS=192,POST=sbatch`.
 
 To change a parameter for one run (c_reduced, restart_every, …), make a second
 problem directory with its own `params.txt` and a symlink to the same `ics/`
