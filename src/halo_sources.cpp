@@ -304,6 +304,11 @@ double cosmic_time_yr(double z, double z_max) {
   return s * du;
 }
 
+double f_esc_at(const SourceModelParams& p, double z) {
+  if (p.f_esc_beta == 0) return p.f_esc;
+  return std::min(p.f_esc_max, p.f_esc * std::pow((1 + z) / (1 + p.f_esc_z0), p.f_esc_beta));
+}
+
 SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu,
                              const SourceModelParams& p,
                              const std::vector<SfrHistoryRow>* table) {
@@ -331,7 +336,7 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
   } else if (p.model == SfrModel::AbundanceMatched) {
     double xi_pop2 = 0;
     for (double v : pop2_init) xi_pop2 += v;
-    const double rt_scale = std::pow(10.0, p.log_xi_ion) / xi_pop2 * (p.f_esc / fResc);
+    const double rt_scale = std::pow(10.0, p.log_xi_ion) / xi_pop2 * (f_esc_at(p, z) / fResc);
     const double tage = cosmic_time_yr(z, p.z_max);
     for (std::size_t i = 0; i < n; ++i) {
       if (!active[i]) continue;
@@ -545,6 +550,12 @@ bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::stri
     p.model.log_xi_ion = num();
   } else if (key == "f_esc") {
     p.model.f_esc = num();
+  } else if (key == "f_esc_beta") {
+    p.model.f_esc_beta = num();
+  } else if (key == "f_esc_z0") {
+    p.model.f_esc_z0 = num();
+  } else if (key == "f_esc_max") {
+    p.model.f_esc_max = num();
   } else if (key == "am_norm_z" || key == "am_norm_dl") {
     std::vector<double> v;
     std::stringstream ss(val);

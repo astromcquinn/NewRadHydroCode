@@ -62,6 +62,29 @@
     (the memory and time were checked on a synthetic 512³ snapshot);
   - check the Gaikwad+23 Γ definition against the paper.
 
+## Done, merged into `main` 2026-10-11 (branch `fesc-z`)
+
+**Redshift-dependent escape fraction and the emissivity of the runs.**
+- `f_esc_beta`, `f_esc_z0`, `f_esc_max` (abundance-matched sources):
+  f_esc(z) = min(f_esc_max, f_esc ((1+z)/(1+f_esc_z0))^β), the power law of
+  D'Aloisio et al. (declining emissivity near the end of reionization).
+  β = 0 (default) is the constant f_esc exactly. Unit test in
+  `test_abundance_matching`; `make_production.py --f-esc-beta`.
+- `tools/analysis/emissivity.py` (on `main`): escaped ṅ_ion(z) of the runs
+  from FoF catalogs (hmf256: same ICs), vs the Lopez et al. median read by
+  eye from D'Aloisio et al. Fig. 1. `reion256_prod` (f_esc = 0.28) matches
+  that median at z ≳ 9 but is 2–2.5× above it at z < 7.5. Matching it with
+  these halos needs f_esc ≈ 0.123 ((1+z)/7)^1.31 (0.12 at z = 6, 0.22 at
+  z = 10), a milder decline than their β = 2.6–3, because the
+  abundance-matched intrinsic emissivity already flattens at z < 7.
+- The z = 5–6 data (`data/igm/igm_z5_6.txt`, `emissivity.py --obs`) need
+  more than that law at z ≈ 5: a constant f_esc ≈ 0.15–0.2 with the hmf256
+  halos. The run with that law (`reion256_fz131`) was therefore cancelled,
+  and calibration moved to the 40 Mpc/h 512³ runs (constant f_esc; see
+  the IGM diagnostics entry above). No run uses `f_esc_beta` yet.
+- Production runs now end at z = 5 (user, 2026-10-10: Lyα forest
+  comparison); `make_production.py` default.
+
 ## Done, merged into `main` 2026-10-10 (branch `recomb-moments`)
 
 **Recombination radiation with the moment RT, the photon energy, and the
