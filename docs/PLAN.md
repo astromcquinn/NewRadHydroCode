@@ -454,5 +454,18 @@ policy on klone, and deleting the merged branches.
   absorbed; the share deposit lets them jump past I-fronts by up to k − 1
   cells). Neither is tied to `legacy_physics`/`legacy_rt` (no Fortran
   mirror, per the 2026-10-08 rule).
-* **Recommendation for the AMR RT:** see `docs/rt_multicell.md` §9 (to be
-  decided by the user).
+* **Defaults stay the original;** the recommended set for k > 1 is
+  `photon_conserve = 1` with `ray_deposit = exposure` (it passes the I-front
+  and production tests where the share deposit does not, `docs/rt_multicell.md`
+  §4, §7).
+* **Finding:** the transport over k cells is accurate; the error is the k
+  times longer substep (v_front > ĉ/k fails first: light-limited fronts at
+  0.1c for k ≥ 4, dense gas at k = 8). On the uniform grid k > 1 is
+  equivalent to fewer substeps and is not offered as a speed option.
+* **Recommendation for the AMR RT (proposed in `docs/rt_multicell.md` §9;
+  the user decides):** a mixture. Use the coarse substep with 2^l cells per
+  substep on level l (with the exposure deposit, `photon_conserve` and
+  per-level angular resolution). Add photo-chemistry sub-cycling in fine
+  cells, and time sub-cycling of the transport only in patches where a
+  front outruns the substep (flagged from cells deposited as thick that
+  transmit most of their deposit).
