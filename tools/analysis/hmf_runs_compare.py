@@ -9,7 +9,10 @@ usage: hmf_runs_compare.py --run LABEL:CATDIR:BOX:NDM [--run ...] --ref LABEL
 Each run is a directory of on-the-fly catalogs halo.z=XX.XXXX (radhydro
 write_catalogs, read as in hmf_compare.py), its box in Mpc/h and Ndm. For
 each requested z every run uses its nearest catalog (the redshifts differ by
-the time steps; the difference is listed). Bins of dlogm dex start at the
+the time steps; the difference is listed); with --interp each run's dn/dlogM
+is interpolated in log n, linearly in z, between the two catalogs that
+bracket z (the counts shown are the nearest catalog's). Bins of dlogm dex
+start at the
 --nmin-particle mass of the finest run. Prints dn/dlog10M, the ratio of each
 run to the --ref run with the Poisson error of both, the number of halos
 per bin, and the ratio to Sheth-Tormen (apps/hmf_table). Writes a figure:
@@ -47,6 +50,8 @@ def main():
     ap.add_argument("--hmf-table", default="build/hmf_table")
     ap.add_argument("--out", default=None)
     ap.add_argument("--table", default=None)
+    ap.add_argument("--interp", action="store_true",
+                    help="interpolate each run to the requested z (see above)")
     a = ap.parse_args()
 
     runs = []
@@ -70,6 +75,7 @@ def main():
     results = {}
     for z in a.z:
         sel = {}
+        brack = {}
         for r in runs:
             if not r["cats"]:
                 continue
@@ -78,6 +84,15 @@ def main():
             m = h["M"].astype(float)
             m = m[h["N"] >= a.nmin]
             sel[r["label"]] = (zc, m, r)
+            lo_c = [c for c in r["cats"] if c[0] <= z]
+            hi_c = [c for c in r["cats"] if c[0] >= z]
+            if a.interp and lo_c and hi_c:
+                c1, c2 = max(lo_c), min(hi_c)
+                ms = []
+                for zz, pp in (c1, c2):
+                    hh = read_catalog(pp)
+                    ms.append((zz, hh["M"].astype(float)[hh["N"] >= a.nmin]))
+                brack[r["label"]] = ms
         if ref["label"] not in sel:
             continue
         mmax = max(np.log10(s[1].max()) for s in sel.values() if s[1].size)
@@ -87,7 +102,9 @@ def main():
         st = analytic(a.hmf_table, zref, edges[0], edges[-1], 0.01)
         st_d = np.interp(cen, st[:, 0], st[:, 2])  # dn/dlog10M, Sheth-Tormen
         out()
-        out(f"z = {z}: catalogs at " + ", ".join(f"{k} z={v[0]:.4f}" for k, v in sel.items()))
+        out(f"z = {z}: catalogs at " + ", ".join(f"{k} z={v[0]:.4f}" for k, v in sel.items())
+            + ("  (interpolated to z: " + ", ".join(
+                f"{k} {v[0][0]:.3f}-{v[1][0]:.3f}" for k, v in brack.items()) + ")" if brack else ""))
         hdr = " log M   " + "".join(f"{k:>24s}" for k in sel) + "".join(
             f"   {k}/{ref['label']:<10s}" for k in sel if k != ref["label"])
         out(hdr + "      ST")
@@ -95,7 +112,16 @@ def main():
         for k, (zc, m, r) in sel.items():
             n, _ = np.histogram(np.log10(m), edges)
             vol = (r["box"] / pc.HUBBLE0) ** 3  # Mpc^3 (h from cosmo_parameters)
-            res[k] = (n, n / vol / a.dlogm)
+            d = n / vol / a.dlogm
+            if k in brack:
+                (z1, m1), (z2, m2) = brack[k]
+                n1 = np.histogram(np.log10(m1), edges)[0].astype(float)
+                n2 = np.histogram(np.log10(m2), edges)[0].astype(float)
+                w = 0.0 if z2 == z1 else (z - z1) / (z2 - z1)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    ni = np.where((n1 > 0) & (n2 > 0), n1 ** (1 - w) * n2 ** w, 0.0)
+                d = ni / vol / a.dlogm
+            res[k] = (n, d)
         nr, dr = res[ref["label"]]
         for b in range(cen.size):
             s = f" {cen[b]:6.3f} "

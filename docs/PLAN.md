@@ -364,3 +364,23 @@ policy on klone, and deleting the merged branches.
   too long at fixed Γ in these boxes (unresolved absorbers, box ≲ λ).
 * **f_esc:** with the bigger box err on the side of a smaller escape
   fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
+## Refined PM mesh (2026-10-11): `pm_refine`
+
+* **Goal: resolve halos of 1.3×10⁸ M☉ in the 40 Mpc/h, 512³ runs**, i.e.
+  20 particles of 6.4×10⁶ M☉: Ndm = 1024 under the 512³ gas grid.
+* **`pm_refine = 2`** gives a PM mesh of 2·Ngas with Ndm = 2·Ngas
+  particles; **the default 1 stays byte-identical**. The gas density is
+  spread onto the fine mesh and the accelerations are averaged back,
+  mirroring each other (adjoint), in both `calc_kick` and
+  `calc_kick_unsplit`. **Threaded FFTW.** `make_ics.py` and the checkpoint
+  must handle Ndm > Ngas.
+* **Validation asked for:** a single-particle force test, momentum
+  conservation, a Zel'dovich test, and the halo mass function at
+  40 Mpc/h with 1024³ DM against the 10 Mpc/h 256³ catalogs
+  (`runs/hmf256`, the same particle mass and PM mesh spacing).
+* Thread choices (not user decisions; `docs/pm_refine.md`): the gas
+  spread is piecewise constant (each gas cell's mass evenly over its r³
+  mesh cells), the transpose of the force average; the 1024³ ICs keep the
+  large-scale modes of the 512³ production ICs (`--phases-from-ndm 512`,
+  seed 7); the validation run uses the production hydro (`unsplit`); FFT
+  threads are capped at 32 (faster, results identical).

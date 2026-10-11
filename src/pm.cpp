@@ -476,6 +476,10 @@ void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, do
   const int batch = nth > 1 ? std::min(N, 4 * nth) : 1;
   std::vector<std::vector<double>> add_a(batch), add_v(batch);
   std::vector<double> amax_t(nth > 1 ? batch : 1, 0.0), vmax_t(nth > 1 ? batch : 1, 0.0);
+  // pm_refine > 1: arms and vrms (diagnostics only) summed per plane, the
+  // planes then in order: thread-count independent, not the serial order
+  const bool plane_sums = s.pc.refine > 1;
+  std::vector<double> sum_a(batch, 0.0), sum_v(batch, 0.0);
   for (int k0 = 1; k0 <= N; k0 += batch) {
   const int nb = std::min(batch, N - k0 + 1);
 #pragma omp parallel for schedule(dynamic, 1) if (nth > 1)
@@ -498,11 +502,18 @@ void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, do
             p[3 + m] = static_cast<float>(static_cast<double>(p[3 + m]) + (fv[m] / xdg) * dt_sim);
 
           // arms = arms + sum(f**2); amax = max(amax,maxval(abs(f)))
-          la.push_back((0.0 + fv[0] * fv[0]) + fv[1] * fv[1] + fv[2] * fv[2]);
+          const double a2 = (0.0 + fv[0] * fv[0]) + fv[1] * fv[1] + fv[2] * fv[2];
+          if (plane_sums)
+            sum_a[b] += a2;
+          else
+            la.push_back(a2);
           amax = f::max(amax, f::max(f::max(std::fabs(fv[0]), std::fabs(fv[1])), std::fabs(fv[2])));
           // vrms = vrms + sum(xv_dm(4:6,ip)**2)   (real(4) sum)
           const float vs = ((0.0f + p[3] * p[3]) + p[4] * p[4]) + p[5] * p[5];
-          lv.push_back(static_cast<double>(vs));
+          if (plane_sums)
+            sum_v[b] += static_cast<double>(vs);
+          else
+            lv.push_back(static_cast<double>(vs));
           const float va = f::max(f::max(std::fabs(p[3]), std::fabs(p[4])), std::fabs(p[5]));
           vmax = f::max(vmax, static_cast<double>(va));
 
@@ -513,6 +524,12 @@ void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, do
     vmax_t[nth > 1 ? b : 0] = f::max(vmax_t[nth > 1 ? b : 0], vmax);
   }
   for (int b = 0; b < nb; ++b) {
+    if (plane_sums) {
+      arms = arms + sum_a[b];
+      vrms = vrms + sum_v[b];
+      sum_a[b] = sum_v[b] = 0;
+      continue;
+    }
     for (double a : add_a[b]) arms = arms + a;
     for (double v : add_v[b]) vrms = vrms + v;
     add_a[b].clear();
