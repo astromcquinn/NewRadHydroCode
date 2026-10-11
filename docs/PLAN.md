@@ -421,3 +421,38 @@ policy on klone, and deleting the merged branches.
 * **PM refinement** (`pm_refine = 2`, a PM mesh and particles 2× the gas
   grid, for halo mass resolution) goes to a separate thread started by the
   user, on Hyak.
+
+## RT multicell thread (2026-10-11): rays crossing k cells per substep
+
+* **Request (user):** test a coarse RT substep for the RT on AMR (Stage F)
+  instead of sub-cycling fine levels in time: on the uniform grid, rays
+  travel k RT cells per substep with a k times longer substep at the same
+  ĉ. Branch `rt-multicell`; report `docs/rt_multicell.md`.
+* **The flag:** `rt_cells_per_substep = k` (default 1 = the original,
+  byte-identical; `params.txt` and `--set`; `radhydro` and `rt_driver`;
+  in the log, the summary line and the checkpoint, version 6). `nstep_rt`
+  counts the light crossings of k cells (carry and ≥ 1 guard on that
+  count), `ray_segment` covers k cells in up to 3k+1 segments, in the shared
+  kernels (`RTP::cells`), so the serial code and the AMReX backend agree.
+* **Restrictions:** `legacy_rt = 0` only; `rt_method = rays` only (the
+  moment solvers refuse k > 1); 1 ≤ k ≤ 16; light must cross at least k
+  cells per hydro step (otherwise the ≥ 1 guard makes it faster than ĉ).
+  `deterministic_parallel` domains d ≥ 2k+2. The AMReX backend supports
+  k > 1: its ghost layers and local `Redistribute` grow to k+1 (round-off
+  tests at k = 2, 4).
+* **Generalisations k forced (this thread's choices, in the k > 1 scheme,
+  no extra flag):** the photo-ionisation rate uses the crossing speed
+  k·len_rt/dtsec_rt (without it Γ in ionised gas is k times low); the split
+  radius clamp is [rmin, rmin+k]; for k > 4 sources emit at the nside whose
+  split radius covers the first path (`rrk::emit_nside`), since a ray splits
+  only once per substep; `redshift_per_distance` uses the k-cell distance.
+* **Two new options found necessary (defaults = the original):**
+  `photon_conserve = 1`, the B17 fix (`photo_cell`'s photon limit iterated to
+  convergence; the original lets photon-starved front cells ionise without
+  the photons, by an amount that grows as k²), and `ray_deposit = exposure`
+  (a ray's photons are kept for the cells further along its path unless
+  absorbed; the share deposit lets them jump past I-fronts by up to k − 1
+  cells). Neither is tied to `legacy_physics`/`legacy_rt` (no Fortran
+  mirror, per the 2026-10-08 rule).
+* **Recommendation for the AMR RT:** see `docs/rt_multicell.md` §9 (to be
+  decided by the user).
