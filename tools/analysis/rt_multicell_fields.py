@@ -47,11 +47,16 @@ def parse_kv(fn):
 
 
 def raylog(fn):
+    """per-substep lines of ray.log (the 'Rays : nr fraction' line; the
+    threshold lines 'Rays : j nr ngam_ray' of calc_ngam_ray are skipped)"""
     out = {"Rays": [], "Cast": [], "Split": [], "Merge": [], "Delete": []}
     for line in open(fn):
         p = line.split(":")
         if len(p) == 2 and p[0].strip() in out:
-            out[p[0].strip()].append(float(p[1].split()[0]))
+            v = p[1].split()
+            if p[0].strip() == "Rays" and len(v) != 2:
+                continue
+            out[p[0].strip()].append(float(v[0]))
     return {k: np.array(v) for k, v in out.items()}
 
 
@@ -86,6 +91,7 @@ def main():
     ap.add_argument("--json")
     ap.add_argument("--fig")
     ap.add_argument("--set", action="append", default=[])
+    ap.add_argument("--reuse", action="store_true", help="keep finished runs (re-analyse only)")
     a = ap.parse_args()
     if 1 not in a.k:
         a.k = [1] + a.k
@@ -94,6 +100,12 @@ def main():
     runs = {}
     for k in a.k:
         out = work / f"k{k}"
+        wf = Path(str(out) + ".wall")
+        if a.reuse and (out / f"step_{a.nsteps:04d}" / "stats.txt").exists() and wf.exists():
+            wall = float(open(wf).read())
+            runs[k] = {"dir": out, "wall": wall, "ray": raylog(out / "ray.log"), "timers": []}
+            print(f" k = {k}: reused ({wall:.1f} s)", flush=True)
+            continue
         if out.is_dir():
             shutil.rmtree(out)
         cmd = [a.driver, a.problem, str(out), "--nsteps", str(a.nsteps), "--set", "legacy_rt=0",
@@ -105,6 +117,14 @@ def main():
         with open(str(out) + ".stdout", "w") as log:
             subprocess.run(cmd, check=True, stdout=log, stderr=subprocess.STDOUT)
         wall = time.time() - t0
+        open(wf, "w").write(f"{wall}\n")
+        # disk: keep fHI, temp, rhog of every step and every field of the last
+        for sd in out.glob("step_*"):
+            if sd.name == f"step_{a.nsteps:04d}":
+                continue
+            for b in sd.glob("*.bin"):
+                if b.stem not in ("fHI", "temp", "rhog"):
+                    b.unlink()
         txt = open(str(out) + ".stdout").read()
         rt_line = [l for l in txt.splitlines() if "ray_tracing" in l or "RT phases" in l]
         runs[k] = {"dir": out, "wall": wall, "ray": raylog(out / "ray.log"), "timers": rt_line[-1:]}

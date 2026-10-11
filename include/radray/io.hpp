@@ -37,6 +37,7 @@ struct ProblemParams {
   int rt_cells_per_substep = 1;    // Config::rt_cells_per_substep (1 = original)
   int rt_substep_carry = 0;        // Config::rt_substep_carry (0 = original; legacy_rt = 0)
   int photon_conserve = 0;         // Config::photon_conserve (0 = original; B17)
+  int ray_deposit = 0;             // Config::ray_deposit (0 = share, the original; 1 = exposure)
   // rt_method = rays | m1 | otvet and the moment-solver parameters
   // (set_rt_method_param, rt_moments.hpp; docs/rt_moments.md)
   Config rtm;

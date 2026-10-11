@@ -38,7 +38,7 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources);
 
 // rt_cells_per_substep = k (Config, docs/rt_multicell.md): throws unless
 // 1 <= k <= rrk::kMaxCellsPerSubstep, and for k > 1 unless legacy_rt = 0
-// and rt_method = rays.
+// and rt_method = rays; ray_deposit = exposure needs legacy_rt = 0.
 void check_rt_cells_param(const Config& c);
 
 // rt_tools.f90: radiative_transfer and its parts

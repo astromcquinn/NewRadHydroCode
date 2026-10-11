@@ -81,6 +81,9 @@ def main():
     ap.add_argument("--rt-cells-per-substep", type=int, default=1,
                     help="RT cells a ray crosses per RT substep (rt_cells_per_substep, "
                          "docs/rt_multicell.md); 1: the original (default, no line written)")
+    ap.add_argument("--ray-deposit", default="share", choices=("share", "exposure"),
+                    help="how rays deposit photons along their path (ray_deposit, "
+                         "docs/rt_multicell.md); share: the original (default, no line)")
     ap.add_argument("--photon-conserve", type=int, default=0, choices=(0, 1),
                     help="iterate photo_cell's photon limit to convergence (photon_conserve, "
                          "the B17 fix, docs/rt_multicell.md); 0: the original (default, no line)")
@@ -134,6 +137,8 @@ def main():
         lines.append("redshift_per_distance = 1")
     if a.photon_conserve:
         lines.append("photon_conserve = 1")
+    if a.ray_deposit != "share":
+        lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.rt_cells_per_substep != 1:
         lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
     if a.am_params:

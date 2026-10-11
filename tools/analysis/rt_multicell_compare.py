@@ -78,7 +78,10 @@ def ray_substeps(run):
         return 0.0, 0, 0.0
     for line in open(f):
         if line.lstrip().startswith("Rays") and ":" in line:
-            v = float(line.split(":")[1].split()[0])
+            vals = line.split(":")[1].split()
+            if len(vals) != 2:  # calc_ngam_ray threshold lines
+                continue
+            v = float(vals[0])
             tot += v
             n += 1
             mx = max(mx, v)
@@ -94,7 +97,10 @@ def ray_counts(run):
     for line in open(f):
         p = line.split(":")
         if len(p) == 2 and p[0].strip() in out:
-            out[p[0].strip()].append(float(p[1].split()[0]))
+            v = p[1].split()
+            if p[0].strip() == "Rays" and len(v) != 2:
+                continue
+            out[p[0].strip()].append(float(v[0]))
     return {k: np.array(v) for k, v in out.items()}
 
 

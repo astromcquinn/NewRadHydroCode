@@ -122,6 +122,8 @@ void check_rt_cells_param(const Config& c) {
   if (k < 1 || k > rrk::kMaxCellsPerSubstep)
     throw std::runtime_error("rt_cells_per_substep must be 1.." +
                              std::to_string(rrk::kMaxCellsPerSubstep));
+  if (c.ray_deposit != 0 && c.legacy_rt)
+    throw std::runtime_error("ray_deposit = exposure requires legacy_rt = 0");
   if (k == 1) return;
   if (c.legacy_rt) throw std::runtime_error("rt_cells_per_substep > 1 requires legacy_rt = 0");
   if (use_moments(c))

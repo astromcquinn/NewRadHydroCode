@@ -87,7 +87,10 @@ def parse_raylog(fn):
             continue
         name = parts[0].strip()
         if name in key:
-            out[key[name]].append(float(parts[1].split()[0]))
+            v = parts[1].split()
+            if name == "Rays" and len(v) != 2:  # calc_ngam_ray threshold lines
+                continue
+            out[key[name]].append(float(v[0]))
     return {k: np.array(v) for k, v in out.items()}
 
 
@@ -143,6 +146,9 @@ def run(driver, prob, out, c, k, nsteps, N, src, carry, threads, extra, profile_
         res["ngam"] += st["ngam"][0]
         if n in profile_steps:
             res["profiles"][n] = {"xHI": xhi.tolist(), "T": tt.tolist(), "t": sec}
+        for f in os.listdir(sd):  # disk: the fields are measured
+            if f.endswith(".bin"):
+                os.remove(os.path.join(sd, f))
     rl = parse_raylog(os.path.join(out, "ray.log"))
     res["raystats"] = {kk: v.tolist() for kk, v in rl.items()}
     for kk in ("t", "R", "chat", "nstep"):

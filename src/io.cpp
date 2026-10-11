@@ -86,6 +86,13 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   } else if (key == "rt_cells_per_substep") {
     p.rt_cells_per_substep = std::stoi(val);
     if (p.rt_cells_per_substep < 1) throw std::runtime_error("rt_cells_per_substep must be >= 1");
+  } else if (key == "ray_deposit") {
+    if (val == "share" || val == "0")
+      p.ray_deposit = 0;
+    else if (val == "exposure" || val == "1")
+      p.ray_deposit = 1;
+    else
+      throw std::runtime_error("ray_deposit must be share or exposure");
   } else if (key == "photon_conserve") {
     p.photon_conserve = std::stoi(val);
     if (p.photon_conserve != 0 && p.photon_conserve != 1)

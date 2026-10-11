@@ -143,6 +143,14 @@ struct Config {
   // the Fortran harnesses mirror); rays and the moment RT.
   bool photon_conserve = false;
 
+  // How a ray deposits its photons along the segments of its path
+  // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
+  // 1 = exposure, which keeps a ray's photons for the cells further along
+  // the path unless absorbed, so that an I-front reached in mid-path gets all
+  // of them (with k cells per substep the share deposit smears fronts over
+  // ~k cells). legacy_rt = 0 only; any rt_cells_per_substep.
+  int ray_deposit = 0;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled

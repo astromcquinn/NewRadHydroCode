@@ -194,6 +194,7 @@ rrk::RTP rt_params(const Simulation& s) {
   // for a path of k = rt_cells_per_substep cells (legacy_rt = 0 only)
   p.cells = s.cfg.rt_cells_per_substep;
   p.nseg = rrk::nseg_for(s.cfg.legacy_rt, p.cells);
+  p.deposit = s.cfg.ray_deposit;  // share (0, the original) or exposure (1)
   p.nside_merge = s.rays.nside_merge;
   p.ngam_ray16 = s.rays.ngam_ray[16 - 1];
   p.ngam_ray32 = s.rays.ngam_ray[32 - 1];
