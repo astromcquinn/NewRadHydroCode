@@ -5,8 +5,12 @@
 
 RUNDIR is the radhydro output directory with movie/frames.txt and
 movie/frame_NNNNN_<field>.bin (float32 (N,N,N) rt_grid fields, Fortran
-order). It shows fHI and temp, and the gas density when the run wrote it
-(movie_fields = fHI,temp,rhog). Writes:
+order), or slab frames frame_NNNNN_<field>.slab (movie_slab > 0, geometry
+in movie/slab.txt; tools/movies/movie_frames.py). It shows fHI and temp,
+and the gas density when the run wrote it (movie_fields = fHI,temp,rhog).
+With slab frames --axis must be one of movie_slab_axes, the slab
+(--pos .. --pos + --slab - 1) must lie in the stored slab, and the default
+position is the most ionised --slab cells within the stored slab. Writes:
   stills_grid.png      rows = redshifts; columns = gas density, neutral
                        fraction, temperature (thin slab through the box)
   stills_history.png   volume- and mass-weighted x_HII(z), frames marked
@@ -14,6 +18,7 @@ order). It shows fHI and temp, and the gas density when the run wrote it
 """
 import argparse
 import os
+import sys
 
 import numpy as np
 import matplotlib
@@ -30,6 +35,9 @@ MAPS = {
 }
 INK = "#2b2b2b"
 MUTED = "#6b6b6b"
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import movie_frames as mf  # noqa: E402
 
 
 def read_frames(run):
@@ -58,6 +66,45 @@ def slab(a, axis, width, k0=None):
         k0 = n // 2 - width // 2
     s = np.take(a, [(k0 + i) % n for i in range(width)], axis=axis).mean(axis=axis)
     return s.T  # x right, y up
+
+
+def has_field(run, frame, field):
+    return mf.frame_file(run, frame, field) is not None
+
+
+def frame_slab(run, frame, field, axis, width, k0):
+    """slab() of a frame's field, reading only the slab's cells (the same
+    float32 values as slab(load(...))), from a full cube (.bin) or a slab
+    frame (.slab, movie_slab)."""
+    p = mf.frame_file(run, frame, field)
+    if p is None:
+        raise FileNotFoundError("no frame %d of %s in %s/movie" % (frame, field, run))
+    return mf.read_cells(p, axis, k0, width).mean(axis=axis).T
+
+
+def most_ionised(run, frame, axis, width):
+    """First cell of the `width` planes along axis cutting the most ionised
+    gas: over the whole box (periodic) for full cubes, within the stored
+    slab for slab frames."""
+    p = mf.frame_file(run, frame, "fHI")
+    if p is not None and mf.is_slab(p):
+        info = mf.info_of(p)
+        if width > info["thick"]:
+            sys.exit(f"--slab {width} is thicker than the stored slab (movie_slab = {info['thick']})")
+        x = 1 - np.asarray(mf.slab_block(p, axis), dtype=np.float64)
+        prof = x.sum(axis=tuple(i for i in range(3) if i != axis))
+        return info["start"] + int(np.argmax(np.convolve(prof, np.ones(width), "valid")))
+    x = 1 - load(run, frame, "fHI")
+    other = tuple(i for i in range(3) if i != axis)
+    prof = x.sum(axis=other)
+    return int(np.argmax(np.convolve(np.r_[prof, prof[:width - 1]], np.ones(width), "valid")))
+
+
+def check_slab(run, frame, field, axis, width, k0):
+    p = mf.frame_file(run, frame, field)
+    err = mf.plane_error(p, axis, k0, width) if p else None
+    if err:
+        sys.exit(err.replace("--pos/--thick", "--pos/--slab"))
 
 
 def params(run):
@@ -105,16 +152,15 @@ def main():
         if fr[i]["frame"] not in [p["frame"] for p in picks]:
             picks.append(fr[i])
     # rhog only if the run wrote it (movie_fields = fHI,temp in the production params)
-    fields = [f for f in ("rhog", "fHI", "temp")
-              if os.path.exists(os.path.join(a.run, "movie", f"frame_{picks[0]['frame']:05d}_{f}.bin"))]
+    fields = [f for f in ("rhog", "fHI", "temp") if has_field(a.run, picks[0]["frame"], f)]
     if a.pos >= 0:
         k0 = a.pos
     else:
         ref = picks[min(1, len(picks) - 1)]
-        x = 1 - load(a.run, ref["frame"], "fHI")
-        other = tuple(i for i in range(3) if i != a.axis)
-        prof = x.sum(axis=other)
-        k0 = int(np.argmax(np.convolve(np.r_[prof, prof[:a.slab - 1]], np.ones(a.slab), "valid")))
+        k0 = most_ionised(a.run, ref["frame"], a.axis, a.slab)
+    for p in picks:
+        for fld in fields:
+            check_slab(a.run, p["frame"], fld, a.axis, a.slab, k0)
     plt.rcParams.update({"font.size": 10, "text.color": INK, "axes.labelcolor": INK,
                          "xtick.color": MUTED, "ytick.color": MUTED})
 
@@ -124,7 +170,7 @@ def main():
     ims = {}
     for r, p in enumerate(picks):
         for c, fld in enumerate(fields):
-            img = slab(load(a.run, p["frame"], fld), a.axis, a.slab, k0)
+            img = frame_slab(a.run, p["frame"], fld, a.axis, a.slab, k0)
             ims[fld] = panel(axs[r, c], img, fld, box)
         axs[r, 0].set_ylabel(f"z = {p['z']:.2f}\n" + rf"$\langle x_{{\rm HII}}\rangle_V$ = {p['xv']:.2f}",
                              fontsize=11)
@@ -140,7 +186,7 @@ def main():
     for p in picks:
         fig, axs = plt.subplots(1, len(fields), figsize=(4 * len(fields), 4.4), constrained_layout=True)
         for c, fld in enumerate(fields):
-            im = panel(axs[c], slab(load(a.run, p["frame"], fld), a.axis, a.slab, k0), fld, box)
+            im = panel(axs[c], frame_slab(a.run, p["frame"], fld, a.axis, a.slab, k0), fld, box)
             fig.colorbar(im, ax=axs[c], location="bottom", shrink=0.85, pad=0.02).set_label(MAPS[fld]["label"])
         fig.suptitle(f"z = {p['z']:.2f}   volume-weighted ionised fraction {p['xv']:.2f}   "
                      f"({box:g} Mpc/h box)", color=INK)

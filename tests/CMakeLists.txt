@@ -654,6 +654,23 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          restart_smoke_rotate PROPERTIES TIMEOUT 600 LABELS restart)
+    # slab-only movie frames (movie_slab, docs/movies.md): the slabs against
+    # the full cubes, and the movie tools and reion.py on them; and through
+    # a restart (slab.txt)
+    add_test(NAME movie_slab
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/movie_slab_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/movie_slab --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
+                     --set movie_z0=25)
+    set_tests_properties(movie_slab PROPERTIES TIMEOUT 900 LABELS movie)
+    add_test(NAME restart_smoke_det_movie_slab
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det_slab 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
+                     --set movie_z0=25 --set movie_slab=4)
+    set_tests_properties(restart_smoke_det_movie_slab PROPERTIES TIMEOUT 600 LABELS "restart;movie")
   endif()
 endif()
 

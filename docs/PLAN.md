@@ -364,3 +364,19 @@ policy on klone, and deleting the merged branches.
   too long at fixed Γ in these boxes (unresolved absorbers, box ≲ λ).
 * **f_esc:** with the bigger box err on the side of a smaller escape
   fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
+* **Calibrate on ṅ_ion (2026-10-11).** With f_esc = 0.23 the 40 Mpc/h 512³
+  run matches the Becker+21 / Gaikwad+Zhu ṅ, ends reionization at z ≈ 5.6
+  and gives τ_es = 0.052. But Γ_HI is ~3× and ⟨F_Lyα⟩ ~4× the data, and
+  λ_mfp is far too long. The user: the Lyα forest measures will be missed
+  until AMR resolves the sinks that set the mean free path, and ṅ is the
+  most important constraint. No sub-grid absorber model for now.
+* **Speed-of-light study (2026-10-11):** judge c_reduced on x_H alone (the
+  x_HII history and maps against 1c), in a bigger box than 10 Mpc/h. The
+  goal is the c that is acceptable as a function of x_H. Runs: 20 Mpc/h
+  256³ at c = 0.05–1, plus a 10 Mpc/h 128³ box check (`runs/sol/`).
+* **Movies always (2026-10-11):** every run saves frequent movie frames,
+  even when full snapshots are rare; slab-only frames to keep the disk
+  manageable (branch `movie-slab`).
+* **PM refinement** (`pm_refine = 2`, a PM mesh and particles 2× the gas
+  grid, for halo mass resolution) goes to a separate thread started by the
+  user, on Hyak.

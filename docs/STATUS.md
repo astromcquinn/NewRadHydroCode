@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-11: the 256³ production run (branch `production-256`, PR #23, below); 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-11: the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Production run at 256³ (branch `production-256`, started 2026-10-10)
 
@@ -51,7 +51,61 @@ the same branch as PR #20. The duplicate merge was dropped and
 | 8. STATUS, PLAN, PR | this entry; PR opened for `production-256` |
 
 
-## Done 2026-10-10, branch `redshift-per-distance` (not merged)
+## Done 2026-10-11, branch `movie-slab` (merged into `main`)
+
+**Slab-only movie frames, faster movie tools and post-processing as a
+separate job (`docs/movies.md`, "Slab frames").**
+- **Problem.** A movie frame was a full cube per field: about 160 GB per
+  512³ run at Δz = 0.1. The tools read only a slab of it.
+- **New option.** `movie_slab = t` (default 0 = the full cube, byte-identical
+  to before) and `movie_slab_axes` (default `xyz`).
+  - Each frame field becomes `movie/frame_NNNNN_<field>.slab`: one block
+    per axis, holding cells N/2 − t/2 … N/2 − t/2 + t − 1 along that axis,
+    float32, Fortran order.
+  - The geometry is in `movie/slab.txt`. A restart with a different
+    geometry stops with an error.
+  - `frames.txt` is unchanged: x_HII,V and x_HII,M are whole-box sums.
+  - Disk with t = 8, at 512³: 25 MB per field instead of 537 MB, so 75 MB
+    instead of 1.6 GB per frame of fHI, temp and rhog.
+  - `make_production.py --movie-slab 8` sets it, recommended for N ≥ 256;
+    the default 0 writes no line.
+- **Tools.** A shared reader, `tools/movies/movie_frames.py`, serves
+  `make_movie.py`, `compare_movie.py`, `stills.py` and `compare_stills.py`.
+  They read both kinds of frame.
+  - With slabs, the slice must lie in the stored slab; otherwise the tool
+    says which cells are stored.
+  - `reion.py` and the other tools that read only `frames.txt` need nothing.
+  - `rt_methods_runs.py` needs whole cubes for its field statistics. With
+    slab frames it falls back to the zdata1 field outputs, and says so.
+- **Speed: whole-cube reads fixed.** The old slab reader called `np.take` on
+  the memory-mapped cube. That copies the whole file, so each 512³ field was
+  read and transposed in full. This made `make_movie.py` take 1–2.5 h after
+  every 512³ leg.
+  - The new reader slices instead. It reads the same values, and stills are
+    byte-identical to before.
+  - Synthetic 512³, 6 frames: 106 s → 1.6 s (slabs) for files not yet in
+    the page cache, and 9.5 s → 5.4 s for cached cubes. `stills.py`:
+    46 s → 5 s.
+- **Post-processing.** `tools/hyak/reion_post.slurm` now holds the
+  post-processing that `reion_production.slurm` ran after every
+  successful leg.
+  - `POST=1` (default) runs it in the same job, as before.
+  - `POST=0` skips it.
+  - `POST=sbatch` submits it as a separate 16-core job (`POST_CPUS`,
+    `POST_MEM`, `POST_OUT`), so the big node is released at once.
+  - `POST=sbatch` has not been tried in a production job yet.
+- **Tests.**
+  - New: `movie_slab` (smoke full loop: slabs against the cubes, frames.txt,
+    reion.py, identical make_movie and stills images from cubes and slabs,
+    the error messages, the planar style) and `restart_smoke_det_movie_slab`.
+  - Defaults: the main build (195426c) and this branch give byte-identical
+    outputs on the smoke problem with movie frames, 337 files including 44
+    frame files, for both legacy settings.
+  - Fast suite on klone: 101/111 pass. The 10 failures are the known
+    platform ones (`ref_*lognormal_16src*` ×6,
+    `ray_dump_*_lognormal_16src_smallbuf` ×2, `ref_c01_*` ×2).
+
+## Done 2026-10-10, branch `redshift-per-distance` (merged into `main`)
 
 **Redshift per distance travelled with a reduced speed of light
 (`docs/production_run.md` §1, "Redshifting per time or per distance").**
@@ -81,7 +135,7 @@ the same branch as PR #20. The duplicate merge was dropped and
 - **Open (user):** whether production runs should use it. Not turned on
   anywhere.
 
-## Done 2026-10-10, branch `igm-diagnostics` (not merged)
+## Done 2026-10-10, branch `igm-diagnostics` (merged into `main`)
 
 **IGM diagnostics for the f_esc calibration (`docs/igm_diagnostics.md`).**
 - `tools/analysis/igm_stats.py` measures a run's snapshots (z ≤ 7.1) to
@@ -110,6 +164,29 @@ the same branch as PR #20. The duplicate merge was dropped and
   - run the tools on the 512³/40 Mpc/h run when it has z < 6.5 outputs
     (the memory and time were checked on a synthetic 512³ snapshot);
   - check the Gaikwad+23 Γ definition against the paper.
+
+## Done, merged into `main` 2026-10-11 (branch `fesc-z`)
+
+**Redshift-dependent escape fraction and the emissivity of the runs.**
+- `f_esc_beta`, `f_esc_z0`, `f_esc_max` (abundance-matched sources):
+  f_esc(z) = min(f_esc_max, f_esc ((1+z)/(1+f_esc_z0))^β), the power law of
+  D'Aloisio et al. (declining emissivity near the end of reionization).
+  β = 0 (default) is the constant f_esc exactly. Unit test in
+  `test_abundance_matching`; `make_production.py --f-esc-beta`.
+- `tools/analysis/emissivity.py` (on `main`): escaped ṅ_ion(z) of the runs
+  from FoF catalogs (hmf256: same ICs), vs the Lopez et al. median read by
+  eye from D'Aloisio et al. Fig. 1. `reion256_prod` (f_esc = 0.28) matches
+  that median at z ≳ 9 but is 2–2.5× above it at z < 7.5. Matching it with
+  these halos needs f_esc ≈ 0.123 ((1+z)/7)^1.31 (0.12 at z = 6, 0.22 at
+  z = 10), a milder decline than their β = 2.6–3, because the
+  abundance-matched intrinsic emissivity already flattens at z < 7.
+- The z = 5–6 data (`data/igm/igm_z5_6.txt`, `emissivity.py --obs`) need
+  more than that law at z ≈ 5: a constant f_esc ≈ 0.15–0.2 with the hmf256
+  halos. The run with that law (`reion256_fz131`) was therefore cancelled,
+  and calibration moved to the 40 Mpc/h 512³ runs (constant f_esc; see
+  the IGM diagnostics entry above). No run uses `f_esc_beta` yet.
+- Production runs now end at z = 5 (user, 2026-10-10: Lyα forest
+  comparison); `make_production.py` default.
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-moments`)
 

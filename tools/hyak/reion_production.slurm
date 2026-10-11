@@ -26,6 +26,12 @@
 # build/radhydro), THREADS (default: the job's cpus), LAUNCH (a prefix such
 # as "numactl --interleave=all"), EXTRA (extra radhydro arguments, e.g.
 # "--set c_reduced=0.1"; they must be the same at every restart).
+# POST: what to do after a successful run or leg (radhydro exit 0):
+#   1 (default) run tools/hyak/reion_post.slurm (stills, reion.py,
+#     make_movie.py) in this job; 0 nothing; sbatch submit
+#     reion_post.slurm as a separate small job (POST_CPUS cores, default 16;
+#     POST_MEM, default 64G; log POST_OUT, default $PROB/post-%j.out) and
+#     release this node at once.
 #SBATCH --job-name=reion
 #SBATCH --account=astro
 #SBATCH --partition=cpu-g2
@@ -64,14 +70,23 @@ echo "$(date) radhydro exit $rc"
 grep -E "Maximum resident|Elapsed \(wall" "$RUN.log" | tail -2
 if [ $rc -eq 0 ]; then
   touch "$RUN/DONE"
-  # Stills and the ionisation history (tools/movies/stills.py needs the
-  # movie fields fHI, temp and rhog)
-  if ls "$RUN"/movie/frame_*_rhog.bin >/dev/null 2>&1; then
-    python3 tools/movies/stills.py "$RUN" "$RUN/stills" || true
-  fi
-  # Reionization history and tau_es (docs/production_run.md section 8), and
-  # the movie (docs/movies.md); both cheap next to the run
-  python3 tools/analysis/reion.py "$RUN" --out "$RUN/reion.txt" || true
-  python3 tools/movies/make_movie.py "$RUN" --jobs "$OMP_NUM_THREADS" || true
+  # Stills, reionization history and tau_es, and the movie
+  # (tools/hyak/reion_post.slurm; docs/production_run.md section 8,
+  # docs/movies.md)
+  case "${POST:-1}" in
+    0) echo "POST=0: no post-processing" ;;
+    sbatch)
+      # a small separate job, so this node is released at once
+      if jid=$(sbatch --parsable --job-name="post_${SLURM_JOB_NAME:-reion}" \
+                      --cpus-per-task="${POST_CPUS:-16}" --mem="${POST_MEM:-64G}" \
+                      --output="${POST_OUT:-$PROB/post-%j.out}" \
+                      --export=ALL,RUN="$RUN",JOBS="${POST_CPUS:-16}" tools/hyak/reion_post.slurm); then
+        echo "$(date) submitted post-processing job $jid"
+      else
+        echo "$(date) sbatch of the post-processing failed"
+      fi
+      ;;
+    *) JOBS="$OMP_NUM_THREADS" RUN="$RUN" bash tools/hyak/reion_post.slurm ;;
+  esac
 fi
 exit $rc
