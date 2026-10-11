@@ -3,6 +3,7 @@
 
     make_production.py OUTDIR --N 128 [--box 10] [--z-init 100] [--seed 7]
                        [--c-reduced 0.01] [--nray-max-factor 16] [--threads 4]
+                       [--hydro-scheme unsplit]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
 Ngas = Ndm = N) in OUTDIR/ics. Run with
@@ -73,6 +74,10 @@ def main():
     ap.add_argument("--ray-rotate", type=int, default=3, choices=(0, 1, 2, 3),
                     help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
                          "3: every RT substep and source (production), 0: the original")
+    ap.add_argument("--hydro-scheme", default="", choices=("", "legacy", "unsplit"),
+                    help="hydro_scheme line (docs/hydro_unsplit.md): unsplit for production (it "
+                         "fixes the cold-gas overheating of the legacy scheme); empty: not written, "
+                         "i.e. the code default, legacy")
     ap.add_argument("--redshift-per-distance", type=int, default=0, choices=(0, 1),
                     help="redshift the radiation per distance travelled instead of per time "
                          "(fscale^s, docs/production_run.md); 0: the original (default, "
@@ -105,6 +110,10 @@ def main():
         f"c_reduced = {a.c_reduced:g}",
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
+    ]
+    if a.hydro_scheme:
+        lines.append(f"hydro_scheme = {a.hydro_scheme}")
+    lines += [
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",
     ] + ([f"movie_slab = {a.movie_slab}"] if a.movie_slab > 0 else []) + [
