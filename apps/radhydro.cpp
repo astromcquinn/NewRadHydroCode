@@ -100,6 +100,7 @@ struct RunParams {
   int ray_rotate = 0;        // B16 fix: Config::ray_rotate (0 = original)
   long long ray_rotate_seed = 0;
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
+  int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -174,6 +175,10 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     if (P.ray_rotate < 0 || P.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
   } else if (key == "ray_rotate_seed")
     P.ray_rotate_seed = std::stoll(val);
+  else if (key == "rt_cells_per_substep") {
+    P.rt_cells_per_substep = std::stoi(val);
+    if (P.rt_cells_per_substep < 1) throw std::runtime_error("rt_cells_per_substep must be >= 1");
+  }
   else if (key == "redshift_per_distance") {
     P.redshift_per_distance = std::stoi(val);
     if (P.redshift_per_distance != 0 && P.redshift_per_distance != 1)
@@ -513,11 +518,13 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
+    s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
+    check_rt_cells_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);
@@ -573,6 +580,9 @@ int main(int argc, char** argv) {
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
            << (P.redshift_per_distance ? ", redshift_per_distance = 1" : "")
            << (P.redshift_per_distance && !(P.c_reduced < 1) ? " (no effect: c_reduced >= 1)" : "")
+           << (P.rt_cells_per_substep != 1
+                   ? ", rt_cells_per_substep = " + std::to_string(P.rt_cells_per_substep)
+                   : std::string())
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel

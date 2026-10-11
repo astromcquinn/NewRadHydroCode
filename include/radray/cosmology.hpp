@@ -102,7 +102,8 @@ TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode,
 int calc_timestep(const Config& cfg, double da_fixed, SimClock& clk);
 
 // Distance the radiation moves in the hydro step that just ended (nstep_rt
-// RT substeps of one RT cell, dl_rt, each) over the comoving light distance
+// RT substeps of k = rt_cells_per_substep RT cells, k dl_rt, each; 1 cell in
+// the original) over the comoving light distance
 // of the step, dl_c = 2c/(H0 sqrt(omegam)) (sqrt(a2) - sqrt(a1)), as in
 // calc_timestep. Reads the clock at the end of the step (post_rt):
 // a2 = scalefactor, a1 = scalefactor - da_sim, and the actual nstep_rt

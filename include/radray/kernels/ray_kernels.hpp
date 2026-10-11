@@ -70,7 +70,10 @@ struct RTP {
   double nrtr = 0, hrtr = 0;
   double seg_min = 0, ngam_min = 0, fgam_min = 0, sfr_min = 0;
   double vol_rt = 0, nH_avg = 0, dtsec_rt = 0;
-  int nseg = 4;        // 3 with legacy_rt = 1 (B8), 4 otherwise
+  int nseg = 4;        // 3 with legacy_rt = 1 (B8), 4 otherwise (3k+1 for k cells per substep)
+  // rt_cells_per_substep (config.hpp, docs/rt_multicell.md): the path of a
+  // ray in one substep, in RT cells. 1 (default) is the original.
+  int cells = 1;
   int nside_merge = 2;  // HEALPix nside of the merge cones (12 nside^2 cones)
   double ngam_ray16 = 0, ngam_ray32 = 0;  // ngam_ray(16), ngam_ray(32)
   // B16 fix ray_rotate (config.hpp): the mode, the seed, the bits of the
@@ -111,18 +114,27 @@ RR_HD double rmax_from_nside(int nside) {
   return nside * std::sqrt(3 / (pc::pi * rayp::ray_per_cell));
 }
 
+// Most RT cells a ray may cross per substep (rt_cells_per_substep), and the
+// segments of such a path: a path of k cells crosses at most k faces normal
+// to each axis, so at most 3k faces and 3k+1 segments.
+constexpr int kMaxCellsPerSubstep = 16;
+constexpr int kNsegMax = 3 * kMaxCellsPerSubstep + 1;
+RR_HD int nseg_for(bool legacy_rt, int cells) { return legacy_rt ? 3 : 3 * cells + 1; }
+
 // ray_tracing_tools.f90: ray_segment -- lengths of the cell crossings of a
-// unit-length step from x0 along dx. nseg = 3 (the original; can truncate
-// the step, B8) or 4 (legacy_rt = 0: always covers it). Elements beyond
-// nseg are 0.
+// step of `len` cells (1 in the original) from x0 along dx. nseg = 3 (the
+// original; can truncate the step, B8) or 4 (legacy_rt = 0: always covers
+// it); 3 len + 1 for a path of len cells (rt_cells_per_substep). seg has
+// room for nseg values.
 RR_HD void ray_segment(const double x0[3], const double dx[3], double seg_min, int nseg,
-                       double seg[4]) {
+                       double* seg, int len = 1) {
   double l = 0;
   double x[3] = {x0[0], x0[1], x0[2]};
   const double eps = static_cast<double>(1e-6f);  // 1E-6 is real(4)
-  for (int n = 0; n < 4; ++n) seg[n] = 0;
+  const double len_d = static_cast<double>(len);
+  for (int n = 0; n < nseg; ++n) seg[n] = 0;
   for (int n = 0; n < nseg; ++n) {
-    double dl = 1 - l;
+    double dl = len_d - l;
     if (dl > seg_min) {
       for (int i = 0; i < 3; ++i) {
         if (std::fabs(dx[i]) > eps) {
@@ -165,8 +177,8 @@ RR_HD void cast_1(const RayP& ry, const RTP& P, const TauF& tau, const DepF& dep
     nu[n] = ry.nu[n];
     ngam[n] = ry.ngam[n];
   }
-  double dl[4];
-  ray_segment(x, dx, P.seg_min, P.nseg, dl);
+  double dl[kNsegMax];
+  ray_segment(x, dx, P.seg_min, P.nseg, dl, P.cells);
   double l = 0;
   for (int n = 0; n < P.nseg; ++n) {
     l = l + dl[n];
@@ -215,8 +227,8 @@ RR_HD bool cast_3(RayP& ry, const RTP& P, const TFF& tf) {
     dx[d] = ry.dx[d];
   }
   for (int n = 0; n < NF; ++n) ngam[n] = ry.ngam[n];
-  double dl[4];
-  ray_segment(x, dx, P.seg_min, P.nseg, dl);
+  double dl[kNsegMax];
+  ray_segment(x, dx, P.seg_min, P.nseg, dl, P.cells);
   // Save original
   const double r0 = r, dr0 = dr;
   const double x0[3] = {x[0], x[1], x[2]};
@@ -275,7 +287,7 @@ RR_HD bool cast_3(RayP& ry, const RTP& P, const TFF& tf) {
 // ---------------------------------------------------------------------------
 // ray_cast_split: 4 daughters (child[0] corresponds to the parent's slot).
 // clamped (optional) reports whether the daughters' radius was clamped to
-// [rmin, rmin+1] of the new level, i.e. the effective origin moved
+// [rmin, rmin+k] of the new level (k = P.cells), i.e. the effective origin moved
 // (ray-dump provenance of the serial port).
 // ---------------------------------------------------------------------------
 RR_HD void split(const RayP& p, const RTP& P, RayP child[4], bool* clamped = nullptr) {
@@ -301,7 +313,9 @@ RR_HD void split(const RayP& p, const RTP& P, RayP child[4], bool* clamped = nul
   const double rmin = rmin_from_nside(nside);
   const double rmax = rmax_from_nside(nside);
   const double r_parent = r;
-  r = rrf::min(rrf::max(r, rmin), rmin + 1);
+  // [rmin, rmin + 1]: a ray past its split radius has moved at most one
+  // substep beyond it, P.cells RT cells (1 in the original)
+  r = rrf::min(rrf::max(r, rmin), rmin + P.cells);
   dr = rmax - r;
   if (clamped) *clamped = (r != r_parent);
   // Effective origin, position corresponding to r = 0

@@ -30,7 +30,10 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // rrk::RayP + links (the links moved from between ipix and r to the end;
 // versions <= 4 are converted on reading), and the AMReX backend's section
 // (rt_backend, then its rays gathered on rank 0) before the trailer.
-constexpr std::int32_t kVersion = 5;
+// Version 6 (docs/rt_multicell.md): rt_cells_per_substep before the
+// trailer (versions <= 5: 1). The substep carry rt_carry of the clock is in
+// substeps of that many cells; a restart with another value converts it.
+constexpr std::int32_t kVersion = 6;
 
 // The ray layout of versions <= 4
 struct RayV4 {
@@ -209,6 +212,9 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.pod(backend);
     o.vec(brays);
     o.pod(s.ngam_total_backend);
+    // rt_cells_per_substep (version 6)
+    const std::int32_t cells = s.cfg.rt_cells_per_substep;
+    o.pod(cells);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -403,6 +409,19 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
                              rt_backend_summary(s.cfg));
   }
   if (use_amrex(s.cfg)) amrex_rt_scatter_rays(s, brays);
+  std::int32_t cells = 1;
+  if (ver >= 6) in.pod(cells);
+  if (cells < 1) throw std::runtime_error("checkpoint: bad rt_cells_per_substep: " + path);
+  if (cells != s.cfg.rt_cells_per_substep) {
+    // rt_carry counts light substeps of `cells` RT cells; this run's
+    // substeps cross rt_cells_per_substep cells
+    s.clk.rt_carry = s.clk.rt_carry * cells / s.cfg.rt_cells_per_substep;
+    if (io_rank())
+      std::fprintf(stderr,
+                   " read_checkpoint: rt_cells_per_substep changes from %d to %d at this restart "
+                   "(substep carry converted)\n",
+                   static_cast<int>(cells), s.cfg.rt_cells_per_substep);
+  }
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)
     throw std::runtime_error("checkpoint trailer missing: " + path);

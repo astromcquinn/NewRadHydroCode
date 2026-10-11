@@ -35,6 +35,11 @@ void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init);
 // Sources are summed per cell in the given order (= link_halo order).
 void calc_halo(Simulation& s, const std::vector<Source>& sources);
 
+// rt_cells_per_substep = k (Config, docs/rt_multicell.md): throws unless
+// 1 <= k <= rrk::kMaxCellsPerSubstep, and for k > 1 unless legacy_rt = 0
+// and rt_method = rays.
+void check_rt_cells_param(const Config& c);
+
 // rt_tools.f90: radiative_transfer and its parts
 void radiative_transfer(Simulation& s);
 void prep_rt(Simulation& s);

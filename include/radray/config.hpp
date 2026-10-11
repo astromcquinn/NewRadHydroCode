@@ -121,6 +121,18 @@ struct Config {
   // nothing. Not tied to legacy_physics.
   bool redshift_per_distance = false;
 
+  // RT cells a ray crosses per RT substep (docs/rt_multicell.md). 1
+  // (default) is the original: nstep_rt counts the light crossings of one RT
+  // cell. k > 1: nstep_rt = nint(dl_c/(k dl_rt)*cscale) substeps, each k
+  // times longer, in which every ray moves k cells (up to 3k+1 segments),
+  // so the light distance per hydro step is unchanged; the photo-ionisation
+  // rate of a cell uses the crossing speed k*len_rt/dtsec_rt and the split
+  // radius clamp is [rmin, rmin+k]. legacy_rt = 0 and rt_method = rays only;
+  // with rt_backend = amrex the ghost layers grow to k+1. The test of
+  // coarse-substep RT for AMR (Stage F): a level-l region would move rays
+  // 2^l fine cells per coarse substep.
+  int rt_cells_per_substep = 1;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled
@@ -176,9 +188,11 @@ struct Config {
   //   ray_encoding: float (default) | rstruct;
   //   amrex_max_grid_size: box size of the level's decomposition;
   //   amrex_ghosts: ghost layers of the optical depth / deposit FabArrays
-  //                (2 is the reach of one substep, checked at run time);
+  //                (2 is the reach of one substep, checked at run time;
+  //                at least k+1 are used with rt_cells_per_substep = k);
   //   amrex_redist_local: cells a ray may move per substep for the local
-  //                (neighbour-only) Redistribute; 0 = global.
+  //                (neighbour-only) Redistribute; 0 = global (at least k+1
+  //                are used with rt_cells_per_substep = k).
   RTBackend rt_backend = RTBackend::Serial;
   RayEncoding ray_encoding = RayEncoding::Float;
   int amrex_max_grid_size = 16;

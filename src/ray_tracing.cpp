@@ -137,18 +137,22 @@ namespace {
 inline int cell_of(double x, int Nrt) { return 1 + f::mod(f::int4(x), Nrt); }
 
 // deterministic_parallel: the cell being processed by this thread, and the
-// reach check. Every chain insertion must stay within dmax = d/2 - 1 cells
-// (periodic Chebyshev distance) of it, so that a cast from there (one more
-// cell) stays within d/2 and concurrent domains of one colour (>= d cells
-// apart) never touch the same cell or ray chain.
+// reach check. Every chain insertion must stay within dmax = d/2 - cast
+// cells (periodic Chebyshev distance) of it, where cast is the reach of a
+// cast that follows the insertion (k = rt_cells_per_substep cells in
+// ray_tracing_1, 1 in the original; none in ray_tracing_3), so that all
+// the ray work of a cell stays within d/2 and concurrent domains of one
+// colour (>= d cells apart) never touch the same cell or ray chain.
 thread_local int det_cell[3] = {0, 0, 0};
-inline void det_set_cell(int i, int j, int k) {
+thread_local int det_cast = 1;
+inline void det_set_cell(int i, int j, int k, int cast) {
   det_cell[0] = i;
   det_cell[1] = j;
   det_cell[2] = k;
+  det_cast = cast;
 }
 void det_check_reach(const Simulation& s, int i, int j, int k) {
-  const int N = s.cfg.Nrt, dmax = s.ddom.d / 2 - 1;
+  const int N = s.cfg.Nrt, dmax = s.ddom.d / 2 - det_cast;
   const int ijk[3] = {i, j, k};
   for (int m = 0; m < 3; ++m) {
     int dd = std::abs(ijk[m] - det_cell[m]);
@@ -186,8 +190,10 @@ rrk::RTP rt_params(const Simulation& s) {
   p.vol_rt = s.units.vol_rt;
   p.nH_avg = s.units.nH_avg;
   p.dtsec_rt = s.clk.dtsec_rt;
-  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3)
-  p.nseg = s.cfg.legacy_rt ? 3 : 4;
+  // B8 fix: without legacy_rt, up to 4 segments (the original uses 3); 3k+1
+  // for a path of k = rt_cells_per_substep cells (legacy_rt = 0 only)
+  p.cells = s.cfg.rt_cells_per_substep;
+  p.nseg = rrk::nseg_for(s.cfg.legacy_rt, p.cells);
   p.nside_merge = s.rays.nside_merge;
   p.ngam_ray16 = s.rays.ngam_ray[16 - 1];
   p.ngam_ray32 = s.rays.ngam_ray[32 - 1];
@@ -227,7 +233,7 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
         if (!(G.htoc_ray(1, c) > 0 ||
               static_cast<double>(G.sfr[c]) > u.sfr_min || (rec_emit && rec_emit[c])))
           continue;
-        if (det) det_set_cell(irt, jrt, krt);
+        if (det) det_set_cell(irt, jrt, krt, P.cells);
 
         std::int64_t ncst_tot = 0, nspl_tot = 0, nmrg_tot = 0;
         // 2 in the original (both branches of its choice give 2, B12)
@@ -528,7 +534,7 @@ void ray_tracing_3(Simulation& s, const std::array<int, 6>& box) {
         if (!(G.htoc_ray(1, c) > 0 ||
               static_cast<double>(G.sfr[c]) > u.sfr_min))
           continue;
-        if (s.cfg.det_parallel) det_set_cell(irt, jrt, krt);
+        if (s.cfg.det_parallel) det_set_cell(irt, jrt, krt, 0);
 
         const std::int64_t head = G.htoc_ray(1, c);
         const std::int64_t tail = G.htoc_ray(2, c);
@@ -605,6 +611,16 @@ std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
   if (nseg < 1 || nseg > 4) throw std::invalid_argument("ray_segment: nseg must be 1..4");
   std::array<double, 4> seg{};
   rrk::ray_segment(x0, dx, seg_min, nseg, seg.data());
+  return seg;
+}
+
+std::vector<double> ray_segment_path(const double x0[3], const double dx[3], double seg_min,
+                                     int cells) {
+  if (cells < 1 || cells > rrk::kMaxCellsPerSubstep)
+    throw std::invalid_argument("ray_segment_path: cells must be 1.." +
+                                std::to_string(rrk::kMaxCellsPerSubstep));
+  std::vector<double> seg(static_cast<std::size_t>(rrk::nseg_for(false, cells)), 0.0);
+  rrk::ray_segment(x0, dx, seg_min, static_cast<int>(seg.size()), seg.data(), cells);
   return seg;
 }
 

@@ -284,6 +284,10 @@ struct PhysCtx {
   radray::Units u;
   RatesView rates;
   double dtsec_rt = 0;
+  // rt_cells_per_substep (docs/rt_multicell.md): a ray crosses this many RT
+  // cells per substep, so the photons deposited in a cell (its share of the
+  // ray's path) cross it at cells*len_rt/dtsec_rt. 1 is the original.
+  int cells = 1;
   // recomb_case = A: ia = 0 (alpha_rec(1:3), coef_cool(1:3)); B (the
   // original): 3. The host lowers it to 3 for cells on the spot
   // (recomb_rad). want_nrab: count the ground-state recombinations
@@ -418,7 +422,7 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   double gamma_pht[3][5], gamma_max[3][5];
   for (int inu = 0; inu < 5; ++inu)
     for (int sp = 0; sp < 3; ++sp)
-      gamma_pht[sp][inu] = ngam[inu] * sigma_pht[sp][inu] * (u.len_rt / dtsec_rt);
+      gamma_pht[sp][inu] = ngam[inu] * sigma_pht[sp][inu] * (u.len_rt * X.cells / dtsec_rt);
   for (int sp = 0; sp < 3; ++sp)
     for (int inu = 0; inu < 5; ++inu) gamma_max[sp][inu] = gamma_pht[sp][inu];
   double gam_pht[3];

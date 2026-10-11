@@ -13,6 +13,7 @@
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
+#include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/ray_quant.hpp"
@@ -116,17 +117,36 @@ void end_domain_rt(Domains& dom, int idom) {
     for (auto& d : dom.domain) d[0] = 0;
 }
 
+void check_rt_cells_param(const Config& c) {
+  const int k = c.rt_cells_per_substep;
+  if (k < 1 || k > rrk::kMaxCellsPerSubstep)
+    throw std::runtime_error("rt_cells_per_substep must be 1.." +
+                             std::to_string(rrk::kMaxCellsPerSubstep));
+  if (k == 1) return;
+  if (c.legacy_rt) throw std::runtime_error("rt_cells_per_substep > 1 requires legacy_rt = 0");
+  if (use_moments(c))
+    throw std::runtime_error("rt_cells_per_substep > 1 is implemented for rt_method = rays only");
+}
+
 // deterministic_parallel domains (simulation.hpp: DetDomains)
 void init_det_domains(const Config& cfg, DetDomains& dd) {
   const int N = cfg.Nrt;
   dd = DetDomains{};
-  for (int d = 8; d <= N / 2; ++d)
+  // The reach of one cell's ray work is k+1 cells for k = rt_cells_per_substep
+  // (a split or merge moves a ray by at most one cell, then a cast of k
+  // cells; a ray moves k cells, plus one at a cell face, in ray_tracing_3),
+  // and it must stay within d/2: d >= 2k+2. d = 8 (the original choice) for
+  // k <= 3.
+  const int dmin = std::max(8, 2 * cfg.rt_cells_per_substep + 2);
+  for (int d = dmin; d <= N / 2; ++d)
     if (N % d == 0 && (N / d) % 2 == 0) {
       dd.d = d;
       break;
     }
   if (dd.d == 0)
-    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= 8 (Nrt >= 16)");
+    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= " +
+                             std::to_string(dmin) + " (Nrt >= " + std::to_string(2 * dmin) +
+                             "; d >= 2k+2 for rt_cells_per_substep = k)");
   dd.n1 = N / dd.d;
   for (int k = 0; k < dd.n1; ++k)
     for (int j = 0; j < dd.n1; ++j)
@@ -1015,6 +1035,7 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   X.rates.gcol = s.rates.gamma_col_.data();
   X.rates.legacy_physics = s.cfg.legacy_physics;
   X.dtsec_rt = dtsec_rt;
+  X.cells = s.cfg.rt_cells_per_substep;
   X.want_nrab = static_cast<bool>(s.recomb);
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {

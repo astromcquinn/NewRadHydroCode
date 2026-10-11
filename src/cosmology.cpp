@@ -221,16 +221,20 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
   // RT time step. Rays move one RT cell per substep, so the number of
   // substeps per hydro step sets the speed of light: cscale = c_reduced < 1
   // is the reduced speed of light approximation (the original hard-wires
-  // cscale = 1). See docs/production_run.md.
+  // cscale = 1). See docs/production_run.md. With rt_cells_per_substep = k
+  // rays move k cells per substep (docs/rt_multicell.md): nstep_rt counts
+  // the light crossings of k cells, and the carry and the >= 1 guard act on
+  // that count.
   const double cscale = cfg.c_reduced;
   const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
                       (std::sqrt(a + clk.da_sim) - std::sqrt(a));
   const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
+  const double dl_sub = dl_rt * cfg.rt_cells_per_substep;  // = dl_rt for k = 1
   t.ns_rt = f::nint(dl_c / dl_rt);
-  clk.nstep_rt = f::nint(dl_c / dl_rt * cscale);
+  clk.nstep_rt = f::nint(dl_c / dl_sub * cscale);
   if (cfg.rt_substep_carry) {
-    // light cells of this step plus the remainder of the previous steps
-    const double want = dl_c / dl_rt * cscale + clk.rt_carry;
+    // light substeps of this step plus the remainder of the previous steps
+    const double want = dl_c / dl_sub * cscale + clk.rt_carry;
     clk.nstep_rt = f::max(f::nint(want), 1);
     clk.rt_carry = want - clk.nstep_rt;
   }
@@ -241,8 +245,9 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     // harnesses; never reached with c_reduced = 1 at the validated sizes).
     std::fprintf(stderr,
                  " calc_timestep: warning: nstep_rt = %d < 1 (light moves %.3g RT cells in "
-                 "this step at c_reduced = %g); using 1, so rays move faster than c_reduced\n",
-                 clk.nstep_rt, dl_c / dl_rt * cscale, cscale);
+                 "this step at c_reduced = %g, rays %d per substep); using 1, so rays move "
+                 "faster than c_reduced\n",
+                 clk.nstep_rt, dl_c / dl_rt * cscale, cscale, cfg.rt_cells_per_substep);
     clk.nstep_rt = 1;
   }
   clk.dt_rt = clk.dt_sim / clk.nstep_rt;
@@ -307,7 +312,8 @@ double rt_path_fraction(const Config& cfg, const SimClock& clk) {
   const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
                       (std::sqrt(a1 + clk.da_sim) - std::sqrt(a1));
   const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
-  return clk.nstep_rt * dl_rt / dl_c;
+  // k = rt_cells_per_substep RT cells per substep
+  return clk.nstep_rt * cfg.rt_cells_per_substep * dl_rt / dl_c;
 }
 
 double redshift_fscale(const Config& cfg, const SimClock& clk) {
