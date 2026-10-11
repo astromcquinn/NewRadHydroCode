@@ -44,9 +44,9 @@ in the 40 Mpc/h, 512³ runs.
     to the gas grid being 2× coarser than the mesh;
   - against the same-configuration 10 Mpc/h control the big box is flat
     in particle number (0.84–0.94, sample variance).
-- Cost per step (no RT): ~57 s against 29 s, mostly the on-the-fly FoF on
-  10⁹ particles (30 s). PM ~9 s after the r > 1 speed-ups (parallel
-  `link_dm`, stored mesh force, FFT cap); +~70 GB.
+- Cost per step (no RT): ~60 s against 29 s, mostly the on-the-fly FoF on
+  10⁹ particles (32 s). PM 13 s (30 s before the r > 1 speed-ups:
+  parallel `link_dm`, stored mesh force, FFT cap); 174 GB peak.
 - **Open (user):**
   - production with pm_refine = 2;
   - which abundance-matching fit (the 1024³ particle mass is that of

@@ -282,9 +282,15 @@ RT. Per hydro step at z ≈ 6, in seconds:
 |---|---|---|---|---|---|---|---|
 | pm_refine = 1, 512³ DM | 12.9 | 3.3 | 5.6 | 6.6 | 29 | 49 (21 min) | 105 GB |
 | pm_refine = 2, 1024³ DM, first build | 10–13 | 30 | 29–30 | 10.8 | 80–84 | 55 | 173 GB |
-| pm_refine = 2, final code (projected) | 10–13 | ~9 | 29–30 | 5.6 | ~57 | 55 | ~186 GB |
+| pm_refine = 2, final code (measured, one step) | 10–13 (22 after a restart) | 12.8 | 31.9 | 5.6 | ~60 (72 after a restart) | 55 | 174 GB |
 
-The first validation build used serial FFTs (`RADRAY_FFTW` pointed at the
+The final-code row is one step restarted from the run's last checkpoint
+(`$RUNS/pm_refine_timing`). The hydro after a restart is slower
+(22 s against 10–13 s in the uninterrupted run, the same with
+pm_refine = 1 restarts; probably the NUMA placement of the arrays read
+from the checkpoint). At a zdata1 output the step also spends 20 s in
+`calc_power_spectrum` (`calc_pk_3d` over the 1024³ mesh is serial) and
+24 s writing the 26 GB `DM/xv_dm`. The first validation build used serial FFTs (`RADRAY_FFTW` pointed at the
 serial library; §5) and none of the speed-ups below. The algorithm is the
 same, so its halos stand. The final PM stages on the 1024³ ICs
 (`pm_bench`, 192 threads, s per step; first build in parentheses): drift
@@ -310,9 +316,9 @@ shorter: 55 hydro steps against 49 from z = 100 to 5.5.
 
 **In the production configuration (with RT)** the 512³ runs spend most of
 each step in the RT: 6856 s of the 8772 s of the first f_esc = 0.1 leg,
-and more after overlap. pm_refine = 2 adds about 30 s per step, mostly the
-on-the-fly FoF on 8× more particles (30 s against 5.6 s), plus 6 s of PM.
-It also adds about 70 GB of memory: xv 26 GB, ll and hoc 17 GB, mesh
+and more after overlap. pm_refine = 2 adds about 35 s per step, mostly the
+on-the-fly FoF on 8× more particles (32 s against 5.6 s), plus 10 s of PM.
+It also adds about 70 GB of memory (174 GB peak with no rays): xv 26 GB, ll and hoc 17 GB, mesh
 force 13 GB, density 4 GB, FoF work arrays. The 512³ production peaked at
 200 GB, so pm_refine = 2 needs `--mem` ≳ 300G rather than the 256G of
 `docs/cluster.md`. Each checkpoint holds 26 GB more particles, and each
@@ -329,6 +335,9 @@ every zdata1 redshift).
   * a production 512³ run with pm_refine = 2 (`make_production.py
     --pm-refine 2`; it needs `--mem` ≳ 300G).
 
+* `calc_pk_3d` (P(k) at the zdata1 outputs) is a serial loop: 20 s on
+  the 1024³ mesh. It is not parallelised here because its bins are double
+  sums whose order the original fixes.
 * **Q14 (preserved).** The DM speed and acceleration diagnostics of the
   `calc_timestep` log (`vmax_dm`, `vrms_dm`, `amax_dm`, `arms_dm`) are
   converted to km/s with the gas-grid units, but they are in DM-grid and
