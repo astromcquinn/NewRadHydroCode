@@ -190,6 +190,22 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(ifront_rsla_${m} PROPERTIES TIMEOUT 600 LABELS "physics;moments")
   endforeach()
 
+  # rays crossing k = 2 cells per substep (docs/rt_multicell.md): the
+  # uniform I-front of ifront_rsla at c_reduced = 1 against k = 1 (within
+  # half a cell), the finite-c solution and the interior x_HI (the
+  # crossing-speed factor of the photo-ionisation rate); and photo_cell's
+  # photon budget (B17, photon_conserve)
+  add_test(NAME multicell
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/rt_multicell_ifront.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/multicell --k 1 2 --c 1 --check)
+  set_tests_properties(multicell PROPERTIES TIMEOUT 600 LABELS "physics;multicell")
+  add_test(NAME photon_conserve
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/photon_conserve_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
+                   ${CMAKE_CURRENT_BINARY_DIR}/photon_conserve)
+  set_tests_properties(photon_conserve PROPERTIES TIMEOUT 900 LABELS "physics;multicell")
+
   # Stromgren sphere: case A, case B and case A + recombination radiation
   # (docs/recomb_radiation.md section 3); ~10 min with 4 threads
   if(RADRAY_NIGHTLY_TESTS)
