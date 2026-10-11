@@ -8,13 +8,23 @@
 # Submit from the repository root (build first: tools/hyak/build_hyak.sh):
 #   sbatch --export=ALL,ROOT=/gscratch/astro/$USER/radhydro/runs/multicell128 \
 #          tools/hyak/rt_multicell.slurm
+# The scheme recommended by docs/rt_multicell.md (exposure deposit and the
+# converged photon limit) in a second directory, with the same ICs:
+#   sbatch --export=ALL,ROOT=$RUNS/multicell128_px,ICS=$RUNS/multicell128/prob_k1/ics,\
+#          EXTRA_PROD="--photon-conserve 1 --ray-deposit exposure" tools/hyak/rt_multicell.slurm
+# The step-5 repeat at full c (fast fronts in a coarse step; about 10x the
+# cost of 0.1c, so stop at z = 9.5, where the 64^3 run had x_HII,V ~ 0.8):
+#   sbatch --export=ALL,ROOT=$RUNS/multicell128_c1,C=1,KS="1 4",ZDATA1="15 14 13 12 11 10 9.5",\
+#          ICS=$RUNS/multicell128/prob_k1/ics,EXTRA_PROD="--photon-conserve 1 --ray-deposit exposure" \
+#          tools/hyak/rt_multicell.slurm
 #
 # Environment: ROOT (required; created), N (default 128), C (c_reduced,
 # default 0.1), KS (default "1 2 4"), THREADS (default: the job's cpus),
 # ICS (an existing ics/ directory of the same N to link instead of making
 # new ones, e.g. $RUNS/reion128/ics), EXTRA_PROD (more make_production.py
 # arguments, e.g. "--am-params data/uv_lf/am_params_128_10mpc.txt
-# --f-esc 0.2"), EXE (default build/radhydro).
+# --f-esc 0.2"), ZDATA1 (the output redshifts, default make_production.py's
+# 15 ... 5; the run stops at the last), EXE (default build/radhydro).
 #
 # Layout: $ROOT/prob_k<k>/params.txt (make_production.py --N $N
 # --c-reduced $C --hydro-scheme unsplit --movie-dz 0.05 --movie-slab 8
@@ -59,7 +69,8 @@ for k in $KS; do
     if [ -n "$first" ] || [ -n "${ICS:-}" ]; then noics="--no-ics"; fi
     python3 tools/production/make_production.py "$P" --N "$N" --c-reduced "$C" \
         --hydro-scheme unsplit --movie-dz 0.05 --movie-slab 8 --movie-fields fHI \
-        --restart-every 4 --rt-cells-per-substep "$k" $noics ${EXTRA_PROD:-} || exit 1
+        --restart-every 4 --rt-cells-per-substep "$k" $noics ${EXTRA_PROD:-} \
+        ${ZDATA1:+--zdata1 "$ZDATA1"} || exit 1
     if [ -n "${ICS:-}" ]; then
       ln -sfn "$ICS" "$P/ics"
     elif [ -n "$first" ]; then
