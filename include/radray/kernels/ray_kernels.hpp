@@ -73,6 +73,11 @@ struct RTP {
   int nseg = 4;        // 3 with legacy_rt = 1 (B8), 4 otherwise
   int nside_merge = 2;  // HEALPix nside of the merge cones (12 nside^2 cones)
   double ngam_ray16 = 0, ngam_ray32 = 0;  // ngam_ray(16), ngam_ray(32)
+  // B16 fix ray_rotate (config.hpp): the mode, the seed, the bits of the
+  // scale factor and the substep that key the per-emission frame rotation
+  int ray_rotate = 0;
+  std::uint64_t rot_seed = 0, rot_abits = 0;
+  int rot_istep = 0;
 };
 constexpr int kNconeMax = 192;  // 12 * 4^2: nside_merge <= 4
 
@@ -431,6 +436,53 @@ RR_HD bool source_is_thick(const float* tau) {
   return std::exp(-tmin) < 1e-2f;
 }
 
+// B16 fix: the frame rotation of an emission (ray_frame_rotation of the
+// serial code, ray_tracing.hpp): splitmix64 (Steele, Lea & Flood 2014) of
+// the seed, the substep (mode >= 2) and the cell (mode >= 3), then a uniform
+// random unit quaternion (Shoemake 1992, Graphics Gems III). irt, jrt, krt
+// are 1-based; stream separates the recombination-ray emission (1).
+RR_HD std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+// uniform double in [0,1) from the top 53 bits
+RR_HD double unit_double(std::uint64_t x) { return static_cast<double>(x >> 11) * 0x1p-53; }
+
+RR_HD void frame_rotation(const RTP& P, int irt, int jrt, int krt, std::uint64_t stream,
+                                 double rot[3][3]) {
+  const int mode = P.ray_rotate;
+  std::uint64_t h = splitmix64(P.rot_seed ^ 0x52a7f0e1c3d5b697ULL);
+  if (stream != 0) h = splitmix64(h ^ stream);
+  if (mode >= 2) {
+    h = splitmix64(h ^ P.rot_abits);
+    h = splitmix64(h ^ static_cast<std::uint64_t>(P.rot_istep));
+  }
+  if (mode >= 3) {
+    const std::uint64_t cell = (static_cast<std::uint64_t>(irt) << 42) ^
+                               (static_cast<std::uint64_t>(jrt) << 21) ^
+                               static_cast<std::uint64_t>(krt);
+    h = splitmix64(h ^ cell);
+  }
+  const double u1 = unit_double(h = splitmix64(h));
+  const double u2 = unit_double(h = splitmix64(h));
+  const double u3 = unit_double(splitmix64(h));
+  const double twopi = 6.283185307179586;
+  const double a = std::sqrt(1 - u1), b = std::sqrt(u1);
+  const double qx = a * std::sin(twopi * u2), qy = a * std::cos(twopi * u2);
+  const double qz = b * std::sin(twopi * u3), qw = b * std::cos(twopi * u3);
+  rot[0][0] = 1 - 2 * (qy * qy + qz * qz);
+  rot[0][1] = 2 * (qx * qy - qz * qw);
+  rot[0][2] = 2 * (qx * qz + qy * qw);
+  rot[1][0] = 2 * (qx * qy + qz * qw);
+  rot[1][1] = 1 - 2 * (qx * qx + qz * qz);
+  rot[1][2] = 2 * (qy * qz - qx * qw);
+  rot[2][0] = 2 * (qx * qz - qy * qw);
+  rot[2][1] = 2 * (qy * qz + qx * qw);
+  rot[2][2] = 1 - 2 * (qx * qx + qy * qy);
+}
+
 // The rays of one emission: 12 nside^2 rays from the centre of cell
 // (i,j,k) at r = 0, with the same spectrum (nu, ngam per ray).
 struct SourceSpec {
@@ -438,7 +490,20 @@ struct SourceSpec {
   float x[3] = {0, 0, 0};
   float dr = 0;
   float nu[NF] = {0, 0, 0, 0, 0}, ngam[NF] = {0, 0, 0, 0, 0};
+  // B16 fix (ray_rotate != 0): the HEALPix frame of this emission is
+  // rotated by rot; ipix becomes the grid-frame pixel containing the
+  // rotated direction (ray_frame_rotation, ray_tracing.hpp)
+  bool rotate = false;
+  double rot[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 };
+
+// rot = nullptr: no rotation (the original)
+RR_HD void set_rotation(SourceSpec& s, const double (*rot)[3]) {
+  s.rotate = rot != nullptr;
+  if (!s.rotate) return;
+  for (int a = 0; a < 3; ++a)
+    for (int b = 0; b < 3; ++b) s.rot[a][b] = rot[a][b];
+}
 
 // Photons per group of a stellar source cell (ray_source):
 // fResc*pop2_init*(Luv*dtsec_rt)/vol_rt/nH_avg, per <nH> and RT cell volume.
@@ -503,6 +568,13 @@ RR_HD RayP source_ray(const SourceSpec& s, int ipix) {
   ry.dr = s.dr;
   double dx[3];
   rrhp::pix2vec_nest(s.nside, ipix, dx);
+  if (s.rotate) {
+    // Rotated direction; ipix becomes the grid-frame pixel containing it,
+    // so that split keeps the deviation dx - centre(ipix), as for a merged ray
+    const double v[3] = {dx[0], dx[1], dx[2]};
+    for (int d = 0; d < 3; ++d) dx[d] = s.rot[d][0] * v[0] + s.rot[d][1] * v[1] + s.rot[d][2] * v[2];
+    ry.ipix = rrhp::vec2pix_nest(s.nside, dx);
+  }
   for (int d = 0; d < 3; ++d) {
     ry.x[d] = s.x[d];
     ry.dx[d] = static_cast<float>(dx[d]);

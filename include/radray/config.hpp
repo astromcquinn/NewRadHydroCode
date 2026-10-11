@@ -98,6 +98,29 @@ struct Config {
   // only a few cells of light travel. false: the original rounding.
   bool rt_substep_carry = false;
 
+  // Rotation of the HEALPix frame of the rays a source emits, against the
+  // grid-aligned photon deficit B16 (docs/port_notes.md). 0 (default): the
+  // original frame, fixed to the grid. 1: one fixed rotation for the whole
+  // run. 2: a new rotation every RT substep (the same for all sources).
+  // 3: a new rotation every RT substep and source cell. Only emission
+  // changes: a rotated ray keeps its direction in dx and the grid-frame
+  // pixel containing it in ipix, so splits and merges are unchanged
+  // (ray_frame_rotation in ray_tracing.hpp). Deterministic: the rotation is
+  // a hash of ray_rotate_seed, the substep and the cell, independent of the
+  // thread count.
+  int ray_rotate = 0;
+  std::uint64_t ray_rotate_seed = 0;
+
+  // Cosmological redshift of the radiation per distance travelled instead of
+  // per time (docs/production_run.md, reduced speed of light). The rays
+  // (ray_redshifting) and the moment RT (moment_redshift) are redshifted once
+  // per hydro step by fscale = (a - da)/a. false (default): the original.
+  // true with c_reduced < 1: by fscale^s, s = min(nstep_rt*dl_rt/dl_c, 1) the
+  // distance the radiation actually moved in the step over the light distance
+  // (redshift_fscale in cosmology.hpp); with c_reduced >= 1 it changes
+  // nothing. Not tied to legacy_physics.
+  bool redshift_per_distance = false;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled
@@ -168,7 +191,11 @@ struct Config {
   //                and cooling in photo_cell (on-the-spot); A = case A.
   //   recomb_rad:  1 = the ground-state recombinations (alpha_A - alpha_B)
   //                of every ionised cell are emitted as rays (requires
-  //                recomb_case = A, rt_method = rays, legacy_rt = 0).
+  //                recomb_case = A; with the rays legacy_rt = 0; with
+  //                rt_method = m1 | otvet every cell emits into the moments).
+  //   recomb_rad_lines: 1 = also the helium recombination photons that
+  //                ionise H (HeI 19.8/21.2 eV lines and 2-photon, HeII
+  //                Lya, 2-photon and Balmer continuum; needs recomb_rad).
   //   recomb_rad_nside: HEALPix nside of the emitted rays (12 nside^2 rays
   //                per emission; default 1, i.e. 12 rays).
   //   recomb_rad_block: emission is gathered over blocks of b^3 RT cells and
@@ -179,6 +206,7 @@ struct Config {
   //                the emission is absorbed on the spot (default 0.75).
   bool recomb_case_A = false;
   bool recomb_rad = false;
+  bool recomb_rad_lines = false;
   int recomb_rad_nside = 1;
   int recomb_rad_block = 2;
   double recomb_rad_pool = 0.75;

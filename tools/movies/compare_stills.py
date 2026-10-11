@@ -6,8 +6,9 @@
 
 Rows are redshifts (the nearest movie frame of each run), columns are runs.
 All runs must have the same N. The slab position defaults to the plane that
-cuts the most ionised gas in the last run at the middle redshift. Uses the
-frame reader and colour scales of tools/movies/stills.py.
+cuts the most ionised gas in the last run at the middle redshift (within the
+stored slab for slab frames, movie_slab). Uses the frame reader and colour
+scales of tools/movies/stills.py.
 """
 import argparse
 import os
@@ -19,7 +20,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from stills import INK, MAPS, MUTED, load, panel, read_frames, slab  # noqa: E402
+from stills import (INK, MAPS, MUTED, check_slab, frame_slab, most_ionised, panel,  # noqa: E402
+                    read_frames)
 
 
 def main():
@@ -48,10 +50,10 @@ def main():
         k0 = a.pos
     else:
         p = runs[-1][0]
-        x = 1 - load(p, pick(p, zs[len(zs) // 2])["frame"], "fHI")
-        other = tuple(i for i in range(3) if i != a.axis)
-        prof = x.sum(axis=other)
-        k0 = int(np.argmax(np.convolve(np.r_[prof, prof[:a.slab - 1]], np.ones(a.slab), "valid")))
+        k0 = most_ionised(p, pick(p, zs[len(zs) // 2])["frame"], a.axis, a.slab)
+    for z in zs:
+        for p, _ in runs:
+            check_slab(p, pick(p, z)["frame"], a.field, a.axis, a.slab, k0)
 
     plt.rcParams.update({"font.size": 10, "text.color": INK, "axes.labelcolor": INK})
     fig, axs = plt.subplots(len(zs), len(runs), figsize=(3.4 * len(runs) + 0.8, 3.3 * len(zs) + 0.8),
@@ -60,7 +62,7 @@ def main():
     for r, z in enumerate(zs):
         for c, (p, label) in enumerate(runs):
             f = pick(p, z)
-            im = panel(axs[r, c], slab(load(p, f["frame"], a.field), a.axis, a.slab, k0), a.field, a.box)
+            im = panel(axs[r, c], frame_slab(p, f["frame"], a.field, a.axis, a.slab, k0), a.field, a.box)
             axs[r, c].set_title(f"z = {f['z']:.2f}, " + rf"$x_{{\rm HII,V}}$ = {f['xv']:.2f}",
                                 fontsize=9, color=MUTED)
             if r == 0:

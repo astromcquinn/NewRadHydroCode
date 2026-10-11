@@ -317,3 +317,66 @@ policy on klone, and deleting the merged branches.
   are in place), the klone 256³ timing (`tools/hyak/amrex_scaling.slurm`,
   the user runs it), `ray_rotate` (its branch is not on the remote).
 
+
+## B16 fix thread (2026-10-10): `ray_rotate`
+
+* **The user asked for the per-substep random rotation** of the source
+  ray frame (after the question of its cost). It is behind the new flag
+  `ray_rotate` (default 0 = the original). It is not tied to `legacy_rt`:
+  the original stays the default, and the Fortran harnesses need no mirror
+  (the 2026-10-08 rule for new flags).
+* Implementation choice: rotate at emission only, and keep `ipix` in the
+  grid frame (the pixel containing the rotated direction). This avoids a
+  per-ray frame id and any re-indexing of live rays.
+* **Production uses `ray_rotate = 3`** (user decision 2026-10-10), written
+  by `make_production.py`. The user's caveat: the single-source tests
+  exaggerate the effect for a full cosmological run, where many
+  overlapping sources fill each other's coverage gaps, so the 3–10 %
+  single-thread ray-tracing cost buys less there than the uniform tests
+  suggest.
+
+## Emissivity calibration thread (2026-10-10): 40 Mpc/h, 512³
+
+* **Production runs end at z = 5** (Lyα forest comparison); the
+  `make_production.py` default since 2026-10-10.
+* **Calibrate the sources on bigger boxes against the observed IGM at
+  z = 5–6**, not on the source models from the literature ("I don't think
+  they are based on much"). Box: **40 Mpc/h, 512³** (m_p = 5.1e7 M☉, the
+  same mass and cell resolution as the 10 Mpc/h 128³ box, so the 128³
+  FoF-corrected abundance matching `data/uv_lf/am_params_128_10mpc.txt`
+  applies).
+* **Data** (papers supplied by the user; `data/igm/igm_z5_6.txt` on branch
+  `fesc-z`): Becker+21 (λ_mfp, ṅ), Zhu+23 (λ_mfp), Bosman+22 (⟨F_Lyα⟩) and
+  Gaikwad+23 **Γ_HI only**: the user is skeptical of Gaikwad's mean free path
+  inferences (and so of their ṅ), not of their Γ.
+* **Speed of light:** c_reduced = 0.2 is acceptable, but it must stay at
+  that value through the end of reionization (z ≈ 5.5) before it is
+  changed (raised for z = 5.5 → 5). Which reduced c is optimal is worth
+  measuring. **Revised the same day: the first 512³ run uses
+  c_reduced = 0.1 to z = 6.5, then 0.3 through overlap and on to z = 5**.
+  The user first suggested returning to 0.1c after overlap. Then two effects
+  of a low ĉ after overlap were pointed out: the slow relaxation of Γ
+  (λ/ĉ ≈ 100–300 Myr) and redshifting per unit time, i.e. c/ĉ too much per
+  distance (`ray_redshifting`). The user agreed to stay at 0.3c, and to a new
+  flag that redshifts per distance travelled (default off).
+* **IGM diagnostics** (`tools/analysis/igm_stats.py`, `docs/igm_diagnostics.md`):
+  f_esc is calibrated on ⟨F⟩, Γ_HI and ṅ. λ_mfp is a check only: it comes out
+  too long at fixed Γ in these boxes (unresolved absorbers, box ≲ λ).
+* **f_esc:** with the bigger box err on the side of a smaller escape
+  fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
+* **Calibrate on ṅ_ion (2026-10-11).** With f_esc = 0.23 the 40 Mpc/h 512³
+  run matches the Becker+21 / Gaikwad+Zhu ṅ, ends reionization at z ≈ 5.6
+  and gives τ_es = 0.052. But Γ_HI is ~3× and ⟨F_Lyα⟩ ~4× the data, and
+  λ_mfp is far too long. The user: the Lyα forest measures will be missed
+  until AMR resolves the sinks that set the mean free path, and ṅ is the
+  most important constraint. No sub-grid absorber model for now.
+* **Speed-of-light study (2026-10-11):** judge c_reduced on x_H alone (the
+  x_HII history and maps against 1c), in a bigger box than 10 Mpc/h. The
+  goal is the c that is acceptable as a function of x_H. Runs: 20 Mpc/h
+  256³ at c = 0.05–1, plus a 10 Mpc/h 128³ box check (`runs/sol/`).
+* **Movies always (2026-10-11):** every run saves frequent movie frames,
+  even when full snapshots are rare; slab-only frames to keep the disk
+  manageable (branch `movie-slab`).
+* **PM refinement** (`pm_refine = 2`, a PM mesh and particles 2× the gas
+  grid, for halo mass resolution) goes to a separate thread started by the
+  user, on Hyak.

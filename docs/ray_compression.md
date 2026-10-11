@@ -459,8 +459,8 @@ baseline and five variants.
 * **Interior holes.** The isolated neutral cells inside the 1-source
   sphere are identical in the baseline, so they are not a quantisation
   artefact. Their 12-fold ring pattern suggests a HEALPix angular-sampling
-  property of the original ray tracing, but I have not investigated it
-  (worth a separate look).
+  property of the original ray tracing. It is B16: they vanish with
+  `ray_rotate = 3` (`docs/port_notes.md` B16).
 
 Findings:
 

@@ -296,6 +296,7 @@ struct PhysCtx {
 // the host) and the photo-heating/photoionisation rates of the RT grid
 struct PhotoStats {
   double nion[3] = {0, 0, 0}, ncol[3] = {0, 0, 0}, nrec[3] = {0, 0, 0}, nrab[3] = {0, 0, 0};
+  double nrB[3] = {0, 0, 0};  // case-B recombinations (recomb_rad_lines)
   double gam[3] = {0, 0, 0}, lam[3] = {0, 0, 0};
   double dtau = 0;   // sT*ne*c*dt (physical c), before /Ncell
   double T_in = 0;   // temperature before heating/cooling (for recomb_count)
@@ -499,6 +500,8 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
     st.nrec[sp] = rs.alpha[sp + ia] * nsp_rec[sp] * ne * dtsec_rt;
     // ground-state recombinations: case A - case B (recomb_rad = 1)
     st.nrab[sp] = X.want_nrab ? (rs.alpha[sp] - rs.alpha[sp + 3]) * nsp_rec[sp] * ne * dtsec_rt : 0;
+    // and, with recomb_rad_lines, the case-B ones (helium lines)
+    st.nrB[sp] = X.want_nrab ? rs.alpha[sp + 3] * nsp_rec[sp] * ne * dtsec_rt : 0;
   }
 
   // Photoheating

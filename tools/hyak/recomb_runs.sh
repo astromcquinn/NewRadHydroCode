@@ -16,6 +16,9 @@
 # tools/hyak/build_hyak.sh has built build/radhydro from this branch):
 #   tools/hyak/recomb_runs.sh [BASE ...]
 # default BASE: $RUNS/reion256_c01 with RUNS=/gscratch/astro/$USER/radhydro/runs.
+# A moment-RT base (rt_method = m1 | otvet, e.g. reion256_c01_m1 from
+# tools/hyak/rt_methods_runs.sh) works the same: there every cell emits its
+# recombination photons into the moments and recomb_rad_block is unused.
 # Environment: VARIANTS (default "caseA caseA_rr"), RR_EXTRA (extra
 # params.txt lines for caseA_rr, e.g. "recomb_rad_block = 4"), OVERRIDE
 # (params.txt lines for every variant that replace the base's lines with the
@@ -32,8 +35,8 @@ SBATCH_ARGS="${SBATCH_ARGS:---exclusive --cpus-per-task=192 --mem=256G --time=2-
 for base in "$@"; do
   base="${base%/}"
   [ -f "$base/params.txt" ] || { echo "skip $base: no params.txt"; continue; }
-  if grep -Eq '^[[:space:]]*(recomb_|rt_method)' "$base/params.txt"; then
-    echo "skip $base: already sets recomb_* or rt_method"; continue
+  if grep -Eq '^[[:space:]]*recomb_' "$base/params.txt"; then
+    echo "skip $base: already sets recomb_*"; continue
   fi
   ics="$(cd "$base" && readlink -f ics)"
   # keys replaced by OVERRIDE

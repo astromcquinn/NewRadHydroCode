@@ -320,6 +320,21 @@ void test_source_model() {
   const SourceCatalog c3 = assign_sources(halos, hu, h2.model);
   CHECK_CLOSE(c3.halo[0].L, std::pow(10.0, 0.3) * cat.halo[0].L, 1e-6);
 
+  // f_esc(z) = min(f_esc_max, f_esc ((1+z)/(1+f_esc_z0))^beta); beta = 0
+  // (default) is the constant f_esc exactly
+  CHECK(f_esc_at(hp.model, 8) == hp.model.f_esc);
+  h2 = hp;
+  CHECK(set_halo_param(h2, "f_esc", "0.1"));
+  CHECK(set_halo_param(h2, "f_esc_beta", "2"));
+  CHECK(set_halo_param(h2, "f_esc_z0", "6"));
+  CHECK_CLOSE(f_esc_at(h2.model, 6), 0.1, 1e-12);
+  CHECK_CLOSE(f_esc_at(h2.model, 13), 0.4, 1e-12);
+  CHECK(f_esc_at(h2.model, 40) == 1.0);  // capped at f_esc_max = 1
+  CHECK(set_halo_param(h2, "f_esc_max", "0.3"));
+  CHECK(f_esc_at(h2.model, 13) == 0.3);
+  const SourceCatalog c4 = assign_sources(halos, hu, h2.model);  // z = 8
+  CHECK_CLOSE(c4.halo[0].L, cat.halo[0].L * 0.1 * std::pow(9.0 / 7.0, 2) / cp::fResc, 1e-6);
+
   // The relation is held fixed above am_zhi
   CHECK(hp.model.am.luv(1e10, 12) == hp.model.am.luv(1e10, 10));
   CHECK(hp.model.am.luv(1e10, 9) != hp.model.am.luv(1e10, 10));

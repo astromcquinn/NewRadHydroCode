@@ -1071,7 +1071,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         const int err = rrk::photo_gas_cell(uu, ww, ee, cr.ngam, nu, sigma_pht, nrad, X, st);
         if (err == rrk::kPhotoBadTemperatureIndex)
           throw std::runtime_error("radiative_physics: temperature index out of table");
-        if (s.recomb) recomb_count(s, c, st.nrab, st.T_in, u.vol_gas);
+        if (s.recomb)
+          recomb_count(s, c, st.nrab, s.cfg.recomb_rad_lines ? st.nrB : nullptr, st.T_in, u.vol_gas);
 
         if (ee) es = es + static_cast<double>(*ee);
         for (int m = 0; m < 5; ++m) us[m] = us[m] + static_cast<double>(uu[m]);

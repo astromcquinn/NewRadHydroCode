@@ -48,6 +48,9 @@ def read(root, t):
 
 
 def main():
+    if len(sys.argv) < 3 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        sys.exit(0 if len(sys.argv) > 1 else 2)
     root = sys.argv[1]
     ts = [int(t) for t in sys.argv[2:]]
     data = {t: read(root, t) for t in ts}

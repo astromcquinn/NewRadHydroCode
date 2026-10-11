@@ -87,6 +87,9 @@ int main(int argc, char** argv) {
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    s.cfg.ray_rotate = P.ray_rotate;
+    s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
+    s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
@@ -123,6 +126,8 @@ int main(int argc, char** argv) {
               << " legacy_phys: " << P.legacy_physics << "\n"
               << " c_reduced  : " << P.c_reduced << "\n"
               << " det_par    : " << P.deterministic_parallel << "\n"
+              << " ray_rotate : " << P.ray_rotate << "\n"
+              << " z_per_dist : " << P.redshift_per_distance << "\n"
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
               << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"
               << " threads    : " << par::max_threads() << "\n"

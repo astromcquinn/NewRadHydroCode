@@ -23,6 +23,16 @@ void ray_tracing_3(Simulation& s, const std::array<int, 6>& box);
 
 // ray_tracing_tools.f90: ray_source
 void ray_source(Simulation& s, int irt, int jrt, int krt);
+
+// The rotation ray_source applies to its HEALPix directions when
+// Config::ray_rotate != 0 (B16): a uniformly random rotation matrix rot
+// (dx = rot * pix2vec) from a hash of (seed), (seed, substep) or
+// (seed, substep, cell) for ray_rotate = 1, 2, 3. The substep is identified
+// by the clock at its start (scalefactor, istep_rt), so it is restart-safe.
+// stream separates emitters that share a cell: 0 for the stellar sources
+// (ray_source), 1 for the recombination radiation (ray_source_recomb).
+void ray_frame_rotation(const Simulation& s, int irt, int jrt, int krt, double rot[3][3],
+                        std::uint64_t stream = 0);
 // ray_tracing_tools.f90: ray_cast_split
 void ray_cast_split(Simulation& s, std::int64_t ir, int irt, int jrt, int krt);
 // ray_tracing_tools.f90: ray_cast_merge (irc: nrc ray indices of the cone)

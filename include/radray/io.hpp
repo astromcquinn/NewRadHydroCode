@@ -31,6 +31,9 @@ struct ProblemParams {
   double c_reduced = 1.0;  // reduced speed of light (calc_timestep cscale)
   int deterministic_parallel = 0;  // 1: parallel ray tracing (docs/parallel.md)
   int threads = 0;                 // OpenMP threads (0: OpenMP default)
+  int ray_rotate = 0;              // B16 fix: Config::ray_rotate (0 = original)
+  long long ray_rotate_seed = 0;   // Config::ray_rotate_seed
+  int redshift_per_distance = 0;   // Config::redshift_per_distance (0 = original)
   // rt_method = rays | m1 | otvet and the moment-solver parameters
   // (set_rt_method_param, rt_moments.hpp; docs/rt_moments.md)
   Config rtm;

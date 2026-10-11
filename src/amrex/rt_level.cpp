@@ -645,6 +645,12 @@ struct Level : LevelBase {
         const bool thick = src && rrk::source_is_thick(tau);
         rrk::SourceSpec spec;
         if (src && !thick) spec = rrk::source_spec(i, j, k, cf(c, i, j, k, kLuv), P);
+        if (src && !thick && P.ray_rotate) {
+          // B16 fix ray_rotate: the serial code's frame rotation (1-based cell)
+          double rot[3][3];
+          rrk::frame_rotation(P, i + 1, j + 1, k + 1, 0, rot);
+          rrk::set_rotation(spec, rot);
+        }
         rrk::CellStats cs;
         cnt[q] = rrk::step1_count(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, P, cs);
         cm[3 * q] = cs.ncst;
@@ -685,6 +691,12 @@ struct Level : LevelBase {
         if (nc == 0) return;
         rrk::SourceSpec spec;
         if (src && !thick) spec = rrk::source_spec(i, j, k, Luv, P);
+        if (src && !thick && P.ray_rotate) {
+          // B16 fix ray_rotate: the serial code's frame rotation (1-based cell)
+          double rot[3][3];
+          rrk::frame_rotation(P, i + 1, j + 1, k + 1, 0, rot);
+          rrk::set_rotation(spec, rot);
+        }
         const int w = rrk::step1_write(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, i,
                                        j, k, P, idx + off[q], key + off[q], out + n0);
         if (w != nc) ax::HostDevice::Atomic::Add(err_p, 1);
@@ -1007,7 +1019,8 @@ struct Level : LevelBase {
   void post(Simulation& s) override {
     const double t0 = now();
     const RedshiftTable RT = make_redshift_table();
-    const double fscale = (s.clk.scalefactor - s.clk.da_sim) / s.clk.scalefactor;
+    // (a - da)/a, or per distance with redshift_per_distance (cosmology.hpp)
+    const double fscale = redshift_fscale(s.cfg, s.clk);
     const double ngam_min = s.units.ngam_min;
     const Units u = s.units;
     const bool he = has_e;

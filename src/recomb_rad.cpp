@@ -8,7 +8,9 @@
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
+#include "radray/healpix.hpp"
 #include "radray/kernels/ray_kernels.hpp"
+#include "radray/rt_rates.hpp"
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/simulation.hpp"
@@ -30,7 +32,15 @@ bool set_recomb_param(Config& c, const std::string& key, const std::string& val)
     return true;
   }
   if (key == "recomb_rad") {
-    c.recomb_rad = std::stoi(val) != 0;
+    const int v = std::stoi(val);
+    if (v < 0 || v > 1) throw std::runtime_error("recomb_rad must be 0 or 1");
+    c.recomb_rad = v != 0;
+    return true;
+  }
+  if (key == "recomb_rad_lines") {
+    const int v = std::stoi(val);
+    if (v < 0 || v > 1) throw std::runtime_error("recomb_rad_lines must be 0 or 1");
+    c.recomb_rad_lines = v != 0;
     return true;
   }
   if (key == "recomb_rad_nside") {
@@ -57,21 +67,126 @@ bool set_recomb_param(Config& c, const std::string& key, const std::string& val)
 void copy_recomb_param(const Config& from, Config& to) {
   to.recomb_case_A = from.recomb_case_A;
   to.recomb_rad = from.recomb_rad;
+  to.recomb_rad_lines = from.recomb_rad_lines;
   to.recomb_rad_nside = from.recomb_rad_nside;
   to.recomb_rad_block = from.recomb_rad_block;
   to.recomb_rad_pool = from.recomb_rad_pool;
 }
 
 void check_recomb_param(const Config& c) {
+  if (c.recomb_rad_lines && !c.recomb_rad)
+    throw std::runtime_error("recomb_rad_lines = 1 needs recomb_rad = 1");
   if (!c.recomb_rad) return;
   if (!c.recomb_case_A)
     throw std::runtime_error(
         "recomb_rad = 1 needs recomb_case = A: with case B the ground-state "
         "recombinations are already absorbed on the spot");
-  if (c.rt_method != RTMethod::Rays) throw std::runtime_error("recomb_rad = 1 needs rt_method = rays");
+  // rt_method = m1 | otvet: every cell emits its own recombinations into the
+  // moments (moment_step_1); the ray-only settings below are not used
+  if (c.rt_method != RTMethod::Rays) return;
   if (c.legacy_rt) throw std::runtime_error("recomb_rad = 1 needs legacy_rt = 0 (the pool guard)");
   if (c.Nrt % c.recomb_rad_block != 0)
     throw std::runtime_error("recomb_rad_block must divide N");
+}
+
+// ---------------------------------------------------------------------------
+// Photon energies
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Group edges [eV] (the original's: thresholds and their geometric means)
+const double kEdge[kNfreq + 1] = {pc::HI_eV, std::sqrt(pc::HI_eV * pc::HeI_eV), pc::HeI_eV,
+                                  std::sqrt(pc::HeI_eV * pc::HeII_eV), pc::HeII_eV, 1e2};
+
+int group_of(double e) {
+  for (int g = 0; g < kNfreq; ++g)
+    if (e < kEdge[g + 1]) return g;
+  return kNfreq - 1;
+}
+
+// x e^x E1(x), E1 the exponential integral (asymptotic series for large x)
+double xexE1(double x) {
+  if (x > 50) return 1 - 1 / x + 2 / (x * x) - 6 / (x * x * x) + 24 / (x * x * x * x);
+  return x * std::exp(x) * (-std::expint(-x));
+}
+
+// Two-photon decay 2s -> 1s of a hydrogenic ion: photons per unit y = E/E12,
+// the fit of Nussbaumer & Schmutz (1984, A&A 138, 495) for HI, unnormalised
+// (coefficients from memory, to be checked against the paper). Used for HeII
+// and, approximately, for HeI 2^1S.
+double two_photon_shape(double y) {
+  const double w = y * (1 - y);
+  const double q = std::pow(4 * w, 0.8);
+  return w * (1 - q) + 0.88 * std::pow(w, 1.53) * q;
+}
+
+// Adds n photons per recombination of a two-photon decay of total energy
+// E12 [eV] to the groups (only the part above 13.6 eV ionises).
+void add_two_photon(double n, double E12, double* ln, double* le) {
+  const int M = 4000;
+  double tot = 0;
+  double gn[kNfreq] = {}, ge[kNfreq] = {};
+  for (int i = 0; i < M; ++i) {
+    const double y = (i + 0.5) / M;
+    const double a = two_photon_shape(y);
+    tot += a;
+    const double e = y * E12;
+    if (e < pc::HI_eV) continue;
+    const int g = group_of(e);
+    gn[g] += a;
+    ge[g] += a * e;
+  }
+  for (int g = 0; g < kNfreq; ++g) {  // 2 photons per decay
+    ln[g] += 2 * n * gn[g] / tot;
+    le[g] += 2 * n * ge[g] / tot;
+  }
+}
+
+void add_line(double n, double e, double* ln, double* le) {
+  const int g = group_of(e);
+  ln[g] += n;
+  le[g] += n * e;
+}
+
+// Fraction of the case-B recombinations HeIII -> HeII that capture directly
+// to n = 2 (Balmer continuum, E >= 13.6 eV), with Kramers' partial
+// recombination coefficients alpha_n ~ (1/n) x_n e^x_n E1(x_n),
+// x_n = Z^2 chi_H / (n^2 kT) (no Gaunt factors: an estimate to 10-20%).
+double heII_fBC(double T) {
+  const double x1 = pc::HeII_eV / (pc::K2eV * T);
+  double sum = 0, a2 = 0;
+  for (int n = 2; n <= 2000; ++n) {
+    const double a = xexE1(x1 / (static_cast<double>(n) * n)) / n;
+    if (n == 2) a2 = a;
+    sum += a;
+  }
+  return a2 / sum;
+}
+
+}  // namespace
+
+double recomb_mean_excess(int sp, double T) {
+  const double chi = sp == 0 ? pc::HI_eV : sp == 1 ? pc::HeI_eV : sp == 2 ? pc::HeII_eV : 0.25 * pc::HeII_eV;
+  const double kT = pc::K2eV * T;
+  // photons per dE ~ E^2 sigma(E) exp(-x), x = (E - chi)/kT, on x in [0, 60]
+  const int M = 3000;
+  const double dx = 60.0 / M;
+  double num = 0, den = 0;
+  for (int i0 = 0; i0 < M; i0 += kNfreq) {
+    std::array<double, kNfreq> e{};
+    for (int j = 0; j < kNfreq; ++j) e[j] = chi + (i0 + j + 0.5) * dx * kT;
+    SigmaTable sig{};
+    if (sp < 3) sig = photoion_sigma(e);
+    for (int j = 0; j < kNfreq; ++j) {
+      const double x = (i0 + j + 0.5) * dx;
+      const double sg = sp < 3 ? sig[sp][j] : std::pow(chi / e[j], 3);
+      const double w = e[j] * e[j] * sg * std::exp(-x);
+      num += w * x;
+      den += w;
+    }
+  }
+  return den > 0 ? kT * num / den : kT;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,32 +209,88 @@ void recomb_init(Simulation& s) {
   Rc.emit_ngam.assign(n, 0.0f);
   Rc.emit_egam.assign(n, 0.0f);
   Rc.emit.assign(nc, 0);
+  if (Rc.dE.empty()) {
+    const int NT = RecombState::kNT;
+    Rc.dE.assign(4 * NT, 0.0);
+    Rc.fBC.assign(NT, 0.0);
+    for (int it = 0; it < NT; ++it) {
+      const double T = std::pow(10.0, RecombState::kLogT0 + it * RecombState::kDLogT);
+      for (int sp = 0; sp < 4; ++sp) Rc.dE[sp * NT + it] = recomb_mean_excess(sp, T);
+      Rc.fBC[it] = heII_fBC(T);
+    }
+    // recomb_rad_lines: H-ionising photons per case-B recombination. The
+    // branching fractions are the usual low-density estimates (Osterbrock &
+    // Ferland 2006, ch. 4; from memory, to be checked):
+    // HeII -> HeI: 3/4 to triplets, all ending in 2^3S -> 1^1S (19.82 eV);
+    //   1/4 to singlets, 2/3 of them via 2^1P -> 1^1S (21.22 eV) and 1/3
+    //   via the 2^1S two-photon decay (20.62 eV in all).
+    // HeIII -> HeII: 2/3 via 2P -> 1S (Lya, 40.81 eV), 1/3 via the 2S
+    //   two-photon decay (40.81 eV in all); plus the Balmer continuum
+    //   (fBC, added in recomb_count).
+    for (auto* a : {&Rc.line_n[0][0], &Rc.line_e[0][0], &Rc.line_n[1][0], &Rc.line_e[1][0]})
+      for (int g = 0; g < kNfreq; ++g) a[g] = 0;
+    add_line(0.75, 19.82, Rc.line_n[0], Rc.line_e[0]);
+    add_line(0.25 * 2.0 / 3.0, 21.22, Rc.line_n[0], Rc.line_e[0]);
+    add_two_photon(0.25 / 3.0, 20.62, Rc.line_n[0], Rc.line_e[0]);
+    add_line(2.0 / 3.0, 40.81, Rc.line_n[1], Rc.line_e[1]);
+    add_two_photon(1.0 / 3.0, 40.81, Rc.line_n[1], Rc.line_e[1]);
+  }
 }
 
 // photo_cell. Mean photon energy of a ground-state recombination: the
-// threshold plus the mean kinetic energy of the recombining electrons, kT
-// (sigma_rec ~ 1/E against a Maxwellian), kept inside the group.
-void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], double T,
-                  double vol_gas) {
+// threshold plus recomb_mean_excess(T) (about kT; Milne relation with the
+// code's cross-sections), kept inside the group.
+void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], const double nrB[3],
+                  double T, double vol_gas) {
   RecombState& Rc = *s.recomb;
   const Units& u = s.units;
   static constexpr int grp[3] = {0, 2, 4};
   const double nu0[3] = {pc::HI_eV, pc::HeI_eV, pc::HeII_eV};
-  const double nu_hi[3] = {std::sqrt(pc::HI_eV * pc::HeI_eV),
-                           std::sqrt(pc::HeI_eV * pc::HeII_eV), 1e2};
-  const double kT = pc::K2eV * T;
   const bool onspot = recomb_onspot(Rc, c);
+  // log T interpolation in the energy tables
+  const int NT = RecombState::kNT;
+  double ft = (std::log10(std::max(T, 1.0)) - RecombState::kLogT0) / RecombState::kDLogT;
+  ft = std::min(std::max(ft, 0.0), static_cast<double>(NT - 1) - 1e-9);
+  const int it = static_cast<int>(ft);
+  const double wt = ft - it;
+  auto tab = [&](const double* t) { return (1 - wt) * t[it] + wt * t[it + 1]; };
+  const double conv = vol_gas / (u.nH_avg * u.vol_rt);
+  auto add = [&](int g, double ng, double nu) {
+    const std::size_t k = static_cast<std::size_t>(c) * kNfreq + g;
+    Rc.ngam[k] = static_cast<float>(static_cast<double>(Rc.ngam[k]) + ng);
+    Rc.egam[k] = static_cast<float>(static_cast<double>(Rc.egam[k]) + ng * nu);
+  };
   for (int sp = 0; sp < 3; ++sp) {
     if (!(nrab[sp] > 0)) continue;
-    const double ng = nrab[sp] * vol_gas / (u.nH_avg * u.vol_rt);
+    const double ng = nrab[sp] * conv;
     if (onspot) {
       Rc.ots[c] = static_cast<float>(static_cast<double>(Rc.ots[c]) + ng);
       continue;
     }
-    const double nu = std::min(nu0[sp] + kT, nu_hi[sp]);
-    const std::size_t k = static_cast<std::size_t>(c) * kNfreq + grp[sp];
-    Rc.ngam[k] = static_cast<float>(static_cast<double>(Rc.ngam[k]) + ng);
-    Rc.egam[k] = static_cast<float>(static_cast<double>(Rc.egam[k]) + ng * nu);
+    const double nu = std::min(nu0[sp] + tab(&Rc.dE[sp * NT]), kEdge[grp[sp] + 1]);
+    add(grp[sp], ng, nu);
+  }
+  // recomb_rad_lines: the H-ionising helium photons of the case-B
+  // recombinations (in the case-B cells they are counted on the spot: not
+  // transported, as in the original)
+  if (!nrB) return;
+  for (int h = 0; h < 2; ++h) {
+    const int sp = h + 1;
+    if (!(nrB[sp] > 0)) continue;
+    const double nb = nrB[sp] * conv;
+    double tot = 0;
+    for (int g = 0; g < kNfreq; ++g) tot += Rc.line_n[h][g];
+    if (sp == 2) tot += tab(Rc.fBC.data());
+    if (onspot) {
+      Rc.ots[c] = static_cast<float>(static_cast<double>(Rc.ots[c]) + nb * tot);
+      continue;
+    }
+    for (int g = 0; g < kNfreq; ++g)
+      if (Rc.line_n[h][g] > 0) add(g, nb * Rc.line_n[h][g], Rc.line_e[h][g] / Rc.line_n[h][g]);
+    if (sp == 2) {
+      const double nu = std::min(0.25 * pc::HeII_eV + tab(&Rc.dE[3 * NT]), kEdge[1]);
+      add(0, nb * tab(Rc.fBC.data()), nu);
+    }
   }
 }
 
@@ -315,9 +486,14 @@ void ray_source_recomb(Simulation& s, int irt, int jrt, int krt) {
   }
   // 12 nside^2 rays from the cell centre with this spectrum (the kernels'
   // emission, as ray_source)
-  const rrk::SourceSpec spec = rrk::source_spec_spectrum(irt - 1, jrt - 1, krt - 1, ns, nu, ngam);
+  rrk::SourceSpec spec = rrk::source_spec_spectrum(irt - 1, jrt - 1, krt - 1, ns, nu, ngam);
   std::int64_t indx[rayp::nray_init];
   ray_create(s, nray, indx);
+  // B16 fix (ray_rotate != 0): rotated HEALPix frame, as in ray_source
+  const bool rotate = s.cfg.ray_rotate != 0;
+  double rot[3][3];
+  if (rotate) ray_frame_rotation(s, irt, jrt, krt, rot, 1);
+  rrk::set_rotation(spec, rotate ? rot : nullptr);
   for (int i = 0; i < nray; ++i) {
     const std::int64_t ir = indx[i];
     Ray& ry = R.at(ir);

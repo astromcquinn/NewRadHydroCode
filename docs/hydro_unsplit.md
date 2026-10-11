@@ -554,6 +554,166 @@ second-order grid codes (`hydro_tests.md` §8). The wall times were taken
 on the shared machine (the N = 128 case ran alone at the end, 2.4× faster
 than the legacy run under similar conditions).
 
+### Convergence checks at 128³–256³ (2026-10-10, klone)
+
+The two open items of §10 (the Sedov radius bias and the time-step
+sensitivity of the cold gas) are checked here with the problems and the analysis of the suite, at higher resolution and with smaller steps.
+Script: `tests/hydro_suite/convergence.py run|analyze|figures`. Results:
+`tests/hydro_suite/results/convergence_{sedov,box64,box10,box10n256}.json`.
+Runs: one `cpu-g2` node, about 1.5 h wall, in
+`/gscratch/astro/mcquinn/radhydro/runs/hydro_conv/`. Figure:
+`figures/hydro_unsplit_convergence.png`. The N ≤ 128 rows reproduce
+the tables above to the last digit.
+
+**Sedov radius.** This is the problem of §6: R(t = 10) = 0.35 N, a σ = 1
+cell blob and a bulk flow. Radius error at t = 10 (400-ray midpoint) for
+legacy / unsplit:
+
+| N | R [cells] | steps | R/R_exact − 1 | offset [cells] | rescaled to E(t) | L1 ρ | ΔE (lab) |
+|---|---|---|---|---|---|---|---|
+| 32 | 11.2 | 23 / 30 | +10.7 % / +5.9 % | +1.20 / +0.66 | +10.9 % / +5.9 % | 0.087 / 0.061 | −0.9 % / −0.1 % |
+| 64 | 22.4 | 70 / 97 | +4.1 % / +3.0 % | +0.93 / +0.68 | +4.6 % / +3.1 % | 0.051 / 0.041 | −2.4 % / −0.3 % |
+| 128 | 44.8 | 207 / 240 | +0.9 % / +1.5 % | +0.41 / +0.66 | +1.9 % / +1.6 % | 0.020 / 0.026 | −4.9 % / −0.6 % |
+| **256** | 89.6 | 483 / 527 | **−1.1 % / +0.6 %** | −0.96 / +0.56 | +0.6 % / +0.8 % | **0.027 / 0.013** | **−8.1 %** / −1.0 % |
+
+"Rescaled to E(t)" is (1 + err)/(1 + ΔE)^{1/5} − 1. It is the radius
+error with the energy leak taken out, since R ∝ E^{1/5}.
+
+Orders of the radius error, 32→64→128→256: legacy 1.4, 2.2, then a sign
+change; unsplit 0.96, 1.04, 1.23. L1 ρ: legacy 0.77, 1.38, −0.44;
+unsplit 0.58, 0.67, 0.92. Other unsplit numbers at 256: anisotropy
+0.28 %, axes/diagonals +1.1 %, peak density 0.83 ρ₂, R ∝ t^0.395.
+
+Variants at N = 128, radius error unsplit / legacy:
+
+| Variant | unsplit | legacy |
+|---|---|---|
+| Original | +1.47 % | +0.91 % |
+| Half the Courant step (`courant = 0.5`, 475 / 409 steps) | +1.47 % | +0.92 % |
+| Half the substep CFL (`unsplit_cfl = 0.4`) | +1.44 % | — |
+| Twice the initial blob (σ = 2 cells) | +1.49 % | +0.94 % |
+
+At N = 64 with `courant = 0.5` the unsplit error is +3.03 %, against
++3.02 %.
+
+* **The unsplit bias converges at first order and meets the 1 % target
+  at 256³** (+0.63 %). The shock sits a constant 0.56–0.68 cells outside
+  the exact radius at every N. The bias does not depend on the time step
+  or the size of the initial blob, so it is a spatial error, from the
+  smeared shock and the midpoint estimator. The angle-averaged profile
+  gives 0.05–0.1 points less at N ≥ 128. With this setup the 1 % target is crossed
+  at R ≈ 66 cells (N ≈ 190).
+* **The legacy scheme does not converge in this test.** At 256³ its
+  radius is −1.1 % and its L1 ρ (0.027) is worse than at 128³ (0.020),
+  because the energy leak (H9) grows with N to −8.1 %. Its +0.9 % at
+  128³ was a zero crossing: an outward offset like the unsplit one, cancelled
+  by the leak. With the leak taken out, both schemes are at +0.6–0.8 % at
+  256³. §10's "the legacy Sedov radius is marginally better at 128³" was
+  this coincidence.
+
+**Cold-gas time-step sensitivity, suite box.** The box is the adiabatic box
+of §6: 64 Mpc/h, N_dm = N/2, z_init = 50. The metric is the column of the
+§6 table: the mean over the T–ρ bins with log δ < −0.1 of the median log T
+[K]. On the adiabat or at the 1 K floor it is 0.0–0.3 at z ≤ 10. The
+`dlna_max` column is the cap on da/a per hydro step ("orig" = 1/9, i.e.
+`ra_max` = 0.1; `ra_max` = r corresponds to r/(1 − r)).
+
+| N | dlna_max | steps to z = 0 | z = 10 | 5 | 3 | 2 | 1 | 0.5 | 0 | first z with p84 > 0.3 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 64 | orig | 44 | 0.27 | 0.43 | 0.65 | 1.51 | 2.50 | 2.79 | 2.83 | 10 |
+| 64 | 0.05 | 84 | 0.23 | 0.00 | 0.36 | 0.78 | 1.69 | 2.20 | 2.55 | 5 |
+| 64 | 0.02 | 202 | 0.22 | 0.00 | 0.00 | 0.00 | 0.05 | 0.30 | 0.72 | 2 |
+| 64 | 0.01 | 397 | 0.22 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.01 | 0.5 |
+| 64 | 0.005 | 792 | 0.22 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | — |
+| 128 | orig | 81 | 0.28 | 1.01 | 1.86 | 2.23 | 2.45 | 2.50 | 2.44 | 10 |
+| 128 | 0.05 | 112 | 0.15 | 0.00 | 0.45 | 1.06 | 1.81 | 2.12 | 2.22 | 10 (0.52) |
+| 128 | 0.03 | 152 | 0.14 | 0.00 | 0.00 | 0.07 | 0.59 | 1.06 | 1.47 | 5 |
+| 128 | 0.02 | 208 | 0.14 | 0.00 | 0.00 | 0.00 | 0.10 | 0.33 | 0.64 | 2 |
+| 128 | 0.01 | 397 | 0.14 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.13 | 1 |
+| 128 | 0.005 | 792 | 0.14 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0 (0.59) |
+| 128 | 0.0025 | 1579 | 0.14 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | — |
+| 128 | legacy, orig / 0.02 | 59 / 202 | 3.70 / 3.69 | 3.73 / 3.64 | 3.77 / 3.64 | 3.75 / 3.71 | 3.78 / 3.77 | 3.73 / 3.72 | 3.59 / 3.58 | — |
+
+The last column is a tail measure: the first output at which the 84th
+percentile of log[T / max(T_ad(δ), 1 K)] over the δ < 0.8 cells exceeds
+0.3 dex. T_ad = T_init ((1 + z)/(1 + z_init))² δ^{2/3}. Negative values
+of −0.01 (the floor at 0.99 K) are shown as 0.00.
+
+* **It converges with the step.** At every z the heating vanishes below a
+  threshold step, and the threshold shrinks with time. The δ < 0.8 gas
+  stays on its adiabat or the floor, tail included:
+  - to z ≈ 10 with da/a ≤ 0.03;
+  - to z ≈ 3 with 0.02;
+  - to z ≈ 1.5 with 0.01;
+  - to z ≈ 0.5 with 0.005;
+  - to z = 0 with 0.0025.
+
+  The median alone stays clean about one output longer.
+* **Resolution does not make it worse at small steps.** At the same step,
+  N = 64 and 128 agree within the output spacing. Only for the largest
+  steps (orig) does the 128³ gas warm earlier: 1.01 against 0.43 at
+  z = 5.
+* The step also changes the mass-weighted temperatures and the hot
+  fraction, a little. At z = 0 and N = 128, f(T > 10⁵ K) is 0.595 with
+  orig and 0.555 with 0.0025, and T_vw is 1.09×10⁵ K against
+  1.01×10⁵ K. T_mw is within 1.5 % and P_gas/P_dm within 0.3 %.
+* §6/§10 recommended `ra_max` 0.02–0.03 "to z = 0". That holds for the
+  median only to z ≈ 0.5–1 (0.02) or z ≈ 2 (0.03). For cold gas in a
+  large box down to z < 1, use da/a ≤ 0.005–0.01.
+
+**Cold-gas time-step sensitivity, production box.** The box is the
+production setup (`make_production.py`): 10 Mpc/h, N = N_dm = 128 and 256,
+z_init = 100 to z = 3, no RT. The metric and steps are as above, with
+steps counted to z = 3:
+
+| N | dlna_max | steps | z = 15 | 10 | 8 | 6 | 5 | 4 | 3 | max p84 (z ≤ 8) | T_mw(z = 6) [K] |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 128 | orig | 50 | 0.46 | 0.09 | −0.01 | −0.02 | −0.01 | −0.01 | 0.00 | 0.06 | 7710 |
+| 128 | 0.05 | 79 | 0.46 | 0.09 | 0.02 | −0.01 | −0.01 | −0.01 | −0.01 | 0.05 | 7660 |
+| 128 | 0.02 | 167 | 0.46 | 0.09 | 0.02 | −0.01 | −0.01 | −0.01 | 0.00 | 0.05 | 7530 |
+| 128 | 0.01 | 329 | 0.46 | 0.10 | 0.02 | 0.00 | 0.00 | 0.00 | 0.00 | 0.05 | 7440 |
+| 128 | 0.005 | 651 | 0.46 | 0.10 | 0.02 | 0.00 | 0.00 | 0.00 | 0.00 | 0.04 | 7390 |
+| 128 | 0.0025 | 1297 | 0.46 | 0.10 | 0.02 | 0.00 | 0.00 | 0.00 | 0.00 | 0.04 | 7370 |
+| 128 | legacy, orig | 47 | 1.85 | 1.88 | 1.94 | 1.96 | 1.97 | 1.97 | 2.00 | 2.67 | 10100 |
+| 256 | orig | 116 | 0.39 | 0.09 | 0.01 | 0.00 | 0.00 | 0.00 | 0.00 | 0.01 | 12100 |
+| 256 | 0.02 | 209 | 0.39 | 0.09 | 0.01 | 0.00 | 0.00 | 0.00 | 0.00 | 0.01 | 12100 |
+| 256 | 0.005 | 651 | 0.39 | 0.09 | 0.02 | 0.00 | 0.00 | 0.00 | 0.00 | 0.01 | 11900 |
+| 256 | legacy, orig | 90 | 1.47 | 1.40 | 1.45 | 1.40 | 1.40 | 1.40 | 1.37 | 2.25 | 14000 |
+
+The z = 15 and 10 values are the adiabat itself (median excess over T_ad
+0.00, p84 ≤ 0.05). Below z ≈ 8 the adiabat falls under the 1 K floor, and
+83–96 % of the δ < 0.8 gas sits there. `courant = 0.5` at
+dlna_max = 0.005 (N = 128) gives the same step sequence and identical
+numbers: the da/a cap sets every step there.
+
+* **In the production configuration the original step is already
+  converged for the cold gas.** At z ≥ 3, for both 128³ and 256³ and every
+  step, the underdense gas is on its adiabat or the floor. The tail stays
+  within 0.06 dex (0.01 dex at 256³). The legacy scheme puts the same gas
+  at 25–100 K.
+* Only the warm tail near δ ≈ 0.8 still depends on the step, a little. The
+  mean of T/max(T_ad, 1 K) − 1 at z = 6 goes 3.75 → 2.96 (N = 128) and
+  5.6 → 5.0 (N = 256) from orig to the smallest step. T_mw at z = 6 moves
+  by 4.6 % (128³) and 1.7 % (256³).
+* Why the 64 Mpc/h box heats with the original step at z ≲ 5 and the
+  10 Mpc/h box does not by z = 3 has not been isolated. One possibility
+  is that the warming starts in the large, coherent voids and void walls,
+  which only the big box contains and which become nonlinear late.
+  Production runs that continue well below z = 3, or use boxes ≫ 10 Mpc/h,
+  should repeat this check or set `ra_max` ≈ 0.01.
+
+**Verdict.** Both open items converge:
+- The Sedov bias is a first-order spatial error of about 0.6 cells and
+  meets 1 % at 256³. The legacy scheme, whose energy leak grows with N,
+  does not converge in this test.
+- The cold-gas sensitivity is a time-step error that goes away as the step
+  shrinks, at the same rate for N = 64 and 128. In the production box at
+  128³ and 256³ the original step is already converged to z = 3.
+
+`hydro_scheme = unsplit` is fit for the 256³ production run with the
+original `ra_max`. A smaller `ra_max` (0.01–0.02) is a cheap safeguard but
+changes nothing measurable at z ≥ 3.
+
 ## 7. Quirks of the unsplit scheme (U1–U6)
 
 Flagged like the legacy quirks (`docs/port_notes_hydro.md` §5); none of
@@ -714,6 +874,9 @@ Worse than the legacy scheme, with the numbers:
 1. **Sedov at 128³**: L1 ρ 0.025 vs 0.020, radius +1.5 % vs +0.9 % (the
    1 % target is missed), convergence order 0.63 vs 1.07 for the density;
    at N ≤ 64 it is better. The blast is more cubic at N = 32 (U6).
+   *Checked at 256³ (§6, convergence checks):* the bias is a constant
+   0.6-cell spatial offset, first order, +0.63 % at 256³; the legacy
+   scheme goes to −1.1 % there and its L1 ρ gets worse (energy leak).
 2. **Energy leak ahead of strong shocks in cold Mach ≫ 1 gas** (U4):
    −1.5×10⁻⁴ (strong tube), −0.6 % (Sedov 128³, where the legacy loses
    4.9 %); `dual_reset_rule = 1` makes it 10⁻⁵ but brings back the
@@ -730,7 +893,11 @@ Worse than the legacy scheme, with the numbers:
    has 60 K, so this is still a 100× improvement, but it is not zero.
 5. **Cold-gas temperature depends on the hydro step size** (§6, box): with
    da/a ≤ 1/9 the underdense gas warms to 30–700 K by z ≤ 2; with
-   da/a ≤ 0.02 it stays on the adiabat.
+   da/a ≤ 0.02 it stays on the adiabat. *Checked (§6, convergence
+   checks):* this converges as the step shrinks, at the same rate at
+   N = 64 and 128 (in the 64 Mpc/h box: clean to z ≈ 3 with 0.02, to
+   z = 0 with 0.0025). In the production box (10 Mpc/h, 128³ and 256³,
+   z ≥ 3) even the original step leaves the cold gas on its adiabat.
 6. **Costs more memory** (0.7 GB at 128³) and has no Fortran counterpart:
    it is validated by the suite, the restart and thread tests and the
    coupled run, not bit for bit.
@@ -748,15 +915,20 @@ at 1–2 cells per layer, small-scale gas power, and speed per step.
   cold gas matters: the plane-parallel / DM20-type runs, the
   pre-reionisation T–ρ relation, 21-cm, Jeans/filtering-mass work, and
   the production reionisation runs, where it also costs less per hydro step.
-  Set `ra_max = 0.02`–`0.03` there (cheap: the RT substeps are set by the
-  light travel) to keep the underdense gas on its adiabat to z = 0.
+  The original `ra_max` is converged for the 10 Mpc/h production box at
+  z ≥ 3 (§6, convergence checks); `ra_max` ≈ 0.01–0.02 is a cheap
+  safeguard (the RT substeps are set by the light travel). Large boxes
+  run to z < 1 need da/a ≤ 0.005–0.01 to keep the underdense gas on its
+  adiabat.
 * Keep `hydro_scheme = legacy` (the default) for the bit-for-bit
   validation against the Fortran, for reproducing the original's results,
   and when the questions are about hot, post-reionisation gas at high
-  resolution only, where the two schemes agree to a few per cent and the
-  legacy Sedov radius is marginally better at 128³.
-* Before science use at 128³ or more: the Sedov radius bias of 1.5 % and
+  resolution only, where the two schemes agree to a few per cent (the
+  legacy Sedov radius at 128³ looked better only because its energy leak
+  cancels the shock offset; at 256³ it is worse).
+* ~~Before science use at 128³ or more: the Sedov radius bias of 1.5 % and
   the time-step sensitivity of the cold gas deserve a convergence check at
-  the production resolution, and the thresholds η₁, η₂ should be checked
+  the production resolution~~ done (§6, convergence checks: both converge;
+  fit for 256³ production). The thresholds η₁, η₂ should still be checked
   against Bryan et al. 1995 once the paper is available (§2). The AMReX
   thread takes `kernels/hydro_mh.hpp` from this branch.

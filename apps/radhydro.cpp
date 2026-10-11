@@ -30,6 +30,7 @@
 // Fortran); Pk/pk.<ztag>; write_data_1/2 with the F1 fix (DM/xv_dm,
 // Gas/{u,v,w}_gas, RT/rt_grid, Ray/{ray,ray_index,htoc_ray} .<ztag>, see
 // write_data_files and docs/full_run.md F1); timing.txt.
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -96,6 +97,9 @@ struct RunParams {
   int threads = 0;          // OpenMP threads (0: OpenMP default)
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
   int rt_substep_carry = 0;  // 1: exact total RT substeps (Config::rt_substep_carry)
+  int ray_rotate = 0;        // B16 fix: Config::ray_rotate (0 = original)
+  long long ray_rotate_seed = 0;
+  int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -106,6 +110,13 @@ struct RunParams {
   double movie_dz = 0;
   double movie_z0 = -1;
   std::string movie_fields = "fHI,temp";
+  // Slab-only movie frames (docs/movies.md): 0 (default) writes the full
+  // cube of each field; t > 0 writes only the slabs of t cells centred on
+  // the box centre (first cell Nrt/2 - t/2) normal to each axis in
+  // movie_slab_axes, to movie/frame_NNNNN_<field>.slab, geometry in
+  // movie/slab.txt
+  int movie_slab = 0;
+  std::string movie_slab_axes = "xyz";
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
   // (without Ray/, which holds every ray: 96 B each) or dm (only xv_dm, as
@@ -158,6 +169,16 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ra_max = to_double(val);
   else if (key == "rt_substep_carry")
     P.rt_substep_carry = std::stoi(val);
+  else if (key == "ray_rotate") {
+    P.ray_rotate = std::stoi(val);
+    if (P.ray_rotate < 0 || P.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
+  } else if (key == "ray_rotate_seed")
+    P.ray_rotate_seed = std::stoll(val);
+  else if (key == "redshift_per_distance") {
+    P.redshift_per_distance = std::stoi(val);
+    if (P.redshift_per_distance != 0 && P.redshift_per_distance != 1)
+      throw std::runtime_error("redshift_per_distance must be 0 or 1");
+  }
   else if (key == "restart_every")
     P.restart_every = std::stoi(val);
   else if (key == "restart_keep_latest")
@@ -168,6 +189,17 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.movie_z0 = to_double(val);
   else if (key == "movie_fields")
     P.movie_fields = val;
+  else if (key == "movie_slab") {
+    P.movie_slab = std::stoi(val);
+    if (P.movie_slab < 0) throw std::runtime_error("movie_slab must be >= 0");
+  }
+  else if (key == "movie_slab_axes") {
+    if (val.empty()) throw std::runtime_error("movie_slab_axes: empty");
+    for (std::size_t i = 0; i < val.size(); ++i)
+      if ((val[i] != 'x' && val[i] != 'y' && val[i] != 'z') || val.find(val[i]) != i)
+        throw std::runtime_error("movie_slab_axes must be distinct letters of xyz, e.g. xyz or z");
+    P.movie_slab_axes = val;
+  }
   else if (key == "fields")
     P.fields = val;
   else if (key == "data_files") {
@@ -478,6 +510,9 @@ int main(int argc, char** argv) {
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
+    s.cfg.ray_rotate = P.ray_rotate;
+    s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
+    s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
@@ -536,6 +571,8 @@ int main(int argc, char** argv) {
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
+           << (P.redshift_per_distance ? ", redshift_per_distance = 1" : "")
+           << (P.redshift_per_distance && !(P.c_reduced < 1) ? " (no effect: c_reduced >= 1)" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
@@ -659,6 +696,35 @@ int main(int argc, char** argv) {
       while (in >> tok) mfields.push_back(tok);
     }
     std::ofstream movielog;
+    // movie_slab > 0: the slabs of movie_slab cells normal to each axis in
+    // movie_slab_axes, one after the other in one file. Each block is the
+    // sub-array with that axis's index restricted to s0 .. s0+t-1 (0-based,
+    // s0 = Nrt/2 - t/2), in Fortran order (ncomp, nx, ny, nz) with
+    // n_axis = t and the other two = Nrt; ncomp = 1 except gamma (3) and
+    // ngam (Nfreq).
+    const int mN = cfg.Nrt;
+    const int mt = std::min(P.movie_slab, mN);
+    const int ms0 = mN / 2 - mt / 2;
+    std::vector<float> slabbuf;
+    auto write_slabs = [&](const std::string& path, const std::vector<float>& v) {
+      const std::int64_t nc = static_cast<std::int64_t>(mN) * mN * mN;
+      const std::int64_t ncomp = nc > 0 ? static_cast<std::int64_t>(v.size()) / nc : 0;
+      slabbuf.clear();
+      for (char a : P.movie_slab_axes) {
+        int lo[3] = {0, 0, 0}, hi[3] = {mN, mN, mN};
+        const int d = a - 'x';
+        lo[d] = ms0;
+        hi[d] = ms0 + mt;
+        for (int k = lo[2]; k < hi[2]; ++k)
+          for (int j = lo[1]; j < hi[1]; ++j) {
+            const std::int64_t c0 =
+                lo[0] + static_cast<std::int64_t>(mN) * (j + static_cast<std::int64_t>(mN) * k);
+            const float* p = v.data() + c0 * ncomp;
+            slabbuf.insert(slabbuf.end(), p, p + (hi[0] - lo[0]) * ncomp);
+          }
+      }
+      write_f32(path, slabbuf.data(), slabbuf.size());
+    };
     auto write_frame = [&](const Simulation& ss) {
       const RTGrid& G = ss.rt;
       char name[64];
@@ -672,8 +738,13 @@ int main(int argc, char** argv) {
         else if (fld == "ngam") v = &G.ngam;
         else if (fld == "gamma") v = &G.gamma;
         else throw std::runtime_error("movie_fields: unknown field " + fld);
-        std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
-        if (io) write_f32(odir + name, v->data(), v->size());
+        if (P.movie_slab > 0) {
+          std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.slab", dst.movie_frame, fld.c_str());
+          if (io) write_slabs(odir + name, *v);
+        } else {
+          std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
+          if (io) write_f32(odir + name, v->data(), v->size());
+        }
       }
       double xv = 0, xm = 0, mass = 0;
       for (std::int64_t c = 0; c < G.ncell; ++c) {
@@ -691,11 +762,40 @@ int main(int argc, char** argv) {
     if (P.movie_dz > 0) {
       if (io) {
         std::filesystem::create_directories(odir + "/movie");
+        if (P.movie_slab > 0) {
+          if (P.movie_slab > mN)
+            throw std::runtime_error("movie_slab = " + std::to_string(P.movie_slab) + " > N = " +
+                                     std::to_string(mN));
+          // the slab geometry, for the tools (tools/movies/movie_frames.py)
+          std::ostringstream sd;
+          sd << "# movie slab frames (movie_slab, docs/movies.md): frame_NNNNN_<field>.slab holds,\n"
+                "# for each axis in 'axes' in turn, the cells start .. start+thick-1 (0-based) along\n"
+                "# that axis and all N along the others: float32, Fortran order (ncomp, nx, ny, nz)\n"
+             << "N = " << mN << "\nthick = " << mt << "\naxes = " << P.movie_slab_axes
+             << "\nstart = " << ms0 << "\n";
+          const std::string sp = odir + "/movie/slab.txt";
+          if (!restart_from.empty() && std::filesystem::exists(sp)) {
+            std::ifstream in(sp);
+            std::stringstream prev;
+            prev << in.rdbuf();
+            if (prev.str() != sd.str())
+              throw std::runtime_error(sp + " differs from movie_slab/movie_slab_axes of this run: "
+                                       "keep them the same at every restart");
+          } else {
+            std::ofstream sout(sp);
+            sout << sd.str();
+          }
+        }
         movielog.open(odir + "/movie/frames.txt", logmode);
       }
       if (restart_from.empty()) {
-        movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
-                    "float32 (N,N,N) rt_grid fields)\n";
+        if (P.movie_slab > 0)
+          movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.slab: "
+                      "float32 slabs of rt_grid fields, geometry in slab.txt; xHII over the "
+                      "whole box)\n";
+        else
+          movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
+                      "float32 (N,N,N) rt_grid fields)\n";
         dst.movie_next = P.movie_z0 > 0 ? P.movie_z0 : zdata1.front();
       }
       s.substep_hook = [&](Simulation& ss) {

@@ -20,6 +20,8 @@ import sys
 
 import numpy as np
 
+trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  # numpy < 2.0
+
 REC = np.dtype([("x", "<f4", 3), ("v", "<f4", 3), ("N", "<i4"), ("M", "<f4"), ("R", "<f4"),
                 ("T", "<f4"), ("L", "<f4"), ("sfr", "<f4"), ("mstar", "<f4"), ("fgas", "<f4")])
 assert REC.itemsize == 56
@@ -94,7 +96,7 @@ def main():
             out = []
             for e0, e1 in zip(edges[:-1], edges[1:]):
                 s = (an[:, 0] >= e0 - 1e-9) & (an[:, 0] <= e1 + 1e-9)
-                out.append(np.trapezoid(an[s, col], an[s, 0]) / (e1 - e0))
+                out.append(trapezoid(an[s, col], an[s, 0]) / (e1 - e0))
             return np.array(out)
         st, ti = binavg(2), binavg(3)
         dn = cnt / vol / a.dlog

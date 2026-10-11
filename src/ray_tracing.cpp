@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -190,6 +191,12 @@ rrk::RTP rt_params(const Simulation& s) {
   p.nside_merge = s.rays.nside_merge;
   p.ngam_ray16 = s.rays.ngam_ray[16 - 1];
   p.ngam_ray32 = s.rays.ngam_ray[32 - 1];
+  // B16 fix ray_rotate: the keys of the frame rotation (rrk::frame_rotation)
+  p.ray_rotate = s.cfg.ray_rotate;
+  p.rot_seed = s.cfg.ray_rotate_seed;
+  static_assert(sizeof(p.rot_abits) == sizeof(s.clk.scalefactor), "double");
+  std::memcpy(&p.rot_abits, &s.clk.scalefactor, sizeof(p.rot_abits));
+  p.rot_istep = s.clk.istep_rt;
   return p;
 }
 
@@ -332,6 +339,13 @@ void ray_tracing_1(Simulation& s, const std::array<int, 6>& box) {
 // ray_source
 // ---------------------------------------------------------------------------
 
+// B16 fix: the frame rotation of ray_source (ray_tracing.hpp); the
+// arithmetic is rrk::frame_rotation, shared with the AMReX backend
+void ray_frame_rotation(const Simulation& s, int irt, int jrt, int krt, double rot[3][3],
+                        std::uint64_t stream) {
+  rrk::frame_rotation(rt_params(s), irt, jrt, krt, stream, rot);
+}
+
 // ray_tracing_tools.f90: ray_source
 void ray_source(Simulation& s, int irt, int jrt, int krt) {
   RTGrid& G = s.rt;
@@ -353,9 +367,18 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
   }
 
   // Generate new rays
-  const rrk::SourceSpec spec = rrk::source_spec(irt - 1, jrt - 1, krt - 1, G.Luv[c], P);
+  rrk::SourceSpec spec = rrk::source_spec(irt - 1, jrt - 1, krt - 1, G.Luv[c], P);
   std::int64_t indx[nray_init];
   ray_create(s, nray_init, indx);
+  // B16 fix (ray_rotate != 0): rotated HEALPix frame; the kernel's source_ray
+  // rotates the direction and makes ipix the grid-frame pixel containing it,
+  // so that ray_cast_split keeps the deviation dx - centre(ipix), as for a
+  // merged ray
+  const bool rotate = s.cfg.ray_rotate != 0;
+  double rot[3][3];
+  if (rotate) ray_frame_rotation(s, irt, jrt, krt, rot);
+  rrk::set_rotation(spec, rotate ? rot : nullptr);
+
   for (int i = 1; i <= nray_init; ++i) {
     const int ipix = i - 1;
     const std::int64_t ir = indx[i - 1];
@@ -733,7 +756,8 @@ void ray_redshifting(Simulation& s) {
   RayState& R = s.rays;
   if (R.Nray <= 0) return;
   const double ngam_min = s.units.ngam_min;
-  const double fscale = (s.clk.scalefactor - s.clk.da_sim) / s.clk.scalefactor;
+  // (a - da)/a, or per distance with redshift_per_distance (cosmology.hpp)
+  const double fscale = redshift_fscale(s.cfg, s.clk);
   const RedshiftTable T = make_redshift_table();
 
   // every ray is redshifted independently
