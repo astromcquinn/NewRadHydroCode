@@ -200,6 +200,14 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
                    ${CMAKE_CURRENT_BINARY_DIR}/multicell --k 1 2 --c 1 --check)
   set_tests_properties(multicell PROPERTIES TIMEOUT 600 LABELS "physics;multicell")
+  # the exposure deposit with the converged photon limit at k = 4: the front
+  # profile stays that of k = 1 (docs/rt_multicell.md)
+  add_test(NAME multicell_exposure
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/rt_multicell_ifront.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/multicell_exposure --k 1 4 --c 1
+                   --set photon_conserve=1 --set ray_deposit=exposure --check)
+  set_tests_properties(multicell_exposure PROPERTIES TIMEOUT 600 LABELS "physics;multicell")
   add_test(NAME photon_conserve
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/photon_conserve_check.py
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
@@ -802,12 +810,27 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
   # rays crossing k cells per substep (docs/rt_multicell.md): the ghost
   # layers and the local Redistribute grow to k+1; round-off against the
   # serial port with the same k
-  foreach(k 2 4)
+  foreach(k 2 4 4x)
+    set(xs "")
+    set(xsets)
+    set(xtol "")
+    if(k STREQUAL "4x")
+      # k = 4 with the exposure deposit and the converged photon limit. The
+      # exposure deposit passes photons attenuated by exp(-tau) into thick
+      # gas; deposits of ~1e-12 photons per H atom are at the resolution of
+      # the backend's int64 fixed point (2^-44), so the faint heating of
+      # cold neutral cells near the temperature floor (3-30 K) differs by a
+      # few per cent (ray statistics exact, x_HII to 1e-7)
+      set(xs ",ray_deposit=exposure,photon_conserve=1")
+      set(xsets --set ray_deposit=exposure --set photon_conserve=1)
+      set(xtol "--field-rtol;temp=0.05;--field-rtol;dx=2")
+    endif()
+    string(REPLACE "x" "" kk "${k}")
     foreach(p uniform_8src lognormal_16src)
       add_test(NAME amrex_serial_ref_multicell${k}_${p}
                COMMAND rt_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
                        ${amrex_runs}/serial_multicell${k}_${p} --set legacy_rt=0
-                       --set rt_cells_per_substep=${k})
+                       --set rt_cells_per_substep=${kk} ${xsets})
       set_tests_properties(amrex_serial_ref_multicell${k}_${p} PROPERTIES
                            FIXTURES_SETUP amrex_serial_multicell${k}_${p} LABELS "amrex;multicell"
                            TIMEOUT 1800)
@@ -819,9 +842,9 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                  -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
                  -DOUT=${amrex_runs}/roundoff_multicell${k}_${p}
                  -DREF=${amrex_runs}/serial_multicell${k}_${p}
-                 "-DSET=legacy_rt=0,rt_backend=amrex,rt_cells_per_substep=${k},amrex_max_grid_size=8"
+                 "-DSET=legacy_rt=0,rt_backend=amrex,rt_cells_per_substep=${kk},amrex_max_grid_size=8${xs}"
                  -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
-                 -DSTRICT=0
+                 -DSTRICT=0 "-DEXTRA_TOL=${xtol}"
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
       set_tests_properties(amrex_roundoff_multicell${k}_${p} PROPERTIES
                            FIXTURES_REQUIRED amrex_serial_multicell${k}_${p} LABELS "amrex;multicell"

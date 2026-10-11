@@ -13,6 +13,7 @@
 #           (ngam_rays_total is a double sum in a different order), integer
 #           stats exact; lossy: the R-struct encoding (rtol 0.1, integer ray
 #           stats within 5 %)
+#   EXTRA_TOL  further compare.py arguments (list), e.g. per-field rtol
 file(REMOVE_RECURSE ${OUT})
 file(MAKE_DIRECTORY ${OUT})
 set(extra)
@@ -45,6 +46,9 @@ elseif(STRICT STREQUAL "lossy")
   set(tol --rtol 0.1 --atol-frac 1e-3 --stats-int-tol 0.05 --stats-rtol 0.1 --ignore dx,nu,fgam,ngam,gamma,lambda)
 else()
   set(tol --rtol 1e-3 --atol-frac 1e-6 --field-rtol dx=1 --stats-rtol 1e-6)
+endif()
+if(EXTRA_TOL)
+  list(APPEND tol ${EXTRA_TOL})
 endif()
 execute_process(COMMAND ${PYTHON} ${COMPARE} ${REF} ${OUT} ${tol} -q RESULT_VARIABLE rc)
 if(NOT rc EQUAL 0)

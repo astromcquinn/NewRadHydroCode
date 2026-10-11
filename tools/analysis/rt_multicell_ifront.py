@@ -31,9 +31,11 @@ per hydro step, or the nstep_rt >= 1 guard makes it faster than c_reduced
 front stays within 0.5 cells of k = 1 for R >= 2 cells, matches the finite-c
 solution as tests/ifront_rsla_check.py requires (12 %, rms 6 %, R >= 2),
 is causal (R <= c_hat t + 1.5), the emitted photons agree to 1e-6, light
-crosses at least k cells per hydro step, and the mean x_HI of the shells
+crosses at least k cells per hydro step, the mean x_HI of the shells
 inside R/2 at the last step is within a factor 4/3 of k = 1 (it is k times
-higher without the crossing-speed factor of the photo-ionisation rate).
+higher without the crossing-speed factor of the photo-ionisation rate), and
+the shell-mean x_HI at the last step differs from k = 1 by less than 0.1
+anywhere (the front profile; the share deposit smears it at large k).
 """
 import argparse
 import json
@@ -265,9 +267,13 @@ def main():
             if pl and p1:
                 nin = max(1, int(0.5 * r1["R"][-1]))
                 ent["xHI_inner_ratio"] = float(np.mean(pl["xHI"][:nin]) / np.mean(p1["xHI"][:nin]))
+                # the front profile: largest difference of the shell-mean x_HI
+                ent["xHI_profile_maxdiff"] = float(np.max(np.abs(np.array(pl["xHI"]) -
+                                                                 np.array(p1["xHI"]))))
             summary["runs"].append(ent)
             if "xHI_inner_ratio" in ent:
-                print(f"   k={k}: x_HI inside R/2 / k=1: {ent['xHI_inner_ratio']:.3f}")
+                print(f"   k={k}: x_HI inside R/2 / k=1: {ent['xHI_inner_ratio']:.3f}; "
+                      f"shell x_HI max |diff| from k=1: {ent['xHI_profile_maxdiff']:.3f}")
             print(f"   k={k}: finite-c max|rel| {ent['rel_err_max']:.3f} rms {ent['rel_err_rms']:.3f}"
                   f"; max|R-R(k=1)| {ent['dR_vs_k1_max']:.3f} (last {ent['dR_vs_k1_last']:+.3f})"
                   f"; casts {ent['cast_total']:.3g}; wall {r['wall']:.1f} s"
@@ -287,6 +293,10 @@ def main():
                     ok = False
                 if r["guard"]:
                     print(f"  FAIL: c={c:g} k={k}: nstep_rt >= 1 guard (light < k cells per step)")
+                    ok = False
+                if ent.get("xHI_profile_maxdiff", 0.0) > 0.1:
+                    print(f"  FAIL: c={c:g} k={k}: shell x_HI differs from k = 1 by "
+                          f"{ent['xHI_profile_maxdiff']:.2f}")
                     ok = False
                 q = ent.get("xHI_inner_ratio", 1.0)
                 if not (0.75 < q < 1.33):
