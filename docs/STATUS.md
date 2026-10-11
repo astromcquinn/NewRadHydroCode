@@ -304,6 +304,9 @@ helium lines (`docs/recomb_radiation.md` §2.1–2.3, §3, §4.3).**
   - nightly: `recomb_stromgren`, run by `tools/analysis/recomb_stromgren.py`.
 - Strömgren check: case A gives R_A/R_B to 1% of the temperature-corrected
   value, and case A + RR recovers R_B (1.002 with block 1).
+  With `ray_rotate = 3` (2026-10-11): the B16 holes in case B are gone,
+  and the block-2 excess of A + RR falls from 5.0% to 3.7%; the rest is
+  the wider edge (`docs/recomb_radiation.md` §3).
 - 256³ at 0.1c (block 4), runs
   `/gscratch/astro/mcquinn/radhydro/runs/reion256_c01_caseA{,_rr}`, comparison
   in `.../recomb_reion256_c01/`. Movie: `docs/movies/recomb_256_c01.mp4`.

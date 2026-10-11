@@ -5,6 +5,7 @@
 usage: recomb_stromgren.py RT_DRIVER UNIFORM_PROBLEM_DIR WORKDIR [--plot PNG]
                            [--check] [--threads n] [--reuse]
                            [--method rays|m1|otvet] [--lines]
+                           [--set key=value ...]
 
 Builds a uniform problem from UNIFORM_PROBLEM_DIR (tests/problems/
 uniform_1src, mean density, N = 32) at 30x the mean density and z = 30
@@ -31,12 +32,17 @@ temperature of each run's ionised gas),
   * R(A+RR) is within [0.97, 1.06] of R_B (alpha_B(T_B)/alpha_B(T_RR))^(1/3)
     for both blocks. It comes out a few per cent above 1: the diffuse
     photons widen the soft edge, and they fill the holes that the stellar
-    rays' HEALPix sampling leaves inside the case B sphere (B16).
+    rays' HEALPix sampling leaves inside the case B sphere (B16). With
+    --set ray_rotate=3 those holes are gone, and block 2 gives 1.037
+    instead of 1.050.
 --lines adds recomb_rad_lines = 1 (the H-ionising helium recombination
 photons) to the A+RR runs. These are photons that case B ignores: about one
 per HeII recombination, i.e. ~8% of the H recombinations in this sphere, so
 R should grow by up to (1 - 0.08)^(-1/3) ~ 1.03; the upper bound of the
 check is then 1.10.
+--set key=value (repeatable) adds a parameter to every run, e.g.
+--set ray_rotate=3 (the production frame rotation, B16); the run
+directories then get a suffix.
 --method m1 | otvet runs the three cases with the moment RT instead (A+RR
 once: every cell emits into the moments, no blocks). The radii are compared
 with that method's own case B.
@@ -145,6 +151,8 @@ def main():
     ap.add_argument("--reuse", action="store_true", help="keep finished runs in WORKDIR")
     ap.add_argument("--method", default="rays", choices=["rays", "m1", "otvet"])
     ap.add_argument("--lines", action="store_true", help="recomb_rad_lines = 1 in the A+RR runs")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="extra parameter for every run (e.g. ray_rotate=3)")
     a = ap.parse_args()
     prob = os.path.join(a.work, "stromgren")
     make_problem(a.uniform, prob)
@@ -162,7 +170,9 @@ def main():
         tag = lab.replace(" ", "").replace("(", "_").replace(")", "").replace("+", "p")
         if a.method != "rays":
             tag = f"{a.method}_{tag}"
-        res[lab] = run(a.driver, prob, os.path.join(a.work, tag), sets, a.threads, a.reuse)
+        if a.set:
+            tag += "_" + "_".join(kv.replace("=", "") for kv in a.set)
+        res[lab] = run(a.driver, prob, os.path.join(a.work, tag), sets + a.set, a.threads, a.reuse)
     RB = res["B"][0]
     TB = res["B"][1][-1]
     print(f"step  " + "  ".join(f"{lab:>14s}" for lab, _ in cases))
