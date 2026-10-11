@@ -529,6 +529,16 @@ if(Python3_Interpreter_FOUND)
                    --set nsteps=6)
   set_tests_properties(thread_rt_det_rotate_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
                        ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  # rays crossing k = 3 cells per substep (docs/rt_multicell.md): the
+  # largest k with 8^3 domains (reach k+1 = d/2), vs threads
+  add_test(NAME thread_rt_det_multicell_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_det_multicell $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set legacy_rt=0
+                   --set legacy_physics=0 --set deterministic_parallel=1 --set ray_rotate=3
+                   --set rt_cells_per_substep=3 --set nsteps=6)
+  set_tests_properties(thread_rt_det_multicell_lognormal_16src PROPERTIES TIMEOUT 1800
+                       LABELS "threads;multicell" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   # legacy order (rt_step_2 and the RT grid loops in parallel), vs threads
   add_test(NAME thread_rt_legacy_lognormal_16src
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
@@ -672,6 +682,15 @@ if(Python3_Interpreter_FOUND)
                      --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
                      --set movie_z0=25)
     set_tests_properties(movie_slab PROPERTIES TIMEOUT 900 LABELS movie)
+    # rays crossing 2 cells per substep (docs/rt_multicell.md): the
+    # checkpoint records rt_cells_per_substep and the k-cell substep carry
+    add_test(NAME restart_smoke_det_multicell
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det_multicell 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set rt_substep_carry=1
+                     --set rt_cells_per_substep=2)
+    set_tests_properties(restart_smoke_det_multicell PROPERTIES TIMEOUT 600 LABELS "restart;multicell")
     add_test(NAME restart_smoke_det_movie_slab
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
@@ -763,6 +782,35 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
     set_tests_properties(amrex_roundoff_${p} PROPERTIES FIXTURES_REQUIRED amrex_serial_${p} LABELS amrex
                          ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS 2)
+  endforeach()
+  # rays crossing k cells per substep (docs/rt_multicell.md): the ghost
+  # layers and the local Redistribute grow to k+1; round-off against the
+  # serial port with the same k
+  foreach(k 2 4)
+    foreach(p uniform_8src lognormal_16src)
+      add_test(NAME amrex_serial_ref_multicell${k}_${p}
+               COMMAND rt_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                       ${amrex_runs}/serial_multicell${k}_${p} --set legacy_rt=0
+                       --set rt_cells_per_substep=${k})
+      set_tests_properties(amrex_serial_ref_multicell${k}_${p} PROPERTIES
+                           FIXTURES_SETUP amrex_serial_multicell${k}_${p} LABELS "amrex;multicell"
+                           TIMEOUT 1800)
+      add_test(NAME amrex_roundoff_multicell${k}_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${amrex_runs}/roundoff_multicell${k}_${p}
+                 -DREF=${amrex_runs}/serial_multicell${k}_${p}
+                 "-DSET=legacy_rt=0,rt_backend=amrex,rt_cells_per_substep=${k},amrex_max_grid_size=8"
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                 -DSTRICT=0
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(amrex_roundoff_multicell${k}_${p} PROPERTIES
+                           FIXTURES_REQUIRED amrex_serial_multicell${k}_${p} LABELS "amrex;multicell"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS 2)
+    endforeach()
   endforeach()
   # thread-count independence of the backend (1 rank)
   add_test(NAME amrex_thread_lognormal_16src
