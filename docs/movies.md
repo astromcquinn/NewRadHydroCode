@@ -71,6 +71,21 @@ stays at 0, as it should.
 | x_HII,V, x_HII,M | `frames.txt` (or `stats.txt`) | Sums over the whole box, so they don't depend on the slice. |
 | box | `params.txt` in RUNDIR or RUNDIR/.. | Or `--box`. |
 
+**Γ_HI in the frames (2026-10-11).** `movie_fields` may list `gammaHI`:
+the HI photoionization rate of the last RT substep, one float per cell (the
+HI component of `gamma`, which has 3 and which the slab reader cannot read).
+`frames.txt` lines also end with four whole-box Γ_HI columns, named in the
+header: `GammaHI_V` (volume mean), `GammaHI_ion_med` and `GammaHI_ion_mean`
+(median and mean over the cells with x_HII > 0.5) and `fV_GammaHI_gt_1e-14`
+(volume fraction with Γ_HI > 10⁻¹⁴ s⁻¹), all in s⁻¹ from `gamma(1)` of
+the last RT substep before the frame. Older files have six columns; the
+readers (`reion.py` `frames_table`/`read_gamma`, `reion_history.py`, the
+movie tools) take either, and also a file whose lines change length at a
+restart. `compare_movie.py` adds a log Γ_HI row (fixed range
+10⁻¹⁴–10⁻¹¹ s⁻¹, `--range-gamma`, `--rows`) and a panel with the median
+Γ_HI of the ionised cells when every run has `gammaHI` frames;
+`stills.py` adds a Γ_HI column when the frames have it.
+
 **Frames before the RT starts are skipped.** The C++ writes movie frames from
 `movie_z0` (by default the first zdata1, z = 15). Before the first step with
 a source, though, the RT grid is not set up yet: fHI = rhog = 0, and
