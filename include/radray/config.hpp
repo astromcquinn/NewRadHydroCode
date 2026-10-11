@@ -30,6 +30,10 @@ struct Config {
   int Hrt = 0;   // Nrt/2
   int Ndm = 0;   // DM particles per dimension (Npart = Ndm^3); default Ngas/2
   std::int64_t Npart = 0;  // Ndm^3
+  // PM mesh refinement (params.txt pm_refine, docs/pm_refine.md): the PM
+  // mesh has pm_refine*Ngas cells per dimension; Ndm must divide it.
+  // 1 (default) is the original, where the mesh is the gas grid.
+  int pm_refine = 1;
 
   // cosmo_parameters.f90: box (comoving Mpc/h). A compile-time parameter in
   // the original (5); a run-time value here (the Fortran harnesses set it

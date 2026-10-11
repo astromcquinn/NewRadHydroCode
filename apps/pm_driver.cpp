@@ -32,6 +32,7 @@ namespace {
 struct PMParams {
   int Ngas = 32;
   int Ndm = -1;
+  int pm_refine = 1;
   int mf = 1;
   double z_init = 300;
   double da_sim = 0;
@@ -54,6 +55,7 @@ PMParams read_pm_params(const std::string& path) {
     ks >> k;
     if (k == "Ngas") vs >> p.Ngas;
     else if (k == "Ndm") vs >> p.Ndm;
+    else if (k == "pm_refine") vs >> p.pm_refine;
     else if (k == "mf") vs >> p.mf;
     else if (k == "z_init") vs >> p.z_init;
     else if (k == "da_sim") vs >> p.da_sim;
@@ -91,7 +93,8 @@ int main(int argc, char** argv) {
 
     std::filesystem::create_directories(odir + "/Pk");
 
-    const Config cfg = Config::make(P.Ngas, 64, P.Ndm);
+    Config cfg = Config::make(P.Ngas, 64, P.Ndm);
+    cfg.pm_refine = P.pm_refine;
     pm::PMState pm;
     SimClock clk;
     Units units;
@@ -104,7 +107,7 @@ int main(int argc, char** argv) {
     init_domain_gas(cfg, dom);
     init_hydro(cfg, gas, hs);
     pm::init_pm(pm, pm::PMConfig::make(cfg, P.mf != 0), dom);
-    fft::fft_3d('f', P.Ngas, P.Ngas, P.Ngas, pm.density.data());  // init_fft
+    fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     calc_sim_var(cfg, clk, units);
 
     pm::read_init_conditions(pdir, pm, gas.u, gas.w, units);
@@ -124,10 +127,11 @@ int main(int argc, char** argv) {
       write_raw_f32(d + "/xv_dm.bin", pm.xv);
       write_raw_f32(d + "/u_gas.bin", u_gas);
       write_raw_f32(d + "/v_gas.bin", v_gas);
-      std::vector<float> phi(cfg.Ncell);
-      for (int k = 1; k <= P.Ngas; ++k)
-        for (int j = 1; j <= P.Ngas; ++j)
-          for (int i = 1; i <= P.Ngas; ++i) phi[pm.gcell(i, j, k)] = pm.density[pm.dcell(i, j, k)];
+      // the potential on the PM mesh (Nm^3; the gas grid with pm_refine = 1)
+      std::vector<float> phi(pm.pc.Nmcell);
+      for (int k = 1; k <= pm.pc.Nm; ++k)
+        for (int j = 1; j <= pm.pc.Nm; ++j)
+          for (int i = 1; i <= pm.pc.Nm; ++i) phi[pm.mcell(i, j, k)] = pm.density[pm.dcell(i, j, k)];
       write_raw_f32(d + "/phi.bin", phi);
       if (initial) write_raw_f32(d + "/w_gas.bin", w_gas);
 

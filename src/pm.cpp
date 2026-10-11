@@ -6,6 +6,7 @@
 #include "radray/kernels/hydro_mh.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -29,20 +30,22 @@ namespace {
 
 // pm_tools.f90: cic_mass_assignment, local parameter
 //   mass = (1-omegab/omegam)*N_dm_gas_c
-inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.N_dm_gas_c; }
+// (N_dm_gas_c = (Nm/Ndm)^3: the PM mesh is the gas grid in the original)
+inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.N_dm_m_c; }
 
 // CIC weights shared by cic_mass_assignment and accelerate_dm:
 //   x = mod(xv_dm(1,ip)*x_dm_gas - 0.5 + ngasr, ngasr), i1 = 1+int(x), ...
+// on the PM mesh (x_dm_m, nmr; x_dm_gas, ngasr with pm_refine = 1)
 struct Cic {
   int i1, i2, j1, j2, k1, k2;
   double dx1, dx2, dy1, dy2, dz1, dz2;
 };
 inline Cic cic_weights(const PMConfig& pc, const float* xv) {
-  const int N = pc.Ngas;
+  const int N = pc.Nm;
   Cic c;
-  const double x = f::mod(static_cast<double>(xv[0]) * pc.x_dm_gas - 0.5 + pc.ngasr, pc.ngasr);
-  const double y = f::mod(static_cast<double>(xv[1]) * pc.x_dm_gas - 0.5 + pc.ngasr, pc.ngasr);
-  const double z = f::mod(static_cast<double>(xv[2]) * pc.x_dm_gas - 0.5 + pc.ngasr, pc.ngasr);
+  const double x = f::mod(static_cast<double>(xv[0]) * pc.x_dm_m - 0.5 + pc.nmr, pc.nmr);
+  const double y = f::mod(static_cast<double>(xv[1]) * pc.x_dm_m - 0.5 + pc.nmr, pc.nmr);
+  const double z = f::mod(static_cast<double>(xv[2]) * pc.x_dm_m - 0.5 + pc.nmr, pc.nmr);
   c.i1 = 1 + f::int4(x);
   c.i2 = 1 + f::mod(c.i1, N);
   c.dx1 = c.i1 - x;
@@ -60,9 +63,10 @@ inline Cic cic_weights(const PMConfig& pc, const float* xv) {
 
 // calc_kick: function force(i,j,k). The whole finite difference is a real(4)
 // expression (2./3 and 1./12 are real(4) literals, density is real(4));
-// only the result is stored into the real(8) function value.
+// only the result is stored into the real(8) function value. (i,j,k) is a
+// mesh cell.
 inline void force(const PMState& s, int i, int j, int k, double F[3]) {
-  const int N = s.pc.Ngas;
+  const int N = s.pc.Nm;
   const int im2 = 1 + f::mod(i - 3 + N, N);
   const int im1 = 1 + f::mod(i - 2 + N, N);
   const int ip1 = 1 + f::mod(i, N);
@@ -89,6 +93,69 @@ inline void force(const PMState& s, int i, int j, int k, double F[3]) {
   F[2] = fz;
 }
 
+// force(i,j,k), from the stored mesh force when it is valid (pm_refine > 1,
+// during the kick): the same float values
+inline void mesh_force(const PMState& s, int i, int j, int k, double F[3]) {
+  if (s.fmesh_valid) {
+    const float* f = &s.fmesh[3 * s.mcell(i, j, k)];
+    F[0] = f[0];
+    F[1] = f[1];
+    F[2] = f[2];
+  } else {
+    force(s, i, j, k, F);
+  }
+}
+
+// The force on gas cell (i,j,k) in gas grid units. pm_refine = 1: the
+// original force(i,j,k). Otherwise the average of the mesh forces over the
+// r^3 mesh cells of the gas cell (k, j, i order, double sums), divided by r
+// to convert mesh cells to gas cells: the adjoint of the spread in
+// calc_density_field.
+inline void gas_force(const PMState& s, int i, int j, int k, double F[3]) {
+  const int r = s.pc.refine;
+  if (r == 1) {
+    force(s, i, j, k, F);
+    return;
+  }
+  double sum[3] = {0, 0, 0};
+  for (int kk = (k - 1) * r + 1; kk <= k * r; ++kk)
+    for (int jj = (j - 1) * r + 1; jj <= j * r; ++jj)
+      for (int ii = (i - 1) * r + 1; ii <= i * r; ++ii) {
+        double Fm[3];
+        mesh_force(s, ii, jj, kk, Fm);
+        for (int m = 0; m < 3; ++m) sum[m] += Fm[m];
+      }
+  const double norm = static_cast<double>(r) * r * r * r;
+  for (int m = 0; m < 3; ++m) F[m] = sum[m] / norm;
+}
+
+// CIC interpolation of the mesh force to a particle (accelerate_dm)
+inline void particle_force(const PMState& s, const Cic& c, double fv[3]) {
+  double F[3];
+  fv[0] = fv[1] = fv[2] = 0;
+  auto acc = [&](int ii, int jj, int kk, double wx, double wy, double wz) {
+    mesh_force(s, ii, jj, kk, F);
+    for (int m = 0; m < 3; ++m) fv[m] = fv[m] + F[m] * wx * wy * wz;
+  };
+  acc(c.i1, c.j1, c.k1, c.dx1, c.dy1, c.dz1);
+  acc(c.i2, c.j1, c.k1, c.dx2, c.dy1, c.dz1);
+  acc(c.i1, c.j2, c.k1, c.dx1, c.dy2, c.dz1);
+  acc(c.i2, c.j2, c.k1, c.dx2, c.dy2, c.dz1);
+  acc(c.i1, c.j1, c.k2, c.dx1, c.dy1, c.dz2);
+  acc(c.i2, c.j1, c.k2, c.dx2, c.dy1, c.dz2);
+  acc(c.i1, c.j2, c.k2, c.dx1, c.dy2, c.dz2);
+  acc(c.i2, c.j2, c.k2, c.dx2, c.dy2, c.dz2);
+}
+
+// FFT threads for the pm_refine > 1 mesh. FFTW's OpenMP plans of 1024^3
+// on a klone cpu-g2 node (2x96 cores): 1 thread 7.2 s per transform, 8
+// threads 1.0 s, 32 threads 0.28 s, but 48-192 threads 3-10 s. The result
+// is byte-identical for every count (test_fft_threads, 1..192), so the cap
+// costs nothing. pm_refine = 1: the original serial plans.
+inline int pm_fft_threads(const PMConfig& pc) {
+  return pc.refine > 1 ? std::min(par::max_threads(), 32) : 1;
+}
+
 // general_tools.f90: sinc
 inline double sinc(double x) {
   if (std::fabs(x) > 1e-6) return std::sin(x) / x;
@@ -97,21 +164,33 @@ inline double sinc(double x) {
 
 }  // namespace
 
-PMConfig PMConfig::make(int Ngas, int Ndm, bool mf) {
-  if (Ngas <= 0 || Ndm <= 0 || Ngas % Ndm != 0)
-    throw std::runtime_error("PMConfig: Ngas must be a positive multiple of Ndm");
+PMConfig PMConfig::make(int Ngas, int Ndm, bool mf, int refine) {
+  if (refine < 1) throw std::runtime_error("PMConfig: pm_refine must be >= 1");
+  if (refine == 1) {
+    if (Ngas <= 0 || Ndm <= 0 || Ngas % Ndm != 0)
+      throw std::runtime_error("PMConfig: Ngas must be a positive multiple of Ndm");
+  } else if (Ngas <= 0 || Ndm <= 0 || (static_cast<std::int64_t>(refine) * Ngas) % Ndm != 0) {
+    throw std::runtime_error("PMConfig: the PM mesh pm_refine*Ngas must be a positive "
+                             "multiple of Ndm");
+  }
   if (Ngas % 2 != 0) throw std::runtime_error("PMConfig: Ngas must be even");
   PMConfig c;
   c.Ngas = Ngas;
   c.Hgas = Ngas / 2;
   c.Ndm = Ndm;
+  c.refine = refine;
+  c.Nm = refine * Ngas;
+  c.Hm = c.Nm / 2;
   c.Npart = static_cast<std::int64_t>(Ndm) * Ndm * Ndm;
   c.Ncell = static_cast<std::int64_t>(Ngas) * Ngas * Ngas;
+  c.Nmcell = static_cast<std::int64_t>(c.Nm) * c.Nm * c.Nm;
   c.ngasr = Ngas;
   c.ndmr = Ndm;
-  c.N_dm_gas = Ngas / Ndm;
-  c.N_dm_gas_c = c.N_dm_gas * c.N_dm_gas * c.N_dm_gas;
-  c.x_dm_gas = c.N_dm_gas;
+  c.nmr = c.Nm;
+  c.N_dm_m = c.Nm / Ndm;
+  c.N_dm_m_c = c.N_dm_m * c.N_dm_m * c.N_dm_m;
+  c.x_dm_m = c.N_dm_m;
+  c.x_dm_gas = static_cast<double>(Ngas) / Ndm;
   c.mf = mf;
   return c;
 }
@@ -120,7 +199,14 @@ PMConfig PMConfig::make(int Ngas, int Ndm, bool mf) {
 void init_pm(PMState& s, const PMConfig& pc, const Domains& dom) {
   s.pc = pc;
   s.dom = dom;
-  const std::int64_t N = pc.Ngas;
+  // pm_refine > 1: the same domains, in the same order, on the mesh
+  if (pc.refine > 1)
+    for (auto& b : s.dom.box)
+      for (int e = 0; e < 6; e += 2) {
+        b[e] = (b[e] - 1) * pc.refine + 1;
+        b[e + 1] = b[e + 1] * pc.refine;
+      }
+  const std::int64_t N = pc.Nm;
   // npt = Npart/Ncpu + min(1,mod(Npart,Ncpu)) with Ncpu = 1
   s.dm_cpu[0] = 1;
   s.dm_cpu[1] = pc.Npart;
@@ -147,31 +233,68 @@ void calc_drift(PMState& s, double dt_sim) {
 
 // pm_tools.f90: link_dm (Ncpu = 1)
 void link_dm(PMState& s) {
-  const int N = s.pc.Ngas;
-  const double xdg = s.pc.x_dm_gas;
+  const int N = s.pc.Nm;
+  const double xdg = s.pc.x_dm_m;
   std::fill(s.hoc_cpu.begin(), s.hoc_cpu.end(), 0);
   auto hc = [&](int j, int k) -> std::int64_t& {
     return s.hoc_cpu[(j - 1) + static_cast<std::int64_t>(N) * (k - 1)];
   };
-  for (std::int64_t ip = s.dm_cpu[0]; ip <= s.dm_cpu[1]; ++ip) {
-    const float* p = s.xv_p(ip);
-    const int j = 1 + f::mod(f::int4(static_cast<double>(p[1]) * xdg), N);
-    const int k = 1 + f::mod(f::int4(static_cast<double>(p[2]) * xdg), N);
-    s.ll[ip] = hc(j, k);
-    hc(j, k) = ip;
+  const int nchunk = std::min(par::max_threads(), 32);
+  if (s.pc.refine > 1 && nchunk > 1 && par::worth(s.pc.Npart)) {
+    // pm_refine > 1: the same row chains built in parallel. Chunk c of the
+    // particles (consecutive ip) chains its own particles per row (head: its
+    // largest ip, tail: its smallest); the chunks are then joined per row in
+    // ip order. Every ll(ip) and hoc_cpu(j,k) is the serial one (the next
+    // smaller ip of the same row), for any thread count.
+    const std::int64_t rows = static_cast<std::int64_t>(N) * N;
+    const std::int64_t p0 = s.dm_cpu[0], np = s.dm_cpu[1] - s.dm_cpu[0] + 1;
+    std::vector<std::int64_t> head(nchunk * rows, 0), tail(nchunk * rows, 0);
+#pragma omp parallel for schedule(static, 1) num_threads(nchunk)
+    for (int c = 0; c < nchunk; ++c) {
+      std::int64_t* H = &head[c * rows];
+      std::int64_t* T = &tail[c * rows];
+      const std::int64_t a = p0 + np * c / nchunk, b = p0 + np * (c + 1) / nchunk - 1;
+      for (std::int64_t ip = a; ip <= b; ++ip) {
+        const float* p = s.xv_p(ip);
+        const int j = 1 + f::mod(f::int4(static_cast<double>(p[1]) * xdg), N);
+        const int k = 1 + f::mod(f::int4(static_cast<double>(p[2]) * xdg), N);
+        const std::int64_t row = (j - 1) + static_cast<std::int64_t>(N) * (k - 1);
+        s.ll[ip] = H[row];
+        if (H[row] == 0) T[row] = ip;
+        H[row] = ip;
+      }
+    }
+#pragma omp parallel for schedule(static)
+    for (std::int64_t row = 0; row < rows; ++row) {
+      std::int64_t h = 0;
+      for (int c = 0; c < nchunk; ++c)
+        if (head[c * rows + row] > 0) {
+          s.ll[tail[c * rows + row]] = h;
+          h = head[c * rows + row];
+        }
+      s.hoc_cpu[row] = h;
+    }
+  } else {
+    for (std::int64_t ip = s.dm_cpu[0]; ip <= s.dm_cpu[1]; ++ip) {
+      const float* p = s.xv_p(ip);
+      const int j = 1 + f::mod(f::int4(static_cast<double>(p[1]) * xdg), N);
+      const int k = 1 + f::mod(f::int4(static_cast<double>(p[2]) * xdg), N);
+      s.ll[ip] = hc(j, k);
+      hc(j, k) = ip;
+    }
   }
   // the rows (j,k) are independent (each relinks only its own particles)
-#pragma omp parallel for schedule(static) if (par::worth(s.pc.Ncell))
+#pragma omp parallel for schedule(static) if (par::worth(s.pc.Nmcell))
   for (int k = 1; k <= N; ++k) {
     for (int j = 1; j <= N; ++j) {
-      for (int i = 1; i <= N; ++i) s.hoc[s.gcell(i, j, k)] = 0;
+      for (int i = 1; i <= N; ++i) s.hoc[s.mcell(i, j, k)] = 0;
       // loop over cpus (Ncpu..1): one
       std::int64_t ip = hc(j, k);
       while (ip > 0) {
         const int i = 1 + f::mod(f::int4(static_cast<double>(s.xv_p(ip)[0]) * xdg), N);
         const std::int64_t next = s.ll[ip];
-        s.ll[ip] = s.hoc[s.gcell(i, j, k)];
-        s.hoc[s.gcell(i, j, k)] = ip;
+        s.ll[ip] = s.hoc[s.mcell(i, j, k)];
+        s.hoc[s.mcell(i, j, k)] = ip;
         ip = next;
       }
     }
@@ -189,7 +312,7 @@ void cic_mass_assignment(PMState& s, const std::array<int, 6>& b) {
   for (int k = b[4]; k <= b[5]; ++k)
     for (int j = b[2]; j <= b[3]; ++j)
       for (int i = b[0]; i <= b[1]; ++i) {
-        std::int64_t ip = s.hoc[s.gcell(i, j, k)];
+        std::int64_t ip = s.hoc[s.mcell(i, j, k)];
         while (ip > 0) {
           const Cic c = cic_weights(s.pc, s.xv_p(ip));
           // density(..) = density(..) + dx*dy*dz*mass
@@ -214,8 +337,8 @@ void cic_mass_assignment(PMState& s, const std::array<int, 6>& b) {
 // addends in the same order as in the serial loop: bit-identical for any
 // thread count.
 void cic_mass_assignment_all(PMState& s) {
-  const int N = s.pc.Ngas;
-  const int nt = par::worth(s.pc.Ncell) ? std::min(par::max_threads(), N) : 1;
+  const int N = s.pc.Nm;
+  const int nt = par::worth(s.pc.Nmcell) ? std::min(par::max_threads(), N) : 1;
   if (nt <= 1) {
     for (const auto& b : s.dom.box) cic_mass_assignment(s, b);
     return;
@@ -241,7 +364,7 @@ void cic_mass_assignment_all(PMState& s) {
         if (!src[k]) continue;
         for (int j = b[2]; j <= b[3]; ++j)
           for (int i = b[0]; i <= b[1]; ++i) {
-            std::int64_t ip = s.hoc[s.gcell(i, j, k)];
+            std::int64_t ip = s.hoc[s.mcell(i, j, k)];
             while (ip > 0) {
               const Cic c = cic_weights(s.pc, s.xv_p(ip));
               add(c.i1, c.j1, c.k1, c.dx1 * c.dy1 * c.dz1);
@@ -260,12 +383,22 @@ void cic_mass_assignment_all(PMState& s) {
 }
 
 // pm_tools.f90: calc_density_field
+//   (pm_refine = r > 1: every mesh cell takes the density of the gas cell
+//   it lies in, so each gas cell's mass is spread evenly over its r^3 mesh
+//   cells; gas_force is the adjoint)
 void calc_density_field(PMState& s, const float* u_gas) {
-  const int N = s.pc.Ngas;
-#pragma omp parallel for schedule(static) if (par::worth(s.pc.Ncell))
+  const int N = s.pc.Nm;
+  const int r = s.pc.refine;
+#pragma omp parallel for schedule(static) if (par::worth(s.pc.Nmcell))
   for (int k = 1; k <= N; ++k)
     for (int j = 1; j <= N; ++j) {
-      for (int i = 1; i <= N; ++i) s.density[s.dcell(i, j, k)] = u_gas[s.gcell(i, j, k) * 5];
+      if (r == 1) {
+        for (int i = 1; i <= N; ++i) s.density[s.dcell(i, j, k)] = u_gas[s.gcell(i, j, k) * 5];
+      } else {
+        const int jg = (j - 1) / r + 1, kg = (k - 1) / r + 1;
+        for (int i = 1; i <= N; ++i)
+          s.density[s.dcell(i, j, k)] = u_gas[s.gcell((i - 1) / r + 1, jg, kg) * 5];
+      }
       for (int i = N + 1; i <= N + 2; ++i) s.density[s.dcell(i, j, k)] = 0;
     }
   // set_domain_gas/end_domain_gas hand out domains 1..Ndomain in order
@@ -274,15 +407,18 @@ void calc_density_field(PMState& s, const float* u_gas) {
 
 // pm_tools.f90: calc_gravity_field
 void calc_gravity_field(PMState& s, double scalefactor) {
-  const int N = s.pc.Ngas;
-  const int H = s.pc.Hgas;
-  const double Ak = 2 * pi / s.pc.ngasr;
+  const int N = s.pc.Nm;
+  const int H = s.pc.Hm;
+  const double Ak = 2 * pi / s.pc.nmr;
+  // pm_refine > 1: threaded FFTW (fft.hpp); 1: the original serial plans
+  const int fft_threads = pm_fft_threads(s.pc);
+  s.fmesh_valid = false;
   // Aphi = -4*pi*scalefactor/(6*pi)  (unary minus applies to the quotient)
   const double Aphi = -(4 * pi * scalefactor / (6 * pi));
 
-  fft::fft_3d('f', N, N, N, s.density.data());
+  fft::fft_3d('f', N, N, N, s.density.data(), fft_threads);
 
-#pragma omp parallel for schedule(static) if (par::worth(s.pc.Ncell))
+#pragma omp parallel for schedule(static) if (par::worth(s.pc.Nmcell))
   for (int k = 1; k <= N; ++k) {
     const double kz = (k <= H + 1) ? Ak * (k - 1) : Ak * (k - 1 - N);
     const double kc = 2 * std::sin(kz / 2);
@@ -305,10 +441,28 @@ void calc_gravity_field(PMState& s, double scalefactor) {
     }
   }
 
-  fft::fft_3d('b', N, N, N, s.density.data());
+  fft::fft_3d('b', N, N, N, s.density.data(), fft_threads);
 }
 
 namespace {
+
+// pm_refine > 1: force(i,j,k) of every mesh cell into s.fmesh (valid until
+// the next calc_gravity_field)
+void fill_force_mesh(PMState& s) {
+  const int N = s.pc.Nm;
+  s.fmesh_valid = false;
+  s.fmesh.resize(3 * static_cast<std::size_t>(s.pc.Nmcell));
+#pragma omp parallel for schedule(static) if (par::worth(s.pc.Nmcell))
+  for (int k = 1; k <= N; ++k)
+    for (int j = 1; j <= N; ++j)
+      for (int i = 1; i <= N; ++i) {
+        double F[3];
+        force(s, i, j, k, F);
+        float* f = &s.fmesh[3 * s.mcell(i, j, k)];
+        for (int m = 0; m < 3; ++m) f[m] = static_cast<float>(F[m]);  // exact: F is a float
+      }
+  s.fmesh_valid = true;
+}
 
 // calc_kick, DM part: accelerate_dm(k) for all slabs. Particles are
 // independent; the double sums arms and vrms are recorded per plane and
@@ -316,9 +470,9 @@ namespace {
 // loop), amax/vmax are maxima.
 void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, double& vmax,
                        double& vrms) {
-  const int N = s.pc.Ngas;
-  const double xdg = s.pc.x_dm_gas;
-  const int nth = par::worth(s.pc.Ncell) ? par::max_threads() : 1;
+  const int N = s.pc.Nm;
+  const double xdg = s.pc.x_dm_m;
+  const int nth = par::worth(s.pc.Nmcell) ? par::max_threads() : 1;
   const int batch = nth > 1 ? std::min(N, 4 * nth) : 1;
   std::vector<std::vector<double>> add_a(batch), add_v(batch);
   std::vector<double> amax_t(nth > 1 ? batch : 1, 0.0), vmax_t(nth > 1 ? batch : 1, 0.0);
@@ -332,26 +486,14 @@ void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, do
     double amax = 0, vmax = 0;
     for (int j = 1; j <= N; ++j)
       for (int i = 1; i <= N; ++i) {
-        std::int64_t ip = s.hoc[s.gcell(i, j, k)];
+        std::int64_t ip = s.hoc[s.mcell(i, j, k)];
         while (ip > 0) {
           float* p = s.xv_p(ip);
           const Cic c = cic_weights(s.pc, p);
-          double fv[3] = {0, 0, 0};
-          double F[3];
-          auto acc = [&](int ii, int jj, int kk, double wx, double wy, double wz) {
-            force(s, ii, jj, kk, F);
-            for (int m = 0; m < 3; ++m) fv[m] = fv[m] + F[m] * wx * wy * wz;
-          };
-          acc(c.i1, c.j1, c.k1, c.dx1, c.dy1, c.dz1);
-          acc(c.i2, c.j1, c.k1, c.dx2, c.dy1, c.dz1);
-          acc(c.i1, c.j2, c.k1, c.dx1, c.dy2, c.dz1);
-          acc(c.i2, c.j2, c.k1, c.dx2, c.dy2, c.dz1);
-          acc(c.i1, c.j1, c.k2, c.dx1, c.dy1, c.dz2);
-          acc(c.i2, c.j1, c.k2, c.dx2, c.dy1, c.dz2);
-          acc(c.i1, c.j2, c.k2, c.dx1, c.dy2, c.dz2);
-          acc(c.i2, c.j2, c.k2, c.dx2, c.dy2, c.dz2);
+          double fv[3];
+          particle_force(s, c, fv);
 
-          // xv_dm(4:6,ip) = xv_dm(4:6,ip) + (f/x_dm_gas)*dt_sim
+          // xv_dm(4:6,ip) = xv_dm(4:6,ip) + (f/x_dm_gas)*dt_sim  (x_dm_m)
           for (int m = 0; m < 3; ++m)
             p[3 + m] = static_cast<float>(static_cast<double>(p[3 + m]) + (fv[m] / xdg) * dt_sim);
 
@@ -381,6 +523,14 @@ void accelerate_dm_all(PMState& s, double dt_sim, double& amax, double& arms, do
   for (double v : vmax_t) vmax = f::max(vmax, v);
 }
 
+}  // namespace
+
+void force_at(const PMState& s, const float* xv, double F[3]) {
+  particle_force(s, cic_weights(s.pc, xv), F);
+}
+
+namespace {
+
 // Update global variables in PM grid units (end of calc_kick)
 void set_kick_globals(const PMState& s, SimClock& clk, double amax, double arms, double vmax,
                       double vrms) {
@@ -398,6 +548,7 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Unit
   const double dt_sim = clk.dt_sim;
   const int N = s.pc.Ngas;
   double amax = 0, arms = 0, vmax = 0, vrms = 0;
+  if (s.pc.refine > 1) fill_force_mesh(s);
   accelerate_dm_all(s, dt_sim, amax, arms, vmax, vrms);
   const int nth = par::worth(s.pc.Ncell) ? par::max_threads() : 1;
 
@@ -407,7 +558,7 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Unit
     for (int j = 1; j <= N; ++j)
       for (int i = 1; i <= N; ++i) {
         double F[3];
-        force(s, i, j, k, F);
+        gas_force(s, i, j, k, F);
         const std::int64_t c = s.gcell(i, j, k);
         if (s.pc.mf) {
           // v_gas(:,i,j,k) = v_gas(:,i,j,k) + force(i,j,k)*dt_sim
@@ -453,6 +604,7 @@ void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1
   const double dt_sim = clk.dt_sim;
   const int N = s.pc.Ngas;
   double amax = 0, arms = 0, vmax = 0, vrms = 0;
+  if (s.pc.refine > 1) fill_force_mesh(s);
   accelerate_dm_all(s, dt_sim, amax, arms, vmax, vrms);
   const int nth = par::worth(s.pc.Ncell) ? par::max_threads() : 1;
 #pragma omp parallel for schedule(static) if (nth > 1)
@@ -460,7 +612,7 @@ void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1
     for (int j = 1; j <= N; ++j)
       for (int i = 1; i <= N; ++i) {
         double F[3];
-        force(s, i, j, k, F);
+        gas_force(s, i, j, k, F);
         const std::int64_t c = s.gcell(i, j, k);
         float* ug = &u_gas[c * 5];
         double U[5];
@@ -541,35 +693,48 @@ void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconv
 }
 
 // pm_tools.f90: calc_power_spectrum (computation; file name/IO in the caller)
+// pm_refine > 1: the DM power on the mesh (rows k = 1..Nm of pk_dm), the gas
+// power on the gas grid in a separate buffer; density then holds the DM
+// transform.
 void calc_power_spectrum(PMState& s, const float* u_gas, double box,
                          std::vector<double>& pk_dm, std::vector<double>& pk_gas) {
   const int N = s.pc.Ngas;
+  const int Nm = s.pc.Nm;
   const double fb = omegab / omegam;
   const double fd = 1 - fb;
+  const int fft_threads = pm_fft_threads(s.pc);
+  s.fmesh_valid = false;
 
   link_dm(s);
 
   std::fill(s.density.begin(), s.density.end(), 0.0f);
   cic_mass_assignment_all(s);
-#pragma omp parallel for schedule(static) if (par::worth(s.pc.Ncell))
-  for (int k = 1; k <= N; ++k)
-    for (int j = 1; j <= N; ++j)
-      for (int i = 1; i <= N; ++i) {
+#pragma omp parallel for schedule(static) if (par::worth(s.pc.Nmcell))
+  for (int k = 1; k <= Nm; ++k)
+    for (int j = 1; j <= Nm; ++j)
+      for (int i = 1; i <= Nm; ++i) {
         float& d = s.density[s.dcell(i, j, k)];
         d = static_cast<float>(static_cast<double>(d) / fd - 1);
       }
-  fft::fft_3d('f', N, N, N, s.density.data());
-  calc_pk_3d(N, s.density.data(), pk_dm, true, box);
+  fft::fft_3d('f', Nm, Nm, Nm, s.density.data(), fft_threads);
+  calc_pk_3d(Nm, s.density.data(), pk_dm, true, box);
 
+  std::vector<float> gbuf;
+  float* g = s.density.data();  // density(Ngas+2,Ngas,Ngas) when the mesh is the gas grid
+  if (s.pc.refine > 1) {
+    gbuf.assign(static_cast<std::size_t>(N + 2) * N * N, 0.0f);
+    g = gbuf.data();
+  }
+  const std::int64_t ld = N + 2;
   for (int k = 1; k <= N; ++k)
     for (int j = 1; j <= N; ++j) {
+      float* row = g + ld * ((j - 1) + static_cast<std::int64_t>(N) * (k - 1));
       for (int i = 1; i <= N; ++i)
-        s.density[s.dcell(i, j, k)] =
-            static_cast<float>(static_cast<double>(u_gas[s.gcell(i, j, k) * 5]) / fb - 1);
-      for (int i = N + 1; i <= N + 2; ++i) s.density[s.dcell(i, j, k)] = 0;
+        row[i - 1] = static_cast<float>(static_cast<double>(u_gas[s.gcell(i, j, k) * 5]) / fb - 1);
+      for (int i = N + 1; i <= N + 2; ++i) row[i - 1] = 0;
     }
-  fft::fft_3d('f', N, N, N, s.density.data());
-  calc_pk_3d(N, s.density.data(), pk_gas, false, box);
+  fft::fft_3d('f', N, N, N, g, fft_threads);
+  calc_pk_3d(N, g, pk_gas, false, box);
 }
 
 void write_power_spectrum(const std::string& path, const PMState& s,
@@ -588,8 +753,8 @@ void write_power_spectrum(const std::string& path, const PMState& s,
 }
 
 // pm_tools.f90: summarize_dm
-DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out) {
-  DMSummary r;
+namespace {
+void dm_summary_init(DMSummary& r) {
   for (int c = 0; c < 3; ++c) {
     r.xavg[c] = 0;
     r.xmax[c] = 0;
@@ -598,7 +763,9 @@ DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out) {
     r.vmax[c] = 0;
     r.vmin[c] = std::numeric_limits<double>::max();
   }
-  for (std::int64_t ip = s.dm_cpu[0]; ip <= s.dm_cpu[1]; ++ip) {
+}
+void dm_summary_add(const PMState& s, std::int64_t a, std::int64_t b, DMSummary& r) {
+  for (std::int64_t ip = a; ip <= b; ++ip) {
     const float* p = s.xv_p(ip);
     for (int c = 0; c < 3; ++c) {
       const double x = p[c], v = p[3 + c];
@@ -609,6 +776,36 @@ DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out) {
       r.vmax[c] = f::max(r.vmax[c], v);
       r.vmin[c] = f::min(r.vmin[c], v);
     }
+  }
+}
+}  // namespace
+
+DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out) {
+  DMSummary r;
+  dm_summary_init(r);
+  if (s.pc.refine > 1 && par::worth(s.pc.Npart)) {
+    // pm_refine > 1: sums over fixed chunks of 2^20 particles, added in
+    // chunk order (independent of the thread count; not the serial order)
+    const std::int64_t ch = std::int64_t(1) << 20;
+    const std::int64_t np = s.dm_cpu[1] - s.dm_cpu[0] + 1, nch = (np + ch - 1) / ch;
+    std::vector<DMSummary> part(nch);
+#pragma omp parallel for schedule(dynamic, 16)
+    for (std::int64_t q = 0; q < nch; ++q) {
+      dm_summary_init(part[q]);
+      dm_summary_add(s, s.dm_cpu[0] + q * ch, std::min(s.dm_cpu[1], s.dm_cpu[0] + (q + 1) * ch - 1),
+                     part[q]);
+    }
+    for (const DMSummary& p : part)
+      for (int c = 0; c < 3; ++c) {
+        r.xavg[c] = r.xavg[c] + p.xavg[c];
+        r.xmax[c] = f::max(r.xmax[c], p.xmax[c]);
+        r.xmin[c] = f::min(r.xmin[c], p.xmin[c]);
+        r.vavg[c] = r.vavg[c] + p.vavg[c];
+        r.vmax[c] = f::max(r.vmax[c], p.vmax[c]);
+        r.vmin[c] = f::min(r.vmin[c], p.vmin[c]);
+      }
+  } else {
+    dm_summary_add(s, s.dm_cpu[0], s.dm_cpu[1], r);
   }
   const double npart = static_cast<double>(s.pc.Npart);
   const double c5 = static_cast<double>(1e5f);

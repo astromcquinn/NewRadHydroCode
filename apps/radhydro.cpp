@@ -81,6 +81,7 @@ struct RunParams {
   // Fortran harness: -DNGRID, -DNDM, -DNRAY_MAX_FACTOR, -DBOX)
   int N = 32;               // Ngas = Nrt
   int Ndm = -1;             // default N/2
+  int pm_refine = 1;        // PM mesh = pm_refine*N (docs/pm_refine.md); 1 = original
   double box = 5;           // Mpc/h
   int nray_max_factor = 64;
   // cosmo_parameters.f90 zinit (300 in the original)
@@ -142,6 +143,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.N = std::stoi(val);
   else if (key == "Ndm")
     P.Ndm = std::stoi(val);
+  else if (key == "pm_refine")
+    P.pm_refine = std::stoi(val);
   else if (key == "box")
     P.box = to_double(val);
   else if (key == "nray_max_factor")
@@ -470,6 +473,7 @@ int main(int argc, char** argv) {
     auto sim = std::make_unique<Simulation>();
     Simulation& s = *sim;
     s.cfg = Config::make(P.N, P.nray_max_factor, P.Ndm, P.box);
+    s.cfg.pm_refine = P.pm_refine;
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
@@ -524,13 +528,18 @@ int main(int argc, char** argv) {
     int& idata2 = dst.idata2;
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
-    fft::fft_3d('f', cfg.Ngas, cfg.Ngas, cfg.Ngas, pm.density.data());  // init_fft
+    fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     calc_sim_var(cfg, s.clk, s.units);
 
     if (restart_from.empty()) pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
 
     if (out)
-      *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm << ", box = " << cfg.box
+      *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm
+           << (cfg.pm_refine > 1 ? ", pm_refine = " + std::to_string(cfg.pm_refine) +
+                                       " (PM mesh " + std::to_string(pm.pc.Nm) + "^3" +
+                                       (fft::fft_threaded() ? ", threaded FFTW)" : ", serial FFTW)")
+                                 : std::string())
+           << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
            << (P.redshift_per_distance ? ", redshift_per_distance = 1" : "")
