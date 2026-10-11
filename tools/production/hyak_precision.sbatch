@@ -32,7 +32,8 @@
 set -euo pipefail
 : "${ROOT:?set ROOT=/path/to/RUNS/p128 (from make_production.py) with --export}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exe="$here/../../build/radhydro"
+# Under sbatch the script runs from a spool copy: use the submit directory (the repository root).
+exe="${EXE:-${SLURM_SUBMIT_DIR:-$here/../..}/build/radhydro}"
 
 # variant name and the research-only ray_quant settings (ray_quant.hpp)
 variants=(

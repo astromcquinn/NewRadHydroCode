@@ -1,8 +1,57 @@
 # Project status
 
-*Last updated: 2026-10-11: slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, not merged). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-11: the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
-## Done 2026-10-11, branch `movie-slab` (not merged)
+## Production run at 256³ (branch `production-256`, started 2026-10-10)
+
+The production thread of the 2026-10-09 list ("Threads to launch", item 2),
+run on klone from the worktree `/gscratch/astro/mcquinn/radhydro/prod256-worktree`
+with runs under `$RUNS = /gscratch/astro/mcquinn/radhydro/runs` and Slurm logs
+in `/gscratch/astro/mcquinn/radhydro/logs/prod256/`. Settings (user decisions):
+256³, 10 Mpc/h, `c_reduced = 0.1`, `nray_max_factor = 16`,
+`legacy_rt = legacy_physics = 0`, `deterministic_parallel`, `rt_substep_carry`,
+`ray_rotate = 3`, `sfr_model = abundance`, log ξ_ion = 25.38, f_esc calibrated
+to τ_es = 0.054, and **`hydro_scheme = unsplit`** (the recommendation of
+`docs/hydro_unsplit.md` §10; the decision placeholder in the thread brief was
+not filled in, so this thread took the documented recommendation; every
+earlier 256³ run used `legacy`). `make_production.py` gained `--hydro-scheme`.
+
+**Step 0, recovery of the earlier attempt (2026-10-09 16:35–16:46).** `sacct`
+shows no production, calibration or no-source run from that attempt: its
+build jobs 41686559/60 were cancelled, 41686777 is the fast suite (the 10
+known stored-reference failures, hence "FAILED") and 41686778 the nightly
+suite (19/19). The run directories it left: `$RUNS/cal128_c01/` (only the
+`ics -> ../reion128/ics` link, no runs) and `$RUNS/hmf256/` (ICs and a
+`params.txt` with `tvir_min = 1e30`, never run; its ICs are byte-identical
+to `reion256/ics`, seed 7). Its draft `--c-reduced` option for
+`calibrate_fesc.py` sits uncommitted in the main checkout; this thread uses
+`--extra c_reduced=0.1` instead. Nothing was reusable except the ICs: the
+finished 256³ runs of `docs/cluster.md` §7 and the rt_methods / recomb
+siblings all use the global source model and `ray_rotate = 0`, so the
+no-source, calibration and production runs below are all new. The older
+root `/gscratch/astro/$USER/runs` no longer exists (moved to
+`radhydro/runs` on 2026-10-09).
+
+**Step 1.** `ray_rotate` was not on `main` at the start of the thread; while
+this thread's merge of `main` into `claude/exciting-clarke-zn62ih` was in
+its fast suite (job 41705532: 94/104, the known 10), the B16 thread merged
+the same branch as PR #20. The duplicate merge was dropped and
+`production-256` branched from `main` at 6dab3d1.
+
+**Progress (updated as the thread goes):**
+
+| step | state |
+|---|---|
+| 2. build and test `main` on a node | done: fast suite 94/104 (job 41705708; the 10 known stored-RT-reference failures), nightly 20/20 (job 41705709, 58 min); `docs/cluster.md` §3 |
+| 3. 256³ mass function | done: `docs/hmf_validation.md` (256³ section), `data/hmf/fof_256_10mpc.txt`, `data/uv_lf/am_params_256_10mpc.txt`; run `$RUNS/hmf256` (2 min 15 s on 96 threads) |
+| 4. f_esc at 0.1c | done: **f_esc = 0.28** (`docs/production_run.md` §8, runs `$RUNS/cal128/fesc_*`, 9–10 min each on 96 threads); the 256³ τ_es check is the production run itself |
+| 5. production run | **done: `$RUNS/reion256_f0.2`, f_esc = 0.2** (`docs/production_256.md`): 1 h 30 min on a whole node, reionization ends at z = 5.6–5.7, τ_es = 0.057; movie `docs/movies/production_256_c01.mp4`. The f_esc = 0.28 run (`reion256_prod`, ends z = 6.44, τ_es = 0.063) 0.15 (`reion256_f0.15`, x_V = 0.87 at z = 5.5) and 0.1 (`reion256_f0.1`, does not finish) bracket it |
+| 6. c convergence | done: `docs/production_run.md` §9; 0.1c delays the end of reionization by Δz = 0.4 against full c (0.3c: 0.14), the midpoint by 0.15, τ_es 2.5 % low |
+| 7. ray-precision check | done: `docs/ray_compression.md` §6.2 (`$RUNS/p128/prec`, job array 41705715) |
+| 8. STATUS, PLAN, PR | this entry; PR opened for `production-256` |
+
+
+## Done 2026-10-11, branch `movie-slab` (merged into `main`)
 
 **Slab-only movie frames, faster movie tools and post-processing as a
 separate job (`docs/movies.md`, "Slab frames").**
@@ -56,7 +105,7 @@ separate job (`docs/movies.md`, "Slab frames").**
     platform ones (`ref_*lognormal_16src*` ×6,
     `ray_dump_*_lognormal_16src_smallbuf` ×2, `ref_c01_*` ×2).
 
-## Done 2026-10-10, branch `redshift-per-distance` (not merged)
+## Done 2026-10-10, branch `redshift-per-distance` (merged into `main`)
 
 **Redshift per distance travelled with a reduced speed of light
 (`docs/production_run.md` §1, "Redshifting per time or per distance").**
@@ -86,7 +135,7 @@ separate job (`docs/movies.md`, "Slab frames").**
 - **Open (user):** whether production runs should use it. Not turned on
   anywhere.
 
-## Done 2026-10-10, branch `igm-diagnostics` (not merged)
+## Done 2026-10-10, branch `igm-diagnostics` (merged into `main`)
 
 **IGM diagnostics for the f_esc calibration (`docs/igm_diagnostics.md`).**
 - `tools/analysis/igm_stats.py` measures a run's snapshots (z ≤ 7.1) to
@@ -355,8 +404,9 @@ figure.
   12–14 B per ray as with 17 sources.
 - Recommendation: R-struct with 8 dithered photon bits as the Stage D
   in-memory format, and rANS for checkpoints and MPI.
-- Not yet run: the 128³ production-configuration precision check
-  (`tools/production/hyak_precision.sbatch`).
+- The 128³ production-configuration precision check
+  (`tools/production/hyak_precision.sbatch`) was run on 2026-10-10
+  (`docs/ray_compression.md` §6.2): the 64³ conclusion holds.
 
 **Design doc for Phases 2–3:** `docs/design_parallel_and_encoding.md`
 covers Kokkos, MPI, sorted ray arrays, compact ray encoding and adaptivity.
@@ -918,8 +968,11 @@ moment-RT questions below.
    `docs/abundance_matching.md`). **Open: recalibrate f_esc at 0.1c and
    256³** (`docs/production_run.md` §8, `calibrate_fesc.py`); the 0.01c
    value is 0.5.
-3. **Production reionisation run and movie** on one klone node
-   (`docs/production_run.md` §7–8, `docs/cluster.md` §5, `docs/movies.md`).
+3. ~~Production reionisation run and movie~~ **Done 2026-10-10**
+   (`docs/production_256.md`: 256³, 0.1c, abundance-matched sources with
+   f_esc = 0.2, `hydro_scheme = unsplit`, `ray_rotate = 3`; reionization
+   ends at z = 5.6–5.7, τ_es = 0.057, 1.5 h on a whole node). The table
+   below was the plan.
 
    | Setting | Value |
    |---|---|
@@ -928,8 +981,8 @@ moment-RT questions below.
    | nray_max_factor | 16 |
    | Ngas = Ndm | 256³ (1.5 h at 0.1c with a movie on a whole node) |
    | Flags | legacy_rt = legacy_physics = 0, deterministic_parallel, rt_substep_carry, ray_rotate = 3 |
-   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc recalibrated at 0.1c |
-   | hydro_scheme | user decision pending (`unsplit` fixes the cold-gas overheating; `make_production.py` does not set it yet) |
+   | Sources | sfr_model = abundance, log ξ_ion = 25.38, f_esc = 0.2 (end of reionization at z ≈ 5.5, user decision) |
+   | hydro_scheme | `unsplit` (production-256 thread; `make_production.py --hydro-scheme`) |
    | Before the run | 256³ HMF and f_esc |
 
 4. **User's cluster: UW Hyak `klone`, account `astro`.**

@@ -155,6 +155,10 @@ and adaptive calculations.
   2026-10-09; this replaces Tinker), so the box's LF matches the
   observations.
 * **f_esc:** start the production run with f_esc = 0.5 (2026-10-09).
+  Superseded 2026-10-10: **f_esc = 0.28**, the 128³ calibration at 0.1c
+  with the unsplit hydro (`docs/production_run.md` §8); the 256³
+  production run uses it with the 256³ L(M)
+  (`data/uv_lf/am_params_256_10mpc.txt`).
 * **Dust:** no correction.
 * **ξ_ion:** a JWST-era value, log ξ_ion = 25.38, with a single f_esc
   calibrated to τ_es.
@@ -294,6 +298,43 @@ policy on klone, and deleting the merged branches.
   single-thread ray-tracing cost buys less there than the uniform tests
   suggest.
 
+## Production-256 thread (2026-10-10)
+
+* Settings from the thread brief: 256³, 10 Mpc/h, `c_reduced = 0.1`,
+  `nray_max_factor = 16`, `legacy_rt = legacy_physics = 0`,
+  `deterministic_parallel`, `rt_substep_carry`, `ray_rotate = 3`,
+  `sfr_model = abundance`, log ξ_ion = 25.38, f_esc calibrated to
+  τ_es = 0.054.
+* **`hydro_scheme = unsplit`** for the production run and the 0.1c
+  calibration runs. The brief left the choice open (`unsplit`, which fixes
+  the cold-gas overheating, or `legacy`, which every earlier 256³ run
+  used); the thread took the documented recommendation of
+  `docs/hydro_unsplit.md` §10 and `docs/STATUS.md`. `ra_max` was left at
+  the original 0.1: the time-step sensitivity of the cold gas only
+  appears at z ≲ 2 (`docs/hydro_unsplit.md` §6). `make_production.py
+  --hydro-scheme` writes the line.
+* **f_esc = 0.28** (interpolated at 0.1c; `docs/production_run.md` §8).
+* **User decision (2026-10-10, during the thread): f_esc should ideally
+  make reionization end at z = 5.5**, with τ_es as the check against
+  Planck. At 128³ and 0.1c that is f_esc ≈ 0.19–0.20 (x_V = 0.99 at
+  z = 5.57 and τ_es = 0.050 for 0.2, 0.6σ below Planck). The 256³ run at
+  0.28 is kept as the 256³ calibration point; the final production run
+  uses the f_esc that puts the 256³ end of reionization at z = 5.5.
+* **User (same day): use round numbers for f_esc (0.3, 0.2, …) from now
+  on, and do not try to match the Planck τ_es**; the end of reionization
+  is the only calibration target, τ_es is just reported. The 256³ box at
+  f_esc = 0.28 reionizes much earlier than the 128³ one (x_V = 0.80
+  against 0.58 at z = 7: the resolved 10⁸–10⁹ M☉ halos), so the
+  production candidates are 256³ runs at f_esc = 0.2 and 0.1; the one
+  ending nearest z = 5.5 is the production run (0.15 if neither is).
+* **Result: the production run is f_esc = 0.2** (`docs/production_256.md`):
+  x_V = 0.99 at z = 5.74 and 0.999 at z = 5.60, τ_es = 0.057; f_esc = 0.1
+  does not finish by z = 5.4, and 0.15 reaches only x_V = 0.87 at z = 5.5.
+* The 256³ run at that f_esc is made in the production configuration
+  (movie every Δz = 0.025, checkpoint every 4 steps), so it is both the
+  256³ τ_es check of the brief's step 4 and the production run of step 5
+  if τ_es comes out at Planck; otherwise it is the calibration point for
+  a corrected f_esc and a second run.
 ## Emissivity calibration thread (2026-10-10): 40 Mpc/h, 512³
 
 * **Production runs end at z = 5** (Lyα forest comparison); the

@@ -683,3 +683,90 @@ python3 tools/production/calibrate_fesc.py $R/cal$N --N $N \
 `calibrate_fesc.py` writes one problem directory per f_esc value sharing the
 ICs; run them as jobs with `reion_production.slurm` (about 16 min each at
 128³ and 0.1c on a shared node, about 1.5 h at 256³ on a whole node).
+
+### Recalibration at 0.1c with the unsplit hydro (production-256 thread, 2026-10-10)
+
+Four 128³ runs on klone (`/gscratch/astro/mcquinn/radhydro/runs/cal128`,
+jobs 41705711–14, 96 threads each on shared nodes, **9–10 min and 4.9 GB
+each**), with the settings of the production run except N:
+`c_reduced = 0.1`, `ray_rotate = 3`, `hydro_scheme = unsplit`,
+`sfr_model = abundance` with the 128³ L(M)
+(`data/uv_lf/am_params_128_10mpc.txt`, §3c), log ξ_ion = 25.38, the ICs of
+`reion128` (seed 7), lean outputs (`data_files = dm`,
+`fields_at_data1 = 0`).
+
+```
+tools/production/calibrate_fesc.py $RUNS/cal128 --N 128 --am-params data/uv_lf/am_params_128_10mpc.txt \
+    --fesc 0.2 0.35 0.5 0.8 --threads 96 --extra c_reduced=0.1 data_files=dm fields_at_data1=0 hydro_scheme=unsplit
+```
+
+| f_esc | τ_es | z(x_V = 0.1) | z(x_V = 0.5) | z(x_V = 0.99) | x_HII,M at the end (z = 5.27) |
+|---|---|---|---|---|---|
+| 0.2 | 0.0499 | 8.23 | 6.69 | 5.57 | 0.9986 |
+| **0.28** | **0.0541** | 8.66 | 7.14 | 6.05 | 0.9999 |
+| 0.35 | 0.0568 | 8.87 | 7.39 | 6.35 | 1.0000 |
+| 0.5 | 0.0609 | 9.46 | 7.82 | 6.78 | 1.0000 |
+| 0.8 | 0.0662 | 10.03 | 8.35 | 7.28 | 1.0000 |
+
+![calibration at 0.1c](figures/fesc_calibration_128_c01.png)
+
+* **The interpolation in log f_esc gives f_esc = 0.28** for τ_es = 0.054
+  (f_esc ξ_ion = 10^24.83); the run at 0.28 (made afterwards as the 0.1c
+  reference of the c-convergence check, §9) gives τ_es = 0.0541. That is 1.8× below the 0.01c value of 0.5,
+  as the 0.01c bias predicted (§7: 0.01c lowers τ_es by 20 %).
+* At 0.1c the box finishes reionizing: with f_esc = 0.28 the midpoint is
+  z = 7.14 and x_V = 0.99 at z = 6.05, against
+  z = 6.7 and "not by z = 5.3" at 0.01c and f_esc = 0.5. The end of
+  reionization now falls in the Lyα-forest range without pushing τ_es
+  above Planck.
+* τ_es remains a weak constraint: f_esc = 0.2–0.8 spans 0.050–0.066,
+  i.e. the Planck 1σ band and 1.7σ above it.
+* **Used for the production run: f_esc = 0.28** with the 256³ L(M)
+  (`data/uv_lf/am_params_256_10mpc.txt`, `docs/hmf_validation.md`). The
+  256³ run itself is the check of τ_es at the production resolution
+  (`docs/production_256.md`); the 256³ L(M) is matched to the same
+  observed LFs, so the box's emissivity is the same by construction down
+  to the 256³ resolution limit, which adds the 10⁸–10⁹ M☉ halos that the
+  128³ box does not resolve.
+
+## 9. Speed-of-light convergence at 128³ (production-256 thread, 2026-10-10)
+
+Three 128³ runs with the sources of the 0.1c calibration at f_esc = 0.28
+(§8, the same ICs, L(M), `ray_rotate = 3`, `hydro_scheme = unsplit`) and
+`c_reduced` = 0.1, 0.3 and 1.0 (`$RUNS/cal128/fesc_0.28`,
+`$RUNS/cal128_c03/fesc_0.28`, `$RUNS/cal128_c10/fesc_0.28`; jobs 41706018–20,
+96 threads on shared nodes). `tools/analysis/reion_history.py`:
+
+| c_reduced | RT substeps | wall (96 threads) | z(10%) | z(50%) | z(90%) | z(99%) | z(99.9%) | τ_es |
+|---|---|---|---|---|---|---|---|---|
+| 0.1 | 1 834 | 9 min | 8.66 | 7.14 | 6.39 | 6.05 | 5.92 | 0.0541 |
+| 0.3 | 5 509 | 28 min | 8.71 | 7.25 | 6.58 | 6.32 | 6.23 | 0.0551 |
+| 1.0 | 18 361 | 1 h 28 min | 8.72 | 7.29 | 6.66 | 6.46 | 6.40 | 0.0555 |
+
+| c_reduced | x_HII,V at z = 9 | 8 | 7.5 | 7 | 6.5 | 6 |
+|---|---|---|---|---|---|---|
+| 0.1 | 0.065 | 0.195 | 0.341 | 0.577 | 0.850 | 0.995 |
+| 0.3 | 0.066 | 0.214 | 0.372 | 0.643 | 0.937 | 1.000 |
+| 1.0 | 0.068 | 0.221 | 0.383 | 0.671 | 0.979 | 1.000 |
+
+![c convergence at 128³](figures/cconv_128_fesc0.28.png)
+
+* **0.1c is close to converged, and the residual is in the end of
+  reionization.** Against full c, 0.1c delays the midpoint by Δz = 0.15,
+  x_V = 0.99 by Δz = 0.41 and x_V = 0.999 by Δz = 0.48, and lowers τ_es by
+  2.5 %; 0.3c halves each of these (Δz = 0.04, 0.14, 0.17; τ_es 0.7 % low).
+  Compare 0.01c, which delayed the midpoint by Δz ≈ 2 (`docs/cluster.md`
+  §7). The 0.1c bias on the end of reionization, 0.4 in z, is the size of
+  the f_esc step between round values (§8: Δz(99 %) = 0.48 between 0.2 and
+  0.28), so **f_esc tuned at 0.1c to end reionization at z = 5.5 would end
+  it at z ≈ 5.9 at full c**. If that matters, tune at 0.3c (3× the cost)
+  or correct the target by Δz ≈ 0.4.
+* The early history (z ≥ 8, x_V ≤ 0.2) is converged to 0.01 in x_V at
+  0.1c: the I-fronts of isolated bubbles are source-limited, not
+  light-travel-limited, at this emissivity.
+* The last 1 % is where ĉ matters most: the fronts crossing the
+  remaining neutral voids move at ĉ, so x_V goes from 0.99 to 0.999 over
+  Δz = 0.13 at 0.1c, 0.09 at 0.3c and 0.06 at full c.
+* Cost scales with the substep count: 3.0× from 0.1c to 0.3c and 9.8×
+  to full c, so full c at 256³ would take about 15 h on a whole node, as
+  `docs/cluster.md` §8 projected.
