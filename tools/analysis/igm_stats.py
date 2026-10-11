@@ -6,7 +6,7 @@ data/igm/igm_z5_6.txt (docs/igm_diagnostics.md).
                  [--nlos 4096] [--rmax 40] [--nskew 4096] [--jobs 4] [--seed 1]
 
 RUN is a run directory (params.txt and run/) or its run/ subdirectory. For
-every step with fields (run/step_NNNN/{fHI,rhog,temp,gamma}.bin, written at
+every step with fields (run/step_NNNN/{fHI,rhog,temp,gamma or gammaHI}.bin, written at
 the zdata1 outputs; params `fields = fHI,fHeI,fHeII,temp,rhog,gamma`) between
 zmin and zmax it measures:
 
@@ -181,13 +181,15 @@ class Run:
         return read_stats(os.path.join(self.out, f"step_{step:04d}", "stats.txt"))
 
     def snapshots(self, zmin=-1.0, zmax=1e9, steps=None):
-        need = ("fHI", "rhog", "temp", "gamma")
+        need = ("fHI", "rhog", "temp")
         snaps = []
         for st in self.steps():
             if steps and st not in steps:
                 continue
             d = os.path.join(self.out, f"step_{st:04d}")
             if not all(os.path.exists(os.path.join(d, n + ".bin")) for n in need):
+                continue
+            if not any(os.path.exists(os.path.join(d, n + ".bin")) for n in ("gamma", "gammaHI")):
                 continue
             s = Snapshot(self, st, self.stats(st))
             if zmin <= s.z <= zmax:
@@ -229,6 +231,13 @@ class Snapshot:
         shape = (self.N,) * 3 + ((ncomp,) if ncomp > 1 else ())
         return np.memmap(os.path.join(self.dir, name + ".bin"), np.float32, "r", shape=shape)
 
+    def gamma_hi(self):
+        """Gamma_HI [s^-1] as [k, j, i]: step_NNNN/gammaHI.bin (fields = ...,gammaHI),
+        else the first component of gamma.bin."""
+        if os.path.exists(os.path.join(self.dir, "gammaHI.bin")):
+            return self.field("gammaHI")
+        return self.field("gamma", 3)[..., 0]
+
     def gas(self):
         """Gas/u_gas.<z> as [k, j, i, 5]: rho, rho v (3), E (code units)."""
         p = os.path.join(self.run.out, "Gas", "u_gas." + self.tag)
@@ -262,7 +271,7 @@ def _hist_median(h):
 
 
 def gamma_stats(snap, thresholds=XHI_THRESHOLDS):
-    fHI, rho, gam = snap.field("fHI"), snap.field("rhog"), snap.field("gamma", 3)
+    fHI, rho, gam = snap.field("fHI"), snap.field("rhog"), snap.gamma_hi()
     n = 0
     sg = 0.0
     acc = {t: {"n": 0, "g": 0.0, "gm": 0.0, "m": 0.0, "h": np.zeros(len(LG_BINS) - 1)}
@@ -270,7 +279,7 @@ def gamma_stats(snap, thresholds=XHI_THRESHOLDS):
     for k0, k1 in snap.slabs(20):
         x = np.asarray(fHI[k0:k1]).ravel()
         r = np.asarray(rho[k0:k1], dtype=np.float64).ravel()
-        g = np.asarray(gam[k0:k1, :, :, 0], dtype=np.float64).ravel()
+        g = np.asarray(gam[k0:k1], dtype=np.float64).ravel()
         n += x.size
         sg += g.sum()
         lg = np.log10(np.maximum(g, 1e-30))
@@ -468,7 +477,7 @@ def read_pencils(snap, sel):
     names = ("fHI", "rhog", "temp", "gamma", "v")
     out = {ax: {n: np.empty((len(sel[ax][0]), N), np.float32) for n in names} for ax in sel}
     srcs = {"fHI": snap.field("fHI"), "rhog": snap.field("rhog"), "temp": snap.field("temp"),
-            "gamma": snap.field("gamma", 3), "v": snap.gas()}
+            "gamma": snap.gamma_hi(), "v": snap.gas()}
     for name, mm in srcs.items():
         bpc = mm.itemsize * (mm.shape[3] if mm.ndim == 4 else 1)
         for k0, k1 in snap.slabs(bpc):
@@ -477,8 +486,6 @@ def read_pencils(snap, sel):
                 a, b = sel[ax]
                 if name == "v":  # momentum along the axis / density
                     arr = blk[..., 1 + ax] / blk[..., 0] * np.float32(snap.vel_unit)
-                elif name == "gamma":
-                    arr = blk[..., 0]
                 else:
                     arr = blk
                 if ax == 2:
