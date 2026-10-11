@@ -32,7 +32,9 @@ temperature of each run's ionised gas),
   * R(A+RR) is within [0.97, 1.06] of R_B (alpha_B(T_B)/alpha_B(T_RR))^(1/3)
     for both blocks. It comes out a few per cent above 1: the diffuse
     photons widen the soft edge, and they fill the holes that the stellar
-    rays' HEALPix sampling leaves inside the case B sphere (B16).
+    rays' HEALPix sampling leaves inside the case B sphere (B16). With
+    --set ray_rotate=3 those holes are gone, and block 2 gives 1.037
+    instead of 1.050.
 --lines adds recomb_rad_lines = 1 (the H-ionising helium recombination
 photons) to the A+RR runs. These are photons that case B ignores: about one
 per HeII recombination, i.e. ~8% of the H recombinations in this sphere, so
