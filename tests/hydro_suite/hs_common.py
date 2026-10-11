@@ -16,6 +16,8 @@ import time
 
 import numpy as np
 
+trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  # numpy < 2.0
+
 F32 = np.float32
 GAMMA = float(F32(5.0) / F32(3.0))     # gamma_ideal = 5./3 (real(4) division)
 XHY = float(F32(0.76))
@@ -295,8 +297,8 @@ def sedov_profile(g=GAMMA, n=6000):
     v = vel * 2 / (g + 1) * Rdot
     p = pres * 2 / (g + 1) * Rdot ** 2
     en = 0.5 * dens * v ** 2 + p / (g - 1)
-    E = np.trapezoid(4 * np.pi * lam ** 2 * en, lam)
-    M = np.trapezoid(4 * np.pi * lam ** 2 * dens, lam) / (4 * np.pi / 3)
+    E = trapezoid(4 * np.pi * lam ** 2 * en, lam)
+    M = trapezoid(4 * np.pi * lam ** 2 * dens, lam) / (4 * np.pi / 3)
     return {"lam": lam, "rho": rho, "v": vel, "p": pres, "xi0": E ** (-0.2), "mass_check": M}
 
 

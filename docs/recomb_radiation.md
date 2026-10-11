@@ -12,15 +12,18 @@ platform differences of `docs/cluster.md` §3.*
 ```
 radhydro  <problem> <out> --set recomb_case=A                   # case A only
 radhydro  <problem> <out> --set recomb_case=A --set recomb_rad=1  # + transported recombination radiation
+radhydro  <problem> <out> --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1  # + H-ionising helium lines
+radhydro  <problem> <out> --set rt_method=m1 --set recomb_case=A --set recomb_rad=1     # with the moment RT
 ```
 
 | Parameter | Values | Meaning |
 |---|---|---|
 | `recomb_case` | `B` (default), `A` | Recombination rates and recombination cooling in `photo_cell` |
-| `recomb_rad` | `0` (default), `1` | Ground-state recombinations are emitted as rays. Needs `recomb_case = A`, `rt_method = rays` and `legacy_rt = 0`. |
-| `recomb_rad_nside` | 1 (default), 2, 4 | HEALPix nside of a recombination emission: 12·nside² rays |
-| `recomb_rad_block` | integer dividing N, default 2 | Emission is gathered over blocks of b³ RT cells |
-| `recomb_rad_pool` | (0, 0.9), default 0.75 | Recombination rays are launched only while the live rays stay below this fraction of `Nray_max` |
+| `recomb_rad` | `0` (default), `1` | Ground-state recombinations are transported. Needs `recomb_case = A`. With the rays they are emitted as rays and need `legacy_rt = 0`; with `rt_method = m1 \| otvet` every cell emits into the moments (§2.3). |
+| `recomb_rad_lines` | `0` (default), `1` | Also the helium recombination photons that ionise H (§2.2). Needs `recomb_rad = 1`. |
+| `recomb_rad_nside` | 1 (default), 2, 4 | Rays only: HEALPix nside of a recombination emission, 12·nside² rays |
+| `recomb_rad_block` | integer dividing N, default 2 | Rays only: emission is gathered over blocks of b³ RT cells |
+| `recomb_rad_pool` | (0, 0.9), default 0.75 | Rays only: recombination rays are launched only while the live rays stay below this fraction of `Nray_max` |
 
 The three meaningful combinations are:
 - **case B** (the original): ground-state recombination photons are absorbed
@@ -62,8 +65,8 @@ substep (`recomb_prepare`, in `rt_step_1`):
   - The rays start at the cell centre with r = 0, like stellar rays, and
     from then on are ordinary rays: they are cast, split, merged with any
     ray, redshifted and absorbed.
-  - Photon energy: the threshold plus kT (the mean kinetic energy of the
-    recombining electrons, since σ_rec ∝ 1/E), kept inside the group.
+  - Photon energy: the threshold plus the mean excess of §2.1, kept inside
+    the group.
 - **On the spot.** `photo_cell` uses case B for the cell. Its ground-state
   recombinations are only counted, for the budget.
 
@@ -113,6 +116,112 @@ buffers, the cell modes and the budget, and restarts are bit-identical
 (`restart_smoke_recomb`). Versions 1–3 still load (without
 `recomb_rad`).
 
+### 2.1 Photon energy
+
+A ground-state recombination photon has hν = χ + E_e, where E_e is the
+captured electron's kinetic energy. The Milne relation gives the photon
+spectrum
+
+  dN/dE ∝ E² σ_pi(E) exp(−(E − χ)/kT),
+
+with σ_pi the photoionisation cross-section. For σ_pi ∝ E⁻³ (hydrogenic,
+Kramers) this is ∝ exp(−x)/(1 + εx), with x = (E − χ)/kT and ε = kT/χ, so
+the mean excess is ⟨E − χ⟩ ≈ kT(1 − ε). It is therefore a little less than
+kT, and falls further as T rises.
+
+`recomb_mean_excess` integrates the relation numerically with the code's
+own cross-sections (`photoion_sigma`, Verner-type fits). It tabulates the
+result in log T at start-up, for HI, HeI and HeII, and for the HeII n = 2
+level (Kramers):
+
+| T | kT | HI | HeI | HeII | HeII n = 2 |
+|---|---|---|---|---|---|
+| 5 000 K | 0.43 eV | 0.98 kT | 1.01 kT | 1.00 kT | 0.97 kT |
+| 10 000 K | 0.86 eV | 0.96 kT | 1.01 kT | 0.99 kT | 0.95 kT |
+| 20 000 K | 1.72 eV | 0.93 kT | 1.02 kT | 0.98 kT | 0.91 kT |
+| 40 000 K | 3.45 eV | 0.88 kT | 1.03 kT | 0.96 kT | 0.85 kT |
+
+**Check against the cooling.** In case A, the extra recombination cooling
+per ground-state recombination should equal ⟨E − χ⟩. It is the energy the
+gas loses and the photon carries away. With `legacy_physics = 0` (Hui &
+Gnedin 1997 fits), (Λ_A − Λ_B)/(α_A − α_B) for HII comes out as 0.96, 0.94,
+0.91 and 0.85 kT at the four temperatures above. The tabulated excess
+agrees with this to 2–3% of kT. For HeII both cooling fits are kT·α, which
+gives exactly kT, against 1.01 kT. So the transported photons return to the
+gas, within a few per cent of kT, the energy that case A takes out.
+
+The first version used χ + kT. That was 4% of kT too high at 10⁴ K and 12%
+at 4×10⁴ K, about 0.03–0.4 eV per photon. The 256³ runs of §4 used it. The
+difference is far below anything those comparisons resolve.
+
+With `legacy_physics = 1`, case-B cooling repeats the case-A formula (P1).
+Recombination radiation is then not energy-consistent, so use
+`legacy_physics = 0`.
+
+### 2.2 Helium recombination photons that ionise H (`recomb_rad_lines`)
+
+Case B assumes that recombinations to excited states produce only photons
+that cannot ionise. For helium that is not true. With
+`recomb_rad_lines = 1`, every case-B recombination α_B n_e n_X dt of HeII
+and HeIII also emits the following, transported like the ground-state
+continuum:
+
+| recombination | channel | per case-B recombination | energy | group |
+|---|---|---|---|---|
+| HeII → HeI | triplets → 2³S → 1¹S | 3/4 | 19.82 eV | 2 |
+| | singlets → 2¹P → 1¹S | 1/4 × 2/3 | 21.22 eV | 2 |
+| | singlets → 2¹S two-photon (20.62 eV in all) | 1/4 × 1/3 × 0.49 photons above 13.6 eV | 13.6–20.6 eV | 1, 2 |
+| HeIII → HeII | 2P → 1S, HeII Lyα | 2/3 | 40.81 eV | 4 |
+| | 2S two-photon (40.81 eV in all) | 1/3 × 1.42 photons above 13.6 eV | 13.6–40.8 eV | 1–4 |
+| | Balmer continuum (capture to n = 2) | f_BC(T): 0.24 at 10⁴ K, 0.28 at 2×10⁴ K | 13.6 eV + ⟨E − χ⟩ | 1 |
+
+That is 0.97 H-ionising photons per HeII recombination, and 1.42 + f_BC
+per HeIII recombination.
+
+- **Two-photon spectrum.** The Nussbaumer & Schmutz (1984) fit for the
+  hydrogen 2s decay, scaled to the total energy. The HeI 2¹S decay uses the
+  same shape. The photons above 13.6 eV are split into groups numerically
+  (`add_two_photon`).
+- **f_BC** is α₂/α_B from Kramers' partial recombination coefficients,
+  α_n ∝ (1/n) x_n e^{x_n} E₁(x_n) with x_n = 4χ_H/(n²kT), summed to
+  n = 2000. It has no Gaunt factors and is good to roughly 10–20%.
+- **The branching fractions are from memory and still need checking.**
+  These are the 3/4 : 1/4 triplet/singlet split, the 2/3 : 1/3 split
+  between 2P and 2S in each case, and the fit coefficients α = 0.88,
+  β = 1.53, γ = 0.8. They follow the usual low-density treatment
+  (Osterbrock & Ferland 2006, ch. 4; Nussbaumer & Schmutz 1984), which was
+  not reachable from here. The values are in `recomb_init` and `heII_fBC`
+  in `src/recomb_rad.cpp`. The 0.49 and 1.42 photons per decay above
+  13.6 eV are computed, and they match the values usually quoted.
+- **At IGM densities** the 2³S level decays radiatively: collisional
+  transfer to the singlets is negligible. The 21.2 eV photons are
+  resonance-scattered by HeI, which is not modelled. They are absorbed by
+  HI, with the group's cross-section.
+- **On-the-spot cells** (rays only: thick blocks, or no room in the pool).
+  There the line photons are counted in `onspot` and not transported. That
+  is the original's case-B treatment, in which they are lost.
+- **HeII Lyα and the other group-2–4 photons** also ionise HeI where they
+  are absorbed.
+
+### 2.3 With the moment RT
+
+With `rt_method = m1 | otvet` there are no blocks and no pool.
+- Every cell uses case A. Each substep, `moment_step_1` adds the
+  recombination photons of the previous substep to the cell's own photon
+  density, one group at a time, with zero flux (isotropic emission). Line
+  photons are included when `recomb_rad_lines = 1`.
+- Nothing is on the spot. In optically thick cells the photons are
+  absorbed in place at the next substep, which is the on-the-spot result.
+- They count in the moments' `injected`, so the photon-conservation
+  bookkeeping (`Moments : in flight … injected … absorbed … lost`) covers
+  them. `ray.log` gets `Recomb : emitted …`, which is cumulative, per H
+  atom.
+- Tests:
+  - `thread_rt_recomb_m1_lognormal_16src`: M1 with the lines, results the
+    same for 1, 2 and 4 threads;
+  - `restart_smoke_recomb_otvet`: OTVET with the lines, restarts
+    bit-identical.
+
 ## 3. Strömgren sphere
 
 `tools/analysis/recomb_stromgren.py` (ctest `recomb_stromgren`, nightly):
@@ -154,6 +263,32 @@ The test checks:
 - case A to 4%;
 - case A + RR within [0.97, 1.06] of the temperature-corrected R_B for
   both blocks.
+
+**Moment RT and helium lines** (`--method m1|otvet`, `--lines`; the nightly
+tests `recomb_stromgren_m1` and `recomb_stromgren_otvet`). Each method is
+compared with its own case B, and the radii are at step 40:
+
+| run | case A ratio | case A + RR ratio | launched |
+|---|---|---|---|
+| rays, block 1 / block 2 | 1.011 | 1.003 / 1.050 | 33% / 85% |
+| M1 | 1.011 | 1.007 | 100% |
+| OTVET | 1.009 | 1.006 | 100% |
+| rays + lines, block 1 / block 2 | – | 1.008 / 1.061 | 33% / 72% |
+| M1 + lines | – | 1.039 | 100% |
+
+(The rays rows are the current code, with the energy of §2.1. The ratios
+in the earlier table used χ + kT and differ by at most 0.003.)
+
+- **The moment methods recover case B best.** Every cell emits where it
+  is, so there are no block offsets or sampling holes.
+- **The helium photons enlarge the sphere, as they should.** Case B
+  ignores them. There is about one per HeII recombination, i.e. ~8% of the
+  H recombinations here, so R should grow by up to
+  (1 − 0.08)^(−1/3) ≈ 1.03.
+  - M1 gives +3.2%.
+  - The rays give +0.5–1%, because only 33–72% of their emission is
+    launched. On-the-spot blocks drop the line photons.
+- With `--lines` the upper bound of the check is 1.10.
 
 ## 4. Reionization runs
 
@@ -308,12 +443,63 @@ Per-cell comparison with case B, at matched movie frames:
   - Peak memory rises by 13%, because of the larger pool.
   - Case A itself costs the same as case B.
 
+### 4.3 256³ with the moment RT
+
+Case A + RR siblings of the M1 and OTVET runs `reion256_c01_m1` and
+`reion256_c01_otvet` (`docs/rt_moments.md` §6), at 0.1c, made with
+`tools/hyak/recomb_runs.sh`. They were built from commit 8dc2267, which
+uses χ + kT (§2.1), and have no helium lines.
+- Full table, with every run compared with the case-B rays:
+  [`figures/recomb256_moments.txt`](figures/recomb256_moments.txt).
+- Movie of the three case A + RR runs (rays | M1 | OTVET):
+  [`movies/recomb_256_c01_moments.mp4`](movies/recomb_256_c01_moments.mp4).
+
+| run | z(x_V = 0.5) | z(x_V = 0.99) | τ_es | recombination photons emitted (per H) | wall | RT | peak RSS |
+|---|---|---|---|---|---|---|---|
+| M1, case B | 10.373 | 8.909 | 0.0905 | – | 49:35 | 0.78 h | 13.5 GB |
+| M1, case A + RR | 10.386 | 8.939 | 0.0906 | 1.16 | 51:22 | 0.81 h | 14.9 GB |
+| OTVET, case B | 10.367 | 8.897 | 0.0906 | – | 51:39 | 0.82 h | 14.3 GB |
+| OTVET, case A + RR | 10.373 | 8.896 | 0.0906 | 1.10 | 53:13 | 0.85 h | 15.5 GB |
+| rays, case A + RR (§4.2) | 10.390 | 8.836 | 0.0905 | 1.12 (82% as rays) | 2:16:39 | 2.00 h | 30.5 GB |
+
+![history moments](figures/recomb256_moments_history.png)
+
+*All six runs against the case-B rays. Within each method, case A + RR
+moves the history by at most +0.005 in x_V, about as much as with the
+rays.*
+
+- **The moment methods confirm the ray result.** With every cell emitting,
+  and nothing on the spot, the history is within Δz ≤ 0.03 of the same
+  method's case B, and τ_es is unchanged to 10⁻⁴.
+- **Temperature: the same pattern, slightly stronger.** The median T of
+  ionised gas rises over each method's own case B by:
+
+  | z | rays | M1 | OTVET |
+  |---|---|---|---|
+  | 12.3 | +3.0% | +2.7% | +3.1% |
+  | 9.8 | +1.7% | +4.4% | +4.2% |
+  | 9.0 | +1.6% | +5.3% | +5.2% |
+  | 6.0 | +14% | +18% | +18% |
+
+  - The moment methods emit all of the recombination radiation during
+    overlap. The rays put about half of it on the spot (case B).
+  - After overlap all three move towards case A, for the reason given in
+    §4.2. The residual-neutral power P_x rises 1.6–4× over each method's
+    case B, and up to 10× at k = 16 for M1 at z = 6.
+- **About 20% of the recombination photons are lost to redshift.** The
+  moments' `lost` grows by 0.21 (M1) and 0.24 (OTVET) photons per H atom,
+  out of 1.10–1.16 emitted. At c_reduced = 0.1 these just-above-threshold
+  photons stay in flight for a long time in the ionised IGM, and redshift
+  below 13.6 eV (§5).
+- **Cost:** +4% RT time, +3–4% wall time and +1.2 GB, against +43% RT time
+  for the rays. The emission is one addition per cell and group.
+
 ## 5. Caveats
 
-- **Only the ground-state continuum** (α_A − α_B) is transported. HeII Lyα
-  (40.8 eV) and the HeII Balmer continuum, HeI recombination lines and the
-  two-photon continua, which can ionise H, are not included. The case-B
-  balance does not include them either.
+- **Helium lines** (`recomb_rad_lines`): the branching fractions are
+  low-density estimates from memory (§2.2) and still need checking. HeI
+  21.2 eV resonance scattering is not modelled. In on-the-spot blocks
+  (rays) the line photons are lost, as in case B.
 - **Ray losses apply to these photons as to stellar ones.** A ray below
   `ngam_min` after splits is removed, and photons redshift out of group 1
   below 13.6 eV. Recombination photons start at 13.6 eV + kT, so about 7%
@@ -328,4 +514,4 @@ Per-cell comparison with case B, at matched movie frames:
 - **One substep of delay** between recombination and emission (one cell of
   light travel).
 - The pool-limited fraction depends on the pool size and on
-  `recomb_rad_pool`: see §4.
+  `recomb_rad_pool`: see §4. The moment RT has no such limit (§2.3, §4.3).

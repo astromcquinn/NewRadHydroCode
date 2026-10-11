@@ -101,6 +101,22 @@ TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode,
 // da_fixed, ...)). Returns ns_rt.
 int calc_timestep(const Config& cfg, double da_fixed, SimClock& clk);
 
+// Distance the radiation moves in the hydro step that just ended (nstep_rt
+// RT substeps of one RT cell, dl_rt, each) over the comoving light distance
+// of the step, dl_c = 2c/(H0 sqrt(omegam)) (sqrt(a2) - sqrt(a1)), as in
+// calc_timestep. Reads the clock at the end of the step (post_rt):
+// a2 = scalefactor, a1 = scalefactor - da_sim, and the actual nstep_rt
+// (after nint, the rt_substep_carry remainder and the nstep_rt >= 1 guard).
+// About c_reduced (exactly so only up to the nint rounding).
+double rt_path_fraction(const Config& cfg, const SimClock& clk);
+
+// The factor by which the radiation's frequencies are scaled once per hydro
+// step (ray_redshifting, moment_redshift), at the end of the step:
+// fscale = (a - da)/a, the original (per time). With
+// cfg.redshift_per_distance and cfg.c_reduced < 1: fscale^s with
+// s = min(rt_path_fraction, 1), the redshift per distance travelled.
+double redshift_fscale(const Config& cfg, const SimClock& clk);
+
 // radhydro.f90: radhydro -- the two half-step clock updates (without hydro
 // and PM), each followed by calc_sim_var.
 void advance_clock_hydro_step(const Config& cfg, SimClock& clk, Units& u);

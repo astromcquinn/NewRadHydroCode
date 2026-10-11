@@ -20,6 +20,12 @@ target_link_libraries(test_moments PRIVATE radray)
 add_test(NAME moments COMMAND test_moments)
 set_tests_properties(moments PROPERTIES LABELS moments)
 
+# Redshift per distance travelled with a reduced speed of light
+# (redshift_per_distance, docs/production_run.md)
+add_executable(test_redshift_distance test_redshift_distance.cpp)
+target_link_libraries(test_redshift_distance PRIVATE radray)
+add_test(NAME redshift_distance COMMAND test_redshift_distance)
+
 # Halo finder and sources (docs/halos_and_sources.md)
 add_executable(test_halos test_halos.cpp)
 target_link_libraries(test_halos PRIVATE radray_halos)
@@ -34,13 +40,15 @@ add_executable(test_halo_catalog test_halo_catalog.cpp)
 target_link_libraries(test_halo_catalog PRIVATE radray_halos)
 find_program(RADRAY_GFORTRAN gfortran)
 if(RADRAY_GFORTRAN)
-  # Reference program with the original source_type layout and read_halo
+  # Reference program with the original source_type layout and read_halo. The
+  # target is named differently from its output file: Ninja rejects a target
+  # that names its own output.
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
     COMMAND ${RADRAY_GFORTRAN} -O0 -o ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
             ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90)
-  add_custom_target(halo_catalog_ref ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
+  add_custom_target(halo_catalog_ref_build ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
   set(HALO_REF ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
 else()
   set(HALO_REF "")  # the test then skips the Fortran comparisons
@@ -186,6 +194,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/recomb_stromgren --check --threads 4)
     set_tests_properties(recomb_stromgren PROPERTIES TIMEOUT 3600
                          LABELS "nightly;physics;recomb" ENVIRONMENT OMP_NUM_THREADS=4)
+    foreach(m m1 otvet)
+      add_test(NAME recomb_stromgren_${m}
+               COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/recomb_stromgren.py
+                       $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                       ${CMAKE_CURRENT_BINARY_DIR}/recomb_stromgren --method ${m} --check --threads 4)
+      set_tests_properties(recomb_stromgren_${m} PROPERTIES TIMEOUT 3600
+                           LABELS "nightly;physics;recomb;moments" ENVIRONMENT OMP_NUM_THREADS=4)
+    endforeach()
   endif()
 
   # Grid-aligned photon deficit B16 and its fix ray_rotate (docs/port_notes.md)
@@ -194,6 +210,14 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
                    ${CMAKE_CURRENT_BINARY_DIR}/ray_rotate)
   set_tests_properties(ray_rotate PROPERTIES TIMEOUT 600 LABELS physics)
+
+  # Redshift per distance travelled with a reduced speed of light
+  # (redshift_per_distance, docs/production_run.md): rays and m1 smoke runs
+  add_test(NAME redshift_distance_smoke
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/redshift_distance_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/redshift_distance)
+  set_tests_properties(redshift_distance_smoke PROPERTIES TIMEOUT 600 LABELS physics)
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
@@ -488,6 +512,16 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(thread_rt_det_${p} PROPERTIES TIMEOUT 1800 LABELS threads
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   endforeach()
+  # the production RT configuration: deterministic_parallel with the per-substep
+  # and per-source frame rotation ray_rotate = 3 (B16 fix, docs/port_notes.md)
+  add_test(NAME thread_rt_det_rotate_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_det_rotate $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set legacy_rt=0
+                   --set legacy_physics=0 --set deterministic_parallel=1 --set ray_rotate=3
+                   --set nsteps=6)
+  set_tests_properties(thread_rt_det_rotate_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
+                       ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   # legacy order (rt_step_2 and the RT grid loops in parallel), vs threads
   add_test(NAME thread_rt_legacy_lognormal_16src
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
@@ -515,6 +549,16 @@ if(Python3_Interpreter_FOUND)
                    --set recomb_case=A --set recomb_rad=1)
   set_tests_properties(thread_rt_recomb_lognormal_16src PROPERTIES TIMEOUT 1800
                        LABELS "threads;recomb" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  # the same with the moment RT (every cell emits into the moments) and the
+  # helium recombination lines
+  add_test(NAME thread_rt_recomb_m1_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_recomb_m1 $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=3
+                   --set rt_method=m1 --set legacy_physics=0
+                   --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
+  set_tests_properties(thread_rt_recomb_m1_lognormal_16src PROPERTIES TIMEOUT 1800
+                       LABELS "threads;recomb;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   if(RADRAY_HAVE_PM)
     # hydro, PM, summaries, FoF (N = 32, 22 steps before RT)
     add_test(NAME thread_full_legacy_hydro_pm
@@ -602,6 +646,12 @@ if(Python3_Interpreter_FOUND)
                      --set legacy_physics=0 --set deterministic_parallel=1
                      --set recomb_case=A --set recomb_rad=1)
     set_tests_properties(restart_smoke_recomb PROPERTIES TIMEOUT 600 LABELS "restart;recomb")
+    add_test(NAME restart_smoke_recomb_otvet
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_otvet 13 --set rt_method=otvet
+                     --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
+    set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          restart_smoke_rotate PROPERTIES TIMEOUT 600 LABELS restart)
   endif()

@@ -19,6 +19,8 @@ import sys
 
 import numpy as np
 
+trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz  # numpy < 2.0
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hmf_compare import catalogs, read_catalog  # noqa: E402
 
@@ -92,7 +94,7 @@ def main():
         out = []
         for e0, e1 in zip(edges[:-1], edges[1:]):
             s = (lm >= e0 - 1e-9) & (lm <= e1 + 1e-9)
-            out.append(np.trapezoid(y[s], lm[s]) * vol)
+            out.append(trapezoid(y[s], lm[s]) * vol)
         return np.array(out)
 
     def nll(par):

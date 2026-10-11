@@ -1223,9 +1223,13 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         }
         if (s.recomb) {
           // ground-state recombinations: case A - case B
-          for (int sp = 0; sp < 3; ++sp)
+          // and, with recomb_rad_lines, the case-B ones (helium lines)
+          double nrB[3];
+          for (int sp = 0; sp < 3; ++sp) {
             nrab[sp] = (rs.alpha[sp] - rs.alpha[sp + 3]) * nsp_rec[sp] * ne * dtsec_rt;
-          recomb_count(s, c, nrab, tmp, u.vol_gas);
+            nrB[sp] = rs.alpha[sp + 3] * nsp_rec[sp] * ne * dtsec_rt;
+          }
+          recomb_count(s, c, nrab, s.cfg.recomb_rad_lines ? nrB : nullptr, tmp, u.vol_gas);
         }
 
         // Photoheating

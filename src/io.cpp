@@ -77,6 +77,10 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     if (p.ray_rotate < 0 || p.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
   } else if (key == "ray_rotate_seed") {
     p.ray_rotate_seed = std::stoll(val);
+  } else if (key == "redshift_per_distance") {
+    p.redshift_per_distance = std::stoi(val);
+    if (p.redshift_per_distance != 0 && p.redshift_per_distance != 1)
+      throw std::runtime_error("redshift_per_distance must be 0 or 1");
   } else if (key == "legacy_physics") {
     p.legacy_physics = std::stoi(val);
     if (p.legacy_physics != 0 && p.legacy_physics != 1)

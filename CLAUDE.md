@@ -65,12 +65,15 @@ At the start of a session, read:
 | `apps/pm_driver.cpp` | PM gravity only |
 | `apps/radhydro.cpp` | full `radhydro.f90` loop (`docs/full_run.md`) |
 | `apps/find_halos.cpp` | FoF on a snapshot (`docs/halos_and_sources.md`) |
+| `apps/am_fit.cpp`, `apps/hmf_table.cpp` | abundance matching fit and analytic mass functions (`docs/abundance_matching.md`) |
+| `data/hmf`, `data/uv_lf` | fitted FoF mass function and UV LF parameters used by the sources |
 | `reference/harness` | gfortran RT reference |
 | `reference/harness_hydro` | gfortran hydro reference |
 | `reference/harness_pm` | gfortran PM reference |
 | `reference/harness_full` | gfortran full-loop reference |
 | `reference/harness_common` | FFTW-based MKL DFTI shim, shared timestep |
 | `tests/problems*` | validation problems |
+| `tests/hydro_suite` | hydro test suite with analytic solutions (`docs/hydro_tests.md`) |
 | `reference/*/outputs*` | stored reference outputs: stats for all steps, fields at the last step |
 | `tools/compare` | field/stat comparison (with self-tests) |
 | `tools/ics` | Zel'dovich ICs |
@@ -79,6 +82,7 @@ At the start of a session, read:
 | `tools/production` | production parameters, f_esc calibration, timing (`docs/production_run.md`) |
 | `tools/hyak` | UW Hyak `klone` environment, build, production and scaling jobs (`docs/cluster.md`) |
 | `tools/movies` | movie and stills from a run directory (`docs/movies.md`) |
+| `spike/` | Stage C framework spike: AMReX and Parthenon prototypes, frozen (`docs/framework_decision.md`) |
 | `docs/` | plan, status, port notes per component, design doc, figures |
 
 ## Build and test
@@ -90,6 +94,10 @@ ctest --test-dir build -j4 -LE "long|nightly"   # fast suite
 cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~5 min each: full-loop references, pool guard, full hydro tiers
 ```
 
+- CI: `.github/workflows/ci.yml` runs the fast suite on every push to `main`
+  and every pull request (Ubuntu 24.04, gcc 13); `nightly.yml` runs the
+  nightly label once a day and on demand. A PR is mergeable only when CI is
+  green.
 - Needs `g++`, `gfortran` (for the live Fortran comparison tests), `libfftw3-dev`
   (FFTW3 single precision; MKL is replaced by FFTW in both codes) and python3
   with numpy (and matplotlib for figures).

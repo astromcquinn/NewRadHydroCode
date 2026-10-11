@@ -18,7 +18,7 @@ The configuration: all fixes on (legacy_rt = legacy_physics = 0), the
 deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), the source-ray frame rotated every RT substep
 and source (ray_rotate = 3, the B16 fix; --ray-rotate), on-the-fly FoF sources, RT from z = 15 (the
-first zdata1 output), outputs every unit in z to z = 5.5, movie frames of
+first zdata1 output), outputs every unit in z to z = 5 (Lyman-alpha forest comparison), movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
 docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
 """
@@ -45,7 +45,7 @@ def main():
                          "fHI, temp, rhog); 4N^3 B each per frame")
     ap.add_argument("--ra-max", type=float, default=0.0,
                     help="max da/a per hydro step as ra_max/(1-ra_max); 0: original 0.1")
-    ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5")
+    ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5 5")
     ap.add_argument("--no-ics", action="store_true", help="params.txt only")
     ap.add_argument("--am-params", default="",
                     help="am_params.txt from apps/am_fit: abundance-matched sources "
@@ -62,7 +62,14 @@ def main():
                     help="hydro_scheme line (docs/hydro_unsplit.md): unsplit for production (it "
                          "fixes the cold-gas overheating of the legacy scheme); empty: not written, "
                          "i.e. the code default, legacy")
+    ap.add_argument("--redshift-per-distance", type=int, default=0, choices=(0, 1),
+                    help="redshift the radiation per distance travelled instead of per time "
+                         "(fscale^s, docs/production_run.md); 0: the original (default, "
+                         "no line written)")
     a = ap.parse_args()
+    if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
+        sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
+                 f"int32 ray links (rays.hpp); use at most {(2 ** 31 - 1) // a.N ** 3}")
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.join(a.outdir, "ics")
     if not a.no_ics and not os.path.exists(os.path.join(ics, "u_gas.init")):
@@ -100,6 +107,8 @@ def main():
     ]
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
+    if a.redshift_per_distance:
+        lines.append("redshift_per_distance = 1")
     if a.am_params:
         if not a.f_esc > 0:
             sys.exit("--am-params needs --f-esc")

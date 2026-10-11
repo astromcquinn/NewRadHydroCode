@@ -2,9 +2,9 @@
 # Production reionization run on one Hyak cpu-g2 node, with automatic restart.
 #
 # Set up once (an interactive job; the ICs take a few minutes at 256^3):
-#   python3 tools/production/make_production.py /gscratch/astro/$USER/runs/reion128 --N 128
+#   python3 tools/production/make_production.py /gscratch/astro/$USER/radhydro/runs/reion128 --N 128
 # Submit from the repository root:
-#   sbatch --export=ALL,PROB=/gscratch/astro/$USER/runs/reion128 \
+#   sbatch --export=ALL,PROB=/gscratch/astro/$USER/radhydro/runs/reion128 \
 #          --cpus-per-task=32 --mem=64G tools/hyak/reion_production.slurm
 # A whole node (docs/cluster.md for the thread count):
 #   sbatch --exclusive --cpus-per-task=192 --mem=256G --export=ALL,PROB=... \

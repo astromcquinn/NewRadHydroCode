@@ -21,7 +21,7 @@ Slurm logs in `/gscratch/astro/mcquinn/radhydro/logs/prod256/`.*
 | Physics flags | `legacy_rt = legacy_physics = 0` |
 | Hydro | **`hydro_scheme = unsplit`** (dual energy; `docs/hydro_unsplit.md`), `ra_max` at the original 0.1 |
 | Sources | on-the-fly FoF (≥ 20 particles = 1.3×10⁸ M☉), `sfr_model = abundance` with the 256³ L(M) (`data/uv_lf/am_params_256_10mpc.txt`, `docs/hmf_validation.md`), log ξ_ion = 25.38, f_esc below |
-| Outputs | fields at the 13 `zdata1` redshifts (z = 15 … 5.5), movie frames of x_HI, T and ρ_gas every Δz = 0.025, checkpoint every 4 hydro steps (`restart_keep_latest`) |
+| Outputs | fields at the 13 `zdata1` redshifts (z = 15 … 5.5; the `make_production.py` default of 2026-10-10 morning, since changed to end at z = 5), movie frames of x_HI, T and ρ_gas every Δz = 0.025, checkpoint every 4 hydro steps (`restart_keep_latest`) |
 | Node | one whole `cpu-g2` node, 192 threads |
 
 ## 2. The f_esc = 0.28 run (`$RUNS/reion256_prod`, job 41706017)
