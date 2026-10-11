@@ -1,5 +1,12 @@
 # AMReX prototype of the spike (hydro_amrex, rt_amrex)
 
+**Frozen (Stage D, 2026-10-10).** The ray kernels this prototype used moved
+from `spike/common` to `include/radray/kernels/` with a slightly different
+interface (`docs/stage_d.md`); `rt_amrex.cpp` is kept as the record of the
+spike and no longer compiles. The maintained successor is the library
+component `src/amrex/rt_level.cpp` (`rt_backend = amrex` in `rt_driver` and
+`radhydro`), validated by `ctest -L amrex` with the matrix of `validate.sh`.
+
 This is the AMReX half of the framework spike. It runs the framework-independent kernels in
 `spike/common` (unchanged) on AMReX data structures, distributed over MPI
 ranks and OpenMP threads. It must reproduce `spike/serial` **bit for bit**.

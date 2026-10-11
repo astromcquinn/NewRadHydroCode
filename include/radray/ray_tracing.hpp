@@ -46,7 +46,8 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt);
 // ray_tracing_tools.f90: ray_segment -- lengths of the cell crossings of a
 // unit-length step from x0 along dx. The original computes nseg = 3
 // segments, which can truncate the step (B8); nseg = 4 (legacy_rt = 0)
-// always covers it. Elements beyond nseg are 0.
+// always covers it. Elements beyond nseg are 0. (rrk::ray_segment with a
+// range check on nseg.)
 std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
                                   double seg_min, int nseg = 3);
 
@@ -57,33 +58,32 @@ void ray_remove(Simulation& s, std::int64_t ir, int irt, int jrt, int krt,
 void ray_insert_head(Simulation& s, std::int64_t ir, int irt, int jrt, int krt);
 void ray_insert_tail(Simulation& s, std::int64_t ir, int irt, int jrt, int krt);
 
-// ray_tracing_tools.f90: lside/nside/nray/rmin/rmax helpers
+// ray_tracing_tools.f90: lside/nside/nray/rmin/rmax helpers (the kernels'
+// rrk:: functions, re-exported)
 int lside_from_radius(double r);
 int nside_from_radius(double r);
 int nray_from_nside(int nside);
 double rmin_from_nside(int nside);
 double rmax_from_nside(int nside);
 
+// The run-time parameters of the ray kernels (rrk::RTP) of the current
+// substep: grid size, units, segment count (B8), merge cone nside and the
+// ngam_ray thresholds. Built where ray_tracing_1/3 start.
+rrk::RTP rt_params(const Simulation& s);
+
 // ray_tracing_tools.f90: ray_redshifting (non-FREQ1 redshift_ray)
 void ray_redshifting(Simulation& s);
 
 // The redshift of one 5-group spectrum, shared by the rays and the moment
-// RT (rt_moments.hpp). make_redshift_table builds the tables of
-// ray_redshifting; redshift_spectrum is redshift_ray without the rays'
-// final minimum: nu, ngam (per group) are updated in place, keep[g] and
-// down[g] are the fractions of the photons of group g that stay in g and
-// move to g-1 (both 0 for a group at or below ngam_min).
-struct RedshiftTable {
-  double bmin = -6, bmax = 6;
-  double bdel = static_cast<double>(0.1f);
-  int Nbin = 121;  // 1 + nint((bmax-bmin)/bdel)
-  double freq[kNfreq + 1] = {};
-  std::vector<std::vector<double>> tab;
-  double rmin = 0, rmax = 0;
-};
+// RT (rt_moments.hpp): the kernels' table and update
+// (include/radray/kernels/ray_kernels.hpp). make_redshift_table builds the
+// tables of ray_redshifting; redshift_spectrum is redshift_ray without the
+// rays' final minimum: nu, ngam (per group) are updated in place, keep[g]
+// and down[g] are the fractions of the photons of group g that stay in g
+// and move to g-1 (both 0 for a group at or below ngam_min).
+using RedshiftTable = rrk::RedshiftTable;
 RedshiftTable make_redshift_table();
-void redshift_spectrum(const RedshiftTable& T, double fscale, double ngam_min, double* nu,
-                       double* ngam, double* keep, double* down);
+// (redshift_spectrum itself is rrk::redshift_spectrum.)
 
 // ray_tracing_tools.f90: ray_buffer_allocate / _supplement / _deallocate
 void ray_buffer_allocate(Simulation& s);
@@ -91,7 +91,8 @@ void ray_buffer_supplement(Simulation& s);
 void ray_buffer_deallocate(Simulation& s);
 
 // general_tools.f90: interpolate(x,f,a,b,'lin') for f(2,n) stored as
-// pairs f[2*i+0] = f(1,i+1), f[2*i+1] = f(2,i+1); a,b in {1,2}.
+// pairs f[2*i+0] = f(1,i+1), f[2*i+1] = f(2,i+1); a,b in {1,2}
+// (rrk::interp_lin).
 double interpolate_lin(double x, const double* f, int n, int a, int b);
 
 }  // namespace radray

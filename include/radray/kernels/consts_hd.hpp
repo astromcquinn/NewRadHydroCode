@@ -1,10 +1,11 @@
-// Device-usable copies of the array constants of radray/constants.hpp.
+// Device-usable copies of the array constants of radray/constants.hpp
+// (moved from spike/common; this copy is the maintained one).
 // nvcc cannot read namespace-scope constexpr std::arrays from device code;
 // function-local constexpr arrays initialised from them can be.
 #pragma once
 
 #include "radray/constants.hpp"
-#include "rr_hd.hpp"
+#include "radray/kernels/rr_hd.hpp"
 
 namespace rrk {
 

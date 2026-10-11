@@ -1,5 +1,6 @@
 #include "radray/io.hpp"
 
+#include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
 #include <cstdint>
@@ -35,6 +36,7 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     return;
   }
   if (set_rt_method_param(p.rtm, key, val)) return;  // rt_moments.hpp
+  if (set_rt_backend_param(p.rtm, key, val)) return;  // rt_backend.hpp
   for (auto& ch : val)
     if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
   if (key == "N")

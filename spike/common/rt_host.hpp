@@ -1,9 +1,11 @@
 // Host-side driver logic shared by the spike's serial reference, AMReX and
 // Parthenon prototypes: problem input, the clock of rt_driver /
-// radiative_transfer, ngam_ray thresholds from the global histogram, the
-// redshift table, and output in the format of docs/validation_spec.md (so
-// tools/compare/compare.py works unchanged). Uses the radray library for
-// the clock, units and rate tables.
+// radiative_transfer, ngam_ray thresholds and the pool guard (the library's
+// calc_ngam_ray / pool_guard), the redshift table, and output in the format
+// of docs/validation_spec.md (so tools/compare/compare.py works unchanged).
+// Uses the radray library for the clock, units and rate tables. The kernels
+// are the library's (include/radray/kernels/, Stage D milestone 1); the
+// spike's own copies were removed.
 #pragma once
 
 #include <array>
@@ -21,9 +23,10 @@
 #include "radray/grid.hpp"
 #include "radray/io.hpp"
 #include "radray/rt.hpp"
+#include "radray/rt.hpp"
 #include "radray/rt_rates.hpp"
-#include "ray_kernels.hpp"
-#include "rt_cell.hpp"
+#include "radray/kernels/ray_kernels.hpp"
+#include "radray/kernels/rt_cell.hpp"
 
 namespace rrhost {
 
@@ -142,64 +145,26 @@ class RTRun {
     return p;
   }
 
-  // rt_step_1/calc_ray_1 with legacy_rt = 0. hist[1..N_pdf]: global counts
-  // of live rays per bin; npos: number of live rays with sum(ngam) > 0.
-  void thresholds(const long long* hist, long long npos) {
-    ngam_ray.fill(0.0);
-    if (npos == 0) return;
-    const long long per = cfg.Nray_max / 64;
-    const double lgn_del = radray::folded::lgn_del;
-    for (int j = 1; j <= 64; ++j) {
-      long long nr = 0;
-      for (int i = N_pdf; i >= 1; --i) {
-        nr = nr + hist[i];
-        if (nr > j * per) {
-          ngam_ray[j - 1] = std::pow(1e1, (i - 1) * lgn_del + -6.0);
-          break;
-        }
-      }
-    }
+  // rt_step_1/calc_ray_1 with legacy_rt = 0 (the library's calc_ngam_ray).
+  // hist[1..N_pdf]: global counts of live rays per bin; npos: number of live
+  // rays with sum(ngam) > 0. Then the F3 pool guard (the library's
+  // pool_guard) from spl_pdf, the histogram of the rays that may split, the
+  // live count L and the number of source cells nsrc.
+  std::int64_t npool_limited = 0, npool_forced = 0;
+  void thresholds(const long long* hist, long long npos, const long long* spl_pdf, long long nsrc) {
+    std::vector<std::int64_t> h(hist, hist + N_pdf + 1), sp(spl_pdf, spl_pdf + N_pdf + 1);
+    std::int64_t L = 0;
+    for (int i = 1; i <= N_pdf; ++i) L += h[i];
+    radray::calc_ngam_ray(h.data(), N_pdf, npos > 0 ? 1.0 : 0.0, L > 0 ? L : 1, cfg.Nray_max, false,
+                          ngam_ray, nullptr);
+    radray::pool_guard(sp.data(), N_pdf, L, nsrc, 0, cfg.Nray_max, ngam_ray, npool_limited,
+                       npool_forced, nullptr);
   }
 
-  // ray_redshifting table (after the last substep of a hydro step)
-  rrk::RedshiftTable redshift_table() const {
-    using namespace radray;
-    rrk::RedshiftTable T;
-    T.bmin = -6;
-    T.bmax = 6;
-    T.bdel = static_cast<double>(0.1f);
-    const int Nbin = 1 + static_cast<int>(std::round((T.bmax - T.bmin) / T.bdel));
-    if (Nbin != rrk::kZbin) throw std::runtime_error("redshift table size");
-    T.fscale = (clk.scalefactor - clk.da_sim) / clk.scalefactor;
-    T.ngam_min = units.ngam_min;
-    double* freq = T.freq;
-    freq[0] = pc::HI_eV;
-    freq[1] = std::sqrt(pc::HI_eV * pc::HeI_eV);
-    freq[2] = pc::HeI_eV;
-    freq[3] = std::sqrt(pc::HeI_eV * pc::HeII_eV);
-    freq[4] = pc::HeII_eV;
-    freq[5] = static_cast<double>(1e2f);
-    double rmax = 0., rmin = static_cast<double>(3.40282346638528859812e+38F);
-    for (int j = 1; j <= 4; ++j) {
-      const double fj = freq[j - 1], fj1 = freq[j], fj2 = freq[j + 1];
-      for (int i = 1; i <= Nbin; ++i) {
-        const double b = (i - 1) * T.bdel + T.bmin;
-        const double c = b + 1;
-        double v;
-        if (std::fabs(c) < T.bdel / 1e2)
-          v = std::log(fj2 / fj1) / std::log(fj1 / fj);
-        else
-          v = (std::pow(fj2, c) - std::pow(fj1, c)) / (std::pow(fj1, c) - std::pow(fj, c));
-        T.tab[j - 1][2 * (i - 1) + 1] = b;
-        T.tab[j - 1][2 * (i - 1) + 0] = v;
-        rmax = rrf::max(rmax, v);
-        rmin = rrf::min(rmin, v);
-      }
-    }
-    T.rmin = rmin;
-    T.rmax = rmax;
-    return T;
-  }
+  // ray_redshifting table (after the last substep of a hydro step) and its
+  // scale factor ratio
+  rrk::RedshiftTable redshift_table() const { return rrk::build_redshift_table(); }
+  double redshift_fscale() const { return (clk.scalefactor - clk.da_sim) / clk.scalefactor; }
 
   // Output of one hydro step: cells in global order (i fastest)
   void write_step(const std::string& odir, const std::vector<rrk::CellData>& c,

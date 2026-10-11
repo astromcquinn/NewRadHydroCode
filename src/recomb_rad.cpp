@@ -9,6 +9,7 @@
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
+#include "radray/kernels/ray_kernels.hpp"
 #include "radray/rt_rates.hpp"
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
@@ -474,9 +475,6 @@ void ray_source_recomb(Simulation& s, int irt, int jrt, int krt) {
   Rc.emit[c] = 0;
   const int ns = s.cfg.recomb_rad_nside;
   const int nray = 12 * ns * ns;
-  const double dr = rmax_from_nside(ns);
-  const float xs[3] = {static_cast<float>(irt) - 0.5f, static_cast<float>(jrt) - 0.5f,
-                       static_cast<float>(krt) - 0.5f};
   double nu[kNfreq], ngam[kNfreq];
   for (int n = 0; n < kNfreq; ++n) {
     const std::size_t k = static_cast<std::size_t>(c) * kNfreq + n;
@@ -486,35 +484,20 @@ void ray_source_recomb(Simulation& s, int irt, int jrt, int krt) {
     Rc.emit_ngam[k] = 0;
     Rc.emit_egam[k] = 0;
   }
+  // 12 nside^2 rays from the cell centre with this spectrum (the kernels'
+  // emission, as ray_source)
+  rrk::SourceSpec spec = rrk::source_spec_spectrum(irt - 1, jrt - 1, krt - 1, ns, nu, ngam);
   std::int64_t indx[rayp::nray_init];
   ray_create(s, nray, indx);
   // B16 fix (ray_rotate != 0): rotated HEALPix frame, as in ray_source
   const bool rotate = s.cfg.ray_rotate != 0;
   double rot[3][3];
   if (rotate) ray_frame_rotation(s, irt, jrt, krt, rot, 1);
+  rrk::set_rotation(spec, rotate ? rot : nullptr);
   for (int i = 0; i < nray; ++i) {
-    double dx[3];
-    healpix::pix2vec_nest(ns, i, dx);
-    int ipix = i;
-    if (rotate) {
-      const double v[3] = {dx[0], dx[1], dx[2]};
-      for (int d = 0; d < 3; ++d) dx[d] = rot[d][0] * v[0] + rot[d][1] * v[1] + rot[d][2] * v[2];
-      ipix = healpix::vec2pix_nest(ns, dx);
-    }
     const std::int64_t ir = indx[i];
     Ray& ry = R.at(ir);
-    ry.nside = ns;
-    ry.ipix = ipix;
-    ry.r = 0;
-    ry.dr = static_cast<float>(dr);
-    for (int d = 0; d < 3; ++d) {
-      ry.x[d] = xs[d];
-      ry.dx[d] = static_cast<float>(dx[d]);
-    }
-    for (int n = 0; n < kNfreq; ++n) {
-      ry.nu[n] = static_cast<float>(nu[n]);
-      ry.ngam[n] = static_cast<float>(ngam[n]);
-    }
+    static_cast<rrk::RayP&>(ry) = rrk::source_ray(spec, i);
     if (R.track_prov) {
       RayProv& pv = R.prov[ir];
       pv = RayProv{};
