@@ -9,7 +9,59 @@ per substep, with a k times longer substep at the same ĉ". If k = 2 and 4
 agree with k = 1 to the acceptance metrics of `docs/ROADMAP.md`, the AMR RT
 needs no fine-level time sub-cycling.*
 
-<!-- SUMMARY -->
+## Summary
+
+**Implemented:** `rt_cells_per_substep = k` (1–16; default 1 is the
+original, byte-identical; `legacy_rt = 0` and `rt_method = rays` only,
+refused otherwise; `rt_driver` and `radhydro`; log, summary line and
+checkpoint version 6). The k-cell path, the substep count and the
+redshifting follow the request (§1.2). Three generalisations were needed
+to make k > 1 correct (§1.3): the photo-ionisation rate needs the
+crossing speed k·len_rt/dtsec_rt, the split clamp is [rmin, rmin + k],
+and sources emit at a finer nside for k > 4. The AMReX backend supports
+k > 1 by growing its ghost layers and local `Redistribute` to k + 1, so it
+does not refuse. Two further problems needed new options, both off by
+default (§2): `photon_conserve` (B17, a photon-limiter quirk of the
+original that grows as k²) and `ray_deposit = exposure` (with the share
+deposit, photons jump up to k − 1 cells past I-fronts).
+
+**k = 1** is byte-identical: FINALSUMMARY (§3).
+
+**Accuracy against k = 1** with the recommended options (`exposure` +
+`photon_conserve`; the scheme as specified does worse, §4, §5, §7):
+
+| test | metric | k = 2 | k = 4 | k = 8 |
+|---|---|---|---|---|
+| uniform I-front, c = 1 (§4) | front / profile | 0.01 cells / 0.006 | 0.04 / 0.04 | 0.15 / 0.07 |
+| uniform I-front, 0.1c (§4) | largest front lag | 0.18 cells | 2.3 | 5.2 |
+| `uniform_8src`, c = 1 (§5) | front shift / x_HII at end | 0.02 cells / −0.04 % | 0.02 / +0.06 % | 0.16 / +0.6 % |
+| `lognormal_16src`, c = 1 (§5) | x_HII,M at end / T rms (ionised) | −1.8 % / 5 % | −2.9 % / 6 % | −14 % / 18 % |
+| 64³ production, 0.1c (§7) | τ_es / Δz(x_V = 0.5) | −0.12 % / −0.007 | −0.52 % / −0.033 | −1.6 % / −0.088 |
+| | max T_M error / front shift | 5 % / 0.18 cells | 10 % / 0.45 | 20 % / 1.6 |
+| 64³ production, c = 1, to z = 9 (§8) | τ_es / Δz(x_V = 0.5) / max T_M error / front shift | | −0.003 % / 0.000 / 3 % / 0.07 cells | |
+| cost: 64³ production, RT time per hydro step (§7.1) | relative to k = 1 | COSTROW |
+
+**What fails first** (§8) is the lagged optical depth at fronts that move
+more than one cell per substep, i.e. v_front > ĉ/k. That happens with
+light-limited fronts at 0.1c for k ≥ 4 (the uniform I-front lags 2.3
+cells; the production run reionises late and T_M is 10 % high while its
+first fronts are fast). Next comes dense, quickly recombining gas at
+k = 8. At c = 1, where the fronts are photon-limited, k = 4 passes the
+production run (T_M 3 % high). **The transport over k cells is accurate; the error is the
+k-times-longer substep** (§6): k = 8 at 8ĉ matches k = 1 at ĉ to 1 %,
+and k = 1 at ĉ/8 shows the errors of k = 8 at ĉ. On a uniform grid, then,
+k > 1 equals fewer substeps. It saves COSTSAVE in RT time at k = 2–4 and
+is not a speed option.
+
+**Recommendation for the AMR RT** (§9): a mixture. Use the coarse substep
+everywhere, with 2^l cells per substep on level l, the exposure deposit,
+`photon_conserve` and per-level angular resolution. Add photo-chemistry
+sub-cycling in fine cells, and time sub-cycling of the transport only in
+patches where a front outruns the substep (detectable from the
+deposits). With refinement on overdensity, fronts in refined gas move
+about 4^-l as many fine cells per coarse substep, so the criterion is met
+most easily where the cells are small. k = 2 (one level) passes every
+test here.
 
 ## 1. The scheme
 
@@ -470,4 +522,263 @@ the rate (Γ from the time-share A dl/L of every cell, the photon limit
 from the deposit), and a second, corrector pass of step 1 with the updated
 τ in cells whose τ changed by more than a factor 2 within the substep.
 
-<!-- RESULTS -->
+## 7. Step 4: the 64³ production configuration
+
+`make_production.py --N 64 --c-reduced 0.1 --hydro-scheme unsplit
+--movie-dz 0.05 --movie-slab 4 --movie-fields fHI` (10 Mpc/h, Ngas = Ndm =
+64, `legacy_rt = legacy_physics = 0`, `deterministic_parallel`,
+`rt_substep_carry`, `ray_rotate = 3`, `nray_max_factor` 16, on-the-fly FoF
+sources with the global SFR model, RT from z = 15, the same ICs for every
+run) plus `--rt-cells-per-substep k` and the variant's options, 4 threads.
+c_reduced = 0.1 is the production value (`make_production.py` still
+defaults to 0.01, where a 64³ hydro step has too few cells of light for
+k = 4). With the global SFR model at 64³ a single, very bright source
+appears at z ≈ 11 and reionises most of the box by z ≈ 8.5 (τ_es = 0.078),
+so the fronts are light-limited for much of the run: the hardest case for
+k. `tools/analysis/rt_multicell_compare.py` compares each run with k = 1
+of the same variant: the acceptance metrics of
+`tools/ray_compression/precision_metrics.py` at the zdata1 field outputs,
+the x_HII(z) histories of `movie/frames.txt` (every Δz = 0.05), τ_es
+(`tools/analysis/reion.py`), T_M of every hydro step and the cost
+(`timing.txt`, `Log/ray.log`). JSON in `docs/data/rt_multicell/`.
+
+| scheme | k | τ_es | Δz at x_HII,V = 0.1 / 0.5 / 0.99 | max \|Δx_HII,V\| | max rel. Δx_HII,V, x > 0.1 / x > 0.3 | max rel. ΔT_M | rms ΔT/T, ionised cells, z = 5 | front shift [cells] |
+|---|---|---|---|---|---|---|---|---|
+| exposure + pc | 1 | 0.0784 | z = 10.82 / 9.76 / 8.46 | | | | | |
+| exposure + pc | 2 | −0.12 % | −0.019 / −0.007 / +0.008 | 0.006 | 5.8 % / 1.9 % | 5.1 % | 4.9 % | 0.18 |
+| exposure + pc | 4 | −0.52 % | −0.054 / −0.033 / −0.009 | 0.022 | 16 % / 6.5 % | 10.4 % | 6.1 % | 0.45 |
+| exposure + pc | 8 | −1.60 % | −0.187 / −0.088 / −0.011 | 0.069 | 65 % / 14 % | 19.8 % | 7.4 % | 1.60 |
+| share | 1 | 0.0789 | z = 10.84 / 9.82 / 8.51 | | | | | |
+| share | 2 | +0.54 % | −0.011 / +0.067 / +0.084 | 0.027 | 4.8 % / 4.8 % | 6.6 % | 5.0 % | 0.48 |
+| share | 4 | +0.91 % | −0.041 / +0.116 / +0.172 | 0.056 | 13 % / 8.9 % | 12.1 % | 6.0 % | 0.98 |
+
+*Each run against k = 1 of its scheme. "exposure + pc": `ray_deposit =
+exposure`, `photon_conserve = 1` (§2); "share": the scheme as specified
+(share deposit, original limiter). x_HII from `movie/frames.txt` every
+Δz = 0.05 (the relative error where the k = 1 run has x_HII,V above 0.1 or
+0.3); T_M from every hydro step at z ≤ 15; the rms ΔT/T over the cells
+ionised at the last output; front shift: the largest, over the zdata1
+outputs, of the cells whose ionisation state (x > 0.5) differs per front
+face (`precision_metrics.py`). For scale, the two k = 1 runs (share against
+exposure + pc, an O(1) change of the deposit within a cell) differ by
+0.6 % in τ_es and 0.05–0.07 in the redshifts of x_HII,V = 0.5 and 0.99.*
+
+![production history](figures/rt_multicell_prod64_history.png)
+
+*x_HII,V and x_HII,M against z, the relative difference of x_HII,V and of
+T_M from k = 1 (exposure + pc); grey: 1 % and 3 %.*
+
+![production slices](figures/rt_multicell_prod64_slices.png)
+
+*x_HI and T in the central slice at the zdata1 output nearest x_HII,V = 0.5
+(exposure + pc).*
+
+- **k = 2 with exposure + pc** meets the targets: τ_es within 0.12 %, the
+  redshifts of x_HII,V = 0.1, 0.5 and 0.99 within 0.02, x_HII,V within
+  0.006 absolute and within 2 % relative once x > 0.3 (the 6 % at x ≈ 0.1
+  is the same Δz = −0.02 while x_HII grows fast), the front shift 0.18
+  cells, T_M within 5 % while the first fronts are fast and within 1 %
+  after overlap.
+- **k = 4 with exposure + pc** is marginal: τ_es within 0.5 % and the front
+  within half a cell (0.45), but reionisation is Δz = 0.03–0.05 late
+  before overlap (x_HII,V up to 0.022 low, 6.5 % at x ≈ 0.3) and T_M 10 %
+  high at z ≈ 10 (1 % at z = 5).
+- **k = 8** fails: τ_es −1.6 %, x_HII,V up to 0.07 low, a front shift of
+  1.6 cells, T_M 20 % high early.
+- **The share deposit** fails x_HII already at k = 2: reionisation ends
+  Δz = 0.08 (k = 2) and 0.17 (k = 4) early, x_HII,V up to 0.027 and 0.056
+  high, the front displaced by half a cell and one cell (the photons that
+  jump past fronts, §2), and T_M 7 % and 12 % high at z ≈ 10. Its τ_es
+  stays within 1 %.
+
+### 7.1 Cost
+
+PRODCOST
+
+The RT is 98–99 % of the run. Per substep a ray does k cells of work, so
+the cost per ray-substep grows with k (0.68, 0.88, 1.04 µs on 4 threads
+for k = 1, 2, 4: +30 % and +53 %), while the substeps fall k-fold; the live
+rays do not fall (2.4 M at the end for k = 1, 2.9 M and 3.4 M for k = 2, 4),
+so the ray-substeps fall only 1.7× and 3×. The per-substep grid passes
+(`calc_rt_1`, `calc_ray_1`, `radiative_physics`, `sync`) fall k-fold:
+from 209 s to 99 s and 37 s. Net: the RT time falls 1.4× (k = 2) and 2.2×
+(k = 4). k = 8 is *slower* than k = 1 here, for a reason specific to the
+uniform-grid code: `deterministic_parallel` needs domains d ≥ 2k+2, which
+at 64³ means d = 32, one domain per colour, so its ray tracing ran on one
+thread (5.4 µs per ray-substep). 27 colours (3 per axis) instead of 8
+would allow d = 16; not done. The exposure deposit costs more than the
+share deposit at every k (its rays keep more photons and live longer:
+STEP4SHAREEXPO).
+
+## 8. Step 5: where it breaks
+
+**What fails first is the lagged optical depth at fronts that move more
+than one cell per substep (v_front > ĉ/k).** In order of appearance:
+
+1. **Light-limited fronts at 0.1c, k ≥ 4** (§4: the uniform I-front is
+   2.3 cells behind at step 1 for k = 4, 5.2 for k = 8; §7: the 64³
+   production run at k = 4 reionises Δz = 0.03–0.05 late, x_HII,V up to
+   0.022 low, and T_M is 10 % high while its first fronts are fast). With
+   k = 2 the same fronts stay within 0.3 cells.
+2. **Without the two fixes, at any c:** with the share deposit the fronts
+   smear over ~k cells (front profile off by 0.37 at k = 4, 0.83 at k = 8 on
+   the uniform I-front at c = 1; mean front shift 0.5–1.1 cells at k = 4–8
+   on the 32³ problems), and with the original limiter the B17 leak grows
+   as k² (lognormal x_HII,M +2 % at k = 4, +6 % at k = 8).
+3. **k = 8 in dense, clumpy gas at c = 1** (§5, §6): x_HII,M −13 to −14 %
+   on `lognormal_16src`, the same as k = 1 at c/8: the substep length, not
+   the transport.
+4. **Angular sampling near sources for k > 4** if sources emit at
+   nside_init (fixed by §1.3's emission rule).
+
+**c_reduced = 1 with k = 4** (fast fronts in a coarse step, in the
+physical sense: at c = 1 a k = 4 substep has the duration of a k = 1
+substep at 0.25c). The uniform I-front at c = 1 (§4) is photon-limited
+after the first substep and k = 4 passes there (front 0.04 cells, profile
+0.04); `lognormal_16src` and `uniform_8src` at c = 1 (§5) pass at k = 4
+for the front (0.16 and 0.02 cells with the exposure deposit) but
+lognormal's x_HII,M is −2.1 to −2.9 % at the end. The 64³ production
+configuration at c = 1 (exposure + pc, the same ICs) costs about ten times
+the 0.1c run, so it ran only k = 1 and 4 and stopped after the hydro step
+that crosses z = 9.5 (at z = 8.95, the steps being Δz ≈ 1 there):
+
+| k | τ_es | Δz at x_HII,V = 0.1 / 0.5 / 0.99 | max \|Δx_HII,V\| | max rel. Δx_HII,V, x > 0.1 / x > 0.3 | ΔT_M at z = 10.05 / 8.95 | rms ΔT/T, ionised cells, z = 8.95 | front shift [cells] | RT [s] |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.0822 | z = 11.01 / 10.09 / 9.20 | | | | | | 2220 |
+| 4 | −0.003 % | −0.003 / 0.000 / +0.001 | 0.0012 | 1.0 % / 0.2 % | +3.2 % / +3.0 % | 4.7 % | 0.07 | 1087 |
+
+![production history at c = 1](figures/rt_multicell_prod64_c1_history.png)
+
+*The c = 1 pair: x_HII against z and the relative differences of x_HII,V
+and T_M (T_M at the two hydro steps with RT); grey: 1 % and 3 %.*
+
+**At c = 1, k = 4 passes every target.** τ_es agrees to 3e-5, the history
+to Δz = 0.003 and 1 % (0.2 % once x > 0.3), and the front to 0.07 cells.
+Only T_M, 3 % high, sits at the edge of "a few %". That is the
+over-absorption of front cells with a lagged τ (§6), at a quarter of the
+k = 1 substep count. The fronts here are photon-limited: a k = 4 substep at
+c = 1 lasts as long as a k = 1 substep at 0.25c, and the fronts move well
+under ĉ/4. The RT took 2.0× less time (both runs shared the machine with a
+test suite, so this is indicative only). For scale, the reduced speed of
+light itself moves this history much more: at k = 1 the production 0.1c
+reionises Δz = 0.33 later (z(x_V = 0.5) = 9.76 against 10.09) with a τ_es
+4.6 % lower, ten times the k = 4 error at 0.1c (§7).
+
+## 9. Recommendation for the RT on AMR
+
+**What the study shows.** Moving rays k cells per substep is accurate as
+transport: with the substep length of k = 1 (k = 8 at 8c) the lognormal box
+matches k = 1 to 1 %, and with the exposure deposit the uniform I-front
+keeps its k = 1 profile up to k = 8. What costs accuracy is the k times
+longer substep at a given ĉ, the time resolution: fronts that move more
+than one cell per substep (v_front > ĉ/k) leak photons past themselves,
+cells whose optical depth changes within the substep absorb with an
+outdated τ, and the photo-chemistry is integrated over the long substep.
+On a uniform grid this makes k > 1 no better than the original with k
+times fewer substeps; it is not a speed-up option for uniform runs (the
+saving is 1.4–2.1× at k = 2–4 and the errors grow; at 0.1c the production
+fronts are light-limited for a long time).
+
+**On AMR the question is different.** The alternative to a coarse substep
+with 2^l cells per substep in a level-l patch is to sub-cycle that patch
+2^l times per coarse substep, with the rays crossing coarse/fine
+boundaries at mismatched times and the deposits synchronised across
+levels. The coarse substep gives up fine time resolution in the patch, not
+fine spatial resolution, and the criterion for that to be harmless is
+local: a front must move less than one fine cell per coarse substep. With
+refinement on overdensity (about 8× the mass per cell per level) a front
+driven by a given flux moves 1/(1+δ) as fast, so in a level-l cell it
+crosses roughly 2^l/8^l = 4^-l as many cells per coarse substep as a
+front at the mean density crosses coarse cells: refined gas is where the
+criterion is easiest to meet. The fast fronts (light-limited, R-type) live
+in voids, which stay on the coarse level with k = 1. The weak point is
+dense gas with short recombination times, where the coarse substep hurts
+the photo-chemistry and the τ lag (the lognormal box at k = 8).
+
+**Recommendation: a mixture.**
+
+1. Coarse substep everywhere, with rays moving 2^l fine cells per substep
+   in level-l patches (`rt_cells_per_substep` = 2^l locally), the exposure
+   deposit, `photon_conserve = 1`, and the angular resolution set per level
+   (the emission/entry nside that resolves fine cells over the first
+   substep path, §1.3; ray splitting continuing into fine levels as
+   planned).
+2. Sub-cycle the photo-chemistry (cheap, per cell, no rays) in fine cells
+   whose recombination or photo-ionisation time is shorter than the coarse
+   substep; add the exposure field for Γ (§6) so that a cell deposited as
+   thick but turned thin cannot absorb k times too much.
+3. Sub-cycle the transport in time only in patches where a front outruns
+   the substep. The code can detect it: a cell that the lagged τ called
+   thick (fabs ≈ 1) but that transmits most of its deposit (fgam > 1/2)
+   within the substep is a front that moved more than a cell. Flag such
+   patches for 2^l sub-steps at the next coarse step.
+4. Validate on the Iliev tests with refinement and against uniform runs at
+   the matched finest resolution, as planned in `docs/framework_decision.md`
+   §6; the step-5 failures here (fast fronts at k ≥ 4, dense gas at k = 8)
+   are the cases to watch.
+
+A pure coarse substep (1 alone) is acceptable for k = 2 (one level) in all
+tests here and for k = 4 where fronts are photon-limited (the c = 1 tests,
+the 64³ production run at c = 1 included), but not for light-limited
+fronts at 0.1c (64³ production at k = 4: reionisation Δz = 0.03–0.05 late,
+T_M 10 % high early). Pure time sub-cycling stays the safe reference.
+
+## 10. Files, tests and how to run
+
+**Parameters** (`params.txt` or `--set`, `rt_driver` and `radhydro`; logged
+and printed in the summary line only when not the default):
+
+| key | default | meaning |
+|---|---|---|
+| `rt_cells_per_substep` | 1 (original) | k, 1–16; `legacy_rt = 0` and `rt_method = rays` only, refused otherwise; light should cross ≥ k cells per hydro step (§1.2; the ≥ 1 guard warns only without `rt_substep_carry`) |
+| `photon_conserve` | 0 (original) | iterate `photo_gas_cell` until no frequency group is photon-limited (B17, §2.1); any k, both legacy modes |
+| `ray_deposit` | `share` (original) | `exposure`: §2.2; `legacy_rt = 0` |
+
+**Code:** `include/radray/kernels/ray_kernels.hpp` (`RTP::cells`,
+`RTP::deposit`, `nseg_for`, `ray_segment` over k cells, the clamp,
+`emit_nside`, the exposure branches of `cast_1`/`cast_3`),
+`include/radray/kernels/rt_cell.hpp` (the rate factor, `photon_conserve`),
+`src/cosmology.cpp` (`calc_timestep`, `redshift_per_distance`),
+`src/ray_tracing.cpp` and `src/rt_tools.cpp` (parameters, the
+deterministic domains and reach, the pool guard),
+`src/checkpoint.cpp` (version 6), `src/amrex/rt_level.cpp` (ghosts and
+`Redistribute` ≥ k + 1), `tools/production/make_production.py`
+(`--rt-cells-per-substep`, `--photon-conserve`, `--ray-deposit`).
+
+**Tests** (`ctest -L multicell`, all in the fast suite): `multicell`,
+`multicell_exposure`, `photon_conserve`,
+`thread_rt_det_multicell_lognormal_16src`, `restart_smoke_det_multicell`,
+the `rays` unit test, and with `-DRADRAY_AMREX=ON`
+`amrex_roundoff_multicell*` (§3).
+
+**The studies** (any build of this branch; one thread each for the
+`rt_driver` studies):
+
+```
+# step 2: uniform I-front (add --set photon_conserve=1 --set ray_deposit=exposure for "exposure+pc")
+python3 tools/analysis/rt_multicell_ifront.py build/rt_driver tests/problems/uniform_1src OUT \
+    --N 64 --da 4e-4 --nsteps 15 --k 1 2 4 8 --c 0.1 1 --threads 1 --profile-steps 2 6 15 \
+    --json OUT.json --plot OUT
+# step 3: per-cell fields and ray statistics
+python3 tools/analysis/rt_multicell_fields.py build/rt_driver tests/problems/lognormal_16src OUT \
+    --nsteps 100 --k 1 2 4 8 --threads 1 --json OUT.json --fig OUT
+# step 4: production configuration, the same ICs for every k
+for k in 1 2 4 8; do
+  python3 tools/production/make_production.py prob_k$k --N 64 --c-reduced 0.1 \
+      --hydro-scheme unsplit --movie-dz 0.05 --movie-slab 4 --movie-fields fHI \
+      --rt-cells-per-substep $k --photon-conserve 1 --ray-deposit exposure \
+      $( [ $k = 1 ] || echo --no-ics )
+  [ $k = 1 ] || ln -s ../prob_k1/ics prob_k$k/ics
+  if [ $k = 1 ]; then R=cmp/base; else R=cmp/k$k; fi
+  build/radhydro prob_k$k $R --quiet
+done
+python3 tools/analysis/rt_multicell_compare.py cmp --N 64 --json cmp.json --fig cmp
+# figures of §4 and §5 from the JSON outputs
+python3 tools/analysis/rt_multicell_figures.py ifront --json A.json B.json --labels share exposure+pc --out F.png
+```
+
+`tools/hyak/rt_multicell.slurm` repeats step 4 at 128³ on one klone node
+(both schemes and the c = 1 case are in its header).
+
+**Data:** `docs/data/rt_multicell/` holds the JSON of the production
+comparisons (§7, §8).
