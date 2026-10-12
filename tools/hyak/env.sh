@@ -43,5 +43,19 @@ export CMAKE_PREFIX_PATH="$RADRAY_FFTW${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 export FFTW_INC="$RADRAY_FFTW/include"
 export FFTW_LIB="-L$RADRAY_FFTW/lib -lfftw3f"
 
+# Load modules from a script that runs under `set -u` (Lmod's init reads
+# unset variables such as LD_PRELOAD and the load would fail). klone's
+# ompi/4.1.6-2 module also sets CC=mpiCC, the C++ wrapper, which breaks
+# CMake's C compiler check when AMReX is built.
+radray_module_load() {
+  case $- in *u*) _rml_u=1; set +u ;; *) _rml_u=0 ;; esac
+  module load "$@"
+  _rml_rc=$?
+  [ "${CC:-}" = mpiCC ] && export CC=mpicc
+  [ "$_rml_u" = 1 ] && set -u
+  unset _rml_u
+  return $_rml_rc
+}
+
 [ "$_radray_u" = 1 ] && set -u
 unset _radray_u

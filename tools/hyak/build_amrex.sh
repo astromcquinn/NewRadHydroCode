@@ -36,7 +36,7 @@ else
 fi
 bld="${1:-$src/build-amrex}"
 source "$src/tools/hyak/env.sh"
-module load ${HYAK_MODULES:-ompi/4.1.6-2}
+radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
 ncpu="${SLURM_CPUS_PER_TASK:-8}"
 ulimit -s unlimited
 echo "host $(hostname), $ncpu cpus, $(date)"

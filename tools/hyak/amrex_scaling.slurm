@@ -32,7 +32,7 @@
 set -u
 cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
-module load ${HYAK_MODULES:-ompi/4.1.6-2}
+radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
 PROB="${PROB:?set PROB to the problem directory}"
 CK="${CK:?set CK to the checkpoint}"
 OUT="${OUT:-$PROB/amrex_scaling}"
