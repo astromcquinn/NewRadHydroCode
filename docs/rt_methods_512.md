@@ -200,7 +200,82 @@ OTVET | rays case B). Also [z ≈ 5.91](figures/rt_methods_512_gamma_z5.91.png)
 
 ## 6. Power spectrum of Γ_HI after overlap
 
-*(Being filled in from the full set of cubes.)*
+*Requested by the user during the thread (2026-10-11): analytic work
+predicts that the 3D power spectrum of Γ differs between the moment methods
+and the rays after reionization.* The snapshots give 3D Γ_HI cubes at
+z ≈ 5.44 and 5.0 only, so every run was continued from a checkpoint with a
+field output at every hydro step (`tools/hyak/field_cubes.slurm`): rays and
+M1 and rays case B from step 48 (z = 5.34), OTVET (whose last checkpoints
+were z = 5.08 and 4.97) rerun from the start. Each continuation reproduces
+its run bit for bit (x_HI and Γ_HI of the last common step are
+byte-identical in all four), so the extra cubes belong to the same runs:
+z = 5.44, 5.22, 5.13, 5.09–5.00 and 4.98. The spectra are
+`tools/analysis/gamma_power.py` (δ = Γ_HI/⟨Γ_HI⟩ − 1 over the whole box,
+k bins from the fundamental 0.157 h/Mpc to the Nyquist corner).
+
+![P_Gamma](figures/rt_methods_512_gamma_pk.png)
+
+*Top: Δ²_Γ(k). Middle: P_Γ/P_Γ(rays, case A + RR). Bottom: the
+cross-correlation coefficient with the rays. Capped at 3⟨Γ⟩ (source
+cells removed): [figure](figures/rt_methods_512_gamma_pk_clip3.png). Tables
+for every epoch: [`figures/rt_methods_512_gamma_pk.txt`](figures/rt_methods_512_gamma_pk.txt),
+[`…_clip3.txt`](figures/rt_methods_512_gamma_pk_clip3.txt).*
+
+P_Γ relative to the rays (r(k) with the rays in brackets):
+
+| k [h/Mpc] | M1, z = 5.44 | M1, z = 5.01 | OTVET, z = 5.44 | OTVET, z = 5.01 | rays B, z = 5.01 |
+|---|---|---|---|---|---|
+| 0.29 | 0.32 (0.47) | 0.25 (0.31) | 4.3 (0.95) | 8.9 (0.98) | 1.14 (1.00) |
+| 0.49 | 0.31 (0.24) | 0.12 (0.14) | 2.3 (0.95) | 3.8 (0.96) | 1.08 (1.00) |
+| 0.84 | 0.42 (0.24) | 0.09 (0.33) | 2.7 (0.96) | 4.7 (0.96) | 1.05 (1.00) |
+| 1.4 | 0.21 (0.46) | 0.07 (0.63) | 2.4 (0.97) | 4.2 (0.97) | 1.04 (1.00) |
+| 2.3 | 0.21 (0.74) | 0.10 (0.76) | 2.6 (0.97) | 4.3 (0.97) | 1.05 (0.99) |
+| 3.8 | 0.34 (0.88) | 0.20 (0.87) | 2.7 (0.97) | 4.4 (0.96) | 1.06 (0.96) |
+| 6.4 | 0.36 (0.91) | 0.27 (0.88) | 2.5 (0.95) | 3.9 (0.93) | 1.08 (0.88) |
+| 10.6 | 0.21 (0.87) | 0.16 (0.80) | 1.8 (0.90) | 2.5 (0.85) | 1.09 (0.70) |
+
+- **The rays' P_Γ is real below k ≈ 10 h/Mpc.** Its high-k part rises
+  as Δ² ∝ k³, the white sampling noise of the discrete rays,
+  P_N ≈ 4.4×10⁻⁵ (Mpc/h)³ (the highest bin; the moment runs have 1000×
+  less there): 0.1 % of the rays' power at k = 1.4, 16 % at k = 10.6. Case
+  A + RR and case B rays (different rays, same sources) correlate at
+  r ≥ 0.99 up to k ≈ 2.3 h/Mpc, so the rays' large-scale pattern is not
+  noise.
+- **M1 suppresses the Γ fluctuations and decorrelates on large scales.**
+  P_Γ is 0.2–0.4× the rays' at z = 5.44 and 0.07–0.3× at z = 5.0, and
+  falls with time; r(k) is only 0.1–0.6 at k = 0.3–1.5 h/Mpc, i.e. M1's
+  large-scale Γ pattern is a different one, not a damped copy. It
+  recovers r ≈ 0.9 at k = 3–7 h/Mpc, the scale of the proximity zones,
+  where M1 has a bump in Δ². One-point: σ(δ) = 0.15 → 0.09 (rays
+  0.49 → 0.42).
+- **OTVET has the rays' pattern with a larger amplitude on large scales.**
+  P_Γ is 2–4× the rays' at z = 5.44 and 4–9× at z = 5.0 for k ≲ 6 h/Mpc,
+  with r = 0.95–0.98: the same structure, stronger. Its one-point σ(δ) is
+  the rays' (0.44), so the variance sits at larger scales in OTVET and at
+  the smallest scales (sampling noise and the sharpest source peaks) in the
+  rays.
+- **The recombination radiation hardly matters for P_Γ:** case B rays have
+  4–14 % more power than case A + RR at k ≲ 6, at r ≈ 1.
+- **Capping Γ at 3⟨Γ⟩** (removing the source cells and inner proximity
+  zones) leaves the ratios at k ≲ 1 h/Mpc almost unchanged and lowers
+  OTVET's excess at k = 2–6 to 1.2–2.6×: the large-scale differences are
+  in the background field, not in the source cells.
+- **Why** (interpretations, not tested here): M1's local closure gives one
+  flux direction per cell, so where radiation from many directions meets,
+  it is redirected and spread like diffusion; this redistributes photons
+  from source-rich to source-poor regions over tens of cells and erases the
+  large-scale pattern set by the source distribution, while the
+  mean (fixed by emissivity and absorption) is kept. OTVET's Eddington
+  tensor is computed from the sources as if the gas were optically thin,
+  so the radiation always flows radially away from the source
+  concentrations, with no shadowing and no mixing; regions far from
+  sources get the least, and the source-rich regions more, which sharpens
+  the large-scale contrast. The rays carry the actual geometry, including
+  the attenuation, so their pattern lies in between. Whether these
+  amplitudes match the analytic expectation is for the user's
+  calculation; the trend with time (M1 falling, OTVET rising relative to
+  the rays as λ_mfp grows from 23 to 50 pMpc) is what a closure-dependent
+  propagation over a growing mean free path would give.
 
 ## 7. The IGM at z = 5–6
 
@@ -233,3 +308,56 @@ OTVET | rays case B). Also [z ≈ 5.91](figures/rt_methods_512_gamma_z5.91.png)
   here): case A recombines faster, so dense gas holds more HI, and the
   transported recombination photons only partly make up for it locally
   while adding to the background.
+
+## 8. Movie
+
+[`movies/rt_methods_512.mp4`](movies/rt_methods_512.mp4) (3.0 MB, 1600×900,
+367 frames, z = 14.2 → 5): rays (case A + RR) | M1 | OTVET | rays (case B),
+slices of x_HII, log T and log Γ_HI (10⁻¹⁴–10⁻¹¹ s⁻¹) through the box
+centre, x_HII,V(z) and the median Γ_HI of the ionised cells. Full
+resolution: `$RUNS/rt_methods_512/compare.mp4` (7.6 MB); each run's own
+movie is `$RUNS/<run>/run/movie/cosmo.mp4`.
+
+![z = 6.15](figures/rt_methods_512_z6.15.png)
+
+*z = 6.15, x_HII,V ≈ 0.9: the last neutral islands.*
+
+## 9. Conclusions
+
+- **Global quantities do not depend on the RT method:** the history to
+  |Δx_V| ≤ 0.017, τ_es to 0.2 %, the volume-mean Γ_HI after overlap to
+  1–2 %, ṅ identical. A calibration of f_esc on ṅ, the end of
+  reionization or ⟨Γ⟩ carries over between methods.
+- **The distribution and spatial structure of Γ_HI do.**
+  - *Around sources:* the rays have the sharpest proximity peaks
+    (≈ 1000 ⟨Γ⟩), OTVET broader zones (300 ⟨Γ⟩, the largest number of
+    cells at several ⟨Γ⟩), M1 the weakest (50–80 ⟨Γ⟩).
+  - *In the diffuse IGM after overlap:* the rays have the widest
+    distribution (±35 %, with a long shadowed low tail; part of the
+    cell-to-cell scatter is ray sampling noise), OTVET ±22 % with a hard
+    floor at 0.6 ⟨Γ⟩, M1 ±13 % narrowing to ±6 % by z = 5. On large
+    scales (k ≲ 6 h/Mpc) M1 has 0.07–0.4× the rays' P_Γ and a different
+    pattern (r = 0.1–0.6 at k ≲ 1.5), OTVET 2–9× with the same pattern
+    (r ≥ 0.95); both departures grow with time after overlap.
+  - *In the last neutral islands:* M1's islands sit in different places
+    (11 % of cells off by > 0.1 in x_HII at z = 6.4, OTVET 6 %, case B
+    rays 4 %); the low-Γ tail of the ionised gas around them is longest
+    for the rays and shortest for OTVET.
+- **Observable consequence:** at fixed mean Γ the Lyα mean flux differs by
+  20–35 % between methods (rays 0.215, M1 0.175, OTVET 0.161 at
+  z = 5.44), so a forest-based f_esc calibration and any Γ-fluctuation
+  statistic (the UVB fluctuation signal in the forest, P_Γ) are
+  method-dependent. The rays remain the reference; OTVET is the cheaper
+  method that keeps the rays' pattern (3× cheaper here), M1 the one that
+  does not.
+- **Recombination radiation** (case A + RR against case B, rays): Γ +10 %,
+  λ_mfp −30 %, P_Γ and the history nearly unchanged, at 1.7× the rays' cost
+  and no visible cost for M1/OTVET.
+
+## 10. Open
+
+- The analytic prediction for P_Γ (user) against §6.
+- Γ is the last RT substep's: a substep average would remove most of the
+  rays' sampling noise (§6) at the cost of an accumulator per cell.
+- The forest still misses the data by 2–3× (unresolved sinks; AMR).
+- `ray_rotate = 3` is in the moment runs' params but has no effect there.

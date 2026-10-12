@@ -133,6 +133,8 @@ def main():
     ap.add_argument("--nbins", type=int, default=24)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--clip", type=float, default=0.0)
+    ap.add_argument("--zlist", default="", help="comma list: only the reference snapshots nearest "
+                    "these redshifts")
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
     specs, labels = [], []
@@ -146,14 +148,18 @@ def main():
     snaps = [snapshots(s, a.zmin, a.zmax) for s in specs]
     if not snaps[0]:
         sys.exit("no snapshots with Gamma_HI in the reference for %g <= z <= %g" % (a.zmin, a.zmax))
+    zref = sorted(snaps[0], reverse=True)
+    if a.zlist:
+        zref = sorted({min(zref, key=lambda z: abs(z - float(t))) for t in a.zlist.split(",")},
+                      reverse=True)
     sets = []
-    for z0 in sorted(snaps[0], reverse=True):
+    for z0 in zref:
         pick = []
         for sn in snaps:
             zn = min(sn, key=lambda z: abs(z - z0)) if sn else None
             pick.append((zn, sn[zn]) if zn is not None and abs(zn - z0) <= a.tol else None)
         sets.append((z0, pick))
-    tag = "gamma_pk" + ("_clip%g" % a.clip if a.clip > 0 else "")
+    tag = "gamma_pk" + ("_clip%g" % a.clip if a.clip > 0 else "") + ("_sel" if a.zlist else "")
     rep = [("# Gamma_HI capped at %g <Gamma_HI>_V\n" % a.clip if a.clip > 0 else "") +
            "# Gamma_HI power spectra: delta = Gamma/<Gamma>_V - 1; k [h/Mpc], P [(Mpc/h)^3], "
            "Delta2 = k^3 P/2pi^2; ratio and r(k) relative to the first run (%s); box %g Mpc/h"
