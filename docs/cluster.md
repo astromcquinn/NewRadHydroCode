@@ -137,8 +137,16 @@ Built by the production-256 thread from the worktree
 
 The same `build_hyak.sh` job must be submitted with `sbatch` from the
 repository root (it reads `SLURM_SUBMIT_DIR`); `sbatch --chdir` does not
-work. The job's exit status is ctest's, so Slurm reports the fast suite as
-FAILED whenever the 10 platform failures are present.
+work. The job's exit status is ctest's, so Slurm reported the fast suite as
+FAILED whenever the 10 platform failures were present.
+
+**Since 2026-10-12 (user decision) these 10 tests carry the label
+`platform_ref`** and `build_hyak.sh` leaves them out of its fast set
+(`-LE "long|nightly|platform_ref"`), so a green job means no new failures.
+They stay in CI (Ubuntu 24.04, where the references were made).
+`CTEST_LABELS=platform_ref` runs just them, e.g. to confirm the
+differences are still only the ones described above. On klone, the
+bitwise check of the RT is the live gfortran harness built there.
 
 ## 4. Where things live
 

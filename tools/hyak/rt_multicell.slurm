@@ -71,7 +71,8 @@ for k in $KS; do
     noics=""
     if [ -n "$first" ] || [ -n "${ICS:-}" ]; then noics="--no-ics"; fi
     python3 tools/production/make_production.py "$P" --N "$N" --c-reduced "$C" \
-        --hydro-scheme unsplit --redshift-per-distance 0 --movie-dz 0.05 --movie-slab 8 \
+        --hydro-scheme unsplit --redshift-per-distance 0 --recomb-case B --recomb-rad 0 \
+        --movie-dz 0.05 --movie-slab 8 \
         --movie-fields fHI --restart-every 4 --rt-cells-per-substep "$k" $noics ${EXTRA_PROD:-} \
         ${ZDATA1:+--zdata1 "$ZDATA1"} || exit 1
     if [ -n "${ICS:-}" ]; then

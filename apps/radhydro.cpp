@@ -107,6 +107,9 @@ struct RunParams {
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
   int restart_keep_latest = 1;
+  // > 0: numbered checkpoints (checkpoint_NNNN.bin, as restart_keep_latest = 0),
+  // of which only the newest restart_keep are kept (0: as restart_keep_latest)
+  int restart_keep = 0;
   // Movie frames independent of the hydro step: every movie_dz in redshift,
   // starting at movie_z0 (default: the first zdata1 redshift, where RT
   // starts), written from inside the RT substeps (0: off)
@@ -122,8 +125,8 @@ struct RunParams {
   std::string movie_slab_axes = "xyz";
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
-  // (without Ray/, which holds every ray: 96 B each) or dm (only xv_dm, as
-  // the original with one thread)
+  // (without Ray/, which holds every ray: 96 B each), dm (only xv_dm, as
+  // the original with one thread) or gas (only Gas/u_gas)
   std::string fields;
   std::string data_files = "all";
   // Sources
@@ -203,6 +206,10 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.restart_every = std::stoi(val);
   else if (key == "restart_keep_latest")
     P.restart_keep_latest = std::stoi(val);
+  else if (key == "restart_keep") {
+    P.restart_keep = std::stoi(val);
+    if (P.restart_keep < 0) throw std::runtime_error("restart_keep must be >= 0");
+  }
   else if (key == "movie_dz")
     P.movie_dz = to_double(val);
   else if (key == "movie_z0")
@@ -223,8 +230,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "fields")
     P.fields = val;
   else if (key == "data_files") {
-    if (val != "all" && val != "norays" && val != "dm")
-      throw std::runtime_error("data_files must be all, norays or dm");
+    if (val != "all" && val != "norays" && val != "dm" && val != "gas")
+      throw std::runtime_error("data_files must be all, norays, dm or gas");
     P.data_files = val;
   }
   else if (key == "deterministic_parallel") {
@@ -322,6 +329,11 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
 void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
                       const std::vector<float>& xv, const std::vector<float>& vgas, bool data1,
                       const std::string& which) {
+  if (which == "gas") {  // only Gas/u_gas (the Lya forest velocities of igm_stats.py)
+    std::filesystem::create_directories(odir + "/Gas");
+    write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
+    return;
+  }
   write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
   if (which == "dm") return;
   std::filesystem::create_directories(odir + "/Gas");
@@ -695,6 +707,12 @@ int main(int argc, char** argv) {
       W("fgam", G.fgam);
       W("tau", G.tau);
       W("gamma", G.gamma);
+      // gammaHI: only the HI rate, gamma(1) (written only when listed in fields)
+      if (("," + P.fields + ",").find(",gammaHI,") != std::string::npos) {
+        std::vector<float> g1(static_cast<std::size_t>(G.ncell));
+        for (std::int64_t c = 0; c < G.ncell; ++c) g1[c] = G.gamma[c * 3];
+        W("gammaHI", g1);
+      }
       W("lambda", G.lambda);
       W("dx", G.dx);
       W("u_gas", s.gas.u);
@@ -754,6 +772,13 @@ int main(int argc, char** argv) {
       }
       write_f32(path, slabbuf.data(), slabbuf.size());
     };
+    // gammaHI: the HI component of rt_grid%gamma alone (one float per cell)
+    std::vector<float> gammahi_buf, gion;
+    auto gamma_hi = [&](const RTGrid& G) -> const std::vector<float>& {
+      gammahi_buf.resize(static_cast<std::size_t>(G.ncell));
+      for (std::int64_t c = 0; c < G.ncell; ++c) gammahi_buf[c] = G.gamma[c * 3];
+      return gammahi_buf;
+    };
     auto write_frame = [&](const Simulation& ss) {
       const RTGrid& G = ss.rt;
       char name[64];
@@ -766,6 +791,7 @@ int main(int argc, char** argv) {
         else if (fld == "rhog") v = &G.rhog;
         else if (fld == "ngam") v = &G.ngam;
         else if (fld == "gamma") v = &G.gamma;
+        else if (fld == "gammaHI") v = &gamma_hi(G);
         else throw std::runtime_error("movie_fields: unknown field " + fld);
         if (P.movie_slab > 0) {
           std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.slab", dst.movie_frame, fld.c_str());
@@ -781,9 +807,35 @@ int main(int argc, char** argv) {
         xm = xm + static_cast<double>(G.rhog[c]) * (1 - static_cast<double>(G.fHI[c]));
         mass = mass + static_cast<double>(G.rhog[c]);
       }
-      char line[256];
-      std::snprintf(line, sizeof line, "%6d %6d %6d %.8f %.8e %.8e\n", dst.movie_frame,
-                    ss.clk.istep, ss.clk.istep_rt, ss.clk.redshift, xv / cfg.nrtcr, xm / mass);
+      // Whole-box Gamma_HI statistics (gamma(1) of the last RT substep, s^-1):
+      // volume mean, median and mean over the ionised cells (x_HII > 0.5),
+      // volume fraction with Gamma_HI > 1e-14 (serial sums: thread-independent)
+      double gsum = 0, gisum = 0;
+      std::int64_t nhi = 0;
+      gion.clear();
+      for (std::int64_t c = 0; c < G.ncell; ++c) {
+        const float g = G.gamma[c * 3];
+        gsum = gsum + static_cast<double>(g);
+        if (g > 1e-14) nhi += 1;
+        if (1 - static_cast<double>(G.fHI[c]) > 0.5) {
+          gisum = gisum + static_cast<double>(g);
+          gion.push_back(g);
+        }
+      }
+      const std::int64_t nion = static_cast<std::int64_t>(gion.size());
+      double gmed = 0;
+      if (nion > 0) {
+        auto mid = gion.begin() + nion / 2;
+        std::nth_element(gion.begin(), mid, gion.end());
+        gmed = *mid;
+        if (nion % 2 == 0) gmed = 0.5 * (gmed + *std::max_element(gion.begin(), mid));
+      }
+      char line[384];
+      std::snprintf(line, sizeof line, "%6d %6d %6d %.8f %.8e %.8e %.6e %.6e %.6e %.8e\n",
+                    dst.movie_frame, ss.clk.istep, ss.clk.istep_rt, ss.clk.redshift,
+                    xv / cfg.nrtcr, xm / mass, gsum / cfg.nrtcr, gmed,
+                    nion > 0 ? gisum / static_cast<double>(nion) : 0.0,
+                    static_cast<double>(nhi) / cfg.nrtcr);
       movielog << line << std::flush;
       dst.movie_frame += 1;
       dst.movie_next -= P.movie_dz;
@@ -819,12 +871,15 @@ int main(int argc, char** argv) {
       }
       if (restart_from.empty()) {
         if (P.movie_slab > 0)
-          movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.slab: "
-                      "float32 slabs of rt_grid fields, geometry in slab.txt; xHII over the "
-                      "whole box)\n";
+          movielog << "# frame istep istep_rt redshift xHII_V xHII_M GammaHI_V GammaHI_ion_med "
+                      "GammaHI_ion_mean fV_GammaHI_gt_1e-14 (frame_NNNNN_<field>.slab: "
+                      "float32 slabs of rt_grid fields, geometry in slab.txt; xHII and GammaHI "
+                      "[s^-1, last RT substep; ion: x_HII > 0.5] over the whole box)\n";
         else
-          movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
-                      "float32 (N,N,N) rt_grid fields)\n";
+          movielog << "# frame istep istep_rt redshift xHII_V xHII_M GammaHI_V GammaHI_ion_med "
+                      "GammaHI_ion_mean fV_GammaHI_gt_1e-14 (frame_NNNNN_<field>.bin: "
+                      "float32 (N,N,N) rt_grid fields; GammaHI [s^-1, last RT substep; ion: "
+                      "x_HII > 0.5])\n";
         dst.movie_next = P.movie_z0 > 0 ? P.movie_z0 : zdata1.front();
       }
       s.substep_hook = [&](Simulation& ss) {
@@ -978,11 +1033,23 @@ int main(int argc, char** argv) {
         if (io) std::filesystem::create_directories(odir + "/restart");
         backend_barrier();
         char name[64];
-        if (P.restart_keep_latest)
+        if (P.restart_keep_latest && P.restart_keep == 0)
           std::snprintf(name, sizeof name, "/restart/checkpoint.bin");
         else
           std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
         write_checkpoint(odir + name, s, hs, pm, dst);
+        if (P.restart_keep > 0 && io) {
+          // keep the newest restart_keep numbered checkpoints (names sort by step)
+          std::vector<std::string> ck;
+          for (const auto& e : std::filesystem::directory_iterator(odir + "/restart")) {
+            const std::string f = e.path().filename().string();
+            if (f.size() == 19 && f.compare(0, 11, "checkpoint_") == 0 &&
+                f.compare(15, 4, ".bin") == 0)
+              ck.push_back(e.path().string());
+          }
+          std::sort(ck.begin(), ck.end());
+          for (std::size_t i = 0; i + P.restart_keep < ck.size(); ++i) std::filesystem::remove(ck[i]);
+        }
       }
 
       // Stop

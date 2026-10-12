@@ -422,7 +422,7 @@ policy on klone, and deleting the merged branches.
   grid, for halo mass resolution) goes to a separate thread started by the
   user, on Hyak.
 
-## Production defaults (unsplit hydro, redshifting per distance) and moment RT (2026-10-11)
+## Production defaults, moment RT, stored references on klone (2026-10-11/12)
 
 * **Production runs use `hydro_scheme = unsplit`** (user decision,
   confirming the choice the production-256 thread made from the
@@ -444,8 +444,17 @@ policy on klone, and deleting the merged branches.
   is not in the checkpoint).
 * **M1 and OTVET are only for comparison** with the ray tracing (user
   decision): no second-order moment transport, and no moment hand-over in
-  transparent regions (ROADMAP §4.5) for now. Open: whether our OTVET
-  should follow a specific published formulation (`docs/rt_moments.md` §5).
+  transparent regions (ROADMAP §4.5) for now.
+* **OTVET stays as implemented (2026-10-12):** the explicit, time-dependent
+  two-moment system with the optically thin Eddington tensor (minimum-image
+  1/r² sum over the source cells), solved with the same GLF scheme as M1.
+  No need to follow a specific published formulation.
+* **Stored RT references on klone (2026-10-12): skip them there.** The 10
+  tests that differ on klone's libm (last-place double sums, threshold
+  rays; `docs/cluster.md` §3) carry the label `platform_ref`;
+  `tools/hyak/build_hyak.sh` leaves it out. They are not deleted, not
+  regenerated and not given a tolerance: CI (the platform the references
+  were made on) keeps running them bit for bit.
 
 ## RT multicell thread (2026-10-11): rays crossing k cells per substep
 
@@ -494,3 +503,37 @@ policy on klone, and deleting the merged branches.
   cells, and time sub-cycling of the transport only in patches where a
   front outruns the substep (flagged from cells deposited as thick that
   transmit most of their deposit).
+## RT-methods 512³ thread (2026-10-11/12): Γ_HI from rays, M1 and OTVET
+
+* **Request (user):** three 40 Mpc/h, 512³ runs differing only in
+  `rt_method`, at one constant `c_reduced = 0.2`, f_esc = 0.23,
+  `redshift_per_distance = 1`, small output (slab movie frames every
+  Δz = 0.025, snapshots at z = 7–5), whole-box Γ_HI statistics in
+  `frames.txt`, Γ tools, and the comparison of Γ_HI after overlap
+  (`docs/rt_methods_512.md`).
+* **User decisions during the thread:**
+  - **store only the HI photoionization rate** (new field `gammaHI`, one
+    float per cell, instead of the 3-component `gamma`);
+  - **case A with transported recombination radiation for all three
+    methods, and make it the default** — done as the `make_production.py`
+    default (`recomb_case = A`, `recomb_rad = 1`, `recomb_rad_block = 4`);
+    the C++ default stays the original (ground rule 3);
+    `--recomb-case B --recomb-rad 0` gives case B;
+  - **one more run with case B, no recombination radiation** (taken with
+    the rays, the reference);
+  - **the 3D power spectrum of Γ after overlap** (analytic work predicts a
+    difference between the moment methods and the rays): extra Γ cubes at
+    every hydro step after z ≈ 5.4 from bit-identical continuations, and
+    `tools/analysis/gamma_power.py`.
+* **Choices made in this thread** (open to revision): the RT starts at the
+  first `zdata1`, so the snapshot list starts at z = 15 (first sources at
+  z ≈ 13); `data_files = gas` (only `Gas/u_gas` at the snapshots, enough for
+  `igm_stats.py` without the source-start λ_mfp) to save disk;
+  `restart_keep = n` for "the last two checkpoints"; the ICs of
+  `reion512_40mpc_f0.1` reused (identical parameters).
+* **Block-emission clumps (2026-10-12).** The rays' block emission of
+  recombination radiation made spurious self-shielded clumps with case A +
+  RR (`docs/rt_methods_512.md` §6c). Fixed behind `recomb_rad_cell_onspot = τ`
+  (C++ default 0; `make_production.py` default 1). **User: do not rerun the
+  512³ case A + RR ray run**; its post-overlap residual HI, ρ_HI/x_HII power
+  and λ_mfp stay flagged as affected in the document.

@@ -13,7 +13,7 @@ Test movie (64³, 10 Mpc/h, 0.9 MB): [`docs/movies/reion64_test.mp4`](movies/rei
 ```
 # set up the run with movie frames of x_HI, T and rho_gas every dz = 0.05
 python3 tools/production/make_production.py RUN --N 128
-# (N >= 256: add --movie-slab 8 to store only slabs; see "Slab frames")
+# (make_production.py stores slabs of 1 cell by default; see "Slab frames")
 OMP_NUM_THREADS=4 build/radhydro RUN RUN/run --quiet
 
 # movie + stills (RUN/run/movie/cosmo.mp4, RUN/run/movie/cosmo_stills/)
@@ -70,6 +70,21 @@ stays at 0, as it should.
 | no movie frames | `step_NNNN/{fHI,temp,rhog}.bin` | Each step with fields becomes one frame. |
 | x_HII,V, x_HII,M | `frames.txt` (or `stats.txt`) | Sums over the whole box, so they don't depend on the slice. |
 | box | `params.txt` in RUNDIR or RUNDIR/.. | Or `--box`. |
+
+**Γ_HI in the frames (2026-10-11).** `movie_fields` may list `gammaHI`:
+the HI photoionization rate of the last RT substep, one float per cell (the
+HI component of `gamma`, which has 3 and which the slab reader cannot read).
+`frames.txt` lines also end with four whole-box Γ_HI columns, named in the
+header: `GammaHI_V` (volume mean), `GammaHI_ion_med` and `GammaHI_ion_mean`
+(median and mean over the cells with x_HII > 0.5) and `fV_GammaHI_gt_1e-14`
+(volume fraction with Γ_HI > 10⁻¹⁴ s⁻¹), all in s⁻¹ from `gamma(1)` of
+the last RT substep before the frame. Older files have six columns; the
+readers (`reion.py` `frames_table`/`read_gamma`, `reion_history.py`, the
+movie tools) take either, and also a file whose lines change length at a
+restart. `compare_movie.py` adds a log Γ_HI row (fixed range
+10⁻¹⁴–10⁻¹¹ s⁻¹, `--range-gamma`, `--rows`) and a panel with the median
+Γ_HI of the ionised cells when every run has `gammaHI` frames;
+`stills.py` adds a Γ_HI column when the frames have it.
 
 **Frames before the RT starts are skipped.** The C++ writes movie frames from
 `movie_z0` (by default the first zdata1, z = 15). Before the first step with
@@ -152,8 +167,14 @@ just the slabs, frequently, even when its full snapshots are rare.
 | `movie_slab` | 0 | 0: each frame field is the full cube, `frame_NNNNN_<field>.bin`, exactly as before. t > 0: only slabs of t cells, `frame_NNNNN_<field>.slab`. |
 | `movie_slab_axes` | `xyz` | The slab normals: distinct letters of `xyz`, in the order stored. |
 
-`make_production.py --movie-slab 8` writes `movie_slab = 8`; this is the
-recommended setting for N ≥ 256.
+`make_production.py` writes `movie_slab = 1` by default (user,
+2026-10-12): the three central planes, 3 MB per field and frame at 512³.
+The movies show one plane, so that is all they need; a thicker slab
+(`--movie-slab t`) only adds thin projections (`--thick`), a slice moved
+by up to ±t/2 cells, and `stills.py`'s 2-cell default (with 1-cell slabs
+it uses 1 cell and says so). The 40 Mpc/h 512³ runs of
+`docs/rt_methods_512.md` used t = 8: 38 GB of frames per run, of which the
+movies used 1 plane in 24.
 
 **Layout.**
 

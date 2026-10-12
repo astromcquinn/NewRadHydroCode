@@ -51,6 +51,35 @@ def nH0():
     return X * OB * rho_c / MH
 
 
+# movie/frames.txt columns: frame istep istep_rt redshift xHII_V xHII_M, then
+# (runs since 2026-10-11) GammaHI_V GammaHI_ion_med GammaHI_ion_mean
+# fV_GammaHI_gt_1e-14 [s^-1; gamma(1) of the last RT substep, ion: x_HII > 0.5]
+FRAME_COLS = 10
+
+
+def frames_table(run_dir):
+    """movie/frames.txt as an (n, FRAME_COLS) float array; columns a line does
+    not have (files written before the Gamma columns, or a run restarted
+    across that change) are nan."""
+    rows = []
+    with open(os.path.join(run_dir, "movie", "frames.txt")) as fp:
+        for line in fp:
+            p = line.split()
+            if not p or p[0].startswith("#"):
+                continue
+            v = [float(x) for x in p[:FRAME_COLS]]
+            rows.append(v + [np.nan] * (FRAME_COLS - len(v)))
+    return np.array(rows, dtype=float).reshape(-1, FRAME_COLS)
+
+
+def read_gamma(run_dir):
+    """z and the whole-box Gamma_HI columns of movie/frames.txt (nan where
+    the file has none): dict with z, V (volume mean), ion_med, ion_mean
+    (x_HII > 0.5) and fV (volume fraction with Gamma_HI > 1e-14 s^-1)."""
+    f = frames_table(run_dir)
+    return dict(z=f[:, 3], V=f[:, 6], ion_med=f[:, 7], ion_mean=f[:, 8], fV=f[:, 9])
+
+
 def read_frames(run_dir, valid_only=False):
     """frame, z, <x_HII>_V, <x_HII>_M from movie/frames.txt.
 
@@ -58,7 +87,7 @@ def read_frames(run_dir, valid_only=False):
     uninitialised rt_grid (fHI = 0, rhog = 0: x_V = 1, x_M = nan); the gas is
     neutral then, so x = 0 is returned for them. valid_only drops them.
     """
-    f = np.loadtxt(os.path.join(run_dir, "movie", "frames.txt"), ndmin=2)
+    f = frames_table(run_dir)
     fr, z, xV, xM = f[:, 0].astype(int), f[:, 3], f[:, 4], f[:, 5]
     pre = ~np.isfinite(xM)
     if valid_only:

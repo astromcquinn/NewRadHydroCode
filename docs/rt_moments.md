@@ -221,6 +221,8 @@ measure it on the cluster. Cells whose stencil holds no photons are skipped.
   (1/r² weighted, optically thin) is the defining OTVET ingredient.
   `kSelfWeight` (the source cell's own weight, 4) is a choice; it only
   matters where several sources compete within a few cells.
+  The user keeps this explicit formulation (2026-10-12, `docs/PLAN.md`):
+  the moment methods are for comparison only.
 - **No recombination radiation** (as with the rays, where it is off).
 - **Not validated against the Iliev et al. 2006/2009 tests** quantitatively.
   That would be the next step, with plane-parallel sources for the shadow
