@@ -27,8 +27,14 @@
 #   SERIAL     1: also run the serial code on all cores (default on one node)
 #   HYAK_MODULES  modules (default "ompi/4.1.6-2")
 #
-# Memory: every rank holds the full serial state (Stage D) and rank 0 reads
-# the whole checkpoint, so ask for the node's memory at 512^3 (--mem=1400G).
+# Memory: every rank holds the full serial state (Stage D: about 15 GB at
+# 256^3 and 40-50 GB at 512^3) and rank 0 reads the whole checkpoint, so at
+# 512^3 ask for the node's memory (--mem=1400G) and run fewer, wider ranks:
+#   sbatch --exclusive --nodes=2 --ntasks=24 --cpus-per-task=16 --mem=1400G \
+#          --export=ALL,PROB=...,CK=...,THREADS=16 tools/hyak/amrex_scaling.slurm
+# (24 ranks x 8 threads per node overflowed 1.5 TB at 512^3 in the restart.)
+# An OOM-killed rank aborts the step (--kill-on-bad-exit); without it the
+# other ranks wait in MPI until the time limit.
 # Peak RSS per rank: the last line of timing.txt (peak_rss_MB of rank 0 and
 # the min/max over the ranks) and sacct's MaxRSS of the job steps, printed
 # at the end.
@@ -39,6 +45,7 @@
 #SBATCH --ntasks=24
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=512G
+#SBATCH --time=06:00:00
 #SBATCH --exclusive
 #SBATCH --output=%x-%j.out
 set -u
@@ -69,7 +76,7 @@ common=(--quiet --restart "$CK" --set run_steps="$STEPS" --set restart_every=0 -
 # the backend: one rank per CCD, threads pinned inside it
 export OMP_NUM_THREADS=$THREADS OMP_PLACES=cores OMP_PROC_BIND=close
 rm -rf "$AMREX_OUT"
-srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores \
+srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
   "$EXE" "$PROB" "$AMREX_OUT" "${common[@]}" --set rt_backend=amrex --set deterministic_parallel=0 \
   --set amrex_max_grid_size="$MGS" > "$AMREX_OUT.log" 2>&1
 echo "amrex rc=$?"; tail -3 "$AMREX_OUT.log"
