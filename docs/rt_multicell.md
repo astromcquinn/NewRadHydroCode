@@ -452,9 +452,11 @@ What k does:
   emission, then the merges).
 
 ![ray statistics](figures/rt_multicell_rays_lognormal.png)
+![ray statistics, uniform_8src](figures/rt_multicell_rays_uniform8.png)
 
-*Live rays, splits and merges per substep on `lognormal_16src` (exposure +
-pc), on a common time axis (k = 1 substeps).*
+*Live rays, splits and merges per substep on `lognormal_16src` (top) and
+`uniform_8src` (bottom), exposure + pc, on a common time axis (k = 1
+substeps).*
 
 ![metrics vs k](figures/rt_multicell_fields.png)
 
