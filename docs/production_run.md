@@ -25,9 +25,17 @@ the original behaviour:
 | `movie_dz`, `movie_z0`, `movie_fields` | 0, first zdata1, `fHI,temp` | movie frames every `movie_dz` in redshift, written from inside the RT substeps (section 4) |
 | `movie_slab`, `movie_slab_axes` | 0, `xyz` | t > 0: write only the slabs of t cells through the box centre normal to each axis listed, instead of the full cube (`docs/movies.md`, "Slab frames"); 0: the full cube |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes |
+| `restart_keep` | 0 | n > 0: numbered checkpoints `checkpoint_NNNN.bin`, of which only the newest n are kept (deleted after each successful write; `reion_production.slurm` resumes from the newest); 0: as `restart_keep_latest` |
+| `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list) and the snapshot files: `all`, `norays`, `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
-params.txt of the production configuration.
+params.txt of the production configuration. **Since 2026-10-11 that
+configuration is case A with the recombination radiation transported**
+(`recomb_case = A`, `recomb_rad = 1`, `recomb_rad_block = 4`;
+`docs/recomb_radiation.md`; user decision for the 40 Mpc/h 512³ RT-method
+runs, `docs/rt_methods_512.md`); `--recomb-case B --recomb-rad 0` gives the
+original on-the-spot case B. `recomb_rad` runs only on the serial RT
+(`rt_backend = serial`).
 
 ## 1. Reduced speed of light
 
@@ -301,7 +309,7 @@ movie tool, `tools/movies/make_movie.py` (`docs/movies.md`). Frames
 written before the first RT step carry an uninitialised rt_grid (fHI =
 rhog = 0, x_HII,M = nan in frames.txt); the movie tool skips them.
 
-At N ≥ 256 set `movie_slab = 8` (`make_production.py --movie-slab 8`): each
+At N ≥ 256 use slab frames (`make_production.py` writes `movie_slab = 1` by default since 2026-10-12; earlier runs used 8): each
 frame then holds three 8-cell slabs per field instead of the cube, 25 MB
 instead of 512 MB per field at 512³ (`docs/movies.md`, "Slab frames").
 

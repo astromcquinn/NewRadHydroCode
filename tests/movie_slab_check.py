@@ -3,14 +3,17 @@
 
 usage: movie_slab_check.py RADHYDRO PROBLEM WORKDIR [--set key=value ...]
 
-Runs PROBLEM three times with movie frames (fHI, temp, rhog, gamma):
+Runs PROBLEM three times with movie frames (fHI, temp, rhog, gamma, gammaHI):
   full   movie_slab = 0 (default): full cubes, frame_NNNNN_<field>.bin;
   slab   movie_slab = 4 (all three axes);
-  slab3  movie_slab = 3, movie_slab_axes = zx (odd thickness, axis order).
+  slab3  movie_slab = 3, movie_slab_axes = zx (odd thickness, axis order);
+  slab1  movie_slab = 1 (the make_production.py default).
 Checks that the slab runs write no cubes, that every slab file holds exactly
 the cells of the full cube that slab.txt describes (gamma: 3 components per
 cell), and that frames.txt (whole-box x_HII means) is the same in all runs
-apart from its header. Then runs the tools on the slab frames and compares
+apart from its header, and that its Gamma_HI columns (volume mean, median
+and mean over x_HII > 0.5, volume fraction above 1e-14 s^-1) and the
+gammaHI frames match the full gamma cubes. Then runs the tools on the slab frames and compares
 with the full cubes: reion.py (identical output), make_movie.py stills of
 the default slice and of a projection over the slab (identical PNGs), the
 error for a slice outside the slab, stills.py, and the planar front.
@@ -58,9 +61,10 @@ def main():
     if os.path.isdir(work):
         shutil.rmtree(work)
     os.makedirs(work)
-    common = sets + ["--set", "movie_fields=fHI,temp,rhog,gamma"]
+    common = sets + ["--set", "movie_fields=fHI,temp,rhog,gamma,gammaHI"]
     cases = {"full": [], "slab": ["--set", "movie_slab=4"],
-             "slab3": ["--set", "movie_slab=3", "--set", "movie_slab_axes=zx"]}
+             "slab3": ["--set", "movie_slab=3", "--set", "movie_slab_axes=zx"],
+             "slab1": ["--set", "movie_slab=1"]}
     dirs = {}
     for name, extra in cases.items():
         d = os.path.join(work, name, "run")
@@ -77,7 +81,31 @@ def main():
     check(len(lines) > 2, "too few movie frames")
     check(not os.path.exists(os.path.join(full, "movie", "slab.txt")), "full run wrote slab.txt")
 
-    for name, t, axes in (("slab", 4, "xyz"), ("slab3", 3, "zx")):
+    # Gamma_HI columns of frames.txt and the gammaHI frames, from the full cubes
+    ng = 0
+    for ln in lines:
+        p = ln.split()
+        check(len(p) == 10, f"frames.txt line has {len(p)} columns, not 10")
+        if len(p) != 10:
+            break
+        fr = int(p[0])
+        g3 = np.fromfile(os.path.join(full, "movie", "frame_%05d_gamma.bin" % fr), "<f4").reshape(3, -1, order="F")
+        g1 = np.fromfile(os.path.join(full, "movie", "frame_%05d_gammaHI.bin" % fr), "<f4")
+        check(np.array_equal(g1, g3[0]), f"frame {fr}: gammaHI is not gamma(1)")
+        x = 1 - np.fromfile(os.path.join(full, "movie", "frame_%05d_fHI.bin" % fr), "<f4").astype(np.float64)
+        gi = g1[x > 0.5]
+        want = [g1.astype(np.float64).sum() / g1.size,
+                float(np.median(gi)) if gi.size else 0.0,
+                gi.astype(np.float64).mean() if gi.size else 0.0,
+                np.count_nonzero(g1.astype(np.float64) > 1e-14) / g1.size]
+        for i, w in enumerate(want):
+            v = float(p[6 + i])
+            if not abs(v - w) <= 2e-6 * abs(w) + 1e-300:
+                check(False, f"frame {fr}: column {7 + i} = {v:.8e}, from the cubes {w:.8e}")
+        ng += gi.size > 0
+    print(f"  Gamma_HI columns checked on {len(lines)} frames ({ng} with ionised cells)")
+
+    for name, t, axes in (("slab", 4, "xyz"), ("slab3", 3, "zx"), ("slab1", 1, "xyz")):
         d = dirs[name]
         print(f"{name}: movie_slab = {t}, axes {axes}")
         info = mf.run_slab_info(d)
@@ -89,7 +117,7 @@ def main():
         n = 0
         for ln in lines:
             fr = int(ln.split()[0])
-            for fld, nc in (("fHI", 1), ("temp", 1), ("rhog", 1), ("gamma", 3)):
+            for fld, nc in (("fHI", 1), ("temp", 1), ("rhog", 1), ("gamma", 3), ("gammaHI", 1)):
                 cube = np.fromfile(os.path.join(full, "movie", "frame_%05d_%s.bin" % (fr, fld)),
                                    "<f4").reshape((nc, N, N, N), order="F")
                 want = []
@@ -158,6 +186,13 @@ def main():
     movie("slab", "mv_slab_planar", "--style", "planar")
     check("slab normal to" in open(os.path.join(work, "mv_slab_planar.log")).read(),
           "planar style on slab frames: no note")
+    # stills.py on 1-cell slabs (the make_production.py default) with its
+    # default --slab 2: falls back to the stored cell
+    out = os.path.join(work, "stills_slab1")
+    run([sys.executable, os.path.join(MOVIES, "stills.py"), dirs["slab1"], out, "--z", "24,22"],
+        out + ".log")
+    check(os.path.exists(os.path.join(out, "stills_grid.png")), "stills.py slab1: no grid")
+    check("using 1 cell" in open(out + ".log").read(), "stills.py slab1: no fallback note")
     # stills.py: slab frames, default position (most ionised within the slab)
     out = os.path.join(work, "stills_slab")
     run([sys.executable, os.path.join(MOVIES, "stills.py"), dirs["slab"], out, "--z", "24,22"],

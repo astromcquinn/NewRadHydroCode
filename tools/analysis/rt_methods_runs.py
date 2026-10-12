@@ -8,7 +8,15 @@ usage: rt_methods_runs.py RUN:label [RUN:label ...] --outdir DIR
 RUN is a run directory (<problem>/run). The first run is the reference (the
 rays). Writes to DIR:
   history.png     x_HII,V and x_HII,M against z (movie/frames.txt), and the
-                  difference from the reference;
+                  difference from the reference; when the frames carry the
+                  Gamma_HI columns also the volume mean, the median and
+                  mean over ionised cells (x_HII > 0.5), the volume fraction
+                  with Gamma_HI > 1e-14 s^-1, and their ratios to the
+                  reference;
+  maps_gamma_zXX.png  middle-plane log10 Gamma_HI of each run at the zdata1
+                  outputs (step_*/gammaHI.bin, or component 1 of gamma.bin);
+  gamma_pdf.png   the PDF of log10 Gamma_HI in ionised cells (x_HII > 0.5)
+                  at each of those outputs;
   maps_zXX.png    slices (the middle plane) of x_HII and T for each run at
                   the zdata1 outputs present in all runs (step_*/fHI.bin);
   compare.txt     z at 10/25/50/75/90/99% ionised (V and M), tau_es, and per
@@ -38,6 +46,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import reion_history as rh  # noqa: E402
+import reion  # noqa: E402
 
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 
@@ -57,6 +66,39 @@ def outputs(run):
         if z is not None and t.size and t.min() > 0:
             out[round(z, 4)] = d
     return out
+
+
+def match_outputs(outs, tol=0.05):
+    """[(z_ref, [step dir per run])]: for each output of the reference, the
+    output of every run nearest in redshift, if all are within tol (the
+    zdata1 outputs land at slightly different redshifts once the hydro
+    steps of the runs differ)."""
+    sets = []
+    for zt in sorted(outs[0], reverse=True):
+        pick = []
+        for o in outs:
+            if not o:
+                break
+            zn = min(o, key=lambda z: abs(z - zt))
+            if abs(zn - zt) > tol:
+                break
+            pick.append((zn, o[zn]))
+        if len(pick) == len(outs):
+            sets.append((zt, pick))
+    return sets
+
+
+def load_gamma(d, N):
+    """Gamma_HI [s^-1] of a step directory as [k, j, i]: gammaHI.bin, or the
+    first component of gamma.bin (float32 (3, N^3)); None if neither."""
+    p = os.path.join(d, "gammaHI.bin")
+    if os.path.exists(p):
+        return np.fromfile(p, dtype=np.float32).reshape(N, N, N)
+    p = os.path.join(d, "gamma.bin")
+    if os.path.exists(p):
+        g = np.memmap(p, dtype=np.float32, mode="r", shape=(N, N, N, 3))
+        return np.ascontiguousarray(g[..., 0])
+    return None
 
 
 def frames(run):
@@ -145,8 +187,67 @@ def main():
         rep.append(f"  {lab:10s} " + " ".join(f"{rh.z_at(z, xv, l):7.3f}" for l in lv) + "  " +
                    " ".join(f"{rh.z_at(z, xm, l):7.3f}" for l in lv) +
                    f"   {rh.tau_es(z, xm):.4f}")
+    # Gamma_HI columns of frames.txt (nan for runs written before them)
+    gam = {}
+    for r, lab in zip(runs, labels):
+        try:
+            g = reion.read_gamma(r)
+        except OSError:
+            continue
+        ok = np.isfinite(g["V"]) & np.isfinite(reion.frames_table(r)[:, 5])
+        if ok.any():
+            gam[lab] = {k: v[ok] for k, v in g.items()}
+    GKEYS = [("V", r"$\langle\Gamma_{\rm HI}\rangle_V$", "-"),
+             ("ion_med", r"median, $x_{\rm HII}>0.5$", "--"),
+             ("ion_mean", r"mean, $x_{\rm HII}>0.5$", ":")]
+    if gam:
+        rep.append("\nGamma_HI history (movie/frames.txt; s^-1, last RT substep; ion: x_HII > 0.5)")
+        rep.append("  run          z     <G>_V   med_ion  mean_ion  fV(G>1e-14)")
+        zl = [12, 10, 9, 8, 7.5, 7, 6.5, 6, 5.75, 5.5, 5.25, 5]
+        for lab, g in gam.items():
+            for zt in zl:
+                i = int(np.argmin(np.abs(g["z"] - zt)))
+                if abs(g["z"][i] - zt) <= 0.03:
+                    rep.append(f"  {lab:10s} {g['z'][i]:6.3f} {g['V'][i]:.3e} {g['ion_med'][i]:.3e} "
+                               f"{g['ion_mean'][i]:.3e} {g['fV'][i]:.4f}")
     if hist:
-        fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+        nrow = 3 if gam else 1
+        fig, ax = plt.subplots(nrow, 2, figsize=(10, 4 * nrow), squeeze=False)
+        if gam:
+            ref = labels[0]
+            for i, (lab, g) in enumerate(gam.items()):
+                c = COLORS[i % len(COLORS)]
+                for key, name, ls in GKEYS:
+                    ax[1, 0].semilogy(g["z"], g[key], ls, color=c, lw=1.6,
+                                      label=f"{lab}: {name}" if i == 0 or key == "V" else None)
+                ax[2, 0].plot(g["z"], g["fV"], "-", color=c, lw=1.6, label=lab)
+                if lab != ref and ref in gam:
+                    gr = gam[ref]
+                    zz = g["z"][(g["z"] <= gr["z"].max()) & (g["z"] >= gr["z"].min())]
+                    for key, name, ls in GKEYS:
+                        num = np.interp(zz, g["z"][::-1], g[key][::-1])
+                        den = np.interp(zz, gr["z"][::-1], gr[key][::-1])
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            ax[1, 1].plot(zz, num / den, ls, color=c, lw=1.6, label=f"{lab}/{ref}: {name}")
+                    ax[2, 1].plot(zz, np.interp(zz, g["z"][::-1], g["fV"][::-1]) -
+                                  np.interp(zz, gr["z"][::-1], gr["fV"][::-1]), "-", color=c, lw=1.6,
+                                  label=f"{lab} − {ref}")
+            ax[1, 0].set_ylabel(r"$\Gamma_{\rm HI}$ [s$^{-1}$]")
+            ax[1, 0].set_ylim(1e-15, None)
+            ax[1, 1].set_ylabel(r"$\Gamma_{\rm HI}$ / " + ref)
+            ax[1, 1].axhline(1, color="0.6", lw=1)
+            ax[1, 1].set_ylim(0.3, 3)
+            ax[1, 1].set_yscale("log")
+            ax[2, 0].set_ylabel(r"$f_V(\Gamma_{\rm HI} > 10^{-14}\,{\rm s}^{-1})$")
+            ax[2, 0].set_ylim(0, 1.02)
+            ax[2, 1].axhline(0, color="0.6", lw=1)
+            ax[2, 1].set_ylabel(r"$\Delta f_V$")
+            for x in ax[1:].ravel():
+                x.set_xlabel("z")
+                x.invert_xaxis()
+                x.legend(frameon=False, fontsize=7)
+                x.spines[["top", "right"]].set_visible(False)
+        ax = ax[0]
         ref = labels[0]
         for i, (lab, (z, xv, xm)) in enumerate(hist.items()):
             c = COLORS[i % len(COLORS)]
@@ -179,7 +280,7 @@ def main():
     outs = [outputs(r) for r in runs]
     frs = [frames(r) for r in runs]
     sets = []  # (label z, [per-run (z, location, xM or None)])
-    if all(frs):
+    if all(frs) and all(outs):
         rep.append("\nFields: movie frames nearest to the reference's zdata1 redshifts; "
                    "<x>_M from frames.txt")
         for zt in sorted(outs[0], reverse=True):
@@ -190,8 +291,7 @@ def main():
             if abs(z0 - zt) <= 0.05 and max(abs(e[0] - z0) for e in pick) <= 0.05:
                 sets.append((zt, pick))
     else:
-        common = sorted(set.intersection(*[set(o) for o in outs]), reverse=True)
-        sets = [(z, [(z, o[z], None) for o in outs]) for z in common]
+        sets = [(z, [(zr, d, None) for zr, d in pick]) for z, pick in match_outputs(outs)]
     if not sets:
         rep.append("\nno common field outputs")
     kb = [2, 4, 8, 16]
@@ -230,6 +330,66 @@ def main():
         fig.suptitle(f"z = {z:g}, middle plane", fontsize=11)
         fig.tight_layout()
         fig.savefig(os.path.join(a.outdir, f"maps_z{z:g}.png"), dpi=100)
+        plt.close(fig)
+
+    # ---- Gamma_HI at the zdata1 outputs: maps and PDF in ionised cells ----
+    gsets = match_outputs(outs)
+    gbins = np.linspace(-16, -10, 121)
+    gpdf = []
+    for z, pick in gsets:
+        N = int(round((os.path.getsize(os.path.join(pick[0][1], "fHI.bin")) / 4) ** (1 / 3)))
+        gs = [load_gamma(d, N) for _, d in pick]
+        if any(g is None for g in gs):
+            continue
+        if not any(g.max() > 0 for g in gs):
+            continue  # before the RT
+        rep_z = [f"\nGamma_HI at z = {z:g} (step outputs; ionised: x_HII > 0.5): z_run "
+                 "<G>_V  <G>_ion  med_ion  p16_ion  p84_ion  f(G=0 | ion)  f_V(G>1e-14)"]
+        fig, ax = plt.subplots(1, len(runs), figsize=(3.6 * len(runs) + 0.8, 3.6), squeeze=False)
+        hs = []
+        for i, ((zr, d), g, lab) in enumerate(zip(pick, gs, labels)):
+            ion = load(d, "fHI", N) < 0.5
+            gi = g[ion].astype(np.float64)
+            lg = np.log10(gi[gi > 0]) if gi.size else np.zeros(0)
+            q = np.percentile(gi, [16, 50, 84]) if gi.size else [np.nan] * 3
+            rep_z.append(f"  {lab:10s} {zr:7.4f} {g.mean(dtype=np.float64):.3e} "
+                         f"{(gi.mean() if gi.size else np.nan):.3e} {q[1]:.3e} {q[0]:.3e} {q[2]:.3e} "
+                         f"{(np.mean(gi <= 0) if gi.size else np.nan):.4f} {np.mean(g > 1e-14):.4f}")
+            h, _ = np.histogram(lg, bins=gbins)
+            hs.append(h / max(gi.size, 1) / np.diff(gbins)[0])
+            im = ax[0, i].imshow(np.log10(np.clip(g[N // 2], 1e-30, None)), origin="lower",
+                                 cmap="plasma", vmin=-14, vmax=-11, interpolation="nearest")
+            ax[0, i].set_title(f"{lab} (z = {zr:.3f})")
+            ax[0, i].set_xticks([])
+            ax[0, i].set_yticks([])
+        fig.colorbar(im, ax=ax[0, :].tolist(), shrink=0.9,
+                     label=r"$\log_{10}\Gamma_{\rm HI}$ [s$^{-1}$]")
+        fig.suptitle(f"z = {z:g}, middle plane", fontsize=11)
+        fig.savefig(os.path.join(a.outdir, f"maps_gamma_z{z:g}.png"), dpi=100)
+        plt.close(fig)
+        rep += rep_z
+        gpdf.append((z, hs))
+    if gpdf:
+        nc = min(3, len(gpdf))
+        nr = (len(gpdf) + nc - 1) // nc
+        fig, ax = plt.subplots(nr, nc, figsize=(4.2 * nc, 3.3 * nr), squeeze=False)
+        gc = 0.5 * (gbins[1:] + gbins[:-1])
+        for k, (z, hs) in enumerate(gpdf):
+            x = ax[k // nc, k % nc]
+            for i, (h, lab) in enumerate(zip(hs, labels)):
+                x.step(gc, h, where="mid", color=COLORS[i % len(COLORS)], lw=1.6, label=lab)
+            x.set_title(f"z = {z:g}", fontsize=10)
+            x.set_xlabel(r"$\log_{10}\Gamma_{\rm HI}$ [s$^{-1}$]")
+            x.set_ylabel("PDF per dex (ionised cells)")
+            x.set_xlim(-15, -10.5)
+            x.set_yscale("log")
+            x.set_ylim(1e-3, None)
+            x.spines[["top", "right"]].set_visible(False)
+        for k in range(len(gpdf), nr * nc):
+            ax[k // nc, k % nc].axis("off")
+        ax[0, 0].legend(frameon=False, fontsize=8)
+        fig.tight_layout()
+        fig.savefig(os.path.join(a.outdir, "gamma_pdf.png"), dpi=120)
         plt.close(fig)
 
     rep.append("\nCost (from <run>.log)")

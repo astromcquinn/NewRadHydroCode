@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-12: `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching, merged with `main` (branch `pm-refine`, below); the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-11/12, branch `pm-refine` (merged with `main` 2026-10-12; PR pending)
 
@@ -74,6 +74,49 @@ in the 40 Mpc/h, 512³ runs.
   R(N, z) correction is superseded).
 - **Open (user):** a production run with pm_refine = 2 (f_esc to
   recalibrate with `am_params_st_fof.txt`).
+
+## Done 2026-10-12: rays, M1 and OTVET at 40 Mpc/h, 512³ (branch `rt-methods-512`)
+
+**`docs/rt_methods_512.md`.** Three runs differing only in `rt_method`
+(case A + transported recombination radiation, `c_reduced = 0.2`,
+f_esc = 0.23, `redshift_per_distance`) plus rays with case B; runs
+`$RUNS/reion512_rays{,_m1,_otvet,_caseB}`, comparison
+`$RUNS/rt_methods_512/`, movie `docs/movies/rt_methods_512.mp4`.
+- **Code:** whole-box Γ_HI columns in `movie/frames.txt` (volume mean,
+  median and mean over x_HII > 0.5, f_V(Γ > 10⁻¹⁴)); field `gammaHI`
+  (HI rate only) for movie frames and snapshots; `restart_keep = n`;
+  `data_files = gas`; `make_production.py --fields --restart-keep
+  --data-files --recomb-case --recomb-rad --recomb-rad-block`, **case A +
+  RR is now its default** (user); readers of `frames.txt` accept both
+  formats. Fast suite on klone 107/107 after merging `main`; `movie_slab` checks
+  the Γ columns against the cubes.
+- **Tools:** Γ row in `compare_movie.py`, Γ column in `stills.py`, Γ
+  history/maps/PDFs in `rt_methods_runs.py`, `gamma_power.py` (P_Γ, r(k)),
+  `igm_stats.py` reads `gammaHI.bin`, `rt_methods_post.slurm`
+  (`SETS`, `EXTRA`, `IGM=1`), `field_cubes.slurm` (field cubes at every
+  step from a checkpoint or a rerun, bit-identical).
+- **Cost (one node):** rays A + RR 14.3 h / 246 GB, rays B 8.6 h / 207 GB,
+  M1 4.2 h / 143 GB, OTVET 4.8 h / 146 GB; pool guard never fired.
+  Recombination rays cost the rays 1.67× (up to 20× per step at z ≈ 11).
+- **Results:** histories and τ_es (0.053) agree to |Δx_V| ≤ 0.017; the
+  mean Γ after overlap agrees to 1–2 %; the Γ distribution does not
+  (16–84 %: rays ±35 %, OTVET ±22 %, M1 ±13 → ±6 %). P_Γ at k ≲ 6 h/Mpc:
+  M1 0.07–0.4× the rays and decorrelated (r = 0.1–0.6 at k ≲ 1.5), OTVET
+  2–9× with r ≥ 0.95; both grow with time after overlap. ⟨F_Lyα⟩ at fixed
+  ⟨Γ⟩ differs by 20–35 % between methods. RR: Γ +10 %, λ_mfp −30 %.
+- **Found and fixed (2026-10-12):** the rays' block emission of recombination
+  radiation moves a dense cell's own recombination photons to the block's
+  emitting cell, so case A + RR makes spurious self-shielded clumps (≈ 90
+  cells holding 62 % of the HI at z = 5.44; case B none). New option
+  `recomb_rad_cell_onspot = τ` (default 0; `make_production.py` 1): cells
+  thicker than τ at the HI edge keep their photons on the spot. 128³ test:
+  residual HI −4×, history and τ_es unchanged (`docs/rt_methods_512.md` §6c).
+  The 512³ case A + RR ray run predates it and is not rerun (user); its
+  post-overlap residual HI, ρ_HI power and λ_mfp are flagged in the doc.
+- **Open:** compare P_Γ with the user's analytic prediction; a
+  substep-averaged Γ to remove the rays' sampling noise; disk — the runs'
+  checkpoints (≈ 0.9 TB, incl. a saved 166 GB step-48 checkpoint of the
+  ray run) can be deleted once no restart is needed.
 
 ## Done 2026-10-12: rays crossing k cells per substep (branch `rt-multicell`, PR #27)
 

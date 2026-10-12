@@ -240,12 +240,19 @@ struct Config {
   //   recomb_rad_pool: recombination rays are only launched while the live
   //                rays stay below this fraction of Nray_max; the rest of
   //                the emission is absorbed on the spot (default 0.75).
+  //   recomb_rad_cell_onspot: tau > 0 = a cell whose own optical depth at
+  //                the HI edge (group 1, where the HI recombination photons
+  //                are) exceeds tau keeps its recombination photons on the
+  //                spot (case B) even when its block launches; 0 (default) =
+  //                the block decides for all its cells
+  //                (docs/rt_methods_512.md section 6c).
   bool recomb_case_A = false;
   bool recomb_rad = false;
   bool recomb_rad_lines = false;
   int recomb_rad_nside = 1;
   int recomb_rad_block = 2;
   double recomb_rad_pool = 0.75;
+  double recomb_rad_cell_onspot = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
