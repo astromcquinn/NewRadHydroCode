@@ -32,6 +32,7 @@ add_library(radray
   src/rt_moments_fft.cpp
   src/recomb_rad.cpp
   src/rt_backend.cpp
+  src/pm_backend.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
@@ -47,10 +48,12 @@ option(RADRAY_AMREX "Build the AMReX RT backend (rt_backend = amrex)" OFF)
 option(RADRAY_FETCH_AMREX "Download and build AMReX 26.10 if find_package fails" OFF)
 set(RADRAY_HAVE_AMREX OFF)
 if(RADRAY_AMREX)
-  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE)
+  # (the PM backend, pm_backend = amrex, docs/stage_e_pm.md, adds the FFT
+  # component: AMReX built with -DAMReX_FFT=ON, which needs FFTW3 on the CPU)
+  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE FFT)
   if(NOT AMReX_FOUND)
     if(NOT RADRAY_FETCH_AMREX)
-      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE) was not "
+      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE, FFT) was not "
                           "found: set -DAMReX_DIR=<install>/lib/cmake/AMReX or -DRADRAY_FETCH_AMREX=ON")
     endif()
     include(FetchContent)
@@ -62,6 +65,7 @@ if(RADRAY_AMREX)
     set(AMReX_FORTRAN OFF CACHE BOOL "" FORCE)
     set(AMReX_FASTMATH OFF CACHE BOOL "" FORCE)
     set(AMReX_LINEAR_SOLVERS OFF CACHE BOOL "" FORCE)
+    set(AMReX_FFT ON CACHE BOOL "" FORCE)
     set(AMReX_PROBINIT OFF CACHE BOOL "" FORCE)
     set(AMReX_AMRLEVEL OFF CACHE BOOL "" FORCE)
     if(RADRAY_AMREX_GPU_BACKEND)
@@ -74,8 +78,12 @@ if(RADRAY_AMREX)
     FetchContent_MakeAvailable(amrex)
   endif()
   set(RADRAY_HAVE_AMREX ON)
-  add_library(radray_amrex src/amrex/rt_level.cpp)
+  add_library(radray_amrex src/amrex/rt_level.cpp src/amrex/pm_level.cpp)
   target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
+  # the PM level's pencil FFT uses FFTW3f directly (the library of the
+  # serial port and of AMReX's own FFT module)
+  find_library(RADRAY_AMREX_FFTW3F fftw3f REQUIRED)
+  target_link_libraries(radray_amrex PRIVATE ${RADRAY_AMREX_FFTW3F})
   # rt_tools.cpp (in radray) calls the backend: every consumer of radray
   # links radray_amrex too (a cycle between static libraries, which CMake
   # resolves by repeating them on the link line)
@@ -96,7 +104,7 @@ if(RADRAY_AMREX)
   set(RADRAY_RT_BACKEND_LIB radray_amrex)
   message(STATUS "AMReX RT backend: enabled (AMReX ${AMReX_VERSION})")
 else()
-  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp)
+  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp)
   set(RADRAY_RT_BACKEND_LIB radray)
   message(STATUS "AMReX RT backend: disabled (RADRAY_AMREX=OFF)")
 endif()

@@ -28,6 +28,13 @@ enum class RTMethod { Rays, M1, OTVET };
 enum class RTBackend { Serial, AMReX };
 enum class RayEncoding { Float, RStruct };
 
+// Where the PM gravity runs (docs/stage_e_pm.md): Serial = the original's
+// linked lists, float CIC and FFTW on the host (default, bit-identical to
+// the Fortran); AMReX = the dark matter in an AMReX ParticleContainer, int64
+// fixed-point CIC deposits and the amrex::FFT Poisson solve on an AMReX
+// level of the PM mesh (MPI + OpenMP, rank- and thread-independent).
+enum class PMBackend { Serial, AMReX };
+
 struct Config {
   // radhydro_global.f90: Ncpu. The reference is run with ONE thread, and the
   // port is serial; Ncpu enters ray-buffer sizes and the domain
@@ -220,6 +227,17 @@ struct Config {
   int amrex_max_grid_size = 16;
   int amrex_ghosts = 2;
   int amrex_redist_local = 3;
+
+  // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
+  // in pm_backend.hpp; docs/stage_e_pm.md):
+  //   amrex_pm_max_grid_size: box size of the PM mesh's decomposition
+  //                (0 = amrex_max_grid_size; a multiple of pm_refine);
+  //   amrex_pm_fft: fft of the Poisson solve: pencil (default; 1-D FFTW
+  //                transforms per pencil, bitwise rank- and thread-
+  //                independent) | amrex (the amrex::FFT::R2C solver).
+  PMBackend pm_backend = PMBackend::Serial;
+  int amrex_pm_max_grid_size = 0;
+  int amrex_pm_fft = 0;
 
   // Recombinations and recombination radiation (docs/recomb_radiation.md;
   // set_recomb_param in recomb_rad.hpp). New options, not in the original:
