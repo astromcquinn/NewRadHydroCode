@@ -104,4 +104,85 @@ allowed. Items marked *(memory)* were not verified.
   source and absorber). None was found used as a reionization Eddington
   tensor. Voxel cone tracing (Crassin et al. 2011, graphics) *(memory)*.
 
-*Candidates and ranking: §4 (after the ground truth).*
+## 4. Candidate closures
+
+Costs are for the 512³ run, where the present tensor (13 single-precision
+FFTs of 512³ per hydro step) costs ≈ 28 s per hydro step (0.43 h of 4.8 h)
+and 6 floats per cell (3.2 GB of 146 GB). All are first-order closures
+(a tensor h, or P(N) = D N): Gnedin & Katz 2026 show that second-order
+generalisations are unstable.
+
+**What sets the direction of the radiation.**
+- *Before overlap:* inside an H II region the gas is thin; the radiation
+  is the direct light of the region's own sources, at ≤ ĉ t from them. The
+  thin tensor is right except for sources in other regions (blocked by the
+  neutral gas in between) and near the fronts.
+- *During overlap:* light from several regions meets; neutral islands and
+  dense filaments cast shadows, so the islands should be lit from the open
+  sides only.
+- *After overlap:* λ_mfp (≈ 100 cMpc/h at z ≈ 5.5 in these runs, several
+  boxes) ≫ the source spacing. The radiation in a void is mostly light from
+  many distant sources and periodic images, nearly isotropic, plus the
+  direct light of the nearby sources; self-shielded clumps cast small
+  shadows. The minimum-image thin tensor keeps only the nearby sources up to
+  L/2, so it is too anisotropic away from them (Wu+21).
+
+**Candidates** (physics; cost; memory; risks):
+
+1. **Screened periodic kernel (baseline, Wu+21).** K = Σ_images e^(−r/λ)
+   d dᵀ/r⁴ (27 images plus an isotropic continuum for the rest), with λ the
+   photons' mean path from the moment solution's own budget,
+   λ = ĉ N_flight/Ṅ_inj (absorption, redshifting and the light horizon
+   together). Same FFTs; a kernel rebuilt when λ changes; no memory. Gets
+   the box-size normalisation right; no shadows, one λ everywhere.
+2. **Direct + diffuse split, from the solution's own N** (new; CROC's
+   background split made local and self-consistent).
+   P_g = N_g I/3 + min(N_g, N_dir,g)(h_dir − I/3): the direct light of the
+   sources (thin sum in absolute units, the trace the FFT already computes)
+   carries h_dir, and whatever the solution holds beyond it — wrapped and
+   old photons, light from beyond λ, recombination radiation — is
+   isotropic. Before overlap N ≈ N_dir in the H II regions, so it stays
+   OTVET; after overlap the voids become diffuse by the amount the solution
+   itself says. Per group for free (harder groups are more diffuse). Cost:
+   one float per cell and a min per cell; P is piecewise linear in N with
+   realizable slopes (I/3 and h_dir), so the GLF stays stable. Risks: the
+   diffuse part has no direction (a streaming diffuse field becomes P1-like);
+   unattenuated N_dir behind absorbers falls back to the thin tensor.
+3. **Cone-traced attenuated direct light** (new; TreeCol / voxel cone
+   tracing). For each receiver (a coarse grid) and N_pix HEALPix cones,
+   march through mip-maps of the emissivity and the HI column with steps
+   ∝ the cone width, accumulating e^(−τ) with the group-weighted
+   transmission, periodically out to the horizon; the near field from the
+   fine thin FFT. Gives the shadows of islands and large absorbers, a
+   spatially varying λ, the periodic images. Combined with 2 for the rest.
+   Cost (C++ estimate): 128³ receivers × 48 cones × ~20 samples × 2 fetches
+   ≈ 2·10⁹ fetches, seconds per update; 192 cones on 256³ receivers ≈ 30×
+   more. Memory: the pyramids and a coarse P, ≲ 1 GB. Risks: e^(−⟨τ⟩) of a
+   cone average is not ⟨e^(−τ)⟩ for clumpy absorbers (a per-cell τ cap as a
+   covering-fraction proxy); shadows narrower than a cone are lost.
+4. **Coarse long characteristics from the sources** (Finlator+09 on a
+   coarse grid, fine near field). Exact e^(−τ) per source; cost ∝ N_src
+   × (L/2Δ)³ ≈ 10⁹–10¹⁰ segments per update at 512³ (minutes), minimum image
+   only (images through 2).
+5. **Flux-consistent hybrid.** The direct part as in 1–3 with its thin flux
+   F_dir; the remainder (N − N_dir, F − F_dir) closed by M1, so a streaming
+   diffuse field keeps its direction. +3 FFT components and 3 floats per
+   cell; M1's crossing artefacts confined to the remainder.
+6. **Per-group screened tensors** (λ_g): 5× the FFTs and +13 GB; matters
+   more for He II and the temperature than for Γ_HI.
+7. **Receiver-dependent λ(x):** screened kernels at a few λ, interpolated
+   per cell by a λ(x) from the solution's smoothed κ (the Γ–λ coupling of
+   Davies & Furlanetto on the receiving side). n_λ × the FFT cost.
+8. **Regime mixing OTVET/M1** by f or the local optical depth. Cheap, but
+   M1 fails where the radiation of many sources crosses, i.e. in the regime
+   we would switch to it.
+9. **Retarded sources** L(t − r/ĉ): store the luminosities of the last few
+   hydro steps. Delays across the box are tens of Myr at ĉ = 0.2c; a small
+   effect except near new sources.
+10. **Fitted closure** h = a h_dir + b I/3 + c f̂f̂ with a, b, c functions of
+    N/N_dir, f and x_HII, fitted to the rays: a diagnostic for the family of
+    2 and 5 (how much a local mix can gain), not a closure on its own.
+11. **The ray tracer itself at low resolution** (steady state, coarse
+    grid, every hydro step): the most faithful, at roughly the cost of 4.
+
+*Ranking: after the ground truth (§3).*

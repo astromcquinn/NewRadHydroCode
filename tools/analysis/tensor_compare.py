@@ -24,6 +24,13 @@ and S1 for M1):
             (--lam; 'auto' = lambda_eff = sum S0 / sum_s w_s, the photons'
             mean path, from the rays' own budget; 'auto*f' = f lambda_eff)
   split_atten  split with the attenuated, image-summed N_loc and h_loc
+  coneNcC   (--cone N:C[:cap]) the direct light attenuated by the HI along
+            HEALPix cones (nside N) from receivers on a C-times coarser grid
+            through mip-maps of the emissivity and the HI column, with the
+            periodic images out to 8 boxes, plus the thin near field
+            (cone_tensor.py); cap limits each cell's group-1 tau (clumps
+            saturate: a crude covering-fraction correction of the mip average)
+  split_cone  split with the cone-traced direct light
 
 Metrics, S0-weighted over the cells of each regime:
   err   the Frobenius distance |h - h_true| (off-diagonals counted twice)
@@ -42,8 +49,12 @@ Writes DIR/tensor_compare.txt and DIR/tensor_zXX.png per step.
 import argparse
 import os
 
+import sys
+
 import numpy as np
 import scipy.fft as sfft
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 COMP = [(0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2)]  # xx yy zz xy xz yz
 WOFF = np.array([1, 1, 1, 2, 2, 2], dtype=float)  # Frobenius weights
@@ -77,6 +88,23 @@ def load(d, N, name, ncomp):
 def tensor_of(S):
     """(S0, F (3), P (6)) from a 10-component dump."""
     return S[..., 0], S[..., 1:4], S[..., 4:10]
+
+
+def hi_column(d, N, z, fHI, box=None):
+    """HI column per RT cell, 1e-18 cm^-2 (tau_g = sigma18_g * col), from
+    rhog and fHI (cosmology of include/radray/constants.hpp)."""
+    if box is None:
+        pf = os.path.join(d, "..", "..", "params.txt")
+        for line in open(pf):
+            t = line.split("=")
+            if len(t) == 2 and t[0].strip() == "box":
+                box = float(t[1])
+    rhoc, mpc, h0, ob, XHy, mH = 1.87890e-29, 3.08560e24, 0.70, 0.045, 0.76, 1.67223e-24
+    a = 1 / (1 + z)
+    nH = rhoc * ob * h0 ** 2 / a ** 3 * XHy / mH
+    len_rt = box * mpc / h0 / N * a
+    rhog = load(d, N, "rhog.bin", 1)
+    return nH * rhog * fHI * len_rt * 1e-18
 
 
 def m1_D(f3):
@@ -183,6 +211,9 @@ def main():
     ap.add_argument("--moment", nargs="*", default=[])
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--no-plot", action="store_true")
+    ap.add_argument("--cone", nargs="*", default=[],
+                    help="cone-traced attenuated tensors nside[:coarse[:tau_cap]] (cone_tensor.py)")
+    ap.add_argument("--box", type=float, default=None, help="Mpc/h (default: the run's params.txt)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     txt = open(os.path.join(a.out, "tensor_compare.txt"), "w")
@@ -243,6 +274,35 @@ def main():
             cl["atten%.0f" % l] = normalise(Pa)
             cl["split_atten%.0f" % l] = split(Na, normalise(Pa))
             del Pa
+        if a.cone:
+            from cone_tensor import cone_tensor, smoothstep
+            col = hi_column(d, N, z, fHI, a.box)
+            s18 = hdr["sigma18"]
+            Wg = hdr["qfac"] * s18
+            ax_ = np.arange(N)
+            ax_ = np.where(ax_ > N // 2, ax_ - N, ax_).astype(np.float64)
+            zr, yr, xr = np.meshgrid(ax_, ax_, ax_, indexing="ij")
+            rr = np.sqrt(xr * xr + yr * yr + zr * zr)
+            del zr, yr, xr
+        for spec in a.cone:
+            t = spec.split(":")
+            ns = int(t[0])
+            co = int(t[1]) if len(t) > 1 else 4
+            cap = float(t[2]) if len(t) > 2 else float("inf")
+            rc = 2.0 * co  # near field r < 2 rc (unattenuated), cones beyond rc
+            colc = col if not np.isfinite(cap) else np.minimum(col, cap / s18[0])
+            Kn = thin_kernel(N) * (1 - smoothstep(rr, rc, 2 * rc))[None]
+            Pn = np.moveaxis(convolve(rho, Kn, a.workers), 0, -1)
+            del Kn
+            Pk, _ = cone_tensor(rho, colc, s18, Wg, nside=ns, coarse=co, rc=rc, workers=a.workers)
+            Pd = Pn + Pk
+            del Pn, Pk
+            Nd = Pd[..., 0] + Pd[..., 1] + Pd[..., 2]
+            lab = f"cone{ns}c{co}" + ("" if not np.isfinite(cap) else f"t{cap:g}")
+            cl[lab] = normalise(Pd)
+            cl["split_" + lab] = split(Nd, cl[lab])
+            out(f"# {lab}: sum N_dir / sum S0 = {Nd.sum() / S0.sum():.3f}")
+            del Pd
         for spec in a.moment:
             path, lab = spec.rsplit(":", 1)
             cl["post_" + lab] = normalise(load(path, N, "tensor.bin", 10)[..., 4:10])
