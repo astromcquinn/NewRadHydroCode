@@ -578,3 +578,21 @@ policy on klone, and deleting the merged branches.
   coefficients refit to the well-resolved FoF halos (option 2):
   A = 0.3458, a = 0.6164, p = 0.3, `data/uv_lf/am_params_st_fof.txt`
   (`docs/pm_refine.md` §6). f_esc has to be recalibrated with it.
+
+## Stage E prerequisites on klone (2026-10-12)
+
+* **What's next (assessment for the user):** Stage E of `docs/ROADMAP.md`
+  §7, MPI for hydro, PM, halos/sources and I/O on AMReX (the RT is
+  already distributed by Stage D), then Stage F, AMR. Prerequisites: the
+  klone 256³ timing of the Stage D backend (`tools/hyak/amrex_scaling.slurm`,
+  never run), the multi-node hydro slowdown of `docs/framework_decision.md`
+  §3.3, and a production configuration the backend accepts.
+* **User decision: case B is the production default again**
+  (`make_production.py --recomb-case B --recomb-rad 0` are the defaults),
+  so that the production configuration runs on `rt_backend = amrex` and
+  Stage E does not wait for `recomb_rad` on the backend. Case A with
+  transported recombination radiation stays available with
+  `--recomb-case A --recomb-rad 1` (its `recomb_rad_block` and
+  `recomb_rad_cell_onspot` defaults are unchanged).
+* The Hyak scripts' module loading was broken under `set -u` (Lmod reads
+  unset variables); `radray_module_load` in `tools/hyak/env.sh` fixes it.

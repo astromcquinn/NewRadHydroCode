@@ -29,13 +29,16 @@ the original behaviour:
 | `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list) and the snapshot files: `all`, `norays`, `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
-params.txt of the production configuration. **Since 2026-10-11 that
-configuration is case A with the recombination radiation transported**
-(`recomb_case = A`, `recomb_rad = 1`, `recomb_rad_block = 4`;
-`docs/recomb_radiation.md`; user decision for the 40 Mpc/h 512³ RT-method
-runs, `docs/rt_methods_512.md`); `--recomb-case B --recomb-rad 0` gives the
-original on-the-spot case B. `recomb_rad` runs only on the serial RT
-(`rt_backend = serial`).
+params.txt of the production configuration. **Its recombination case is
+B, on the spot, the original** (user decision 2026-10-12: the Stage E MPI
+work runs the production configuration on `rt_backend = amrex`, which does
+not implement `recomb_rad` yet, and should not wait for it). From
+2026-10-11 to 2026-10-12 the default was case A with the recombination
+radiation transported (`recomb_case = A`, `recomb_rad = 1`,
+`recomb_rad_block = 4`, `recomb_rad_cell_onspot = 1`;
+`docs/recomb_radiation.md`, the 40 Mpc/h 512³ RT-method runs of
+`docs/rt_methods_512.md`); `--recomb-case A --recomb-rad 1` gives it back.
+`recomb_rad` runs only on the serial RT (`rt_backend = serial`).
 
 ## 1. Reduced speed of light
 
