@@ -22,7 +22,7 @@ and S1 for M1):
   atten     the thin sum with exp(-r/lambda) over all periodic images (27
             explicit, the rest as an isotropic continuum), lambda in cells
             (--lam; 'auto' = lambda_eff = sum S0 / sum_s w_s, the photons'
-            mean path, from the rays' own budget)
+            mean path, from the rays' own budget; 'auto*f' = f lambda_eff)
   split_atten  split with the attenuated, image-summed N_loc and h_loc
 
 Metrics, S0-weighted over the cells of each regime:
@@ -233,7 +233,10 @@ def main():
         cl["split"] = split(Nloc, hloc)
         lams = []
         for l in a.lam:
-            lams.append(lam_eff if l == "auto" else float(l))
+            if l.startswith("auto"):
+                lams.append(lam_eff * (float(l[5:]) if l.startswith("auto*") else 1.0))
+            else:
+                lams.append(float(l))
         for l in lams:
             Pa = np.moveaxis(convolve(rho, thin_kernel(N, lam=l, images=True), a.workers), 0, -1)
             Na = Pa[..., 0] + Pa[..., 1] + Pa[..., 2]
@@ -285,6 +288,29 @@ def main():
         S0b = block_sum(S0, b)
         Pb_true = normalise(block_sum(P, b))
         xb = block_sum(x, b) / b ** 3
+        # anisotropy against the distance to the nearest source (periodic),
+        # ionised cells: the isotropisation of the true field away from sources
+        from scipy.spatial import cKDTree
+        tree = cKDTree(np.stack([ii, jj, kk], 1) + 0.5, boxsize=N)
+        g1 = np.arange(N) + 0.5
+        dist = np.empty((N, N, N))
+        for kz in range(N):
+            yy, xx = np.meshgrid(g1, g1, indexing="ij")
+            pts = np.stack([xx.ravel(), yy.ravel(), np.full(xx.size, g1[kz])], 1)
+            dist[kz] = tree.query(pts, workers=a.workers)[0].reshape(N, N)
+        edges = [0, 1.5, 3, 6, 12, 24, 48, 96, 1e9]
+        out("anisotropy A vs distance to the nearest source [cells], ionised cells (S0-weighted); err in brackets")
+        out("%-12s %7s %7s %7s " % ("d", "frac", "A_true", "noise") + " ".join("%14s" % k[:14] for k in names))
+        mi = reg["ionised x>0.9"]
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            m = mi & (dist >= lo) & (dist < hi)
+            if not m.any():
+                continue
+            row = "%-12s %7.4f %7.3f %7.3f " % (f"{lo:g}-{hi:g}", m.sum() / mi.sum(), wmean(aniso(h_true), S0, m),
+                                                wmean(noise, S0, m))
+            row += " ".join("%6.3f (%5.3f)" % (wmean(aniso(cl[k]), S0, m), wmean(fro(cl[k], h_true), S0, m))
+                            for k in names)
+            out(row)
         out(f"block {b}^3: S0-weighted err of the block tensors (sum S0 h over the block)")
         rowh = "%-24s " % "regime" + " ".join("%10s" % k[:10] for k in names)
         out(rowh)
