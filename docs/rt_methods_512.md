@@ -278,6 +278,36 @@ P_Γ relative to the rays (r(k) with the rays in brackets):
   the rays as λ_mfp grows from 23 to 50 pMpc) is what a closure-dependent
   propagation over a growing mean free path would give.
 
+## 6b. Power spectra of ρ_HI and x_HII through reionization
+
+*Requested by the user (2026-10-12).* `tools/analysis/reion_power.py`: the
+3D power of ρ_HI = x_HI(1+δ) (in units of the mean H density, the 21-cm
+field without velocities and spin temperature) and of x_HII, at the
+snapshots after the sources switch on. The snapshots land where a hydro
+step crosses each target redshift, so at z ≈ 7 M1 and case B are at
+z = 6.85 (x_V = 0.54–0.56) against the rays' 7.00 (0.48); the legend gives
+each run's z and x_V.
+
+![rho_HI and x_HII power](figures/rt_methods_512_reion_power.png)
+
+*Rows: Δ² of ρ_HI, ratio to the rays, Δ² of x_HII, ratio. Table:
+[`figures/rt_methods_512_reion_power.txt`](figures/rt_methods_512_reion_power.txt).*
+
+- **During reionization (x_V ≈ 0.5, 0.8) the methods agree on large
+  scales:** both spectra to ≈ 5–10 % at k ≲ 3–5 h/Mpc. The moment methods
+  have 0.2–0.5× the rays' x_HII power at k ≳ 10 h/Mpc (smoother fronts)
+  and 3–9× more ρ_HI power at k ≳ 20 h/Mpc (dense, self-shielded neutral
+  clumps inside the ionised regions, most in M1).
+- **Last islands (z ≈ 5.9):** the moment runs have 0.3–0.7×, case B
+  1.2–1.4× the rays' large-scale power, in the order of their x_V
+  (0.989, 0.985 / 0.978 / 0.972): mostly timing.
+- **After overlap** the residual HI sits in the densest cells and its power
+  rises steeply with k: M1 has 25–500× the rays' ρ_HI power (its x_M is
+  0.9985 against 0.9999: M1 leaves dense gas neutral, consistent with its
+  weak Γ peaks around sources), OTVET 2–3×, case B 100–1000× less than
+  case A + RR (faster recombination in case A). The amplitudes are tiny
+  (Δ² ~ 10⁻¹⁰–1): a matter for absorbers, not for 21 cm.
+
 ## 7. The IGM at z = 5–6
 
 ![IGM](figures/rt_methods_512_igm.png)
