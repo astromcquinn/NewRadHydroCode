@@ -422,6 +422,31 @@ policy on klone, and deleting the merged branches.
   grid, for halo mass resolution) goes to a separate thread started by the
   user, on Hyak.
 
+## Production defaults (unsplit hydro, redshifting per distance) and moment RT (2026-10-11)
+
+* **Production runs use `hydro_scheme = unsplit`** (user decision,
+  confirming the choice the production-256 thread made from the
+  recommendation of `docs/hydro_unsplit.md` §10). `make_production.py`
+  writes `hydro_scheme = unsplit` by default (`--hydro-scheme legacy` for
+  the original). The code default stays `legacy`, which is what the
+  bit-for-bit validation against the Fortran uses (ground rule 2).
+* **Production runs use `redshift_per_distance = 1`** (user decision): the
+  radiation is redshifted per distance travelled, not per time
+  (`docs/production_run.md` §1). With ĉ < c, per time redshifts the photons
+  that set Γ_HI c/ĉ times too much over their path to absorption (10× at
+  0.1c, 3.3× at 0.3c), which matters after overlap, when λ_mfp is large.
+  `make_production.py` writes `redshift_per_distance = 1` by default
+  (`--redshift-per-distance 0` for the original). The code default stays 0
+  (the original, ground rule 3); the flag is not tied to `legacy_physics`.
+* Expected effect: a higher Γ_HI and ⟨F_Lyα⟩ after overlap at fixed f_esc;
+  the ṅ_ion calibration (and so f_esc) is unchanged. Runs already started
+  keep the setting they started with unless changed at a restart (the flag
+  is not in the checkpoint).
+* **M1 and OTVET are only for comparison** with the ray tracing (user
+  decision): no second-order moment transport, and no moment hand-over in
+  transparent regions (ROADMAP §4.5) for now. Open: whether our OTVET
+  should follow a specific published formulation (`docs/rt_moments.md` §5).
+
 ## RT multicell thread (2026-10-11): rays crossing k cells per substep
 
 * **Request (user):** test a coarse RT substep for the RT on AMR (Stage F)

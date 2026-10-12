@@ -252,9 +252,18 @@ The ionised radius R = (3V_HII/4π)^(1/3), in cells:
   - the diffuse photons fill the holes that the stellar rays' HEALPix
     sampling leaves inside the case-B sphere along the grid axes (B16): the
     shell at r ≈ 7 has x_HII = 0.95 with case B and 1.00 with RR.
-    (These runs use the original frame. With `ray_rotate = 3`, the
-    production setting, those holes are gone; see `docs/port_notes.md`
-    B16. That part of the 4.7% should shrink; not re-measured.)
+- **With `ray_rotate = 3`** (the production frame rotation,
+  `docs/port_notes.md` B16; `recomb_stromgren.py --set ray_rotate=3`,
+  2026-10-11, on `main` at the time). The case-B holes are gone without
+  any diffuse photons: within r < 8.5, 36 cells below x_HII = 0.9 with
+  the original frame, none with rotation; the r ≈ 7 shell goes from 0.94
+  to 1.00, and R_B grows by 0.2% (10.184 → 10.208 cells). With block 2 the
+  excess of A + RR over the temperature-corrected R_B falls from 5.0% to
+  3.7% (block 1: 1.003 → 1.005). So about a quarter of the excess was B16;
+  the rest is the softer, wider edge (the shells at r = 10–11 are more
+  ionised with RR). Both runs pass the check. (The 4.7% above was
+  measured when the feature was merged; the same run on today's `main`
+  gives 5.0%.)
 - With block 1 the 32³ test pool (`nray_max_factor` 64 of 32³) has room for
   only 32% of the emission, so 68% is on the spot (case B). The result is
   then close to case B, as it should be.

@@ -538,8 +538,9 @@ from the deposit), and a second, corrector pass of step 1 with the updated
 ## 7. Step 4: the 64³ production configuration
 
 `make_production.py --N 64 --c-reduced 0.1 --hydro-scheme unsplit
---movie-dz 0.05 --movie-slab 4 --movie-fields fHI` (10 Mpc/h, Ngas = Ndm =
-64, `legacy_rt = legacy_physics = 0`, `deterministic_parallel`,
+--redshift-per-distance 0 --movie-dz 0.05 --movie-slab 4 --movie-fields fHI`
+(10 Mpc/h, Ngas = Ndm = 64, `legacy_rt = legacy_physics = 0`,
+redshifting per time, `deterministic_parallel`,
 `rt_substep_carry`, `ray_rotate = 3`, `nray_max_factor` 16, on-the-fly FoF
 sources with the global SFR model, RT from z = 15, the same ICs for every
 run) plus `--rt-cells-per-substep k` and the variant's options, 4 threads.
@@ -810,8 +811,8 @@ python3 tools/analysis/rt_multicell_fields.py build/rt_driver tests/problems/log
 # step 4: production configuration, the same ICs for every k
 for k in 1 2 4 8; do
   python3 tools/production/make_production.py prob_k$k --N 64 --c-reduced 0.1 \
-      --hydro-scheme unsplit --movie-dz 0.05 --movie-slab 4 --movie-fields fHI \
-      --rt-cells-per-substep $k --photon-conserve 1 --ray-deposit exposure \
+      --hydro-scheme unsplit --redshift-per-distance 0 --movie-dz 0.05 --movie-slab 4 \
+      --movie-fields fHI --rt-cells-per-substep $k --photon-conserve 1 --ray-deposit exposure \
       $( [ $k = 1 ] || echo --no-ics )
   [ $k = 1 ] || ln -s ../prob_k1/ics prob_k$k/ics
   if [ $k = 1 ]; then R=cmp/base; else R=cmp/k$k; fi

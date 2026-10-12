@@ -28,8 +28,10 @@
 # 15 ... 5; the run stops at the last), EXE (default build/radhydro).
 #
 # Layout: $ROOT/prob_k<k>/params.txt (make_production.py --N $N
-# --c-reduced $C --hydro-scheme unsplit --movie-dz 0.05 --movie-slab 8
-# --movie-fields fHI --rt-cells-per-substep <k>, the same ICs) and the runs
+# --c-reduced $C --hydro-scheme unsplit --redshift-per-distance 0
+# --movie-dz 0.05 --movie-slab 8 --movie-fields fHI --rt-cells-per-substep
+# <k>, the same ICs; redshifting per time as in the 64^3 runs,
+# EXTRA_PROD="--redshift-per-distance 1" for the production setting) and the runs
 # $ROOT/cmp/base (k = 1), $ROOT/cmp/k2, $ROOT/cmp/k4. Each run restarts from
 # its checkpoint if the job is resubmitted. Results: $ROOT/cmp.json,
 # $ROOT/cmp_history.png, $ROOT/cmp_slices.png and the table in this job's
@@ -69,8 +71,8 @@ for k in $KS; do
     noics=""
     if [ -n "$first" ] || [ -n "${ICS:-}" ]; then noics="--no-ics"; fi
     python3 tools/production/make_production.py "$P" --N "$N" --c-reduced "$C" \
-        --hydro-scheme unsplit --movie-dz 0.05 --movie-slab 8 --movie-fields fHI \
-        --restart-every 4 --rt-cells-per-substep "$k" $noics ${EXTRA_PROD:-} \
+        --hydro-scheme unsplit --redshift-per-distance 0 --movie-dz 0.05 --movie-slab 8 \
+        --movie-fields fHI --restart-every 4 --rt-cells-per-substep "$k" $noics ${EXTRA_PROD:-} \
         ${ZDATA1:+--zdata1 "$ZDATA1"} || exit 1
     if [ -n "${ICS:-}" ]; then
       ln -sfn "$ICS" "$P/ics"
