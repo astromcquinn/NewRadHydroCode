@@ -990,6 +990,65 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      ${amrex_runs}/restart_unsplit 13 --set legacy_rt=0 --set legacy_physics=0
                      --set rt_backend=amrex --set hydro_scheme=unsplit)
     set_tests_properties(amrex_restart_smoke_unsplit PROPERTIES TIMEOUT 1800 LABELS "amrex;restart")
+    # Stage E1 (docs/stage_e_hydro.md): hydro_backend = amrex, the unsplit
+    # hydro step on AMReX MultiFabs, must be BITWISE identical to the serial
+    # unsplit step for any rank count, box size and thread count (label
+    # amrex_hydro, inside amrex)
+    foreach(p sod_x random3d sound_x)
+      add_test(NAME amrex_hydro_ref_${p}
+               COMMAND hydro_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p} ${amrex_runs}/hydro_ref_${p}
+                       --quiet --set hydro_scheme=unsplit)
+      set_tests_properties(amrex_hydro_ref_${p} PROPERTIES FIXTURES_SETUP amrex_hydro_ref_${p}
+                           LABELS "amrex;amrex_hydro" ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 600)
+      foreach(cfg "1;1;32" "1;2;16" "2;1;16" "2;2;8" "4;1;16" "4;2;8" "8;1;8")
+        list(GET cfg 0 np)
+        list(GET cfg 1 nt)
+        list(GET cfg 2 mgs)
+        set(tname amrex_hydro_bitwise_${p}_r${np}t${nt}_mgs${mgs})
+        add_test(NAME ${tname}
+                 COMMAND ${CMAKE_COMMAND}
+                   -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                   -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                   -DDRIVER=$<TARGET_FILE:hydro_driver>
+                   -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p}
+                   -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/hydro_ref_${p}
+                   "-DSET=hydro_scheme=unsplit,hydro_backend=amrex,amrex_hydro_max_grid_size=${mgs}"
+                   -DEXTRA=--quiet
+                   -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                   -DSTRICT=1
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+        set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_hydro_ref_${p}
+                             LABELS "amrex;amrex_hydro" ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 600
+                             PROCESSORS ${np})
+      endforeach()
+    endforeach()
+    # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
+    # each other (rank_check) and to the run with the serial hydro
+    add_test(NAME amrex_hydro_full_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/hydro_full_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP}
+                     "1 2 3" $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet
+                     --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                     --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=8
+                     --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_hydro_full_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_hydro_full_vs_serial_hydro
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                     ${amrex_runs}/hydro_full_pair $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     "hydro_backend=serial" "hydro_backend=amrex,amrex_hydro_max_grid_size=8"
+                     --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                     --set hydro_scheme=unsplit --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1
+                     --set restart_keep_latest=0)
+    set_tests_properties(amrex_hydro_full_vs_serial_hydro PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=2)
+    # a bit-identical restart through the hydro backend
+    add_test(NAME amrex_hydro_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/hydro_restart 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex)
+    set_tests_properties(amrex_hydro_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;restart")
     # nightly: the 64^3 production configuration, backend vs serial
     # (history, tau_es, per-cell fields; docs/stage_d.md section 4)
     add_test(NAME amrex_full64_vs_serial
