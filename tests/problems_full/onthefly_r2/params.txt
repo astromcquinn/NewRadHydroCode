@@ -1,0 +1,18 @@
+# Full-loop problem with the refined PM mesh (docs/pm_refine.md): gas 16^3,
+# PM mesh and particles 32^3 (pm_refine = 2, Ndm = 2 N), the large scales of
+# tests/problems_full/ics (seed 7). make_ics.py --Ngas 16 --Ndm 32 --z-init 100
+# --box 4 --seed 7 --phases-from-ndm 16. Used by thread_full_pm_refine and
+# restart_smoke_pm_refine.
+N = 16
+Ndm = 32
+pm_refine = 2
+box = 4
+nray_max_factor = 4
+z_init = 100
+zdata1 = 8.5 7.5
+ics = ics
+fof_min_npart = 8
+legacy_rt = 0
+legacy_physics = 0
+deterministic_parallel = 1
+source_mode = onthefly

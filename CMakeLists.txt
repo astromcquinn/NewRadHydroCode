@@ -164,6 +164,18 @@ if(RADRAY_WITH_PM)
     add_library(radray_fft src/fft.cpp)
     target_include_directories(radray_fft PRIVATE ${FFTW3F_INCLUDE_DIR})
     target_link_libraries(radray_fft PUBLIC radray ${FFTW3F_LIBRARY})
+    # Threaded FFTW for the refined PM mesh (pm_refine > 1, docs/pm_refine.md):
+    # libfftw3f_omp from the same installation, if there is one. The default
+    # (pm_refine = 1) never uses it.
+    get_filename_component(_fftw_libdir ${FFTW3F_LIBRARY} DIRECTORY)
+    find_library(FFTW3F_OMP_LIBRARY fftw3f_omp HINTS ${_fftw_libdir} NO_DEFAULT_PATH)
+    if(FFTW3F_OMP_LIBRARY AND OpenMP_CXX_FOUND)
+      target_link_libraries(radray_fft PUBLIC ${FFTW3F_OMP_LIBRARY} ${FFTW3F_LIBRARY})
+      target_compile_definitions(radray_fft PRIVATE RADRAY_FFTW_OMP)
+      message(STATUS "Threaded FFTW (pm_refine > 1): ${FFTW3F_OMP_LIBRARY}")
+    else()
+      message(STATUS "Threaded FFTW: not found (pm_refine > 1 uses serial FFTs)")
+    endif()
     # Hydro solver (hydro_tools.f90 -DMF), summarize_gas and the gas
     # domains, see docs/port_notes_hydro.md.
     add_library(radray_hydro src/hydro.cpp src/hydro_unsplit.cpp src/domain_gas.cpp)

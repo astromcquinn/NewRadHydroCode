@@ -200,6 +200,7 @@ double halo_n_above(const MassFunction& mf, double h, double M_msun, double z,
 std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt) {
   MassFunction mf(opt.cosmo);
   mf.tinker_zmax_evol = opt.tinker_zmax_evol;
+  mf.st = opt.st;
   const double h = opt.cosmo.hubble0;
   const CumulativeHMF hmf(mf, e.z, opt.hmf, opt.logM_min - 0.1, h, &opt.sim_hmf);
   const CumulativeLF clf(e);
@@ -411,6 +412,7 @@ std::vector<double> model_lf(const LuvModel& m, double z, const std::vector<doub
                              const AMOptions& opt) {
   MassFunction mf(opt.cosmo);
   mf.tinker_zmax_evol = opt.tinker_zmax_evol;
+  mf.st = opt.st;
   const double h = opt.cosmo.hubble0;
   const CumulativeHMF hmf(mf, z, opt.hmf, 6.0, h, &opt.sim_hmf);
   // Halo mass whose intrinsic L matches an observed magnitude (L monotone

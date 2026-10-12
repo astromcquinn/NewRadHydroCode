@@ -47,9 +47,20 @@ Growth (velocities and the pancake's D(a)):
               density never moves.  Use with --gas uniform for analytic
               checks.
 
+More particles than gas cells (Ndm = 2 Ngas with pm_refine = 2,
+docs/pm_refine.md): the gas fields keep only the modes |m| < Ngas/2 of the
+particles' field (the gas grid cannot hold the rest).
+
+--phases-from-ndm N (zeldovich, N < Ndm): the modes |m| < N/2 of the white
+noise are those of an Ndm = N run with the same --seed (the same draws,
+rescaled), the rest come from an independent stream. The large scales then
+match that run's ICs (e.g. the 512^3 production ICs, seed 7, under a
+1024^3-particle pm_refine = 2 run).
+
 Usage:
   make_ics.py OUTDIR --kind zeldovich --Ngas 32 [--Ndm 16] [--z-init 300]
               [--seed 1] [--gas zeldovich|uniform] [--growth full|frozen-gas]
+              [--phases-from-ndm N]
   make_ics.py OUTDIR --kind pancake --axis x --a-cross 0.05 ...
 Also writes OUTDIR/ics_info.txt with the parameters used.
 """
@@ -75,6 +86,11 @@ def eval_on_lattice(field_k, nsrc, nout, offset):
     x = (n + offset)*nsrc/nout, n = 0..nout-1 (in units of source cells).
     """
     m = kgrid(nsrc)
+    if nout < nsrc:
+        # the output grid holds only |m| < nout/2 (its Nyquist is dropped too)
+        sel = np.nonzero(np.abs(m) < nout / 2)[0]
+        field_k = field_k[np.ix_(sel, sel, sel)]
+        m = m[sel]
     big = np.zeros((nout, nout, nout), dtype=complex)
     idx = np.where(m >= 0, m, m + nout).astype(int)
     ph = np.exp(2j * np.pi * m * offset / nout)       # shift by offset output cells
@@ -91,8 +107,24 @@ def zeldovich(args, ndm, ngas, a_init):
     g_full = pc.Growth(1.0)
     g = pc.Growth(1.0 if args.growth == "full" else 1.0 - pc.FB)
 
-    white = rng.standard_normal((ndm, ndm, ndm))
-    wk = np.fft.fftn(white)
+    if args.phases_from_ndm:
+        nc0 = args.phases_from_ndm
+        if not (0 < nc0 < ndm and nc0 % 2 == 0):
+            sys.exit("--phases-from-ndm must be even and below Ndm")
+        # the fine modes from an independent stream, the coarse ones from the
+        # Ndm = nc0 run's draws (E|w_k|^2 = n^3: rescaled by (ndm/nc0)^1.5)
+        wk = np.fft.fftn(np.random.default_rng((args.seed, ndm)).standard_normal((ndm,) * 3))
+        wc = np.fft.fftn(rng.standard_normal((nc0,) * 3))
+        mc = kgrid(nc0)
+        ic = np.nonzero(np.abs(mc) < nc0 // 2)[0]
+        mk = mc[ic].astype(int)
+        jf = np.where(mk >= 0, mk, mk + ndm)
+        wk[np.ix_(jf, jf, jf)] = wc[np.ix_(ic, ic, ic)] * (ndm / nc0) ** 1.5
+        del wc
+    else:
+        white = rng.standard_normal((ndm, ndm, ndm))
+        wk = np.fft.fftn(white)
+        del white
     m = kgrid(ndm)
     mx, my, mz = np.meshgrid(m, m, m, indexing="ij")
     msq = mx ** 2 + my ** 2 + mz ** 2
@@ -107,6 +139,7 @@ def zeldovich(args, ndm, ngas, a_init):
     nyq = (np.abs(mx) == ndm // 2) | (np.abs(my) == ndm // 2) | (np.abs(mz) == ndm // 2)
     delta_k[nyq] = 0
     delta_k[0, 0, 0] = 0
+    del wk, kphys, pk, nyq
 
     # displacement in DM cells: psi_k = i kvec delta_k / k^2 (k per DM cell)
     kg = 2 * np.pi / ndm
@@ -178,7 +211,11 @@ def main(argv=None):
     ap.add_argument("outdir")
     ap.add_argument("--kind", choices=("zeldovich", "pancake"), default="zeldovich")
     ap.add_argument("--Ngas", type=int, default=32)
-    ap.add_argument("--Ndm", type=int, default=None, help="default Ngas/2")
+    ap.add_argument("--Ndm", type=int, default=None,
+                    help="default Ngas/2; a divisor or a multiple of Ngas")
+    ap.add_argument("--phases-from-ndm", type=int, default=0,
+                    help="zeldovich: take the white-noise modes |m| < N/2 from an Ndm = N run "
+                         "with the same seed (see above)")
     ap.add_argument("--z-init", type=float, default=pc.ZINIT)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--gas", choices=("zeldovich", "uniform"), default="zeldovich")
@@ -192,8 +229,8 @@ def main(argv=None):
 
     ngas = args.Ngas
     ndm = args.Ndm or ngas // 2
-    if ngas % ndm:
-        ap.error("Ngas must be a multiple of Ndm")
+    if ngas % ndm and ndm % ngas:
+        ap.error("Ngas must be a multiple or a divisor of Ndm")
     a_init = 1.0 / (1.0 + args.z_init)
 
     if args.kind == "zeldovich":
@@ -216,7 +253,7 @@ def main(argv=None):
         av = [os.path.basename(os.path.normpath(x)) if x == args.outdir else x for x in av]
         f.write("command = make_ics.py " + " ".join(av) + "\n")
         for k, v in vars(args).items():
-            if k == "box" and v is None:
+            if (k == "box" and v is None) or (k == "phases_from_ndm" and not v):
                 continue
             if k == "outdir":
                 v = os.path.basename(os.path.normpath(v))

@@ -214,6 +214,13 @@ struct HaloSourceParams {
   bool add_metals = true;             // the original always injects metals
   std::string write_catalog_dir;      // if set, on-the-fly catalogs are
                                       // written there in legacy format
+                                      // (only when the FoF runs)
+  // FoF cadence (docs/pm_refine.md): 0 (default, the original) runs the FoF
+  // at every update_sources call (every hydro step of the RT); > 0 runs it
+  // when at least this many Myr of cosmic time have passed since the last
+  // one, and reuses its halos (drifted, sources re-assigned at the current
+  // redshift) in between.
+  double fof_dt_myr = 0;
 };
 
 // On-the-fly catalog: find_halos on xv_dm + assign_sources (+ optional

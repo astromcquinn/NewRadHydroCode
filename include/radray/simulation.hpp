@@ -13,6 +13,7 @@
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/grid.hpp"
+#include "radray/halos.hpp"
 #include "radray/ray_quant.hpp"
 #include "radray/rays.hpp"
 #include "radray/rt_rates.hpp"
@@ -100,6 +101,8 @@ struct Simulation {
   // post_rt (ngam_rays_total).
   std::shared_ptr<AmrexRT> amrex;
   double ngam_total_backend = 0;
+  // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
+  FofCache fof;
 };
 
 }  // namespace radray

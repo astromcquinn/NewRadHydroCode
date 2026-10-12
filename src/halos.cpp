@@ -248,7 +248,8 @@ HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u
   h.L = cfg.Ndm;
   h.box = cfg.box;
   h.pos_to_mpch = cfg.x_dm_box;                       // box/ndmr
-  const double x_dm_gas = static_cast<double>(cfg.Ngas / cfg.Ndm);
+  // Ngas/Ndm as a real: < 1 with pm_refine and Ndm > Ngas (docs/pm_refine.md)
+  const double x_dm_gas = static_cast<double>(cfg.Ngas) / cfg.Ndm;
   h.vel_to_kms = x_dm_gas * u.vel_unit / 1e5;         // pm_tools.f90 summarize_dm
   h.mpart_msun = u.Msun_unit;                         // calc_sim_var
   (void)Npart;

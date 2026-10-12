@@ -38,6 +38,13 @@ class MassFunction {
   // values (set it large to evolve without limit).
   enum class Kind { PressSchechter, ShethTormen, Tinker08 };
   double tinker_zmax_evol = 1e30;
+  // Sheth-Tormen f(nu) = A sqrt(2a/pi) (1 + (a nu^2)^-p) nu exp(-a nu^2/2).
+  // Default: Sheth & Tormen (1999). Refit to the simulation's FoF halos
+  // (docs/abundance_matching.md, data/hmf/st_fof_*.txt) for the production
+  // abundance matching.
+  struct STParams {
+    double A = 0.3222, a = 0.707, p = 0.3;
+  } st;
   // dn/dlnM in (Mpc/h)^-3 at mass M (Msun/h) and redshift z.
   double dndlnM(double M_msun_h, double z, Kind k) const;
   // Number of halos per (Mpc/h)^3 with M1 <= M < M2 (Msun/h).

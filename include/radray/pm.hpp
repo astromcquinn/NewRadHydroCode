@@ -27,17 +27,34 @@ namespace radray {
 namespace pm {
 
 // radhydro_global.f90 sizes used by the PM code.
+//
+// pm_refine = r (docs/pm_refine.md; 1 = the original): the PM mesh has
+// Nm = r*Ngas cells per dimension. The gas density is spread onto the mesh
+// (every mesh cell takes the density of the gas cell it lies in) and the
+// gas is kicked by the average of the mesh forces over the r^3 mesh cells
+// of its cell, divided by r (mesh to gas cell units): the two operations
+// are adjoint, so the gas-DM forces stay pairwise antisymmetric and the
+// total momentum is conserved. With r = 1 the mesh is the gas grid and
+// every expression is the original's.
 struct PMConfig {
   int Ngas = 0, Hgas = 0, Ndm = 0;
-  std::int64_t Npart = 0, Ncell = 0;
-  double ngasr = 0, ndmr = 0;
-  int N_dm_gas = 1, N_dm_gas_c = 1;
+  int refine = 1;      // pm_refine
+  int Nm = 0, Hm = 0;  // PM mesh: Nm = refine*Ngas, Hm = Nm/2
+  std::int64_t Npart = 0, Ncell = 0, Nmcell = 0;  // Ndm^3, Ngas^3, Nm^3
+  double ngasr = 0, ndmr = 0, nmr = 0;
+  // Particles per mesh cell spacing: Nm/Ndm (an integer, >= 1). These are
+  // the original's N_dm_gas, N_dm_gas_c and x_dm_gas (Ngas/Ndm) with r = 1.
+  int N_dm_m = 1, N_dm_m_c = 1;
+  double x_dm_m = 1;
+  // Ngas/Ndm as a real (DM to gas grid velocity units; < 1 when Ndm > Ngas)
   double x_dm_gas = 1;
   // -DMF: gravity kicks the grid velocity v_gas; otherwise u_gas(2:5)
   bool mf = true;
 
-  static PMConfig make(int Ngas, int Ndm, bool mf = true);
-  static PMConfig make(const Config& cfg, bool mf = true) { return make(cfg.Ngas, cfg.Ndm, mf); }
+  static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
+  static PMConfig make(const Config& cfg, bool mf = true) {
+    return make(cfg.Ngas, cfg.Ndm, mf, cfg.pm_refine);
+  }
 };
 
 // DM state and PM work arrays (radhydro_global.f90 "DM" arrays, density,
@@ -51,24 +68,34 @@ struct PMState {
   std::int64_t dm_cpu[2] = {0, 0};      // dm_cpu(1:2,1)
   std::vector<float> xv;                // xv_dm(6,Npart)
   std::vector<std::int64_t> ll;         // ll_dm(Npart), index 1..Npart
-  std::vector<std::int64_t> hoc;        // hoc_dm(Ngas,Ngas,Ngas)
-  std::vector<std::int64_t> hoc_cpu;    // hoc_cpu(Ngas,Ngas,1)
-  std::vector<float> density;           // density(Ngas+2,Ngas,Ngas)
+  std::vector<std::int64_t> hoc;        // hoc_dm(Nm,Nm,Nm)
+  std::vector<std::int64_t> hoc_cpu;    // hoc_cpu(Nm,Nm,1)
+  std::vector<float> density;           // density(Nm+2,Nm,Nm)
+  // pm_refine > 1: the mesh force (fx,fy,fz per mesh cell, the float values
+  // of calc_kick's force function), filled at the start of the kick, so the
+  // kick reads it instead of re-evaluating the gradient for every particle
+  // and gas cell. Identical values; empty and unused with pm_refine = 1.
+  std::vector<float> fmesh;
+  bool fmesh_valid = false;
 
   float* xv_p(std::int64_t ip) { return &xv[(ip - 1) * 6]; }
   const float* xv_p(std::int64_t ip) const { return &xv[(ip - 1) * 6]; }
-  std::int64_t gcell(int i, int j, int k) const {
+  std::int64_t gcell(int i, int j, int k) const {  // gas cell
     const std::int64_t N = pc.Ngas;
     return (i - 1) + N * ((j - 1) + N * (k - 1));
   }
-  std::int64_t dcell(int i, int j, int k) const {  // density(i,j,k)
-    const std::int64_t N = pc.Ngas;
+  std::int64_t mcell(int i, int j, int k) const {  // mesh cell (hoc)
+    const std::int64_t N = pc.Nm;
+    return (i - 1) + N * ((j - 1) + N * (k - 1));
+  }
+  std::int64_t dcell(int i, int j, int k) const {  // density(i,j,k), mesh
+    const std::int64_t N = pc.Nm;
     return (i - 1) + (N + 2) * ((j - 1) + N * (k - 1));
   }
 };
 
 // pm_tools.f90: init_pm. Zeroes all arrays; takes the gas domains of
-// init_domain_gas.
+// init_domain_gas (scaled to the mesh when pm_refine > 1).
 void init_pm(PMState& s, const PMConfig& pc, const Domains& dom);
 
 // pm_tools.f90 routines. u_gas is (5,Ngas^3), v_gas is (3,Ngas^3).
@@ -80,7 +107,8 @@ void cic_mass_assignment(PMState& s, const std::array<int, 6>& box);
 void cic_mass_assignment_all(PMState& s);
 void calc_density_field(PMState& s, const float* u_gas);
 void calc_gravity_field(PMState& s, double scalefactor);
-// Sets clk.amax_dm, arms_dm, vmax_dm, vrms_dm (grid units).
+// Sets clk.amax_dm, arms_dm, vmax_dm, vrms_dm (PM mesh units; the gas grid
+// with pm_refine = 1).
 void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u);
 // drift, link, density, gravity, kick, drift (uses clk.dt_sim and
 // clk.scalefactor, which the caller has advanced by half a step).
@@ -94,7 +122,12 @@ void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1
 void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1,
                            SimClock& clk, const Units& u);
 
-// pm_tools.f90: calc_power_spectrum. Fills pk_dm(5,Ngas) and pk_gas(5,Ngas)
+// The mesh force interpolated to a particle at xv (DM-grid units) with the
+// CIC weights of calc_kick, in mesh units: what calc_kick adds to the
+// particle's velocity times x_dm_m/dt_sim. For tests (docs/pm_refine.md).
+void force_at(const PMState& s, const float* xv, double F[3]);
+
+// pm_tools.f90: calc_power_spectrum. Fills pk_dm(5,Nm) and pk_gas(5,Ngas)
 // (Fortran layout pk[(k-1)*5 + c]) and leaves density/linked lists as the
 // original does. write_power_spectrum writes the Fortran file format
 // "(7es14.6)" for k = 2..Hgas+1.

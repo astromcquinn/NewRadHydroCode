@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below). Also 2026-10-12: the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`)
 
@@ -19,6 +19,79 @@ the diffuse Γ distribution does not change. New test
 `restart_smoke_m1_inject`. Runs `$RUNS/m1_clumps/`. The 512³ moment runs
 used 0 and are not rerun; `docs/rt_methods_512.md` §6b, §6c and §9 carry
 the correction.
+
+## Done 2026-10-11/12, branch `pm-refine` (merged with `main` 2026-10-12; PR pending)
+
+**`pm_refine`: a PM mesh of pm_refine·N cells for Ndm up to pm_refine·N
+particles (`docs/pm_refine.md`).** Goal: 1.3×10⁸ M☉ halos (20 particles)
+in the 40 Mpc/h, 512³ runs.
+- How it works:
+  - The gas density is spread onto the fine mesh and the mesh forces are
+    averaged back (adjoint) in `calc_kick` and `calc_kick_unsplit`.
+  - CIC, `link_dm` and the particle mass are on the mesh.
+  - `x_dm_gas = Ngas/Ndm` is now a real number (`summarize_dm`,
+    `halos.cpp` halo velocities).
+  - Threaded FFTW: `fftw-3.3.10-float-omp`, the same SSE2 build with
+    `--enable-openmp`, which `env.sh` now selects; capped at 32 threads.
+  - `make_ics.py` handles Ndm > Ngas and has `--phases-from-ndm`.
+  - `make_production.py --pm-refine 2 [--data-files dm]`.
+  - The checkpoint format is unchanged (the mesh has no state).
+- **pm_refine = 1 is byte-identical.** Fast suite 115/125 (the known 10
+  stored-RT failures); every PM and hydro stored reference passes;
+  nightly 22/22 with the OpenMP FFTW library. **After the merge with
+  `main` (2026-10-12, b56d4ed, and again after PR #29, c7a5f3f): fast suite 125/125 on klone** (the
+  platform-dependent RT references are skipped there since `main`'s
+  `platform_ref` label), including every pm_refine / FoF-cadence test;
+  nightly 22/22 (jobs 41787154 and 41791863, 58–59 min).
+- Tests (all pass), 16 new:
+  - single-particle force against Ewald: the error is a function of the
+    distance in mesh cells, so pm_refine = 2 is as good at d/2;
+  - no self-force;
+  - momentum conserved to 3×10⁻⁹ for every kick variant;
+  - an r = 2 pancake is bit-identical to its r = 1 twin on a gas grid as
+    fine as the mesh;
+  - pancakes with r = 2;
+  - FFT and full-loop thread-count independence;
+  - restart with Ndm > N.
+- Gas+DM Zel'dovich pancake (both kicks): the DM errors of pm_refine = 2
+  at N equal those of the original at 2N, and the gas is as good or
+  better.
+- **HMF, 40 Mpc/h with 1024³ DM** (`$RUNS/hmf512_40mpc_r2`, 55 steps,
+  173 GB), against `hmf256`:
+  - 0.73–0.89 down to 20 particles (1.3×10⁸ M☉), with no extra falloff
+    near the limit;
+  - pm_refine = 1 (512³ DM) has none of these halos and 10–45% at
+    10⁹–10^9.5 M☉;
+  - 10 Mpc/h controls with the same DM ICs attribute the 10–25% deficit
+    to the gas grid being 2× coarser than the mesh;
+  - against the same-configuration 10 Mpc/h control the big box is flat
+    in particle number (0.84–0.94, sample variance).
+- Cost per step (no RT): ~60 s against 29 s, mostly the on-the-fly FoF on
+  10⁹ particles (32 s). PM 13 s (30 s before the r > 1 speed-ups:
+  parallel `link_dm`, stored mesh force, FFT cap); 174 GB peak.
+- **FoF cadence** (user: "FoF should definitely run less often than
+  every step"): `fof_dt_myr`.
+  - The FoF runs every Δt Myr; in between the cached halos are reused,
+    drifted, and the sources re-assigned at the current z.
+  - The cache is in the checkpoint (version 7).
+  - Default 0 = every hydro step (byte-identical).
+  - Tests: `thread_full_fof_cadence`, `restart_smoke_fof_cadence`.
+  - In the 512³ production schedule (39 source steps, 20–30 Myr apart
+    until overlap): 20 Myr → 33 FoF calls, 30 Myr → 22, 50 → 16. That is
+    only 3–12 min saved at 1024³; 20 Myr suggested.
+- **Abundance matching (user decision 2026-10-11):** Sheth–Tormen refit to
+  the FoF halos ≥ 1000 particles of the 40 Mpc/h 1024³ run (A = 0.3458,
+  a = 0.6164, p = 0.3), `data/uv_lf/am_params_st_fof.txt`, for every box
+  and pm_refine. Data/fit 0.92–1.07 at z = 5.5–8; the 512³ and 10 Mpc/h
+  boxes agree; the 1024³ box LF matches the observed LFs to 0.9–1.1
+  wherever halos are resolved. `am_fit`/`hmf_table --st-params`,
+  `tools/analysis/fit_st_fof.py`. FoF stays every hydro step (user).
+  **f_esc needs recalibrating with the new parameters.**
+- Decided (user, 2026-10-11): FoF every hydro step (`fof_dt_myr` stays
+  as an option, default 0); abundance matching on the ST refit (the
+  R(N, z) correction is superseded).
+- **Open (user):** a production run with pm_refine = 2 (f_esc to
+  recalibrate with `am_params_st_fof.txt`).
 
 ## Done 2026-10-12: nightly workflow out of disk (branch `claude/new-session-knktw3`)
 

@@ -11,6 +11,11 @@
 case $- in *u*) _radray_u=1; set +u ;; *) _radray_u=0 ;; esac
 
 RADRAY_SW="${RADRAY_SW:-/gscratch/astro/$USER/sw}"
+# The same SSE2 build with --enable-openmp (libfftw3f_omp, used only by
+# pm_refine > 1, docs/pm_refine.md) when it is installed.
+if [ -z "${RADRAY_FFTW:-}" ] && [ -f "$RADRAY_SW/fftw-3.3.10-float-omp/lib/libfftw3f_omp.a" ]; then
+  RADRAY_FFTW="$RADRAY_SW/fftw-3.3.10-float-omp"
+fi
 RADRAY_FFTW="${RADRAY_FFTW:-$RADRAY_SW/fftw-3.3.10-float}"
 RADRAY_CONDA_ENV="${RADRAY_CONDA_ENV:-$RADRAY_SW/conda-envs/radray}"
 export RADRAY_SW RADRAY_FFTW RADRAY_CONDA_ENV

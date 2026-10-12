@@ -17,10 +17,44 @@ namespace {
 // FFTW_UNALIGNED makes the plan independent of the array address, so the
 // Fortran harness and this port (different allocators) get the same plan.
 constexpr unsigned kFlags = FFTW_ESTIMATE | FFTW_UNALIGNED;
+
+// Plans made while this is alive use n threads (threaded FFTW only); the
+// planner is reset to one thread afterwards, so every other plan (the
+// default PM, the hydro 1-D transforms) stays the serial one. FFTW's
+// threads are initialised only on the first n > 1.
+struct PlanThreads {
+  bool on = false;
+  explicit PlanThreads(int n) {
+#ifdef RADRAY_FFTW_OMP
+    if (n > 1) {
+      static const bool init = fftwf_init_threads() != 0;
+      if (!init) throw std::runtime_error("fftwf_init_threads failed");
+      fftwf_plan_with_nthreads(n);
+      on = true;
+    }
+#else
+    (void)n;
+#endif
+  }
+  ~PlanThreads() {
+#ifdef RADRAY_FFTW_OMP
+    if (on) fftwf_plan_with_nthreads(1);
+#endif
+  }
+};
 }  // namespace
 
-void fft_3d(char c, int n1, int n2, int n3, float* a) {
+bool fft_threaded() {
+#ifdef RADRAY_FFTW_OMP
+  return true;
+#else
+  return false;
+#endif
+}
+
+void fft_3d(char c, int n1, int n2, int n3, float* a, int nthreads) {
   fftwf_complex* ac = reinterpret_cast<fftwf_complex*>(a);
+  const PlanThreads pt(nthreads);
   switch (c) {
     case 'f': {
       // Row-major dimensions (n3,n2,n1) = Fortran a(n1,n2,n3)
@@ -41,6 +75,7 @@ void fft_3d(char c, int n1, int n2, int n3, float* a) {
       fftwf_destroy_plan(p);
       // DFTI_BACKWARD_SCALE on the n1 real outputs of every row
       const std::int64_t ld = n1 + 2;
+#pragma omp parallel for schedule(static) if (pt.on)
       for (std::int64_t k = 0; k < n3; ++k)
         for (std::int64_t j = 0; j < n2; ++j) {
           float* row = a + ld * (j + static_cast<std::int64_t>(n2) * k);

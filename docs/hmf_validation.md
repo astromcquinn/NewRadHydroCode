@@ -83,7 +83,9 @@ The table is in `figures/hmf_128_10mpc.txt`.
    * 2LPT ICs, or a higher start redshift;
    * a finer PM mesh (Ngas = 2 Ndm, the original's ratio, at more cost in
      hydro and RT);
-   * Ndm > N.
+   * Ndm > N: **done 2026-10-11 as `pm_refine`** (a PM mesh finer than
+     the gas grid; `docs/pm_refine.md`, with the 40 Mpc/h 1024³ mass
+     function against the 256³ one below).
 
 ## 256³ (production-256 thread, 2026-10-10)
 

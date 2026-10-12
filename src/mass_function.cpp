@@ -86,7 +86,7 @@ double MassFunction::dndlnM(double M, double z, Kind kind) const {
     const double b = b0 * std::pow(1 + zz, -alpha);
     f = A * (std::pow(s / b, -a) + 1) * std::exp(-c / (s * s));
   } else {
-    const double A = 0.3222, a = 0.707, p = 0.3;
+    const double A = st.A, a = st.a, p = st.p;
     const double an2 = a * nu * nu;
     f = A * std::sqrt(2 * a / kPi) * (1 + std::pow(an2, -p)) * nu * std::exp(-0.5 * an2);
   }

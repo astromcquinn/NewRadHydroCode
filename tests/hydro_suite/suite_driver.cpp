@@ -82,6 +82,7 @@ std::vector<double> parse_list(std::string v) {
 struct Params {
   int N = -1;
   int Ndm = -1;
+  int pm_refine = 1;  // PM mesh = pm_refine*N (docs/pm_refine.md)
   bool cosmo = false;
   double z_init = 10;
   double courant = 1;
@@ -97,6 +98,7 @@ struct Params {
 void set_param(Params& p, const std::string& k, const std::string& v) {
   if (k == "N") p.N = std::stoi(v);
   else if (k == "Ndm") p.Ndm = std::stoi(v);
+  else if (k == "pm_refine") p.pm_refine = std::stoi(v);
   else if (k == "mode") {
     if (v == "hydro") p.cosmo = false;
     else if (v == "cosmo") p.cosmo = true;
@@ -197,6 +199,7 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(odir);
 
     Config cfg = Config::make(P.N, 1, P.Ndm, P.box);
+    cfg.pm_refine = P.pm_refine;
     copy_hydro_scheme(P.hydro, cfg);
     const bool unsplit = cfg.hydro_scheme == HydroScheme::Unsplit;
     SimClock clk;
@@ -211,7 +214,7 @@ int main(int argc, char** argv) {
     init_hydro(cfg, gas, hs);
     if (P.cosmo) {
       pm::init_pm(pms, pm::PMConfig::make(cfg), dom);
-      fft::fft_3d('f', cfg.Ngas, cfg.Ngas, cfg.Ngas, pms.density.data());  // init_fft
+      fft::fft_3d('f', pms.pc.Nm, pms.pc.Nm, pms.pc.Nm, pms.density.data());  // init_fft
     }
     calc_sim_var(cfg, clk, un);
 
