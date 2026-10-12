@@ -705,6 +705,14 @@ if(Python3_Interpreter_FOUND)
                      --set legacy_physics=0 --set deterministic_parallel=1
                      --set recomb_case=A --set recomb_rad=1)
     set_tests_properties(restart_smoke_recomb PROPERTIES TIMEOUT 600 LABELS "restart;recomb")
+    # a checkpoint written before the RT starts (empty recombination buffers)
+    add_test(NAME restart_smoke_recomb_prert
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_prert 2 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1
+                     --set recomb_case=A --set recomb_rad=1)
+    set_tests_properties(restart_smoke_recomb_prert PROPERTIES TIMEOUT 600 LABELS "restart;recomb")
     add_test(NAME restart_smoke_recomb_otvet
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
