@@ -440,7 +440,8 @@ def main():
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             k0 = N // 2
-            show = ["truth"] + [k for k in names if k in ("otvet", "m1", "split") or k.startswith("split_atten")]
+            show = ["truth"] + [k for k in names if k in ("otvet", "split") or k.startswith("atten")
+                                or k.startswith("cone") or k.startswith("split_cone")][:8]
             fig, axs = plt.subplots(2, len(show), figsize=(3.2 * len(show), 6.4), squeeze=False)
             for i, k in enumerate(show):
                 h = h_true if k == "truth" else cl[k]
