@@ -18,6 +18,7 @@ radhydro   <problem> <out> --set rt_method=otvet
 | `rt_method` | `rays` (default), `m1`, `otvet` | radiative transfer method |
 | `moment_nsub` | integer ≥ 3, default 4 | transport subcycles per RT substep (Courant number 1/`moment_nsub`) |
 | `otvet_tensor` | `auto` (default), `direct`, `fft` | how the OTVET tensor is summed over the sources |
+| `moment_inject` | `0` (default), `1` | when a substep's source and recombination photons enter the moments: 0 before the transport (the first implementation), 1 after it, so they are absorbed in their own cell first (§5a; `make_production.py` writes 1) |
 
 All other parameters keep their meaning. `c_reduced` sets the light speed of
 the moment solver too. `legacy_physics` selects the atomic physics, as with
@@ -200,6 +201,57 @@ sources or rays. Most of the rays' time here is `post_rt` (redshifting every
 ray, every hydro step) and the ray casting. In a production run with many
 substeps per hydro step and up to 64 rays per cell the ratio will differ:
 measure it on the cluster. Cells whose stencil holds no photons are skipped.
+
+## 5a. Injection order: neutral source cells (`moment_inject`)
+
+*Found 2026-10-12 while asking why M1 has so many neutral absorbers after
+overlap (`docs/rt_methods_512.md` §6b).* Each RT substep injects the source
+photons (and, with `recomb_rad = 1`, the recombination photons) into the
+moments, transports them `moment_nsub` times, and only then lets
+`photo_cell` absorb. The first GLF subcycle already moves 3C = 3/4 of a
+cell's isotropic photons to its 6 neighbours, so a source's own cell sees
+only a small part of its photons before they leave. A dense source cell
+whose recombinations exceed that part stays neutral, however bright the
+source; the rays absorb a source's photons starting in its own cell. The
+recombination photons leak out of dense cells the same way, which is the
+moment-method form of the rays' block-emission artifact (`docs/rt_methods_512.md`
+§6c).
+
+At 512³ (z = 5.44) M1 leaves 21 % of the cells at 100–500 ρ̄ neutral
+(rays 1.2 %, OTVET 2.3 %); their Γ is 500× below their surroundings, while
+the rays and OTVET ionise the same cells with Γ about 2× *above* them. At
+128³ (`$RUNS/m1_clumps/m1`, with `Luv` written) 71 % of M1's HI at
+z = 5.39 sits in 25 source cells, the brightest ones (median L ten times
+that of all sources); the rays and OTVET have x_HI ≈ 10⁻⁴ there.
+
+`moment_inject = 1` injects after the transport, so the photons are
+absorbed in the cell that emitted them before they move on (128³,
+`$RUNS/m1_clumps/{m1_inj,otvet_inj}`, `compare.txt`):
+
+| z | x_HI,M: rays (A+RR) / rays B / M1 / **M1 inject** / OTVET / **OTVET inject** | Γ_max/⟨Γ⟩: rays / M1 / **M1 inject** / OTVET / **OTVET inject** |
+|---|---|---|
+| 6.43 | 0.184 / 0.196 / 0.161 / **0.170** / 0.165 / **0.171** | 952 / 86 / **1860** / 263 / **2033** |
+| 5.68 | 5.6e-4 / 1.0e-4 / 1.8e-3 / **1.1e-4** / 7.1e-5 / **7.2e-5** | 377 / 31 / **660** / 256 / **893** |
+| 5.39 | 4.8e-4 / 4.0e-5 / 1.8e-3 / **6.0e-5** / 4.3e-5 / **4.3e-5** | 151 / 12 / **428** / 235 / **657** |
+| 4.90 | 8.2e-5 / 2.0e-5 / 2.0e-3 / **3.2e-5** / 2.1e-5 / **2.1e-5** | 96 / 8 / **164** / 131 / **287** |
+
+- M1's neutral HI after overlap falls 30–60× to the level of OTVET and the
+  case B rays (the case A + RR rays still carry the block-emission artifact,
+  fixed since by `recomb_rad_cell_onspot`); it has no cells with
+  x_HI > 0.01 left by z = 5.4.
+- The proximity peaks come back: the source cells now hold their
+  photons for one absorption, and Γ_max is now 2–3× the rays'.
+- During reionization the moment runs move slightly toward the rays
+  (x_V at z = 6.43: M1 0.841 → 0.829, OTVET 0.827 → 0.819, rays 0.815), and
+  ⟨Γ⟩ after overlap drops 1–4 %.
+- The diffuse Γ distribution after overlap does not change (M1 16–84 %:
+  0.98–1.01 ⟨Γ⟩; OTVET 0.62–1.21): that part is the closure.
+- OTVET's HI hardly changes: its tensor already points away from the
+  source, and its neutral source cells at z ≈ 6.9 ionised before overlap.
+
+The default stays 0 (ground rule: defaults keep the first implementation);
+`make_production.py --moment-inject` writes 1 by default. The 512³ M1 and
+OTVET runs of `docs/rt_methods_512.md` used 0; they are not rerun.
 
 ## 5. Caveats and open questions
 

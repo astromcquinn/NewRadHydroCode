@@ -178,6 +178,10 @@ OTVET | rays case B). Also [z ≈ 5.91](figures/rt_methods_512_gamma_z5.91.png)
   in M1 (z = 5.44 and 4.98); the 99.99th percentile is 6–8, 12 and 3–5
   ⟨Γ⟩. OTVET's proximity zones are thus broader than the rays' (more cells
   at several ⟨Γ⟩), the rays' peaks the sharpest, M1's the weakest.
+  *Correction (2026-10-12):* the moment peaks are set mostly by the order
+  of injection and transport, not by the closure. With `moment_inject = 1`
+  the brightest cell rises to 2–3× the rays' in both moment methods at
+  128³ (`docs/rt_moments.md` §5a); the 512³ runs used 0.
 - **In the diffuse IGM after overlap.** The means agree, the widths do
   not: the 16–84 % range is ±35 % for the rays, ±13 % (z = 5.44) to ±6 %
   (z = 4.98) for M1, and ±22–24 % for OTVET. M1's Γ is almost uniform away
@@ -308,7 +312,9 @@ each run's z and x_V.
   case A + RR. The amplitudes are tiny (Δ² ~ 10⁻¹⁰–1): a matter for
   absorbers, not for 21 cm. The case A + RR excess is mostly a numerical
   artifact of the rays' block emission of recombination radiation, now
-  fixed (§6c); M1's is its weak Γ near sources.
+  fixed (§6c). M1's is an artifact too: its source cells inject before the
+  transport and stay neutral (`docs/rt_moments.md` §5a, fixed by
+  `moment_inject = 1`; these 512³ runs used 0).
 
 ## 6c. Why case A + RR leaves neutral clumps: block emission (fixed by `recomb_rad_cell_onspot`)
 
@@ -327,7 +333,9 @@ whose emitting cell is thin therefore loses its own recombination photons
 to rays launched up to ≈ 3 cells away, i.e. it gets case A without the
 reabsorption — enough to tip clumps near the self-shielding threshold. The
 moment methods are not affected (every cell re-emits into its own moments);
-M1's clumps (§6b) come from its weak Γ near sources.
+M1's clumps (§6b) are its own artifact: dense source cells whose photons
+are transported away before they are absorbed (`docs/rt_moments.md` §5a,
+`moment_inject`).
 
 **Fix:** `recomb_rad_cell_onspot = τ` (rays; default 0 = the behaviour
 above): a cell whose own optical depth at the HI edge (group 1) exceeds τ
@@ -408,7 +416,9 @@ movie is `$RUNS/<run>/run/movie/cosmo.mp4`.
 - **The distribution and spatial structure of Γ_HI do.**
   - *Around sources:* the rays have the sharpest proximity peaks
     (≈ 1000 ⟨Γ⟩), OTVET broader zones (300 ⟨Γ⟩, the largest number of
-    cells at several ⟨Γ⟩), M1 the weakest (50–80 ⟨Γ⟩).
+    cells at several ⟨Γ⟩), M1 the weakest (50–80 ⟨Γ⟩). The moment peaks and
+    M1's neutral source cells are mostly the injection order, fixed by
+    `moment_inject = 1` (`docs/rt_moments.md` §5a).
   - *In the diffuse IGM after overlap:* the rays have the widest
     distribution (±35 %, with a long shadowed low tail; part of the
     cell-to-cell scatter is ray sampling noise), OTVET ±22 % with a hard
