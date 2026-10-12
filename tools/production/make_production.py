@@ -84,6 +84,15 @@ def main():
                     help="1: redshift the radiation per distance travelled instead of per time "
                          "(fscale^s, docs/production_run.md; production, user decision "
                          "2026-10-11); 0: the original, per time")
+    ap.add_argument("--rt-cells-per-substep", type=int, default=1,
+                    help="RT cells a ray crosses per RT substep (rt_cells_per_substep, "
+                         "docs/rt_multicell.md); 1: the original (default, no line written)")
+    ap.add_argument("--ray-deposit", default="share", choices=("share", "exposure"),
+                    help="how rays deposit photons along their path (ray_deposit, "
+                         "docs/rt_multicell.md); share: the original (default, no line)")
+    ap.add_argument("--photon-conserve", type=int, default=0, choices=(0, 1),
+                    help="iterate photo_cell's photon limit to convergence (photon_conserve, "
+                         "the B17 fix, docs/rt_multicell.md); 0: the original (default, no line)")
     a = ap.parse_args()
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
@@ -126,6 +135,12 @@ def main():
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")
+    if a.photon_conserve:
+        lines.append("photon_conserve = 1")
+    if a.ray_deposit != "share":
+        lines.append(f"ray_deposit = {a.ray_deposit}")
+    if a.rt_cells_per_substep != 1:
+        lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
     if a.am_params:
         if not a.f_esc > 0:
             sys.exit("--am-params needs --f-esc")
