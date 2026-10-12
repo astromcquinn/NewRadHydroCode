@@ -32,6 +32,14 @@ f_esc = 0.23, `redshift_per_distance`) plus rays with case B; runs
   M1 0.07–0.4× the rays and decorrelated (r = 0.1–0.6 at k ≲ 1.5), OTVET
   2–9× with r ≥ 0.95; both grow with time after overlap. ⟨F_Lyα⟩ at fixed
   ⟨Γ⟩ differs by 20–35 % between methods. RR: Γ +10 %, λ_mfp −30 %.
+- **Found and fixed (2026-10-12):** the rays' block emission of recombination
+  radiation moves a dense cell's own recombination photons to the block's
+  emitting cell, so case A + RR makes spurious self-shielded clumps (≈ 90
+  cells holding 62 % of the HI at z = 5.44; case B none). New option
+  `recomb_rad_cell_onspot = τ` (default 0; `make_production.py` 1): cells
+  thicker than τ at the HI edge keep their photons on the spot. 128³ test:
+  residual HI −4×, history and τ_es unchanged (`docs/rt_methods_512.md` §6c).
+  The 512³ case A + RR ray run predates it.
 - **Open:** compare P_Γ with the user's analytic prediction; a
   substep-averaged Γ to remove the rays' sampling noise; disk — the runs'
   checkpoints (≈ 0.9 TB, incl. a saved 166 GB step-48 checkpoint of the

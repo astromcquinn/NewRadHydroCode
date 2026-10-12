@@ -305,8 +305,54 @@ each run's z and x_V.
   rises steeply with k: M1 has 25–500× the rays' ρ_HI power (its x_M is
   0.9985 against 0.9999: M1 leaves dense gas neutral, consistent with its
   weak Γ peaks around sources), OTVET 2–3×, case B 100–1000× less than
-  case A + RR (faster recombination in case A). The amplitudes are tiny
-  (Δ² ~ 10⁻¹⁰–1): a matter for absorbers, not for 21 cm.
+  case A + RR. The amplitudes are tiny (Δ² ~ 10⁻¹⁰–1): a matter for
+  absorbers, not for 21 cm. The case A + RR excess is mostly a numerical
+  artifact of the rays' block emission of recombination radiation, now
+  fixed (§6c); M1's is its weak Γ near sources.
+
+## 6c. Why case A + RR leaves neutral clumps: block emission (fixed by `recomb_rad_cell_onspot`)
+
+*Found from §6b after the user asked why case B differs so much after
+overlap (2026-10-12).* At z = 5.44 the rays with case A + RR have ≈ 90
+cells with x_HI > 0.01 (median ρ ≈ 500 ρ̄, Γ ≈ 0.003 ⟨Γ⟩) that hold 62 % of
+all their HI; case B has none, while the diffuse gas (ρ < 3 ρ̄) differs only
+by the expected 1.3×. Physically, case A with transported recombination
+radiation should equal case B in such cells: at 500 ρ̄ a 78 kpc/h cell has
+τ(13.6 eV) ≈ 8000 x_HI, so its recombination photons are reabsorbed in the
+cell. The cause is the block emission of the rays (`src/recomb_rad.cpp`,
+`recomb_prepare`): the recombinations of all 4³ cells of a block are
+launched from one rotating emitting cell, and the on-the-spot fallback
+tests only that emitting cell's optical depth. A dense cell in a block
+whose emitting cell is thin therefore loses its own recombination photons
+to rays launched up to ≈ 3 cells away, i.e. it gets case A without the
+reabsorption — enough to tip clumps near the self-shielding threshold. The
+moment methods are not affected (every cell re-emits into its own moments);
+M1's clumps (§6b) come from its weak Γ near sources.
+
+**Fix:** `recomb_rad_cell_onspot = τ` (rays; default 0 = the behaviour
+above): a cell whose own optical depth at the HI edge (group 1) exceeds τ
+uses case B and keeps its recombination photons on the spot, whatever its
+block does. `make_production.py` writes τ = 1 by default.
+
+Test, 128³, 10 Mpc/h (same cell size), case A + RR otherwise as here
+(`$RUNS/rr_onspot_test/c{0,1,2}`, case B: `$RUNS/rtm128_test_caseB`):
+
+| | off | τ > 4.6 | τ > 1 | case B |
+|---|---|---|---|---|
+| HI/H, z = 5.39 | 4.8×10⁻⁴ | 1.5×10⁻⁴ | 1.2×10⁻⁴ | 4.0×10⁻⁵ |
+| cells x_HI > 0.01, z = 5.39 | 6 | 2 | 1 | 0 |
+| HI/H, z = 4.90 | 8.2×10⁻⁵ | 3.2×10⁻⁵ | 3.1×10⁻⁵ | 2.0×10⁻⁵ |
+| z(x_V = 0.5 / 0.99) | 6.998 / 5.991 | 6.998 / 5.990 | 6.992 / 5.983 | 6.974 / 5.964 |
+| τ_es | 0.0527 | 0.0527 | 0.0526 | 0.0524 |
+| ⟨Γ⟩, z = 5.39 [10⁻¹³ s⁻¹] | 8.39 | 8.38 | 8.20 | 7.10 |
+
+The fix removes most of the spurious HI (4× at z = 5.4; at z = 4.9 case A
++ RR is 1.6× case B, about α_A/α_B) and leaves the history, τ_es and the
+diffuse IGM unchanged (⟨Γ⟩ −2 %: less emission is launched). The 512³ case
+A + RR runs of this document were made **without** it, so their
+post-overlap ρ_HI power and residual HI (§6b, and the λ_mfp of §7) are
+biased by these clumps; the Γ_HI results (§4–6) are not affected beyond
+the few-percent level.
 
 ## 7. The IGM at z = 5–6
 
