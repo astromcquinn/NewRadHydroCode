@@ -1193,6 +1193,11 @@ int backend_nranks() { return g_initialized ? amrex::ParallelDescriptor::NProcs(
 void backend_barrier() {
   if (g_initialized) amrex::ParallelDescriptor::Barrier();
 }
+void backend_reduce_minmax(double& lo, double& hi) {
+  if (!g_initialized) return;
+  amrex::ParallelDescriptor::ReduceRealMin(lo);
+  amrex::ParallelDescriptor::ReduceRealMax(hi);
+}
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }
 void amrex_rt_substep(Simulation& s) { level_of(s).substep(s); }

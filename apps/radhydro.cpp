@@ -1070,12 +1070,18 @@ int main(int argc, char** argv) {
 
     backend_barrier();
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
+    // Peak RSS of this rank, and its range over the ranks of an MPI run
+    const double rss = peak_rss_mb();
+    double rss_lo = rss, rss_hi = rss;
+    backend_reduce_minmax(rss_lo, rss_hi);
     if (io) {
       std::printf(
           " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
           "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
-          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
-          peak_rss_mb());
+          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io, rss);
+      if (backend_nranks() > 1)
+        std::printf(" peak RSS over %d ranks: min %.1f MB, max %.1f MB\n", backend_nranks(), rss_lo,
+                    rss_hi);
       std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
                   format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
                   static_cast<long long>(s.rays.npool_forced));
@@ -1099,7 +1105,11 @@ int main(int argc, char** argv) {
     timing << "# " << format_rt_timers(s.timers) << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
-           << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
+           << T.io << " peak_rss_MB " << rss;
+    if (backend_nranks() > 1)
+      timing << " ranks " << backend_nranks() << " peak_rss_min_MB " << rss_lo << " peak_rss_max_MB "
+             << rss_hi;
+    timing << "\n";
     if (P.halo.fof_dt_myr > 0)
       timing << "# fof_dt_myr " << P.halo.fof_dt_myr << " fof_calls " << s.fof.nfof
              << " reused " << s.fof.nreuse << "\n";
