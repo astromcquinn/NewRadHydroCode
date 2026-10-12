@@ -1,6 +1,49 @@
 # Project status
 
-*Last updated: 2026-10-12: `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`). Also 2026-10-12: `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-12: Stage E2, the PM gravity on AMReX (branch `stage-e-pm`)
+
+**`docs/stage_e_pm.md`.** Item 2 of Stage E (`docs/framework_decision.md`
+§6): `pm_backend = amrex` (default `serial`, byte-identical). The dark
+matter in an AMReX `ParticleContainerPureSoA`, the CIC deposit in int64
+fixed point with `SumBoundary`, the Poisson solve, the mesh force, the DM
+kick and the gas kick (`calc_kick`, `calc_kick_unsplit`, `pm_refine`) on
+one AMReX level of the PM mesh (`src/amrex/pm_level.cpp`; stub without
+AMReX). Stage E2's MPI model: the hydro and the RT hold the full state on
+every rank, so the level copies the host state in at the start of the PM
+step (each rank creates the particles of its own boxes from `xv_dm`) and
+gathers the kicked velocities and gas back onto every rank (bitwise-OR
+all-reduce of disjoint pieces); the two drifts stay on the host; the level
+holds no state between steps (checkpoints unchanged).
+- **Shared kernels:** `include/radray/kernels/pm_kernels.hpp` (CIC, force
+  stencil, Green's function), called by `src/pm.cpp`: the `pm` label
+  unchanged (stored gfortran references byte-identical).
+- **FFT:** `amrex_pm_fft = pencil` (default; per-line 1-D FFTW transforms
+  on slab layouts, rank- and thread-independent by construction) or
+  `amrex` (`amrex::FFT::R2C`; also bitwise rank/thread-independent in
+  every test here, not guaranteed by construction). AMReX needs
+  `-DAMReX_FFT=ON` (FFTW double and float on the CPU; `build_amrex.sh`
+  builds the double library on klone).
+- **Tests, `ctest -L amrex_pm` (76, all pass here):** Ewald single-particle
+  force, no self-force, gas kick, momentum (MF/non-MF/unsplit, r = 1, 2, 4)
+  and backend-vs-serial fields on the level (1/2/4 ranks, both FFTs);
+  round-off against `pm_driver` on the 8 PM problems (1e-4 relative or
+  1e-5 of the maximum; growth_3d reaches 5e-6 of the maximum force after
+  30 steps); the physics checks (momentum, pancakes incl. r = 2, growth,
+  the r = 2 twin bit-identical) on the backend's runs; bitwise identical
+  for (ranks, threads, box) ∈ {1,2,4,8} × {1,2} × {32,16,8} on pm_refine
+  1 and 2, both FFTs; the full loop with `rt_backend = amrex` +
+  `pm_backend = amrex` rank-independent (1, 2, 4), thread-independent,
+  bit-identical restarts (legacy, unsplit, pm_refine = 2).
+- **Full loop vs the serial PM:** the 16³ smoke problem amplifies the
+  force round-off (1e-6 of the maximum) to 2e-5 in T_V by step 15 (the RT
+  backend's round-off: 1e-8–3e-7); a 64³ production-configuration nightly
+  comparison is the right check and is not added yet.
+- **Timing (4-core VM, `pm_driver`, 3 steps, Ngas = Ndm):** TIMING_STATUS
+- **Not done / open:** the particles staying on the level between steps
+  (needs E1 and the end of the redundant host state); E3–E6; the GPU
+  build (plain OpenMP loops here).
 
 ## Done 2026-10-11/12, branch `pm-refine` (merged with `main` 2026-10-12; PR pending)
 
@@ -1288,7 +1331,7 @@ differ on klone are skipped there (label `platform_ref`).
 
 ## Known limits
 
-- **OpenMP only.** MPI/GPU is Phase 2. On one Genoa node the RT reaches 94× on 192 threads at 256³ and about 50× at 128³ (`docs/cluster.md` §6).
+- **MPI only through the AMReX backends** (`rt_backend = amrex`, `pm_backend = amrex`; the hydro, halo finder and sources still run redundantly on every rank). GPU is pending. On one Genoa node the RT reaches 94× on 192 threads at 256³ and about 50× at 128³ (`docs/cluster.md` §6).
 - **RT dominates the cost.** Hydro+PM take under 1%. At full c, z=12→6 at
   128³ would take days on one core, hence `c_reduced`.
 - **Network access from cloud sessions.** arXiv, ADS and journal sites are

@@ -775,6 +775,43 @@ struct PMLevel {
     T.gather += now() - t0;
   }
 
+  // ---- the fields for the tests: potential and mesh force onto the host -------
+
+  void fields(pm::PMState& s, const float* u_gas, double scalefactor) {
+    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;
+    prep(s, u_gas, nullptr, nullptr, mf ? 0 : 1);
+    density(mass);
+    gravity(scalefactor);
+    force();
+    const bool keep = s.gather_potential;
+    s.gather_potential = true;
+    // the potential (gather's last part) and the force mesh
+    {
+      std::fill(s.density.begin(), s.density.end(), 0.0f);
+      float* d = s.density.data();
+      const int NM = Nm;
+      for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+        auto p = pot.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          d[i + static_cast<std::int64_t>(NM + 2) * (j + static_cast<std::int64_t>(NM) * k)] = p(i, j, k);
+        });
+      }
+      allreduce_bor(d, s.density.size());
+      s.fmesh.assign(3 * static_cast<std::size_t>(s.pc.Nmcell), 0.0f);
+      float* fm = s.fmesh.data();
+      for (ax::MFIter mfi(frc); mfi.isValid(); ++mfi) {
+        auto f = frc.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          float* o = fm + 3 * (i + static_cast<std::int64_t>(NM) * (j + static_cast<std::int64_t>(NM) * k));
+          for (int m = 0; m < 3; ++m) o[m] = f(i, j, k, m);
+        });
+      }
+      allreduce_bor(fm, s.fmesh.size());
+      s.fmesh_valid = true;
+    }
+    s.gather_potential = keep;
+  }
+
   // ---- one PM step ------------------------------------------------------------
 
   // kind: 0 MF, 1 non-MF, 2 unsplit (e_gas may be null: dual_energy = 0)
@@ -839,6 +876,10 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
   // the dual-energy field may be absent (dual_energy = 0): the kernel then
   // takes E - KE
   level_of(s).step(s, u_gas, nullptr, e_gas, 2, eta1, clk, u);
+}
+
+void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor) {
+  level_of(s).fields(s, u_gas, scalefactor);
 }
 
 std::string amrex_pm_timers(const pm::PMState& s) { return s.amrex ? s.amrex->level->timers() : ""; }

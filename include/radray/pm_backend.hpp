@@ -41,6 +41,11 @@ inline bool use_amrex_pm(const Config& c) { return c.pm_backend == PMBackend::AM
 void amrex_pm_step(pm::PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u);
 void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, double eta1,
                            SimClock& clk, const Units& u);
+// The fields alone (tests): the density of s.xv (no drift) and u_gas, the
+// potential and the mesh force on the level, gathered into s.density (the
+// potential, as calc_gravity_field leaves it) and s.fmesh (fmesh_valid =
+// true), so the host's force_at and gas_force read the backend's mesh.
+void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor);
 // One line of the backend's phase timers ("" without the level)
 std::string amrex_pm_timers(const pm::PMState& s);
 

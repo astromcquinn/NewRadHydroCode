@@ -16,6 +16,7 @@ void amrex_pm_step(pm::PMState&, float*, float*, SimClock&, const Units&) { no_a
 void amrex_pm_step_unsplit(pm::PMState&, float*, const float*, double, SimClock&, const Units&) {
   no_amrex();
 }
+void amrex_pm_fields(pm::PMState&, const float*, double) { no_amrex(); }
 std::string amrex_pm_timers(const pm::PMState&) { return ""; }
 
 }  // namespace radray
