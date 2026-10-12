@@ -21,10 +21,10 @@ in the 40 Mpc/h, 512³ runs.
 - **pm_refine = 1 is byte-identical.** Fast suite 115/125 (the known 10
   stored-RT failures); every PM and hydro stored reference passes;
   nightly 22/22 with the OpenMP FFTW library. **After the merge with
-  `main` (2026-10-12, b56d4ed): fast suite 125/125 on klone** (the
+  `main` (2026-10-12, b56d4ed, and again after PR #29, c7a5f3f): fast suite 125/125 on klone** (the
   platform-dependent RT references are skipped there since `main`'s
   `platform_ref` label), including every pm_refine / FoF-cadence test;
-  nightly 22/22 (job 41787154, 59 min).
+  nightly 22/22 (jobs 41787154 and 41791863, 58–59 min).
 - Tests (all pass), 16 new:
   - single-particle force against Ewald: the error is a function of the
     distance in mesh cells, so pm_refine = 2 is as good at d/2;
