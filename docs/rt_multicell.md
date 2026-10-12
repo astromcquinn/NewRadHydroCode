@@ -40,7 +40,7 @@ AMReX label 54/54, and smoke diffs against `main` (§3).
 | 64³ production, 0.1c (§7) | τ_es / Δz(x_V = 0.5) | −0.12 % / −0.007 | −0.52 % / −0.033 | −1.6 % / −0.088 |
 | | max T_M error / front shift | 5 % / 0.18 cells | 10 % / 0.45 | 20 % / 1.6 |
 | 64³ production, c = 1, to z = 9 (§8) | τ_es / Δz(x_V = 0.5) / max T_M error / front shift | | −0.003 % / 0.000 / 3 % / 0.07 cells | |
-| cost: 64³ production, RT time per hydro step (§7.1) | relative to k = 1 | COSTROW |
+| cost: 64³ production, RT time per hydro step (§7.1) | relative to k = 1 | 0.77 | 0.76 | 2.06 (one domain per colour at 64³) |
 
 **What fails first** (§8) is the lagged optical depth at fronts that move
 more than one cell per substep, i.e. v_front > ĉ/k. That happens with
@@ -51,8 +51,8 @@ k = 8. At c = 1, where the fronts are photon-limited, k = 4 passes the
 production run (T_M 3 % high). **The transport over k cells is accurate; the error is the
 k-times-longer substep** (§6): k = 8 at 8ĉ matches k = 1 at ĉ to 1 %,
 and k = 1 at ĉ/8 shows the errors of k = 8 at ĉ. On a uniform grid, then,
-k > 1 equals fewer substeps. It saves COSTSAVE in RT time at k = 2–4 and
-is not a speed option.
+k > 1 equals fewer substeps. It saves only 1.3× in RT time per hydro step at k = 2 and 4
+(more live rays, k cells per ray-substep), so it is not a speed option.
 
 **Recommendation for the AMR RT** (§9): a mixture. Use the coarse substep
 everywhere, with 2^l cells per substep on level l, the exposure deposit,
@@ -599,22 +599,54 @@ T_M from k = 1 (exposure + pc); grey: 1 % and 3 %.*
 
 ### 7.1 Cost
 
-PRODCOST
+**Clean timing.** The exposure + pc k = 1 run went to hydro step 22
+(z = 8.95, x_HII,V ≈ 0.9) and wrote a checkpoint. From it, every k and
+scheme ran two hydro steps (23–24, z = 8.95 → 7.06, the costliest of the
+run: overlap and the most rays) on 4 threads of the otherwise idle 4-core
+VM. A restart with another k converts the substep carry. Both schemes start
+from the same state:
 
-The RT is 98–99 % of the run. Per substep a ray does k cells of work, so
-the cost per ray-substep grows with k (0.68, 0.88, 1.04 µs on 4 threads
-for k = 1, 2, 4: +30 % and +53 %), while the substeps fall k-fold; the live
-rays do not fall (2.4 M at the end for k = 1, 2.9 M and 3.4 M for k = 2, 4),
-so the ray-substeps fall only 1.7× and 3×. The per-substep grid passes
-(`calc_rt_1`, `calc_ray_1`, `radiative_physics`, `sync`) fall k-fold:
-from 209 s to 99 s and 37 s. Net: the RT time falls 1.4× (k = 2) and 2.2×
-(k = 4). k = 8 is *slower* than k = 1 here, for a reason specific to the
-uniform-grid code: `deterministic_parallel` needs domains d ≥ 2k+2, which
-at 64³ means d = 32, one domain per colour, so its ray tracing ran on one
-thread (5.4 µs per ray-substep). 27 colours (3 per axis) instead of 8
-would allow d = 16; not done. The exposure deposit costs more than the
-share deposit at every k (its rays keep more photons and live longer:
-STEP4SHAREEXPO).
+| scheme | k | RT step 23 / 24 [s] | RT per hydro step, rel. to k = 1 | substeps | ray-substeps | live rays at the end | ray tracing [s] | ns per ray-substep | grid passes [s] | wall [s] |
+|---|---|---|---|---|---|---|---|---|---|---|
+| exposure + pc | 1 | 123 / 141 | 1.00 | 260 | 5.67e+08 | 2.19 M | 228 | 402 | 36.1 | 266 |
+| exposure + pc | 2 | 88 / 116 | 0.77 | 130 | 3.28e+08 | 2.65 M | 185 | 564 | 19.7 | 207 |
+| exposure + pc | 4 | 91 / 109 | 0.76 | 65 | 1.96e+08 | 3.32 M | 188 | 957 | 11.7 | 202 |
+| exposure + pc | 8 | 248 / 297 | 2.06 | 32 | 1.03e+08 | 3.39 M | 537 | 5232 | 7.5 | 547 |
+| share | 1 | 127 / 148 | 1.00 | 260 | 5.67e+08 | 2.19 M | 238 | 420 | 36.7 | 277 |
+| share | 2 | 96 / 124 | 0.80 | 130 | 3.28e+08 | 2.65 M | 199 | 608 | 21.0 | 223 |
+SHK4ROW
+
+*Ray-substeps: the live rays summed over the substeps (`Log/ray.log`).
+ns per ray-substep: the ray tracing (`ray_tracing_1` + `ray_tracing_3`)
+over the ray-substeps. Grid passes: `prep`, `calc_rt_1`, `calc_ray_1`,
+`radiative_physics`, `sync`, `post_rt`. RT is 99 % of the wall time.*
+
+**The RT per hydro step falls only 1.3× at k = 2 and 4.** The substeps
+fall k-fold, but:
+- A ray-substep crosses k cells. Its cost rises 1.4× (k = 2) and 2.4×
+  (k = 4): per cell crossed, 402, 282 and 239 ns. The per-ray overhead is
+  amortised, the per-cell work is not.
+- The live rays grow with k (2.19, 2.65 and 3.32 M at the end), because a
+  ray passes its split radius by up to k cells per substep and splits
+  rise (§5).
+
+So the ray-substeps fall only 1.7× and 2.9×, and the ray tracing only
+1.2×. The grid passes fall k-fold (36 → 20 → 12 s) but are only 14 % of
+the RT at k = 1. Over the whole run the share runs give the same picture:
+RT 844, 639 and 602 s for k = 1, 2 and 4 (0.76 and 0.71). k = 1 and 2 ran
+alone; k = 4 shared the machine with a build for part of its run. At
+k = 1 the RT per hydro step rises from 9 s at z = 10 to 170 s at z = 5.
+The exposure full runs in §7's JSON shared the machine with other jobs,
+so their times are not used here.
+
+**k = 8 is twice as slow as k = 1**, for a reason specific to the
+uniform-grid code. `deterministic_parallel` needs domains d ≥ 2k + 2,
+which at 64³ means d = 32, one domain per colour, so ray tracing runs on
+one thread (5.2 µs per ray-substep). 27 colours (3 per axis) instead of 8
+would allow d = 16; not done. At 128³ and above k = 8 has enough domains.
+
+**The deposit rule does not change the cost.** The two schemes have the
+same ray-substeps; the share deposit took 4–8 % longer here.
 
 ## 8. Step 5: where it breaks
 
@@ -682,8 +714,8 @@ cells whose optical depth changes within the substep absorb with an
 outdated τ, and the photo-chemistry is integrated over the long substep.
 On a uniform grid this makes k > 1 no better than the original with k
 times fewer substeps; it is not a speed-up option for uniform runs (the
-saving is 1.4–2.1× at k = 2–4 and the errors grow; at 0.1c the production
-fronts are light-limited for a long time).
+saving is about 1.3× in RT time at k = 2 and 4 and the errors grow; at 0.1c
+the production fronts are light-limited for a long time).
 
 **On AMR the question is different.** The alternative to a coarse substep
 with 2^l cells per substep in a level-l patch is to sub-cycle that patch
