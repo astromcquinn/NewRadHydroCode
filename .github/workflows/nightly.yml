@@ -1,6 +1,12 @@
 # Nightly label (full-loop references, pool guard, full hydro tiers, the
-# Stromgren and recombination checks): about 5 minutes each, run once a day
-# on main and on demand. Same toolchain pin as ci.yml.
+# Stromgren and recombination checks), run once a day on main and on demand.
+# Same toolchain pin as ci.yml.
+#
+# The label is split over three jobs, each on its own runner: a standard
+# runner for a private repository has 2 cores and 14 GB of disk, and the
+# full hydro tier alone is ~3 h per scheme on 4 cores. The full tier runs
+# with --clean (tests/hydro_suite/CMakeLists.txt): kept, its runs filled the
+# disk (~7 GB per scheme) and killed the first nightly run.
 name: Nightly
 
 on:
@@ -10,10 +16,27 @@ on:
 
 jobs:
   nightly-suite:
+    name: nightly (${{ matrix.part }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: rt-full       # full-loop references, pool guard, Stromgren
+            select: -E "^hydro_suite_full_"
+          - part: hydro-legacy  # hydro_suite_full_<section>
+            select: -R "^hydro_suite_full_[a-z]+$"
+          - part: hydro-unsplit # hydro_suite_full_unsplit_<section>
+            select: -R "^hydro_suite_full_unsplit_"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Runner resources
+        run: |
+          nproc
+          free -h
+          df -h
 
       - name: Install toolchain
         run: |
@@ -31,12 +54,19 @@ jobs:
       - name: Nightly suite
         run: |
           ulimit -s unlimited
-          ctest --test-dir build -j4 -L nightly --output-on-failure --timeout 7200
+          ctest --test-dir build -j$(nproc) -L nightly ${{ matrix.select }} \
+            --output-on-failure --timeout 14400
+
+      - name: Disk after the suite
+        if: always()
+        run: |
+          df -h .
+          du -sh build
 
       - name: Upload test log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ctest-nightly-log
+          name: ctest-nightly-log-${{ matrix.part }}
           path: build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore

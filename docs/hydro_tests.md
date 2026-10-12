@@ -538,7 +538,10 @@ tests/hydro_suite/
   same for the unsplit scheme as `hydro_suite_unsplit_*` (its own
   tolerances, `check_*_unsplit`).
 * `ctest -L nightly`: `hydro_suite_full_*` and `hydro_suite_full_unsplit_*`,
-  the full tier (~3 h per scheme).
+  the full tier (~3 h per scheme). They pass `--clean`, which removes each
+  test's problem and run directories once it is analysed: kept, the runs
+  are ~7 GB per scheme (KH and the pancake ~2 GB each), more than the CI
+  runner's disk. The results JSON stays.
 * By hand: `python3 tests/hydro_suite/run_suite.py all --tier full
   [--scheme unsplit]` then `python3 tests/hydro_suite/analyze.py figures
   [results_dir figure_dir full unsplit]` (figures
