@@ -421,3 +421,32 @@ policy on klone, and deleting the merged branches.
 * **PM refinement** (`pm_refine = 2`, a PM mesh and particles 2× the gas
   grid, for halo mass resolution) goes to a separate thread started by the
   user, on Hyak.
+
+## RT-methods 512³ thread (2026-10-11/12): Γ_HI from rays, M1 and OTVET
+
+* **Request (user):** three 40 Mpc/h, 512³ runs differing only in
+  `rt_method`, at one constant `c_reduced = 0.2`, f_esc = 0.23,
+  `redshift_per_distance = 1`, small output (slab movie frames every
+  Δz = 0.025, snapshots at z = 7–5), whole-box Γ_HI statistics in
+  `frames.txt`, Γ tools, and the comparison of Γ_HI after overlap
+  (`docs/rt_methods_512.md`).
+* **User decisions during the thread:**
+  - **store only the HI photoionization rate** (new field `gammaHI`, one
+    float per cell, instead of the 3-component `gamma`);
+  - **case A with transported recombination radiation for all three
+    methods, and make it the default** — done as the `make_production.py`
+    default (`recomb_case = A`, `recomb_rad = 1`, `recomb_rad_block = 4`);
+    the C++ default stays the original (ground rule 3);
+    `--recomb-case B --recomb-rad 0` gives case B;
+  - **one more run with case B, no recombination radiation** (taken with
+    the rays, the reference);
+  - **the 3D power spectrum of Γ after overlap** (analytic work predicts a
+    difference between the moment methods and the rays): extra Γ cubes at
+    every hydro step after z ≈ 5.4 from bit-identical continuations, and
+    `tools/analysis/gamma_power.py`.
+* **Choices made in this thread** (open to revision): the RT starts at the
+  first `zdata1`, so the snapshot list starts at z = 15 (first sources at
+  z ≈ 13); `data_files = gas` (only `Gas/u_gas` at the snapshots, enough for
+  `igm_stats.py` without the source-start λ_mfp) to save disk;
+  `restart_keep = n` for "the last two checkpoints"; the ICs of
+  `reion512_40mpc_f0.1` reused (identical parameters).
