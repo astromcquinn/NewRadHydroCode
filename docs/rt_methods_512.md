@@ -133,13 +133,13 @@ Bottom: the volume with Γ_HI > 10⁻¹⁴ s⁻¹. Full table:
   0.4 % lower. Transporting the recombination radiation brings case A
   back almost to case B, as at 10 Mpc/h (`docs/recomb_radiation.md` §4).
 - **Γ_HI histories.** Before overlap the mean over ionised cells agrees to
-  ≲ 10 %; the rays' volume mean is 10–20 % above the moment methods'
+  ≲ 15 %; the rays' volume mean is 10–20 % above the moment methods'
   at z = 8–12 (the rays reach further ahead of the fronts). **After
   overlap the volume-mean Γ_HI agrees to 1–2 %** (z = 5.5: rays 8.31,
   M1 8.38, OTVET 8.33 × 10⁻¹³ s⁻¹; z = 5.0: 1.38, 1.41, 1.39 × 10⁻¹²): the
   mean is set by the emissivity and the mean free path, not the transport.
   **The median differs:** in OTVET it is 10 % below the mean after
-  overlap (a skewed distribution), in M1 within 1 % of it, in the rays 4 %
+  overlap (a skewed distribution), in M1 1–3 % below, in the rays 4–5 %
   below. Case B rays have a 9–10 % lower Γ_HI after overlap: the
   recombination photons that case A + RR transports.
 - The Γ curves jump at every hydro step: the sources (halo catalogue and
@@ -172,16 +172,21 @@ OTVET | rays case B). Also [z ≈ 5.91](figures/rt_methods_512_gamma_z5.91.png)
   Eddington tensor is the optically thin 1/r² sum over sources, so it keeps
   the radial geometry). M1 smears them out: its local closure carries one
   flux direction per cell, so where the radiation of many sources
-  crosses it diffuses, and the peaks are 5–10× lower and broader. The
-  upper tail of the PDF is therefore longest in OTVET, then the rays, and
-  shortest in M1.
+  crosses it diffuses, and the peaks are lower and broader. The brightest
+  cell is 600–1100 ⟨Γ⟩ in the rays, 250–320 ⟨Γ⟩ in OTVET and 50–80 ⟨Γ⟩
+  in M1 (z = 5.44 and 4.98); the 99.99th percentile is 6–8, 12 and 3–5
+  ⟨Γ⟩. OTVET's proximity zones are thus broader than the rays' (more cells
+  at several ⟨Γ⟩), the rays' peaks the sharpest, M1's the weakest.
 - **In the diffuse IGM after overlap.** The means agree, the widths do
   not: the 16–84 % range is ±35 % for the rays, ±13 % (z = 5.44) to ±6 %
   (z = 4.98) for M1, and ±22–24 % for OTVET. M1's Γ is almost uniform away
-  from sources and keeps narrowing as the mean free path grows. OTVET has
-  a sharp lower edge (no cell below ≈ 0.8 ⟨Γ⟩ at z = 4.98): with the
-  optically thin tensor, radiation flows from every source into the voids
-  without the shadowing the rays have behind dense gas. Part of the rays'
+  from sources and keeps narrowing as the mean free path grows (its
+  0.01st percentile rises from 0.64 to 0.81 ⟨Γ⟩). OTVET has a sharp lower
+  edge at ≈ 0.62 ⟨Γ⟩ (0.01st percentile, both redshifts), the rays a long
+  low tail (0.01st percentile 0.1 ⟨Γ⟩): with the optically thin tensor,
+  radiation reaches every cell from all sources without the shadowing
+  behind dense gas that the rays have (an interpretation, not tested
+  cell by cell). Part of the rays'
   cell-to-cell scatter is the sampling noise of the discrete rays (the
   grain in the maps; §6 bounds it in k).
 - **In the last neutral islands** (z ≈ 6.4–5.9). The low-Γ tail of the
@@ -224,5 +229,7 @@ OTVET | rays case B). Also [z ≈ 5.91](figures/rt_methods_512_gamma_z5.91.png)
   is 11 % below its mean, M1's 2 % above). A forest calibration of f_esc
   would thus differ by ≈ 30 % between methods.
 - **Recombination radiation shortens λ_mfp** (rays: 23 against 34 pMpc
-  at z = 5.44) and raises Γ by 10 %: case A leaves more neutral hydrogen
-  in dense gas, which the recombination photons only partly re-ionise.
+  at z = 5.44) and raises Γ by 10 %. The likely reason (not separated
+  here): case A recombines faster, so dense gas holds more HI, and the
+  transported recombination photons only partly make up for it locally
+  while adding to the background.
