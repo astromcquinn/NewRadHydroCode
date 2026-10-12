@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "radray/hydro_backend.hpp"
 #include "radray/kernels/hydro_mh.hpp"
 #include "radray/parallel.hpp"
 
@@ -356,10 +357,14 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
   if (gas.e.empty()) throw std::runtime_error("hydro_step_unsplit: call init_unsplit_state first");
   if (!(cfg.unsplit_cfl > 0)) throw std::runtime_error("unsplit_cfl must be > 0");
   const int n = gas.N;
-  Work& W = work(n);
   if (fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
-  UnsplitCounters& C = hs.ucounters;
   hs.dt_hy = dt;
+  if (use_amrex_hydro(cfg)) {  // the same step on the AMReX level (hydro_backend.hpp)
+    amrex_hydro_step(cfg, un, dt, gas, hs);
+    return;
+  }
+  Work& W = work(n);
+  UnsplitCounters& C = hs.ucounters;
 
   // float -> double
   const bool par_ok = par::worth(static_cast<long long>(n) * n * n);

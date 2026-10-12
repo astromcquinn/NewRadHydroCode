@@ -60,6 +60,7 @@
 #include <omp.h>
 #endif
 
+#include "radray/hydro_backend.hpp"
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
 #include "radray/ray_tracing.hpp"
@@ -1184,6 +1185,7 @@ void backend_init(int& argc, char**& argv) {
 }
 void backend_finalize() {
   if (!g_initialized) return;
+  amrex_hydro_release();  // the hydro level's FabArrays before the arenas go
   amrex::Finalize();
   g_initialized = false;
 }

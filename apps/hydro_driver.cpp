@@ -24,10 +24,14 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "radray/cosmology.hpp"
 #include "radray/hydro.hpp"
+#include "radray/hydro_backend.hpp"
 #include "radray/hydro_unsplit.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/io.hpp"
 
 namespace {
@@ -82,6 +86,7 @@ HydroParams read_hydro_params(const std::string& path) {
     else if (key == "nsteps")
       p.nsteps = std::stoi(val);
     else if (set_hydro_scheme_param(p.hydro, key, val)) {
+    } else if (set_hydro_backend_param(p.hydro, key, val)) {
     } else
       std::cerr << "hydro_driver: ignoring parameter " << key << "\n";
   }
@@ -203,31 +208,60 @@ std::string step_dir(const std::string& odir, int istep) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  backend_init(argc, argv);  // hydro_backend = amrex: amrex::Initialize (MPI)
+  struct Fin {
+    ~Fin() { backend_finalize(); }
+  } fin;
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--nsteps n] [--quiet]\n", argv[0]);
+    std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--nsteps n] [--set key=value ...] [--quiet]\n",
+                 argv[0]);
     return 2;
   }
   const std::string pdir = argv[1];
   const std::string odir = argv[2];
   int nsteps_override = -1;
   bool quiet = false;
+  std::vector<std::pair<std::string, std::string>> sets;  // --set key=value (params.txt overrides)
   for (int a = 3; a < argc; ++a) {
     const std::string s = argv[a];
     if (s == "--nsteps" && a + 1 < argc)
       nsteps_override = std::atoi(argv[++a]);
     else if (s == "--quiet")
       quiet = true;
+    else if (s == "--set" && a + 1 < argc) {
+      const std::string kv = argv[++a];
+      const auto eq = kv.find('=');
+      if (eq == std::string::npos) {
+        std::fprintf(stderr, "hydro_driver: --set needs key=value, got '%s'\n", kv.c_str());
+        return 2;
+      }
+      sets.emplace_back(trim(kv.substr(0, eq)), trim(kv.substr(eq + 1)));
+    } else {
+      std::fprintf(stderr, "hydro_driver: unknown argument '%s'\n", s.c_str());
+      return 2;
+    }
   }
-  std::ostream* out = quiet ? nullptr : &std::cout;
+  // With MPI (hydro_backend = amrex) every rank runs the driver on the full
+  // state and only rank 0 writes files and prints.
+  const bool io = io_rank();
+  std::ostream* out = (quiet || !io) ? nullptr : &std::cout;
 
   try {
     const auto t0 = std::chrono::steady_clock::now();
     HydroParams P = read_hydro_params(pdir + "/params.txt");
+    for (const auto& [key, val] : sets) {
+      if (key == "nsteps")
+        P.nsteps = std::stoi(val);
+      else if (!set_hydro_scheme_param(P.hydro, key, val) && !set_hydro_backend_param(P.hydro, key, val))
+        throw std::runtime_error("--set: unknown key " + key);
+    }
     if (nsteps_override >= 0) P.nsteps = nsteps_override;
-    std::filesystem::create_directories(odir);
+    if (io) std::filesystem::create_directories(odir);
 
     Config cfg = Config::make(P.N);
     copy_hydro_scheme(P.hydro, cfg);
+    copy_hydro_backend_param(P.hydro, cfg);
+    check_hydro_backend_param(cfg);
     SimClock clk;
     Units un;
     GasGrid gas;
@@ -237,7 +271,7 @@ int main(int argc, char** argv) {
     init_variables(P.z_init, clk);
     init_domain_gas(cfg, dom, out);
     init_hydro(cfg, gas, hs);
-    write_domain_gas_test(odir + "/domain_gas.txt", dom);
+    if (io) write_domain_gas_test(odir + "/domain_gas.txt", dom);
     calc_sim_var(cfg, clk, un);
 
     read_field(pdir + "/u_gas.bin", gas.u);
@@ -249,13 +283,17 @@ int main(int argc, char** argv) {
            << "\n z_init     : " << P.z_init << "\n timestep   : "
            << (P.mode == TimestepMode::Fixed ? "fixed" : "courant")
            << "\n da_sim     : " << P.da_sim << "\n nsteps     : " << P.nsteps << "\n "
-           << hydro_scheme_summary(cfg) << "\n";
+           << hydro_scheme_summary(cfg) << "\n " << hydro_backend_summary(cfg) << ", ranks = " << backend_nranks()
+           << "\n";
 
-    std::string sdir = step_dir(odir, clk.istep);
     calc_sim_var(cfg, clk, un);
     init_unsplit_state(cfg, un, gas, hs);  // hydro_scheme = unsplit only
-    write_summary(sdir, summarize_gas(cfg, un, clk, gas, hs, out));
-    write_step_output(sdir, clk, un, gas, hs);
+    const GasSummary sum0 = summarize_gas(cfg, un, clk, gas, hs, out);
+    if (io) {
+      const std::string sdir = step_dir(odir, clk.istep);
+      write_summary(sdir, sum0);
+      write_step_output(sdir, clk, un, gas, hs);
+    }
 
     double thy = 0;
     for (int step = 1; step <= P.nsteps; ++step) {
@@ -268,9 +306,11 @@ int main(int argc, char** argv) {
       const double dt =
           std::chrono::duration<double>(std::chrono::steady_clock::now() - t1).count();
       thy += dt;
-      sdir = step_dir(odir, clk.istep);
-      write_summary(sdir, sum);
-      write_step_output(sdir, clk, un, gas, hs);
+      if (io) {
+        const std::string sdir = step_dir(odir, clk.istep);
+        write_summary(sdir, sum);
+        write_step_output(sdir, clk, un, gas, hs);
+      }
       if (out) {
         char buf[128];
         std::snprintf(buf, sizeof buf, " hydro_driver: step %5d wall %10.4f s\n", clk.istep, dt);
@@ -280,6 +320,17 @@ int main(int argc, char** argv) {
     const HydroCounters& c = hs.counters;
     const double secs =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    if (!io) return 0;
+    if (cfg.hydro_scheme == HydroScheme::Unsplit) {
+      const UnsplitCounters& U = hs.ucounters;
+      std::printf(" unsplit hydro: %lld calls, %lld substeps (max %lld per call), dt_cfl min %.4g; "
+                  "cell-substeps with p from e %lld (E reset %lld), synced %lld; floors T %lld, rho %lld\n",
+                  static_cast<long long>(U.calls), static_cast<long long>(U.substeps),
+                  static_cast<long long>(U.max_substeps), U.dt_cfl_min, static_cast<long long>(U.cells_from_e),
+                  static_cast<long long>(U.cells_reset), static_cast<long long>(U.cells_synced),
+                  static_cast<long long>(U.floor_T), static_cast<long long>(U.floor_rho));
+      if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
+    }
     std::printf(
         " hydro_driver: %s: %d steps, hydro %.3f s, total %.3f s\n"
         "   counters: smooth_cells_1 %lld, smooth_cells_2 %lld, c_limit branches %lld, "

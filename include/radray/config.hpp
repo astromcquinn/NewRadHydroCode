@@ -11,6 +11,7 @@ namespace radray {
 // Unsplit = the unsplit MUSCL-Hancock + HLLC scheme with the dual-energy
 // formulation (src/hydro_unsplit.cpp, kernels/hydro_mh.hpp).
 enum class HydroScheme { Legacy, Unsplit };
+enum class HydroBackend { Serial, AMReX };
 
 // Radiative transfer method (docs/rt_moments.md): Rays = the original's
 // adaptive ray tracing (default, bit-identical to the Fortran); M1 and OTVET
@@ -220,6 +221,14 @@ struct Config {
   int amrex_max_grid_size = 16;
   int amrex_ghosts = 2;
   int amrex_redist_local = 3;
+
+  // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
+  // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
+  // step; hydro_scheme = unsplit only; set_hydro_backend_param in
+  // hydro_backend.hpp, docs/stage_e_hydro.md) and
+  //   amrex_hydro_max_grid_size: box size of the hydro level's decomposition.
+  HydroBackend hydro_backend = HydroBackend::Serial;
+  int amrex_hydro_max_grid_size = 32;
 
   // Recombinations and recombination radiation (docs/recomb_radiation.md;
   // set_recomb_param in recomb_rad.hpp). New options, not in the original:

@@ -32,6 +32,7 @@ add_library(radray
   src/rt_moments_fft.cpp
   src/recomb_rad.cpp
   src/rt_backend.cpp
+  src/hydro_backend.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
@@ -74,7 +75,7 @@ if(RADRAY_AMREX)
     FetchContent_MakeAvailable(amrex)
   endif()
   set(RADRAY_HAVE_AMREX ON)
-  add_library(radray_amrex src/amrex/rt_level.cpp)
+  add_library(radray_amrex src/amrex/rt_level.cpp src/amrex/hydro_level.cpp)
   target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
   # rt_tools.cpp (in radray) calls the backend: every consumer of radray
   # links radray_amrex too (a cycle between static libraries, which CMake
@@ -96,7 +97,7 @@ if(RADRAY_AMREX)
   set(RADRAY_RT_BACKEND_LIB radray_amrex)
   message(STATUS "AMReX RT backend: enabled (AMReX ${AMReX_VERSION})")
 else()
-  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp)
+  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp src/amrex/hydro_level_stub.cpp)
   set(RADRAY_RT_BACKEND_LIB radray)
   message(STATUS "AMReX RT backend: disabled (RADRAY_AMREX=OFF)")
 endif()
