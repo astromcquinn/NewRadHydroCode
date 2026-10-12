@@ -266,6 +266,23 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_c01_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
   endforeach()
+
+  # Stored RT references that differ on platforms with another libm (UW Hyak
+  # klone, glibc 2.28): last-place differences in the double sums of
+  # rt_stats.txt and rays at the removal threshold; the gas fields are
+  # byte-identical, and the gfortran harness built there shows the same
+  # differences (docs/cluster.md section 3). Label platform_ref:
+  # tools/hyak/build_hyak.sh leaves these out (user decision 2026-10-12);
+  # CI (Ubuntu 24.04, where the references were made) runs them.
+  foreach(t ref_lognormal_16src ref_lognormal_16src_smallbuf
+            ref_legacy0_lognormal_16src ref_legacy0_lognormal_16src_smallbuf
+            ref_fixed_lognormal_16src ref_fixed_lognormal_16src_smallbuf
+            ref_c01_uniform_8src ref_c01_lognormal_16src_smallbuf
+            ray_dump_legacy_lognormal_16src_smallbuf ray_dump_fixed_lognormal_16src_smallbuf)
+    if(TEST ${t})
+      set_property(TEST ${t} APPEND PROPERTY LABELS platform_ref)
+    endif()
+  endforeach()
 endif()
 
 # ---------------------------------------------------------------------------

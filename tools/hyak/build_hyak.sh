@@ -17,8 +17,11 @@
 # Environment overrides:
 #   HYAK_MODULES   extra modules to load after env.sh
 #   CMAKE_EXTRA    extra cmake arguments, e.g. -DRADRAY_NIGHTLY_TESTS=ON
-#   CTEST_LABELS   fast (default: -LE "long|nightly"), none, or a label
-#                  regex for ctest -L (long, nightly, ...)
+#   CTEST_LABELS   fast (default: -LE "long|nightly|platform_ref"), none, or a
+#                  label regex for ctest -L (long, nightly, ...). The fast
+#                  set leaves out the 10 stored RT references that differ
+#                  on klone's libm (label platform_ref, docs/cluster.md
+#                  section 3); CTEST_LABELS=platform_ref runs just them.
 #   CTEST_JOBS     parallel tests (default: the cores of the job)
 #
 #SBATCH --job-name=radray-build
@@ -56,7 +59,7 @@ cmake --build "$bld" -j "$ncpu"
 labels="${CTEST_LABELS:-fast}"
 case "$labels" in
   none) exit 0 ;;
-  fast) sel=(-LE "long|nightly") ;;
+  fast) sel=(-LE "long|nightly|platform_ref") ;;
   *)    sel=(-L "$labels") ;;
 esac
 ctest --test-dir "$bld" -j "${CTEST_JOBS:-$ncpu}" "${sel[@]}" --output-on-failure --timeout 7200

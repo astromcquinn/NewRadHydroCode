@@ -422,7 +422,7 @@ policy on klone, and deleting the merged branches.
   grid, for halo mass resolution) goes to a separate thread started by the
   user, on Hyak.
 
-## Production defaults (unsplit hydro, redshifting per distance) and moment RT (2026-10-11)
+## Production defaults, moment RT, stored references on klone (2026-10-11/12)
 
 * **Production runs use `hydro_scheme = unsplit`** (user decision,
   confirming the choice the production-256 thread made from the
@@ -444,8 +444,17 @@ policy on klone, and deleting the merged branches.
   is not in the checkpoint).
 * **M1 and OTVET are only for comparison** with the ray tracing (user
   decision): no second-order moment transport, and no moment hand-over in
-  transparent regions (ROADMAP §4.5) for now. Open: whether our OTVET
-  should follow a specific published formulation (`docs/rt_moments.md` §5).
+  transparent regions (ROADMAP §4.5) for now.
+* **OTVET stays as implemented (2026-10-12):** the explicit, time-dependent
+  two-moment system with the optically thin Eddington tensor (minimum-image
+  1/r² sum over the source cells), solved with the same GLF scheme as M1.
+  No need to follow a specific published formulation.
+* **Stored RT references on klone (2026-10-12): skip them there.** The 10
+  tests that differ on klone's libm (last-place double sums, threshold
+  rays; `docs/cluster.md` §3) carry the label `platform_ref`;
+  `tools/hyak/build_hyak.sh` leaves it out. They are not deleted, not
+  regenerated and not given a tolerance: CI (the platform the references
+  were made on) keeps running them bit for bit.
 
 ## RT multicell thread (2026-10-11): rays crossing k cells per substep
 
