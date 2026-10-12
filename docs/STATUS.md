@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-11: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-11: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24)
 
@@ -180,7 +180,9 @@ separate job (`docs/movies.md`, "Slab frames").**
   `legacy_physics = 0` and are unchanged). Not in the checkpoint: can be
   changed at a restart like `c_reduced`. Recorded in the `rt_driver` log,
   the `radhydro` summary line (when set) and the `ray_dump` json;
-  `make_production.py --redshift-per-distance 1` writes it.
+  `make_production.py` writes it; **production default `= 1` since
+  2026-10-11 (user decision, `docs/PLAN.md`)**, `--redshift-per-distance 0`
+  for the original.
 - Tests: `redshift_distance` (unit) and `redshift_distance_smoke`
   (`rt_driver`, rays and m1; physics label), both pass. Fast suite on
   klone (gcc 13): 99/109 pass; the 10 failures are the same ones as on
@@ -1014,9 +1016,10 @@ In the cloud (branch + PR each):
    both converge); the AMReX multi-node hydro anomaly
    (`docs/framework_decision.md` §3.3).
 
-**Decisions needed from the user:** `hydro_scheme` for production
-(`unsplit` recommended); the stored-reference policy on klone; the
-moment-RT questions below.
+**Decisions needed from the user:** the stored-reference policy on klone;
+the OTVET formulation question below. (`hydro_scheme = unsplit` and
+`redshift_per_distance = 1` for production: decided 2026-10-11,
+`docs/PLAN.md`.)
 
 ## Next
 
@@ -1077,16 +1080,11 @@ moment-RT questions below.
 
 ## Open questions for the user
 
-- Whether production runs should use `redshift_per_distance = 1` (redshift
-  per distance travelled at ĉ < c, `docs/production_run.md` §1). It is off
-  by default and not tied to `legacy_physics`.
-
-- Moment RT (`docs/rt_moments.md` §5–§6): whether to invest in second-order
-  transport or first in faster photo-chemistry (now half the moment RT
-  time), and whether the moment methods should become the
-  transparent-region hand-over of ROADMAP §4.5 or stay a standalone
-  alternative. Which OTVET formulation the user has in mind (the paper
-  could not be read here).
+- Moment RT: M1 and OTVET are for comparison only (user, 2026-10-11;
+  `docs/PLAN.md`). Still open: whether our OTVET (the explicit
+  time-dependent two-moment system with the OTVET tensor) should follow a
+  specific published formulation (Gnedin & Abel 2001, Petkova & Springel
+  2009, ...; `docs/rt_moments.md` §5); that needs the paper.
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see
