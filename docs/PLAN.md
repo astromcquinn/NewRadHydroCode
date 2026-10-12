@@ -596,3 +596,26 @@ policy on klone, and deleting the merged branches.
   `recomb_rad_cell_onspot` defaults are unchanged).
 * The Hyak scripts' module loading was broken under `set -u` (Lmod reads
   unset variables); `radray_module_load` in `tools/hyak/env.sh` fixes it.
+
+## Stage E1 (2026-10-12): the unsplit hydro on AMReX
+
+* **Request (user):** start Stage E with the hydro (E1) in this thread;
+  E2 (PM on AMReX) in a parallel thread with the brief given in the
+  session; the Hyak thread builds the backend and runs the Stage D
+  scaling job.
+* **Choices made in this thread** (open to revision; `docs/stage_e_hydro.md`):
+  - `hydro_backend = serial | amrex` is a switch independent of
+    `rt_backend`; `amrex` needs `hydro_scheme = unsplit` (the legacy
+    split scheme never goes on the backend).
+  - The level is bitwise identical to the serial unsplit step, not merely
+    round-off close: the serial step is stencil-local with exact
+    reductions, so the test is `compare.py --rtol 0 --atol-frac 0`.
+  - The face and update code moved into the kernel header
+    (`hydro_mh.hpp`) rather than being duplicated.
+  - Stage E1 keeps the full host state on every rank (copy in per box,
+    `MPI_Allgatherv` out), like Stage D's RT; the state moves onto the
+    level for good when E2–E4 are in.
+  - Flux temporaries are per box (never communicated); `Q` is computed on
+    the grown box rather than exchanged.
+  - `amrex_hydro_max_grid_size` defaults to 32 (the spike's 16³ boxes are
+    the suspect of the multi-node slowdown; §5 of the doc).

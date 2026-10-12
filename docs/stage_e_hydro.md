@@ -65,11 +65,12 @@ does not matter.
 the rank's own boxes in from the host arrays (float → double, no
 communication), sub-cycles on the level, and gathers the whole level back
 onto every rank: each rank packs its boxes in global box order as floats
-(the one rounding of the serial driver), `MPI_Allgatherv`, and every rank
-unpacks every box into `gas.u`, `gas.e`, `gas.w`. The traffic is 40 B per
-cell per half step (0.67 GB at 256³), comparable to Stage D's gather and
-broadcast of the RT cells, and goes away when the rest of Stage E puts the
-state on the level for good. Between half steps the level holds nothing, so
+(the one rounding of the serial driver) and broadcasts its block, and
+every rank unpacks each block as it arrives into `gas.u`, `gas.e`,
+`gas.w` (so the extra memory is one block, not the level). The traffic is
+40 B per cell per half step (0.67 GB at 256³), comparable to Stage D's
+gather and broadcast of the RT cells, and goes away when the rest of
+Stage E puts the state on the level for good. Between half steps the level holds nothing, so
 the checkpoint format is unchanged and `fold_frame`, `init_unsplit_state`
 and the counters of `HydroState::ucounters` are the serial ones (the
 counters identical on every rank).
@@ -148,7 +149,55 @@ flow, log-normal density, fixed da = 0.002, 2 hydro steps = 4 unsplit
 calls), the hydro time of `hydro_driver` ("hydro" of the final line;
 the serial code with OpenMP, the backend with `mpirun --bind-to none`).
 
-TIMING_TABLE
+| 128³, 2 steps (4 unsplit calls, 8 substeps) | hydro [s] | peak RSS, all processes [MB] | `fill` [s] | `copyout` [s] (of which the broadcast) |
+|---|---|---|---|---|
+| serial, 4 threads | 12.2 | 819 | | |
+| serial, 1 thread | 33.8 | 803 | | |
+| backend, 1 rank × 4 threads, boxes 32³ | 14.7 | 1494 | 0.36 | 0.56 (0) |
+| backend, 2 × 2, 32³ | 10.8 | 1701 | 1.03 | 0.33 (0.13) |
+| backend, 4 × 1, 32³ | 10.1 | 1965 | 1.33 | 0.46 (0.25) |
+| backend, 4 × 1, 16³ | 11.5 | 2418 | 1.34 | 0.76 (0.53) |
+| backend, 4 × 1, 64³ | 10.3 | 2126 | 0.99 | 0.74 (0.50) |
+| backend, 1 × 1, 32³ | 32.2 | 1438 | 1.13 | 0.37 (0) |
+
+| 256³, 2 steps | hydro [s] | peak RSS, all processes [MB] | `fill` [s] | `copyout` [s] (broadcast) |
+|---|---|---|---|---|
+| serial, 4 threads | 114.5 | 6349 | | |
+| backend, 2 × 2, 64³ | 99.4 | 12128 | 4.9 | 7.2 (4.1) |
+| backend, 4 × 1, 32³ and 64³ | killed (out of memory at 13.6 GB on the 15 GB VM) | | | |
+
+(The 16³ and 32³ rows of the 128³ table with 4 × 1 were taken with the
+first, `MPI_Allgatherv` version of the gather; the 2 × 2 and 4 × 1, 32³
+rows with the per-rank broadcast that replaced it, which is why their
+`copyout` is smaller.)
+
+Reading:
+- **Speed.** With MPI ranks the backend beats the serial OpenMP code on the
+  same 4 cores: 4 × 1 is 17 % faster at 128³, 2 × 2 is 13 % faster at
+  256³; on one core the two are equal (32.2 against 33.8 s). One rank with
+  4 threads is 20 % slower than the serial code: `ParallelForOMP` threads
+  each box's loops separately (fork/join per box and per pass), where the
+  serial driver threads whole k-planes. Ranks are the better use of cores,
+  as the spike found (its best layout was one rank per CCD).
+- **Box size.** At 128³ on one machine the box size matters little
+  (16³ costs 10 % more than 32³ and 64³ from the ghost volume, `fill`
+  1.33 against 0.99 s). The multi-node question is §5.
+- **Communication.** `fill` (three `FillBoundary` per substep) is 5 % of
+  the time and the host gather 7 % at 256³ on 2 ranks; both are shared
+  memory here. The gather (`copyout`) is the Stage E1 price and goes away
+  with the state on the level.
+- **Memory.** The Stage E1 model costs the full host state per rank (the
+  driver's u, w, v, e: 0.8 GB per rank at 256³) plus the level (about
+  330 B per cell with the ghosts of 32³ boxes: U 114, Es and En 23, Q 192)
+  and one block of the gather per rank. That is why 4 ranks at 256³ do
+  not fit in this VM's 15 GB while 2 ranks (12.1 GB) do, and why the
+  serial driver needs half as much (6.3 GB, its 41 doubles per cell
+  without ghosts). On a klone node (1.5 TB) the same model at 512³ with
+  24 ranks is 24 × 6.4 GB of host state plus 45 GB of level, which fits,
+  but the per-rank host state is the first thing Stage E2–E4 should
+  remove. The level's own largest item, `Q` (20 doubles per cell), could
+  be halved by computing the predictor per face pair instead of storing
+  it, at the cost of recomputing it 6× per cell.
 
 ## 5. The multi-node hydro slowdown: hypothesis and the measurement
 
@@ -186,8 +235,10 @@ machine). What the level is built to test:
 ## 6. What this stage does not do (yet)
 
 - The state on the level between steps: the host gather per half step
-  (40 B per cell) and the redundant host state per rank stay until the PM
-  (E2), the halo finder and sources (E3) and the I/O (E4) are distributed.
+  (40 B per cell) and the redundant host state per rank (0.8 GB per rank
+  at 256³, the reason 4 ranks at 256³ do not fit in a 15 GB VM, §4) stay
+  until the PM (E2), the halo finder and sources (E3) and the I/O (E4)
+  are distributed.
 - The legacy split scheme on the backend (never: its moving-frame pencil
   sweeps with the FFT smoothing do not decompose; `check_hydro_backend_param`
   refuses it).

@@ -1,6 +1,38 @@
 # Project status
 
-*Last updated: 2026-10-12: what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-12: Stage E1, the unsplit hydro on AMReX (branch `claude/clever-fermi-aa4km4`)
+
+**`docs/stage_e_hydro.md`.** `hydro_backend = amrex`: the unsplit
+MUSCL-Hancock + HLLC step with the dual-energy formulation on AMReX
+MultiFabs, MPI + OpenMP (`src/amrex/hydro_level.cpp`), `hydro_scheme =
+unsplit` only; the legacy split scheme stays serial by design.
+- The face and update arithmetic moved into `include/radray/kernels/hydro_mh.hpp`
+  (`face_all`, `face_neighbour_max`, `update_from_faces`), so the serial
+  driver and the level share one implementation; the serial unsplit
+  outputs are bitwise unchanged.
+- **Bitwise identical to `hydro_backend = serial`** for 1–8 ranks × 1–2
+  threads × box sizes 32/16/8 on `sod_x`, `random3d`, `sound_x`, and in
+  the full loop with either RT backend at 1–3 ranks; bit-identical
+  restarts. `ctest -L amrex_hydro`: 27/27 here.
+- Stage E1 model: every rank still holds the full gas grid; a step copies
+  its boxes in and gathers the level back with per-rank broadcasts (40 B
+  per cell per half step). `hydro_driver` gained `--set` and rank-0 I/O.
+- Timing on the 4-core VM (`docs/stage_e_hydro.md` §4): with 4 ranks × 1
+  thread the backend is 17 % faster than the serial OpenMP code at 128³
+  (10.1 vs 12.2 s), 2 × 2 is 13 % faster at 256³ (99 vs 114 s); one rank
+  × 4 threads is 20 % slower (per-box fork/join); `FillBoundary` 5 % and
+  the host gather 7 % at 256³. Memory: the full host state per rank (0.8
+  GB at 256³) plus the level (330 B per cell): 4 ranks at 256³ exceed the
+  15 GB VM, 2 ranks need 12 GB against the serial 6.3 GB.
+- The spike's multi-node hydro slowdown: hypothesis (ghost volume of 16³
+  boxes against the node's injection bandwidth) and the job that measures
+  it on 1/2/4 nodes with box sizes 16/32/64,
+  `tools/hyak/amrex_hydro_scaling.slurm` (+ `make_hydro_problem.py`);
+  **the user runs it** (the Hyak thread).
+- Open: the state on the level between steps (after E2–E4), GPU target
+  for the hydro level, the hydro level's decomposition vs the RT level's.
 
 ## 2026-10-12, branch `claude/clever-fermi-aa4km4`: what's next, Stage E prerequisites
 

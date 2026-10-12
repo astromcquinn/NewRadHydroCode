@@ -31,7 +31,7 @@
 // Between the two half steps the host's GasGrid (u, w, e, on every rank)
 // holds the state: a step copies the rank's boxes in from it (no
 // communication) and gathers the result back onto every rank
-// (MPI_Allgatherv of the boxes in global order, as floats). The redundant
+// (each rank broadcasts its boxes in global order, as floats). The redundant
 // host state goes away when the PM, the halo finder and the I/O are
 // distributed too (Stage E).
 #include <algorithm>
@@ -119,7 +119,7 @@ class HydroLevel {
     Q.define(ba, dm, 1, 1);
     const int nloc = static_cast<int>(U.local_size());
     for (int d = 0; d < 3; ++d) faces[d].resize(nloc);
-    // the Allgatherv plan: every box in global order, owner and size
+    // the gather plan: every box in global order, owner and size
     const int nranks = ax::ParallelDescriptor::NProcs();
     counts.assign(nranks, 0);
     displs.assign(nranks, 0);
@@ -179,7 +179,9 @@ class HydroLevel {
   }
 
   // The whole level onto every rank's host arrays (double -> float once,
-  // as the serial step rounds once; MPI_Allgatherv of the boxes)
+  // as the serial step rounds once): each rank packs its boxes in global
+  // box order and broadcasts the block; every rank unpacks each block as it
+  // arrives, so the extra memory is one block, not the level.
   void copy_out(GasGrid& gas) {
     const double t0 = now();
     const int nranks = ax::ParallelDescriptor::NProcs();
@@ -195,37 +197,46 @@ class HydroLevel {
         dst[c * NC + m] = static_cast<float>(u(i, j, k, m));
       });
     }
-    const float* all = sendbuf.data();
-    if (nranks > 1) {
-      const double t1 = now();
-      recvbuf.resize(static_cast<std::size_t>(total));
-#ifdef AMREX_USE_MPI
-      MPI_Allgatherv(sendbuf.data(), counts[myproc], MPI_FLOAT, recvbuf.data(), counts.data(), displs.data(),
-                     MPI_FLOAT, ax::ParallelDescriptor::Communicator());
-#endif
-      all = recvbuf.data();
-      T.allgather += now() - t1;
-    }
     float *gu = gas.u.data(), *gw = gas.w.data(), *ge = gas.e.data();
     const int NN = N;
     const int nbox = static_cast<int>(ba.size());
+    // the boxes of each rank, in global order (what its block holds)
+    std::vector<std::vector<int>> boxes_of(nranks);
+    for (int b = 0; b < nbox; ++b) boxes_of[dm[b]].push_back(b);
+    for (int r = 0; r < nranks; ++r) {
+      const float* blk = sendbuf.data();
+      if (nranks > 1) {
+        const double t1 = now();
+        if (r != myproc) {
+          recvbuf.resize(static_cast<std::size_t>(counts[r]));
+          blk = recvbuf.data();
+        }
+#ifdef AMREX_USE_MPI
+        MPI_Bcast(const_cast<float*>(blk), counts[r], MPI_FLOAT, r, ax::ParallelDescriptor::Communicator());
+#endif
+        T.allgather += now() - t1;
+      }
+      const std::vector<int>& bl = boxes_of[r];
+      const int nb = static_cast<int>(bl.size());
 #ifdef AMREX_USE_OMP
 #pragma omp parallel for schedule(dynamic)
 #endif
-    for (int b = 0; b < nbox; ++b) {
-      const ax::Box bx = ba[b];
-      const auto lo = ax::lbound(bx), hi = ax::ubound(bx), len = ax::length(bx);
-      const float* src = all + box_offset[b];
-      for (int k = lo.z; k <= hi.z; ++k)
-        for (int j = lo.y; j <= hi.y; ++j)
-          for (int i = lo.x; i <= hi.x; ++i) {
-            const Long c = (i - lo.x) + static_cast<Long>(len.x) * ((j - lo.y) + static_cast<Long>(len.y) * (k - lo.z));
-            const float* v = src + c * NC;
-            const std::int64_t cg = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
-            for (int m = 0; m < NV; ++m) gu[cg * 5 + m] = v[m];
-            ge[cg] = v[NV];
-            for (int s = 0; s < 4; ++s) gw[cg * 4 + s] = v[NV + 1 + s];
-          }
+      for (int ib = 0; ib < nb; ++ib) {
+        const int b = bl[ib];
+        const ax::Box bx = ba[b];
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx), len = ax::length(bx);
+        const float* src = blk + (box_offset[b] - displs[r]);
+        for (int k = lo.z; k <= hi.z; ++k)
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i) {
+              const Long c = (i - lo.x) + static_cast<Long>(len.x) * ((j - lo.y) + static_cast<Long>(len.y) * (k - lo.z));
+              const float* v = src + c * NC;
+              const std::int64_t cg = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
+              for (int m = 0; m < NV; ++m) gu[cg * 5 + m] = v[m];
+              ge[cg] = v[NV];
+              for (int s = 0; s < 4; ++s) gw[cg * 4 + s] = v[NV + 1 + s];
+            }
+      }
     }
     T.copyout += now() - t0;
   }
@@ -443,7 +454,7 @@ class HydroLevel {
     char buf[512];
     std::snprintf(buf, sizeof buf,
                   "AMReX hydro timers [s]: copyin %.3f fill %.3f select %.3f cfl %.3f predict %.3f flux %.3f "
-                  "update %.3f finalize %.3f reduce %.3f copyout %.3f (allgather %.3f); %lld substeps in %lld "
+                  "update %.3f finalize %.3f reduce %.3f copyout %.3f (bcast %.3f); %lld substeps in %lld "
                   "calls, %d boxes",
                   T.copyin, T.fill, T.select, T.cfl, T.predict, T.flux, T.update, T.finalize, T.reduce, T.copyout,
                   T.allgather, static_cast<long long>(T.substeps), static_cast<long long>(T.calls),
