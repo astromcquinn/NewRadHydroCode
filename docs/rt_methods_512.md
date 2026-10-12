@@ -380,11 +380,11 @@ the few-percent level.
   its Γ is lowest in the voids that transmit (its transmission-weighted Γ
   is 11 % below its mean, M1's 2 % above). A forest calibration of f_esc
   would thus differ by ≈ 30 % between methods.
-- **Recombination radiation shortens λ_mfp** (rays: 23 against 34 pMpc
-  at z = 5.44) and raises Γ by 10 %. The likely reason (not separated
-  here): case A recombines faster, so dense gas holds more HI, and the
-  transported recombination photons only partly make up for it locally
-  while adding to the background.
+- **Recombination radiation shortened λ_mfp** (rays: 23 against 34 pMpc
+  at z = 5.44) and raised Γ by 10 %. Most of the λ_mfp difference is
+  probably the spurious self-shielded clumps of the block emission (§6c),
+  which hold most of the run's HI; it should be re-measured with
+  `recomb_rad_cell_onspot`.
 
 ## 8. Movie
 
@@ -428,8 +428,10 @@ movie is `$RUNS/<run>/run/movie/cosmo.mp4`.
   method that keeps the rays' pattern (3× cheaper here), M1 the one that
   does not.
 - **Recombination radiation** (case A + RR against case B, rays): Γ +10 %,
-  λ_mfp −30 %, P_Γ and the history nearly unchanged, at 1.7× the rays' cost
-  and no visible cost for M1/OTVET.
+  P_Γ and the history nearly unchanged, at 1.7× the rays' cost and no
+  visible cost for M1/OTVET. Its λ_mfp −30 % and the post-overlap residual
+  HI were mostly an artifact of the block emission, fixed by
+  `recomb_rad_cell_onspot` (§6c) after these runs.
 
 ## 10. Open
 
