@@ -25,7 +25,8 @@ default (§2): `photon_conserve` (B17, a photon-limiter quirk of the
 original that grows as k²) and `ray_deposit = exposure` (with the share
 deposit, photons jump up to k − 1 cells past I-fronts).
 
-**k = 1** is byte-identical: FINALSUMMARY (§3).
+**k = 1** is byte-identical: fast suite 117/117, nightly label 22/22,
+AMReX label 54/54, and smoke diffs against `main` (§3).
 
 **Accuracy against k = 1** with the recommended options (`exposure` +
 `photon_conserve`; the scheme as specified does worse, §4, §5, §7):
@@ -224,15 +225,20 @@ written so that k = 1 is the same arithmetic (1 × dl_rt, `rmin + 1`, the
 - **Fast suite:** `main` (07aa378) and this branch both pass 112/112 in the
   cloud container (gcc 13.3, gfortran 13.3; `healpix_vs_healpy` skipped in
   both), including every stored-reference and live-Fortran comparison in
-  both legacy modes, the restart and the thread tests. <!-- FINALSUITE -->
+  both legacy modes, the restart and the thread tests. On the final code
+  the fast suite is 117/117 (the 112 of `main` and 5 new tests), the
+  nightly label 22/22 (the two `hydro_suite_full_*kh` tiers re-run after
+  the container's disk filled during the first run; the hydro code is
+  unchanged on this branch) and the AMReX label 54/54
+  (`amrex_full64_vs_serial` is nightly-only).
 - **Smoke diffs:** `rt_driver` outputs byte-identical to `main` on
   `uniform_8src` (`deterministic_parallel`, 2 threads) and, after each later
   commit, to the previous binary on `lognormal_16src` (fixed flags,
   `ray_rotate = 3`) and `uniform_8src` (legacy flags).
 - **AMReX backend** (`-DRADRAY_AMREX=ON`, AMReX 26.10, OpenMPI 4.1.6):
-  `ctest -L amrex` 50/50 before the exposure option (the bitwise tests
-  against `rt_serial` at k = 1 included); the multicell tests below after
-  it.
+  `ctest -L amrex` 50/50 before the exposure option and 54/54 on the final
+  code (the bitwise tests against `rt_serial` at k = 1 and the 12 multicell
+  tests below included).
 - **New tests** (all pass): `rays` (unit: k-cell segments cover the path in
   3k+1 segments and k = 1 is the 4-segment step exactly; the clamp),
   `multicell` (k = 2 vs 1 on the uniform I-front at c = 1: front within half
