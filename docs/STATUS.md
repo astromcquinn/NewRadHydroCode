@@ -39,7 +39,8 @@ f_esc = 0.23, `redshift_per_distance`) plus rays with case B; runs
   `recomb_rad_cell_onspot = τ` (default 0; `make_production.py` 1): cells
   thicker than τ at the HI edge keep their photons on the spot. 128³ test:
   residual HI −4×, history and τ_es unchanged (`docs/rt_methods_512.md` §6c).
-  The 512³ case A + RR ray run predates it.
+  The 512³ case A + RR ray run predates it and is not rerun (user); its
+  post-overlap residual HI, ρ_HI power and λ_mfp are flagged in the doc.
 - **Open:** compare P_Γ with the user's analytic prediction; a
   substep-averaged Γ to remove the rays' sampling noise; disk — the runs'
   checkpoints (≈ 0.9 TB, incl. a saved 166 GB step-48 checkpoint of the

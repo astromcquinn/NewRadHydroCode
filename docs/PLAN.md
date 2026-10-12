@@ -531,3 +531,9 @@ policy on klone, and deleting the merged branches.
   `igm_stats.py` without the source-start λ_mfp) to save disk;
   `restart_keep = n` for "the last two checkpoints"; the ICs of
   `reion512_40mpc_f0.1` reused (identical parameters).
+* **Block-emission clumps (2026-10-12).** The rays' block emission of
+  recombination radiation made spurious self-shielded clumps with case A +
+  RR (`docs/rt_methods_512.md` §6c). Fixed behind `recomb_rad_cell_onspot = τ`
+  (C++ default 0; `make_production.py` default 1). **User: do not rerun the
+  512³ case A + RR ray run**; its post-overlap residual HI, ρ_HI/x_HII power
+  and λ_mfp stay flagged as affected in the document.
