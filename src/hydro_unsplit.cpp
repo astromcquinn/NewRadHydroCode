@@ -145,13 +145,6 @@ Work& work(int n) {
   return *w;
 }
 
-// Face data: the HLLC flux, the scalar fluxes and the interface velocity
-struct Face {
-  double F[NV];
-  double Fs[NS];
-  double v;
-};
-
 // Periodic ghost cells of U and S (state = true) or of Es
 void fill_ghosts(Work& W, bool state) {
   const int n = W.n;
@@ -173,62 +166,34 @@ void fill_ghosts(Work& W, bool state) {
 }
 
 // The selected thermal energy density of every interior cell (the eta1
-// rule against the cell's E or the maximum over its 6 face neighbours),
+// rule against the cell's E or the maximum over its face neighbours),
 // from the ghost-filled U and S; then its ghosts.
 void select_pass(Work& W, const rrh::DualEnergy& de) {
   const int n = W.n;
   const bool par_ok = par::worth(static_cast<long long>(n) * n * n);
+  auto Ea = [&W](int i, int j, int k) { return W.U[W.at(i, j, k) * NV + 4]; };
 #pragma omp parallel for schedule(static) if (par_ok)
   for (int k = 0; k < n; ++k)
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
         const std::int64_t c = W.at(i, j, k);
         const double* U = &W.U[c * NV];
-        double Eref = U[4];
-        if (!de.eta1_local) {
-          auto nb = [&](int ii, int jj, int kk) {
-            Eref = rrf::max(Eref, W.U[W.at(ii, jj, kk) * NV + 4]);
-          };
-          for (int r = 1; r <= de.nb_radius; ++r) {
-            nb(i - r, j, k);
-            nb(i + r, j, k);
-            nb(i, j - r, k);
-            nb(i, j + r, k);
-            nb(i, j, k - r);
-            nb(i, j, k + r);
-          }
-        }
+        double Eref = U[4], e1;
+        if (!de.eta1_local) Eref = rrh::face_neighbour_max(Ea, i, j, k, de.nb_radius, e1);
         W.Es[c] = rrh::select_thermal(U, W.S[c * NS], Eref, de.eta1);
       }
   fill_ghosts(W, false);
 }
 
-// The face between cell a and cell b = a + e_d, direction d
-inline void compute_face(const Work& W, int ia, int ja, int ka, int d, double eta1, double dtdx,
-                         Face& f) {
-  const int ei = d == 0, ej = d == 1, ek = d == 2;
-  const int ib = ia + ei, jb = ja + ej, kb = ka + ek;
-  const double* Qa = &W.Q[W.aq(ia, ja, ka) * NQ];
-  const double* Qb = &W.Q[W.aq(ib, jb, kb) * NQ];
-  rrh::FaceInfo fi;
-  rrh::face_flux(Qa, Qb, d, f.F, fi);
-  f.v = fi.v;
-  // internal energy: the specific internal energy of the upwind face state
-  f.Fs[0] = rrh::scalar_flux(f.F, fi, fi.eL, fi.eR);
-  // species: specific abundances w/rho reconstructed along d
-  auto spec = [&](int i, int j, int k, int s) {
-    const std::int64_t c = W.at(i, j, k);
-    return W.S[c * NS + s] / rrf::max(W.U[c * NV], rrh::kSmallRho);
-  };
-  const double ua = Qa[1 + d], ub = Qb[1 + d];
-  for (int s = 1; s < NS; ++s) {
-    const double sL = rrh::scalar_face(spec(ia - ei, ja - ej, ka - ek, s), spec(ia, ja, ka, s),
-                                       spec(ib, jb, kb, s), ua, dtdx, 1);
-    const double sR = rrh::scalar_face(spec(ia, ja, ka, s), spec(ib, jb, kb, s),
-                                       spec(ib + ei, jb + ej, kb + ek, s), ub, dtdx, 0);
-    f.Fs[s] = rrh::scalar_flux(f.F, fi, sL, sR);
-  }
-  (void)eta1;
+using Face = rrh::FaceData;
+
+// The face between cell a and cell b = a + e_d, direction d (rrh::face_all
+// on the work arrays)
+inline void compute_face(const Work& W, int ia, int ja, int ka, int d, double dtdx, Face& f) {
+  auto Qa = [&W](int i, int j, int k) { return &W.Q[W.aq(i, j, k) * NQ]; };
+  auto Ua = [&W](int i, int j, int k, int c) { return W.U[W.at(i, j, k) * NV + c]; };
+  auto Sa = [&W](int i, int j, int k, int s) { return W.S[W.at(i, j, k) * NS + s]; };
+  rrh::face_all(Qa, Ua, Sa, ia, ja, ka, d, dtdx, f);
 }
 
 // Thread-local face buffers of one slab
@@ -252,8 +217,6 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
   const int n = W.n;
   const double dtdx = dt;  // dx = 1 cell
   const bool par_ok = par::worth(static_cast<long long>(n) * n * n);
-  const double eta1_pred = 0;  // (the selection is done in select_pass)
-
   // 1. predictor on the interior plus one ghost layer
   auto Ua = [&W](int i, int j, int k, int c) { return W.U[W.at(i, j, k) * NV + c]; };
   auto Ea = [&W](int i, int j, int k) { return W.Es[W.at(i, j, k)]; };
@@ -272,13 +235,13 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
   for (int k = 0; k < n; ++k) {
     SlabFaces& sf = faces[par::thread_id()];
     for (int j = 0; j < n; ++j)
-      for (int i = 0; i <= n; ++i) compute_face(W, i - 1, j, k, 0, eta1_pred, dtdx, sf.fx[i + (n + 1) * j]);
+      for (int i = 0; i <= n; ++i) compute_face(W, i - 1, j, k, 0, dtdx, sf.fx[i + (n + 1) * j]);
     for (int j = 0; j <= n; ++j)
-      for (int i = 0; i < n; ++i) compute_face(W, i, j - 1, k, 1, eta1_pred, dtdx, sf.fy[i + n * j]);
+      for (int i = 0; i < n; ++i) compute_face(W, i, j - 1, k, 1, dtdx, sf.fy[i + n * j]);
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
-        compute_face(W, i, j, k - 1, 2, eta1_pred, dtdx, sf.fz0[i + n * j]);
-        compute_face(W, i, j, k, 2, eta1_pred, dtdx, sf.fz1[i + n * j]);
+        compute_face(W, i, j, k - 1, 2, dtdx, sf.fz0[i + n * j]);
+        compute_face(W, i, j, k, 2, dtdx, sf.fz1[i + n * j]);
       }
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
@@ -289,21 +252,12 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
         const Face& y1 = sf.fy[i + n * (j + 1)];
         const Face& z0 = sf.fz0[i + n * j];
         const Face& z1 = sf.fz1[i + n * j];
-        double* Un = &W.Un[cn * NV];
-        for (int m = 0; m < NV; ++m) Un[m] = W.U[c * NV + m];
-        rrh::update_cell(Un, x0.F, x1.F, y0.F, y1.F, z0.F, z1.F, dtdx);
-        const double divv = ((x1.v - x0.v) + (y1.v - y0.v)) + (z1.v - z0.v);
         // the cell pressure of the work term: time-centred (Hancock) or at
         // the old time (Bryan et al. 2014 eq. 43)
         const double p_half = p_old ? (rrh::kGamma - 1) * rrf::max(W.Es[c], 0.0)
                                     : W.Q[W.aq(i, j, k) * NQ + 4];
-        const double* S = &W.S[c * NS];
-        double* Sn = &W.Sn[cn * NS];
-        Sn[0] = rrh::update_scalar(S[0], x0.Fs[0], x1.Fs[0], y0.Fs[0], y1.Fs[0], z0.Fs[0],
-                                   z1.Fs[0], p_half * divv, dtdx);
-        for (int s = 1; s < NS; ++s)
-          Sn[s] = rrh::update_scalar(S[s], x0.Fs[s], x1.Fs[s], y0.Fs[s], y1.Fs[s], z0.Fs[s],
-                                     z1.Fs[s], 0.0, dtdx);
+        rrh::update_from_faces(&W.U[c * NV], &W.S[c * NS], x0, x1, y0, y1, z0, z1, p_half, dtdx,
+                               &W.Un[cn * NV], &W.Sn[cn * NS]);
       }
   }
 
@@ -315,19 +269,11 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
         const std::int64_t cn = W.ai(i, j, k), c = W.at(i, j, k);
-        double Enb = W.Un[cn * NV + 4], Enb1 = Enb;
-        auto nb = [&](int ii, int jj, int kk) {
-          Enb = rrf::max(Enb, W.Un[W.ai((ii + n) % n, (jj + n) % n, (kk + n) % n) * NV + 4]);
+        auto Ena = [&W, n](int ii, int jj, int kk) {
+          return W.Un[W.ai((ii + n) % n, (jj + n) % n, (kk + n) % n) * NV + 4];
         };
-        for (int r = 1; r <= de.nb_radius; ++r) {
-          nb(i - r, j, k);
-          nb(i + r, j, k);
-          nb(i, j - r, k);
-          nb(i, j + r, k);
-          nb(i, j, k - r);
-          nb(i, j, k + r);
-          if (r == 1) Enb1 = Enb;
-        }
+        double Enb1;
+        const double Enb = rrh::face_neighbour_max(Ena, i, j, k, de.nb_radius, Enb1);
         double* U = &W.U[c * NV];
         for (int m = 0; m < NV; ++m) U[m] = W.Un[cn * NV + m];
         double eD = W.Sn[cn * NS];

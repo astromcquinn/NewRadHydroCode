@@ -291,6 +291,74 @@ RR_HD double scalar_flux(const double F[NV], const FaceInfo& fi, double sL, doub
   return F[0] * (fi.up ? sR : sL);
 }
 
+// Everything the update needs from one face: the HLLC flux F, the fluxes
+// Fs of the NS scalars (the internal energy from the upwind face state's
+// specific internal energy, the species from their specific abundances
+// reconstructed along d) and the interface velocity v (the work term).
+struct FaceData {
+  double F[NV];
+  double Fs[NS];
+  double v;
+};
+// The face between cell a = (ia, ja, ka) and b = a + e_d, direction d, from
+// the predictor states and the state. Accessors (local index space, ghosts
+// included): Q(i, j, k) returns the NQ predictor values of a cell (const
+// double*), U(i, j, k, m) the conserved state, S(i, j, k, s) the scalars.
+// Reads Q of a and b, U and S of a - e_d .. b + e_d. The one implementation
+// of the serial driver (src/hydro_unsplit.cpp) and the AMReX level
+// (src/amrex/hydro_level.cpp).
+template <class QA, class UA, class SA>
+RR_HD void face_all(const QA& Q, const UA& U, const SA& S, int ia, int ja, int ka, int d,
+                    double dtdx, FaceData& f) {
+  const int ei = d == 0, ej = d == 1, ek = d == 2;
+  const int ib = ia + ei, jb = ja + ej, kb = ka + ek;
+  const double* Qa = Q(ia, ja, ka);
+  const double* Qb = Q(ib, jb, kb);
+  FaceInfo fi;
+  face_flux(Qa, Qb, d, f.F, fi);
+  f.v = fi.v;
+  // internal energy: the specific internal energy of the upwind face state
+  f.Fs[0] = scalar_flux(f.F, fi, fi.eL, fi.eR);
+  // species: specific abundances w/rho reconstructed along d
+  auto spec = [&](int i, int j, int k, int s) { return S(i, j, k, s) / rrf::max(U(i, j, k, 0), kSmallRho); };
+  const double ua = Qa[1 + d], ub = Qb[1 + d];
+  for (int s = 1; s < NS; ++s) {
+    const double sL = scalar_face(spec(ia - ei, ja - ej, ka - ek, s), spec(ia, ja, ka, s), spec(ib, jb, kb, s),
+                                  ua, dtdx, 1);
+    const double sR = scalar_face(spec(ia, ja, ka, s), spec(ib, jb, kb, s), spec(ib + ei, jb + ej, kb + ek, s),
+                                  ub, dtdx, 0);
+    f.Fs[s] = scalar_flux(f.F, fi, sL, sR);
+  }
+}
+
+// Maximum of a cell quantity E(i, j, k) over the cell and its face
+// neighbours at distances 1..radius along the axes, in the fixed order
+// (-x, +x, -y, +y, -z, +z) per distance (the dual-energy reference energy
+// of the selection and of finalize_cell); m1 receives the radius-1 maximum.
+template <class EA>
+RR_HD double face_neighbour_max(const EA& E, int i, int j, int k, int radius, double& m1) {
+  double m = E(i, j, k);
+  m1 = m;
+  for (int r = 1; r <= radius; ++r) {
+    m = rrf::max(m, E(i - r, j, k));
+    m = rrf::max(m, E(i + r, j, k));
+    m = rrf::max(m, E(i, j - r, k));
+    m = rrf::max(m, E(i, j + r, k));
+    m = rrf::max(m, E(i, j, k - r));
+    m = rrf::max(m, E(i, j, k + r));
+    if (r == 1) m1 = m;
+  }
+  return m;
+}
+
+// The update of one cell from its six faces (x0 = lower x face, x1 = upper,
+// ...) into Un and Sn, the serial driver's and the level's one
+// implementation: update_cell for U, the internal energy with the work term
+// p_half sum_d (v*_+ - v*_-) and the species without (update_scalar).
+RR_HD void update_from_faces(const double U[NV], const double S[NS], const FaceData& x0, const FaceData& x1,
+                             const FaceData& y0, const FaceData& y1, const FaceData& z0, const FaceData& z1,
+                             double p_half, double dtdx, double Un[NV], double Sn[NS]);
+
 // Conservative update of one cell from its 6 face fluxes:
 // F[d][0] = lower face, F[d][1] = upper face.
 RR_HD void update_cell(double U[NV], const double* Fx0, const double* Fx1, const double* Fy0,
@@ -303,6 +371,18 @@ RR_HD void update_cell(double U[NV], const double* Fx0, const double* Fx1, const
 RR_HD double update_scalar(double s, double Fx0, double Fx1, double Fy0, double Fy1, double Fz0,
                            double Fz1, double w, double dtdx) {
   return s - dtdx * ((((Fx1 - Fx0) + (Fy1 - Fy0)) + (Fz1 - Fz0)) + w);
+}
+
+RR_HD void update_from_faces(const double U[NV], const double S[NS], const FaceData& x0,
+                                    const FaceData& x1, const FaceData& y0, const FaceData& y1,
+                                    const FaceData& z0, const FaceData& z1, double p_half, double dtdx,
+                                    double Un[NV], double Sn[NS]) {
+  for (int m = 0; m < NV; ++m) Un[m] = U[m];
+  update_cell(Un, x0.F, x1.F, y0.F, y1.F, z0.F, z1.F, dtdx);
+  const double divv = ((x1.v - x0.v) + (y1.v - y0.v)) + (z1.v - z0.v);
+  Sn[0] = update_scalar(S[0], x0.Fs[0], x1.Fs[0], y0.Fs[0], y1.Fs[0], z0.Fs[0], z1.Fs[0], p_half * divv, dtdx);
+  for (int s = 1; s < NS; ++s)
+    Sn[s] = update_scalar(S[s], x0.Fs[s], x1.Fs[s], y0.Fs[s], y1.Fs[s], z0.Fs[s], z1.Fs[s], 0.0, dtdx);
 }
 
 // End of a substep for one cell: density floor, the temperature floor
