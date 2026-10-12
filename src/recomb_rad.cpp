@@ -56,9 +56,9 @@ bool set_recomb_param(Config& c, const std::string& key, const std::string& val)
     return true;
   }
   if (key == "recomb_rad_cell_onspot") {
-    const int v = std::stoi(val);
-    if (v < 0 || v > 1) throw std::runtime_error("recomb_rad_cell_onspot must be 0 or 1");
-    c.recomb_rad_cell_onspot = v;
+    c.recomb_rad_cell_onspot = std::stod(val);
+    if (!(c.recomb_rad_cell_onspot >= 0))
+      throw std::runtime_error("recomb_rad_cell_onspot must be >= 0 (an optical depth; 0: off)");
     return true;
   }
   if (key == "recomb_rad_pool") {
@@ -453,12 +453,12 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
             for (int i = 0; i < b; ++i) {
               const std::int64_t c = cell_in(bi, bj, bk, i, j, k);
               std::uint8_t mc = m;
-              if (mc && s.cfg.recomb_rad_cell_onspot) {
-                // recomb_rad_cell_onspot: a cell that is optically thick
-                // at the HI edge (group 1, where the HI recombination
-                // photons are) reabsorbs its own recombination photons
-                // (case B), whatever its block does
-                if (std::exp(-G.tau_p(c)[0]) < 1e-2f) mc = 0;
+              if (mc && s.cfg.recomb_rad_cell_onspot > 0) {
+                // recomb_rad_cell_onspot = tau: a cell optically thick at
+                // the HI edge (group 1, where the HI recombination photons
+                // are) reabsorbs its own recombination photons (case B),
+                // whatever its block does
+                if (static_cast<double>(G.tau_p(c)[0]) > s.cfg.recomb_rad_cell_onspot) mc = 0;
               }
               Rc.mode[c] = mc;
             }

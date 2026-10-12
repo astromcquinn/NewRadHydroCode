@@ -87,9 +87,10 @@ def main():
     ap.add_argument("--recomb-rad-block", type=int, default=4,
                     help="rays: recombination emission gathered over b^3 RT cells (4: 79%% "
                          "launched at 78 kpc/h cells, docs/recomb_radiation.md section 4.1)")
-    ap.add_argument("--recomb-rad-cell-onspot", type=int, default=1, choices=(0, 1),
-                    help="rays: optically thick cells keep their recombination photons on the "
-                         "spot (recomb_rad_cell_onspot; default 1, docs/rt_methods_512.md)")
+    ap.add_argument("--recomb-rad-cell-onspot", type=float, default=1.0,
+                    help="rays: cells with optical depth > tau at the HI edge keep their "
+                         "recombination photons on the spot (recomb_rad_cell_onspot; default 1, "
+                         "docs/rt_methods_512.md); 0: off")
     ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
                     help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
                          "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
@@ -163,8 +164,8 @@ def main():
     ]
     if a.recomb_case == "A" and a.recomb_rad:
         lines += ["recomb_rad = 1", f"recomb_rad_block = {a.recomb_rad_block}"]
-        if a.recomb_rad_cell_onspot:
-            lines.append("recomb_rad_cell_onspot = 1")
+        if a.recomb_rad_cell_onspot > 0:
+            lines.append(f"recomb_rad_cell_onspot = {a.recomb_rad_cell_onspot:g}")
     elif a.recomb_rad and a.recomb_case == "B":
         sys.exit("--recomb-rad 1 needs --recomb-case A (case B already absorbs them on the spot)")
     if a.ra_max > 0:
