@@ -9,7 +9,8 @@
 #     --export=ALL,PROB=$RUNS/reion512_rays_m1,CK=$RUNS/reion512_rays_m1/run/restart/checkpoint_0048.bin \
 #     tools/hyak/field_cubes.slurm
 # Environment: PROB (required), CK (checkpoint; empty: from the start), OUT
-# (default $PROB/run_cubes), FIELDS (default fHI,rhog,gammaHI), THREADS, EXE.
+# (default $PROB/run_cubes), FIELDS (default fHI,rhog,gammaHI; export it before sbatch,
+# since --export=...,FIELDS=a,b splits at the comma), THREADS, EXE.
 #SBATCH --job-name=field_cubes
 #SBATCH --account=astro
 #SBATCH --partition=cpu-g2
