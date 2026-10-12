@@ -48,11 +48,12 @@ light-limited fronts at 0.1c for k ≥ 4 (the uniform I-front lags 2.3
 cells; the production run reionises late and T_M is 10 % high while its
 first fronts are fast). Next comes dense, quickly recombining gas at
 k = 8. At c = 1, where the fronts are photon-limited, k = 4 passes the
-production run (T_M 3 % high). **The transport over k cells is accurate; the error is the
-k-times-longer substep** (§6): k = 8 at 8ĉ matches k = 1 at ĉ to 1 %,
-and k = 1 at ĉ/8 shows the errors of k = 8 at ĉ. On a uniform grid, then,
-k > 1 equals fewer substeps. It saves only 1.3× in RT time per hydro step at k = 2 and 4
-(more live rays, k cells per ray-substep), so it is not a speed option.
+production run (T_M 3 % high). **The transport over k cells is accurate;
+the error is the k-times-longer substep** (§6): k = 8 at 8ĉ matches k = 1
+at ĉ to 1 %, and k = 1 at ĉ/8 shows the errors of k = 8 at ĉ. On a uniform
+grid, then, k > 1 equals fewer substeps. It saves only 1.3× in RT time per
+hydro step at k = 2 and 4 (more live rays, k cells per ray-substep), so it
+is not a speed option.
 
 **Recommendation for the AMR RT** (§9): a mixture. Use the coarse substep
 everywhere, with 2^l cells per substep on level l, the exposure deposit,
@@ -61,8 +62,9 @@ sub-cycling in fine cells, and time sub-cycling of the transport only in
 patches where a front outruns the substep (detectable from the
 deposits). With refinement on overdensity, fronts in refined gas move
 about 4^-l as many fine cells per coarse substep, so the criterion is met
-most easily where the cells are small. k = 2 (one level) passes every
-test here.
+most easily where the cells are small. k = 2 (one level) is within the
+targets in every test here, except T_M at 5 % while the first production
+fronts are fast.
 
 ## 1. The scheme
 
