@@ -74,3 +74,155 @@ SETS=reion512_rays:rt_methods_512 EXTRA=reion512_rays_caseB:rays_B IGM=1 \
   Γ maps and PDFs from their `gamma.bin`) and on a 128³, 10 Mpc/h set with
   this exact configuration (`$RUNS/rtm128_test{,_m1,_otvet,_caseB}`,
   comparison in `$RUNS/rtm128_test_cmp/`).
+
+## 3. Cost
+
+Whole `cpu-g2` node, 192 threads, z = 100 → 5 in one job each. RT is the
+sum of the RT timers; transport is `calc_ray_1 + ray_tracing_1 +
+ray_tracing_3` (moments: the GLF subcycles and the scaling); OTVET's
+`prep` is the FFT Eddington tensor.
+
+| run | hydro steps | RT substeps | wall | RT | transport | photo-chemistry | output | peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| rays, case A + RR | 55 | 4498 | 14:17:59 | 12.0 h | 10.1 h | 1.67 h | 1.8 h | 246 GB |
+| M1, case A + RR | 52 | 4476 | 4:13:14 | 3.80 h | 1.89 h | 1.71 h | 80 s | 143 GB |
+| OTVET, case A + RR | 56 | 4501 | 4:47:51 | 4.35 h | 2.01 h (+ 0.43 h tensor) | 1.71 h | 83 s | 146 GB |
+| rays, case B | 52 | 4549 | 8:33:21 | 7.22 h | 5.23 h | 1.68 h | 0.93 h | 207 GB |
+
+- **Against the expectation** (scaling the 256³, 0.1c runs of
+  `docs/rt_moments.md` §6.5 by 8× the cells and 2× the substeps): rays
+  (case B) 8.6 h against 6–10 h, M1 and OTVET 4.2–4.8 h against 3–5 h,
+  memory 207 / 143–146 GB against 220 / 110 GB.
+- **Recombination radiation costs the rays 1.67× in wall time** (1.9× in
+  transport); the moment methods pay nothing visible for it (each cell
+  re-emits into its own moments). Early on the recombination rays dominate:
+  at z ≈ 10.5 the case A + RR run carried 654 M rays against 44 M in case
+  B, and its hydro steps took 12–23× longer at z = 11–12, falling to 1.8×
+  by z = 8.7 and ≈ 1.5× after overlap, when the stellar rays fill the
+  pool. `recomb_rad_pool = 0.75` bounds the recombination rays.
+- **The ray pool guard never fired** (`nray_max_factor = 15`, the
+  original `ra_max`) in any run.
+- **Output:** the checkpoints dominate the ray runs' I/O (1.7 h of 14.3 h:
+  166 GB each with case A + RR, two kept). Movie frames: 38 GB per run (401
+  frames × 4 slab fields of 25 MB; the brief's ~10 GB estimate counted
+  fewer fields). Snapshots: ≈ 6 GB each.
+- M1 is 3.4× and OTVET 3.0× cheaper than the rays with recombination
+  radiation; photo-chemistry is now 45 % (M1) and 39 % (OTVET) of their RT.
+
+## 4. Reionization history
+
+![history](figures/rt_methods_512_history.png)
+
+*Top: x_HII and the difference from the rays (case A + RR). Middle: the
+whole-box Γ_HI statistics of `frames.txt` — volume mean (solid), median and
+mean over ionised cells (dashed, dotted) — and their ratio to the rays.
+Bottom: the volume with Γ_HI > 10⁻¹⁴ s⁻¹. Full table:
+[`figures/rt_methods_512.txt`](figures/rt_methods_512.txt).*
+
+| run | z(x_V = 0.1) | 0.5 | 0.9 | 0.99 | z(x_M = 0.5) | τ_es |
+|---|---|---|---|---|---|---|
+| rays, A + RR | 8.575 | 6.961 | 6.171 | 5.816 | 7.137 | 0.0532 |
+| M1, A + RR | 8.550 | 6.964 | 6.210 | 5.914 | 7.137 | 0.0532 |
+| OTVET, A + RR | 8.536 | 6.957 | 6.205 | 5.868 | 7.145 | 0.0533 |
+| rays, case B | 8.546 | 6.941 | 6.153 | 5.799 | 7.116 | 0.0530 |
+
+- The three methods agree to |Δx_HII,V| ≤ 0.017 at every z, and τ_es to
+  0.2 %. As at 256³, the moment runs finish overlap slightly earlier:
+  x_V = 0.99 at Δz = +0.05 (OTVET) and +0.10 (M1) before the rays.
+- Case B against case A + RR (rays): reionization Δz ≈ 0.02 later, τ_es
+  0.4 % lower. Transporting the recombination radiation brings case A
+  back almost to case B, as at 10 Mpc/h (`docs/recomb_radiation.md` §4).
+- **Γ_HI histories.** Before overlap the mean over ionised cells agrees to
+  ≲ 10 %; the rays' volume mean is 10–20 % above the moment methods'
+  at z = 8–12 (the rays reach further ahead of the fronts). **After
+  overlap the volume-mean Γ_HI agrees to 1–2 %** (z = 5.5: rays 8.31,
+  M1 8.38, OTVET 8.33 × 10⁻¹³ s⁻¹; z = 5.0: 1.38, 1.41, 1.39 × 10⁻¹²): the
+  mean is set by the emissivity and the mean free path, not the transport.
+  **The median differs:** in OTVET it is 10 % below the mean after
+  overlap (a skewed distribution), in M1 within 1 % of it, in the rays 4 %
+  below. Case B rays have a 9–10 % lower Γ_HI after overlap: the
+  recombination photons that case A + RR transports.
+- The Γ curves jump at every hydro step: the sources (halo catalogue and
+  luminosities) are updated once per hydro step, and Γ follows within the
+  light-crossing time of a few cells.
+
+## 5. Γ_HI maps and PDFs
+
+![Gamma z = 5.44](figures/rt_methods_512_gamma_z5.44.png)
+
+*log Γ_HI in the middle plane at z ≈ 5.44 (after overlap; rays | M1 |
+OTVET | rays case B). Also [z ≈ 5.91](figures/rt_methods_512_gamma_z5.91.png)
+(x_V = 0.98) and [z ≈ 4.98](figures/rt_methods_512_gamma_z4.98.png).*
+
+![Gamma PDF](figures/rt_methods_512_gamma_pdf.png)
+
+*PDF of log Γ_HI in ionised cells (x_HII > 0.5) at the snapshots.*
+
+Γ_HI in ionised cells (10⁻¹² s⁻¹; 16th / 50th / 84th percentiles):
+
+| z | rays A + RR | M1 | OTVET | rays B |
+|---|---|---|---|---|
+| 6.41 | 0.099 / 0.257 / 0.499 | 0.107 / 0.259 / 0.455 | 0.138 / 0.262 / 0.411 | 0.085 / 0.229 / 0.452 |
+| 5.91 | 0.270 / 0.455 / 0.692 | 0.349 / 0.467 / 0.581 | 0.376 / 0.452 / 0.587 | 0.224 / 0.388 / 0.600 |
+| 5.44 | 0.584 / 0.865 / 1.212 | 0.794 / 0.875 / 0.994 | 0.698 / 0.815 / 1.075 | 0.511 / 0.762 / 1.075 |
+| 4.98 | 0.925 / 1.362 / 1.885 | 1.327 / 1.399 / 1.484 | 1.100 / 1.287 / 1.710 | 0.897 / 1.326 / 1.840 |
+
+- **Around sources.** The rays and OTVET show the proximity zones of
+  individual halos: Γ rises steeply towards each source (OTVET's
+  Eddington tensor is the optically thin 1/r² sum over sources, so it keeps
+  the radial geometry). M1 smears them out: its local closure carries one
+  flux direction per cell, so where the radiation of many sources
+  crosses it diffuses, and the peaks are 5–10× lower and broader. The
+  upper tail of the PDF is therefore longest in OTVET, then the rays, and
+  shortest in M1.
+- **In the diffuse IGM after overlap.** The means agree, the widths do
+  not: the 16–84 % range is ±35 % for the rays, ±13 % (z = 5.44) to ±6 %
+  (z = 4.98) for M1, and ±22–24 % for OTVET. M1's Γ is almost uniform away
+  from sources and keeps narrowing as the mean free path grows. OTVET has
+  a sharp lower edge (no cell below ≈ 0.8 ⟨Γ⟩ at z = 4.98): with the
+  optically thin tensor, radiation flows from every source into the voids
+  without the shadowing the rays have behind dense gas. Part of the rays'
+  cell-to-cell scatter is the sampling noise of the discrete rays (the
+  grain in the maps; §6 bounds it in k).
+- **In the last neutral islands** (z ≈ 6.4–5.9). The low-Γ tail of the
+  ionised cells (the edges of the islands and the shadowed gas behind
+  them) is longest for the rays, then M1, and shortest for OTVET: OTVET's
+  fronts are illuminated from all directions at the optically thin rate,
+  so its islands are eroded faster, and they are in slightly different
+  places in both moment runs (the movie). M1's islands differ most in
+  position (as at 256³, `docs/rt_moments.md` §6.4: 11 % of cells differ by
+  more than 0.1 in x_HII at z = 6.41, OTVET 6 %, case B 4 %).
+
+## 6. Power spectrum of Γ_HI after overlap
+
+*(Being filled in from the full set of cubes.)*
+
+## 7. The IGM at z = 5–6
+
+![IGM](figures/rt_methods_512_igm.png)
+
+*`igm_stats.py` / `igm_plot.py` on the snapshots against
+`data/igm/igm_z5_6.txt`. Table: [`figures/rt_methods_512_igm.txt`](figures/rt_methods_512_igm.txt).*
+
+| z ≈ 5.44 | rays A + RR | M1 | OTVET | rays B | data |
+|---|---|---|---|---|---|
+| Γ_HI(x_HI < 10⁻²) [10⁻¹²] | 0.905 | 0.895 | 0.904 | 0.800 | 0.36 (Gaikwad+23) |
+| transmission-weighted Γ | 0.869 | 0.913 | 0.808 | 0.771 | |
+| ⟨F_Lyα⟩ | 0.215 | 0.175 | 0.161 | 0.223 | 0.072 (Bosman+22) |
+| λ_mfp (ionised starts) [pMpc] | 23.3 | 20.7 | 26.0 | 33.8 | 4.6 (Becker+21, Zhu+23) |
+| log ṅ_ion [s⁻¹ cMpc⁻³] | 51.14 | 51.14 | 51.14 | 51.14 | 51.20 (Becker+21) |
+
+- All four miss the forest in the same way as the f_esc = 0.23 run of the
+  calibration (`docs/PLAN.md`, 2026-10-11): ṅ matches, Γ is 2.5×, ⟨F⟩
+  2–3× and λ_mfp ≈ 5× the data. The user's reading stands: the sinks that
+  set λ_mfp are unresolved until AMR.
+- **The RT method changes ⟨F⟩ at fixed mean Γ by 20–35 %.** The
+  transmission is a convex function of Γ (τ ∝ 1/Γ), so a field with more
+  scatter transmits more at the same mean: the rays' broad Γ distribution
+  gives the highest ⟨F⟩, M1's narrow one less, and OTVET the least, because
+  its Γ is lowest in the voids that transmit (its transmission-weighted Γ
+  is 11 % below its mean, M1's 2 % above). A forest calibration of f_esc
+  would thus differ by ≈ 30 % between methods.
+- **Recombination radiation shortens λ_mfp** (rays: 23 against 34 pMpc
+  at z = 5.44) and raises Γ by 10 %: case A leaves more neutral hydrogen
+  in dense gas, which the recombination photons only partly re-ionise.
