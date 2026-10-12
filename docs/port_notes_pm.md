@@ -196,6 +196,19 @@ Everything follows `port_notes.md` §3. The PM-specific points:
 * **Q13. `summarize_gas` clamps `u_gas(1)` and `w_gas`.** A diagnostic
   routine modifies the state (Interpretation 2). Preserved.
 
+* **Q14. DM speed and acceleration diagnostics in the wrong units.**
+  `calc_timestep` converts `vmax_dm` and `vrms_dm` (DM-grid units) with the
+  gas-grid `vel_unit`, and `amax_dm` and `arms_dm` (mesh units) with the
+  gas-grid `acc_unit`. The printed km/s values are therefore off by
+  `x_dm_gas` (a factor 2 with the original's default Ndm = Ngas/2). With
+  `pm_refine = r` (`docs/pm_refine.md`) the accelerations are off by r as
+  well. Only the log line is affected: the time step uses the grid values,
+  which is correct. Preserved.
+
+**`pm_refine` (not in the original).** A PM mesh r times finer than the gas
+grid, for Ndm up to r·Ngas; `docs/pm_refine.md`. With r = 1 (the default)
+every routine here is the original.
+
 ## 6. Initial conditions and physics validation
 
 `tools/ics/make_ics.py` writes `xv_dm.init` and `u_gas.init` in the format

@@ -110,7 +110,7 @@ static void test_link_and_cic() {
     for (int j = 1; j <= 8; ++j)
       for (int i = 1; i <= 8; ++i) {
         std::int64_t prev = 0;
-        for (std::int64_t ip = s.hoc[s.gcell(i, j, k)]; ip > 0; ip = s.ll[ip]) {
+        for (std::int64_t ip = s.hoc[s.mcell(i, j, k)]; ip > 0; ip = s.ll[ip]) {
           ++seen[ip];
           CHECK(ip > prev);
           prev = ip;

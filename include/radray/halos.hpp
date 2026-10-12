@@ -132,6 +132,20 @@ struct Halo {
   double T = 0;             // K
 };
 
+// fof_dt_myr > 0 (docs/pm_refine.md, "FoF cadence"): the halos of the last
+// FoF, reused by the on-the-fly sources until fof_dt_myr of cosmic time has
+// passed. Masses, R and T stay those of the FoF; positions are drifted with
+// the halo mean velocity (in gas-grid units at the FoF, vel_unit) over the
+// code time dtau accumulated since. Checkpointed (version 5).
+struct FofCache {
+  std::vector<Halo> halos;  // as found by the last FoF
+  bool valid = false;
+  double year = 0;          // clk.year of the last FoF
+  double vel_unit = 0;      // Units::vel_unit at the last FoF
+  double dtau = 0;          // code time (sum of dt_sim) since the last FoF
+  std::int64_t nfof = 0, nreuse = 0;  // FoF calls and reuses (log only)
+};
+
 // Find halos; output sorted by descending M, ties by descending N, then by
 // ascending id (deterministic).
 std::vector<Halo> find_halos(const float* xv, std::int64_t npart, const HaloUnits& hu,

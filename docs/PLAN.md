@@ -537,3 +537,44 @@ policy on klone, and deleting the merged branches.
   (C++ default 0; `make_production.py` default 1). **User: do not rerun the
   512³ case A + RR ray run**; its post-overlap residual HI, ρ_HI/x_HII power
   and λ_mfp stay flagged as affected in the document.
+
+## Refined PM mesh (2026-10-11): `pm_refine`
+
+* **Goal: resolve halos of 1.3×10⁸ M☉ in the 40 Mpc/h, 512³ runs**, i.e.
+  20 particles of 6.4×10⁶ M☉: Ndm = 1024 under the 512³ gas grid.
+* **`pm_refine = 2`** gives a PM mesh of 2·Ngas with Ndm = 2·Ngas
+  particles; **the default 1 stays byte-identical**. The gas density is
+  spread onto the fine mesh and the accelerations are averaged back,
+  mirroring each other (adjoint), in both `calc_kick` and
+  `calc_kick_unsplit`. **Threaded FFTW.** `make_ics.py` and the checkpoint
+  must handle Ndm > Ngas.
+* **Validation asked for:** a single-particle force test, momentum
+  conservation, a Zel'dovich test, and the halo mass function at
+  40 Mpc/h with 1024³ DM against the 10 Mpc/h 256³ catalogs
+  (`runs/hmf256`, the same particle mass and PM mesh spacing).
+* Thread choices (not user decisions; `docs/pm_refine.md`): the gas
+  spread is piecewise constant (each gas cell's mass evenly over its r³
+  mesh cells), the transpose of the force average; the 1024³ ICs keep the
+  large-scale modes of the 512³ production ICs (`--phases-from-ndm 512`,
+  seed 7); the validation run uses the production hydro (`unsplit`); FFT
+  threads are capped at 32 (faster, results identical).
+* **FoF less often than every step** (user, 2026-10-11, after the cost
+  of FoF on 10⁹ particles: 32 s per hydro step). Implemented as
+  `fof_dt_myr` (default 0 = every hydro step; `docs/pm_refine.md` §5).
+  (Superseded the same day: FoF stays every hydro step, below.)
+* The pm_refine = 2 abundance matching uses a FoF correction fitted to
+  the 40 Mpc/h 1024³ catalogs (the documented rule: refit at each
+  resolution); `data/uv_lf/am_params_1024_40mpc_r2.txt`. (Superseded the
+  same day by the Sheth–Tormen refit, below.)
+* **FoF every hydro step** (user, 2026-10-11, revising the above): the
+  hydro steps are 20–30 Myr apart until overlap, so `fof_dt_myr` would
+  save only minutes; production keeps the default 0 (every hydro step).
+  The option stays.
+* **Abundance matching to an analytic mass function** (user, 2026-10-11,
+  replacing the 2026-10-09 decision to match to the box's own FoF mass
+  function): "calibrate to it so that the calibration doesn't change
+  depending on the box". Plain ST fits the 40 Mpc/h FoF halos badly
+  (FoF/ST 1.1–1.9 above 500 particles), so the user chose ST with its
+  coefficients refit to the well-resolved FoF halos (option 2):
+  A = 0.3458, a = 0.6164, p = 0.3, `data/uv_lf/am_params_st_fof.txt`
+  (`docs/pm_refine.md` §6). f_esc has to be recalibrated with it.

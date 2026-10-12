@@ -6,7 +6,7 @@
                        [--hydro-scheme unsplit] [--redshift-per-distance 1]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
-Ngas = Ndm = N) in OUTDIR/ics. Run with
+Ngas = N, Ndm = pm_refine*N) in OUTDIR/ics. Run with
 
     OMP_NUM_THREADS=4 build/radhydro OUTDIR OUTDIR/run --quiet
 
@@ -94,7 +94,8 @@ def main():
     ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
                     help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
                          "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
-                         "the source-start mean free path)")
+                         "the source-start mean free path), dm (only the particles: 26 GB "
+                         "per output at 1024^3, docs/pm_refine.md)")
     ap.add_argument("--restart-keep", type=int, default=0,
                     help="keep the newest n numbered checkpoints (restart_keep); 0: one "
                          "checkpoint.bin, rewritten (no line written)")
@@ -118,7 +119,19 @@ def main():
     ap.add_argument("--photon-conserve", type=int, default=0, choices=(0, 1),
                     help="iterate photo_cell's photon limit to convergence (photon_conserve, "
                          "the B17 fix, docs/rt_multicell.md); 0: the original (default, no line)")
+    ap.add_argument("--pm-refine", type=int, default=1,
+                    help="PM mesh refinement (docs/pm_refine.md): writes pm_refine and "
+                         "Ndm = pm_refine*N, and makes ICs with pm_refine*N particles per "
+                         "dimension whose large scales are those of the N^3 ICs of the same "
+                         "seed (--phases-from-ndm N); 1: the original, Ndm = N. The abundance matching (any box, "
+                         "any pm_refine): --am-params data/uv_lf/am_params_st_fof.txt "
+                         "(docs/pm_refine.md section 6)")
+    ap.add_argument("--fof-dt-myr", type=float, default=0.0,
+                    help="run the on-the-fly FoF only every this many Myr, reusing its halos "
+                         "in between (docs/pm_refine.md, FoF cadence); 0: every hydro step "
+                         "(the original, no line written)")
     a = ap.parse_args()
+    ndm = a.pm_refine * a.N
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
                  f"int32 ray links (rays.hpp); use at most {(2 ** 31 - 1) // a.N ** 3}")
@@ -128,14 +141,16 @@ def main():
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.join(a.outdir, "ics")
     if not a.no_ics and not os.path.exists(os.path.join(ics, "u_gas.init")):
-        subprocess.run([sys.executable, os.path.join(here, "..", "ics", "make_ics.py"), ics,
-                        "--kind", "zeldovich", "--Ngas", str(a.N), "--Ndm", str(a.N),
-                        "--z-init", str(a.z_init), "--box", str(a.box), "--seed", str(a.seed)],
-                       check=True)
+        cmd = [sys.executable, os.path.join(here, "..", "ics", "make_ics.py"), ics,
+               "--kind", "zeldovich", "--Ngas", str(a.N), "--Ndm", str(ndm),
+               "--z-init", str(a.z_init), "--box", str(a.box), "--seed", str(a.seed)]
+        if a.pm_refine > 1:
+            cmd += ["--phases-from-ndm", str(a.N)]
+        subprocess.run(cmd, check=True)
     lines = [
         "# Production reionization run (tools/production/make_production.py)",
         f"N = {a.N}",
-        f"Ndm = {a.N}",
+        f"Ndm = {ndm}",
         f"box = {a.box:g}",
         f"nray_max_factor = {a.nray_max_factor}",
         f"z_init = {a.z_init:g}",
@@ -150,6 +165,10 @@ def main():
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]
+    if a.pm_refine > 1:
+        lines.append(f"pm_refine = {a.pm_refine}")
+    if a.fof_dt_myr > 0:
+        lines.append(f"fof_dt_myr = {a.fof_dt_myr:g}")
     lines.append(f"hydro_scheme = {a.hydro_scheme}")
     lines += [
         f"movie_dz = {a.movie_dz:g}",

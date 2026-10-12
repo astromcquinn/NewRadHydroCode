@@ -98,6 +98,7 @@ struct AMOptions {
   SimHMF sim_hmf;  // when enabled: match to the simulated halos (base: hmf)
   MassFunctionCosmology cosmo;   // simulation cosmology (cosmo_parameters)
   double tinker_zmax_evol = 1e30;
+  MassFunction::STParams st;  // Sheth-Tormen coefficients (--st-params)
   DustModel dust;
   // Halo masses (Msun, not Msun/h) of the matched points
   double logM_min = 8.0, logM_max = 13.0, dlogM = 0.1;

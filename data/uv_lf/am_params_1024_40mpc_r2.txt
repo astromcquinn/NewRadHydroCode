@@ -1,0 +1,16 @@
+# sfr_model = abundance parameters from am_fit (data/uv_lf/lf_params.txt)
+# hmf = st x simulated-FoF correction, dust = 0, rms = 0.0625088 dex over 134 points
+sfr_model = abundance
+am_l0 = 29.38640294
+am_l1 = -0.1667092623
+am_l2 = -0.06388234063
+am_a0 = 1.277522837
+am_a1 = 0.01216202885
+am_m0 = 11.74915435
+am_m1 = -0.2398383394
+am_b = -2.126048908e-07
+am_z0 = 8
+am_zlo = 5.9
+am_zhi = 9
+am_norm_z = 10,11,12.5
+am_norm_dl = 0.3808280147,0.6882632894,0.9506260308
