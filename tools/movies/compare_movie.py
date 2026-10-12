@@ -71,7 +71,8 @@ class Renderer:
                               norm=Normalize(lo, hi), interpolation="nearest",
                               extent=(0, box, 0, box))
                 self._style(a)
-                ticks = [t for t in np.arange(0, box, 2.0 if box > 5 else 1.0)]
+                step = 1.0 if box <= 5 else 2.0 if box <= 12 else 10.0 ** np.floor(np.log10(box / 2))
+                ticks = [t for t in np.arange(0, box, step)]
                 a.set_xticks(ticks)
                 a.set_yticks(ticks)
                 a.set_xticks([]) if i < len(rows) - 1 else a.set_xlabel("%s [Mpc/h]" % hlab, color="white")
