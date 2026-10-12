@@ -441,10 +441,13 @@ What k does:
   (+4 %, +6 %, +11 % at k = 2, 4, 8). The deposit rule hardly matters for
   these global numbers; §6 shows that the k = 8 deficit is a substep-length
   effect.
-- **The rays:** the live rays per substep are about the same for every k
-  (k = 1: 2.0e5 mean, 3.4e5 at the end; k = 8: 1.2–2.3e5 and 3.8–4.3e5):
-  a ray lives as long in time, emissions are k times rarer but k times
-  brighter. Splits per substep rise with k (1.5e4 → 2.3e4, 3.0e4, 3.3e4 on
+- **The rays:** on lognormal the live rays per substep are about the same
+  for every k (k = 1: 2.0e5 mean, 3.4e5 at the end; k = 8: 1.2–2.3e5 and
+  3.8–4.3e5): a ray lives as long in time, emissions are k times rarer but
+  k times brighter. On uniform_8src (exposure + pc) they fall with k
+  instead: 3.6e4 at the end for k = 1, 2.2e4, 6e3 and 4e3 for k = 2, 4, 8
+  (not investigated further; the 64³ production run has more rays at
+  larger k, §7.1). Splits per substep rise with k (1.5e4 → 2.3e4, 3.0e4, 3.3e4 on
   lognormal), since a ray passes its split radius by up to k cells per
   substep; merges first rise and fall again at k = 8. The casts over the run
   fall by 1.8×, 3.3×, 6× (lognormal) and 2.3×, 3–6×, 9–15× (uniform_8src).
