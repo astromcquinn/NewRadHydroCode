@@ -614,7 +614,7 @@ from the same state:
 | exposure + pc | 8 | 248 / 297 | 2.06 | 32 | 1.03e+08 | 3.39 M | 537 | 5232 | 7.5 | 547 |
 | share | 1 | 127 / 148 | 1.00 | 260 | 5.67e+08 | 2.19 M | 238 | 420 | 36.7 | 277 |
 | share | 2 | 96 / 124 | 0.80 | 130 | 3.28e+08 | 2.65 M | 199 | 608 | 21.0 | 223 |
-SHK4ROW
+| share | 4 | 95 / 122 | 0.79 | 65 | 1.97e+08 | 3.32 M | 204 | 1037 | 12.4 | 219 |
 
 *Ray-substeps: the live rays summed over the substeps (`Log/ray.log`).
 ns per ray-substep: the ray tracing (`ray_tracing_1` + `ray_tracing_3`)
