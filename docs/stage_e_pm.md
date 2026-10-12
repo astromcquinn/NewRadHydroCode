@@ -16,7 +16,7 @@ AMReX) is a separate thread; the hydro files are untouched here.*
 | The switch (`pm_backend`, `amrex_pm_max_grid_size`, `amrex_pm_fft`; `include/radray/pm_backend.hpp`) | done, AMReX-free; stub for builds without AMReX | the default build and the fast suite need neither AMReX nor MPI |
 | The level `src/amrex/pm_level.cpp` in `pm_driver` and `radhydro` (`calc_kick` and `calc_kick_unsplit`, `pm_refine`) | done | §3: round-off against `pm_driver` on the 8 PM problems; bitwise identical for 1/2/4/8 ranks × 1/2 threads × box sizes 32/16/8, both FFTs; Ewald force, no self-force, momentum, the r = 2 pancake and its twin on the level; the full loop with `rt_backend = amrex` rank- and thread-independent, bit-identical restarts (legacy, unsplit, pm_refine = 2) |
 | Timing on the 4-core VM, 128³ and 256³ DM | §4 | |
-| Tests `ctest -L amrex_pm` (76 tests) | done | all pass here |
+| Tests `ctest -L amrex_pm` (65 tests, 73 with the serial fixtures) | done | all pass here |
 
 Ground rules kept: `reference/` and the serial PM are untouched in
 behaviour (the kernels the serial code now calls are its own arithmetic
@@ -177,7 +177,7 @@ component in `find_package(AMReX)` and `AMReX_FFT ON` for
 `RADRAY_FETCH_AMREX`. `simulation.hpp` is untouched (the level hangs off
 `PMState`), the hydro files are untouched.
 
-## 3. Validation (`ctest -L amrex_pm`, 76 tests)
+## 3. Validation (`ctest -L amrex_pm`, 65 tests)
 
 Registered only with `RADRAY_AMREX=ON`; the MPI launcher is
 `RADRAY_MPIEXEC` as for the `amrex` label. All pass on the cloud VM
@@ -268,7 +268,20 @@ array to pick its own particles (`prep`, about 1.5 s per step at 256³) and
 the gathers all-reduce 340 MB per step (the DM velocities and the gas),
 so at 4 ranks the copy in and out costs more than the whole serial step.
 The compute phases themselves (deposit, FFT, force, kicks) scale with the
-ranks: PHASES
+ranks: the backend's own timers (3 steps, 32³ boxes; a repeat of
+the 1 × 4 run at 256³ took 11.1 s against the 8.2 s of the table, so the
+numbers on this shared VM scatter by 30 %):
+
+| per 3 steps [s] | prep (locate, fill) | deposit | FFT | force | DM kick | gas kick | gather (v write, reduce, copy; gas; potential) |
+|---|---|---|---|---|---|---|---|
+| 128³, 1 × 4 | 0.19 (0.10, 0.06) | 0.37 | 0.16 | 0.13 | 0.31 | 0.02 | 0.07 (0.03, 0, 0.01; 0.02; 0.01) |
+| 128³, 4 × 1 | 0.35 (0.27, 0.05) | 0.28 | 0.08 | 0.08 | 0.28 | 0.01 | 0.22 (0.04, 0.06, 0.03; 0.07; 0.02) |
+| 256³, 1 × 4 | 1.63 (0.87, 0.43) | 2.77 | 1.14 | 0.99 | 2.66 | 0.17 | 0.69 (0.39, 0, 0.09; 0.16; 0.05) |
+| 256³, 4 × 1 | 3.35 (2.24, 0.72) | 2.15 | 0.80 | 0.73 | 1.92 | 0.10 | 3.38 (0.96, 1.21, 0.27; 0.70; 0.24) |
+
+The deposit and the DM kick are the particle loops (one CIC per particle
+each); the FFT and the force are 10–15 % of a step. The potential gather
+is `pm_driver`'s only (`gather_potential`).
 
 This is the price of Stage E2's MPI model (the full state on every rank),
 not of the level. When the particles stay on the level (the drifts and a

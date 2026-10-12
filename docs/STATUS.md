@@ -25,7 +25,7 @@ holds no state between steps (checkpoints unchanged).
   every test here, not guaranteed by construction). AMReX needs
   `-DAMReX_FFT=ON` (FFTW double and float on the CPU; `build_amrex.sh`
   builds the double library on klone).
-- **Tests, `ctest -L amrex_pm` (76, all pass here):** Ewald single-particle
+- **Tests, `ctest -L amrex_pm` (65, all pass here; the `amrex` and `pm` labels and the fast suite unchanged):** Ewald single-particle
   force, no self-force, gas kick, momentum (MF/non-MF/unsplit, r = 1, 2, 4)
   and backend-vs-serial fields on the level (1/2/4 ranks, both FFTs);
   round-off against `pm_driver` on the 8 PM problems (1e-4 relative or
