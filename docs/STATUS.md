@@ -16,7 +16,7 @@ f_esc = 0.23, `redshift_per_distance`) plus rays with case B; runs
   `data_files = gas`; `make_production.py --fields --restart-keep
   --data-files --recomb-case --recomb-rad --recomb-rad-block`, **case A +
   RR is now its default** (user); readers of `frames.txt` accept both
-  formats. Fast suite on klone 102/112 (the known 10); `movie_slab` checks
+  formats. Fast suite on klone 107/107 after merging `main`; `movie_slab` checks
   the Γ columns against the cubes.
 - **Tools:** Γ row in `compare_movie.py`, Γ column in `stills.py`, Γ
   history/maps/PDFs in `rt_methods_runs.py`, `gamma_power.py` (P_Γ, r(k)),

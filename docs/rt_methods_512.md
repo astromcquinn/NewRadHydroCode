@@ -68,8 +68,9 @@ SETS=reion512_rays:rt_methods_512 EXTRA=reion512_rays_caseB:rays_B IGM=1 \
   `rt_methods_post.slurm` takes `SETS`, `EXTRA` and `IGM=1`.
 - **Tests.** `movie_slab` now also writes `gammaHI` frames and checks the
   four columns of every frame against values recomputed from the full
-  cubes. Fast suite on klone: 102/112, the 10 known stored-reference
-  failures (`docs/cluster.md` §3).
+  cubes. Fast suite on klone: 102/112 before the merge of `main` (the 10
+  known stored-reference failures, `docs/cluster.md` §3), 107/107 after
+  it (`main` now skips those on klone, label `platform_ref`).
 - **Tried first on** the 256³ runs of `docs/rt_moments.md` §6 (snapshot
   Γ maps and PDFs from their `gamma.bin`) and on a 128³, 10 Mpc/h set with
   this exact configuration (`$RUNS/rtm128_test{,_m1,_otvet,_caseB}`,
