@@ -30,6 +30,7 @@
 // Fortran); Pk/pk.<ztag>; write_data_1/2 with the F1 fix (DM/xv_dm,
 // Gas/{u,v,w}_gas, RT/rt_grid, Ray/{ray,ray_index,htoc_ray} .<ztag>, see
 // write_data_files and docs/full_run.md F1); timing.txt.
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -54,6 +55,7 @@
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
@@ -99,6 +101,9 @@ struct RunParams {
   int ray_rotate = 0;        // B16 fix: Config::ray_rotate (0 = original)
   long long ray_rotate_seed = 0;
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
+  int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
+  int photon_conserve = 0;        // Config::photon_conserve (0 = original; B17 fix)
+  int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -109,6 +114,13 @@ struct RunParams {
   double movie_dz = 0;
   double movie_z0 = -1;
   std::string movie_fields = "fHI,temp";
+  // Slab-only movie frames (docs/movies.md): 0 (default) writes the full
+  // cube of each field; t > 0 writes only the slabs of t cells centred on
+  // the box centre (first cell Nrt/2 - t/2) normal to each axis in
+  // movie_slab_axes, to movie/frame_NNNNN_<field>.slab, geometry in
+  // movie/slab.txt
+  int movie_slab = 0;
+  std::string movie_slab_axes = "xyz";
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
   // (without Ray/, which holds every ray: 96 B each) or dm (only xv_dm, as
@@ -168,6 +180,23 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     if (P.ray_rotate < 0 || P.ray_rotate > 3) throw std::runtime_error("ray_rotate must be 0..3");
   } else if (key == "ray_rotate_seed")
     P.ray_rotate_seed = std::stoll(val);
+  else if (key == "rt_cells_per_substep") {
+    P.rt_cells_per_substep = std::stoi(val);
+    if (P.rt_cells_per_substep < 1) throw std::runtime_error("rt_cells_per_substep must be >= 1");
+  }
+  else if (key == "ray_deposit") {
+    if (val == "share" || val == "0")
+      P.ray_deposit = 0;
+    else if (val == "exposure" || val == "1")
+      P.ray_deposit = 1;
+    else
+      throw std::runtime_error("ray_deposit must be share or exposure");
+  }
+  else if (key == "photon_conserve") {
+    P.photon_conserve = std::stoi(val);
+    if (P.photon_conserve != 0 && P.photon_conserve != 1)
+      throw std::runtime_error("photon_conserve must be 0 or 1");
+  }
   else if (key == "redshift_per_distance") {
     P.redshift_per_distance = std::stoi(val);
     if (P.redshift_per_distance != 0 && P.redshift_per_distance != 1)
@@ -183,6 +212,17 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.movie_z0 = to_double(val);
   else if (key == "movie_fields")
     P.movie_fields = val;
+  else if (key == "movie_slab") {
+    P.movie_slab = std::stoi(val);
+    if (P.movie_slab < 0) throw std::runtime_error("movie_slab must be >= 0");
+  }
+  else if (key == "movie_slab_axes") {
+    if (val.empty()) throw std::runtime_error("movie_slab_axes: empty");
+    for (std::size_t i = 0; i < val.size(); ++i)
+      if ((val[i] != 'x' && val[i] != 'y' && val[i] != 'z') || val.find(val[i]) != i)
+        throw std::runtime_error("movie_slab_axes must be distinct letters of xyz, e.g. xyz or z");
+    P.movie_slab_axes = val;
+  }
   else if (key == "fields")
     P.fields = val;
   else if (key == "data_files") {
@@ -211,6 +251,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.run_steps = std::stoi(val);
   else if (set_rt_method_param(P.rtm, key, val)) {
     // moment RT (docs/rt_moments.md)
+  } else if (set_rt_backend_param(P.rtm, key, val)) {
+    // rt_backend = serial | amrex (docs/stage_d.md)
   } else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
   } else if (key == "ray_dump_dir")
@@ -400,6 +442,10 @@ struct Timers {
 }  // namespace
 
 int main(int argc, char** argv) {
+  backend_init(argc, argv);  // rt_backend = amrex: amrex::Initialize (MPI)
+  struct Fin {
+    ~Fin() { backend_finalize(); }
+  } fin;
   if (argc < 3) {
     std::fprintf(stderr, "usage: %s <problem_dir> <outdir> [--set key=value ...] [--quiet] [--restart <checkpoint>]\n",
                  argv[0]);
@@ -457,15 +503,25 @@ int main(int argc, char** argv) {
     if (!P.halo.model.sfr_history_path.empty())
       P.halo.model.sfr_history_path = in_problem(P.halo.model.sfr_history_path);
 
-    std::filesystem::create_directories(odir + "/Log");
-    std::filesystem::create_directories(odir + "/Pk");
-    std::filesystem::create_directories(odir + "/DM");
+    // With MPI (rt_backend = amrex) every rank runs this driver on the full
+    // serial state and only rank 0 writes files; an unopened ofstream
+    // discards what the other ranks write to it.
+    const bool io = io_rank();
+    if (io) {
+      std::filesystem::create_directories(odir + "/Log");
+      std::filesystem::create_directories(odir + "/Pk");
+      std::filesystem::create_directories(odir + "/DM");
+    }
+    backend_barrier();
     // a restart appends to the logs of the run directory
     const auto logmode = restart_from.empty() ? std::ios::out : std::ios::app;
-    std::ofstream raylog(odir + "/Log/ray.log", logmode);
-    std::ofstream hydrolog(odir + "/Log/hydro.log", logmode);
+    std::ofstream raylog, hydrolog;
+    if (io) {
+      raylog.open(odir + "/Log/ray.log", logmode);
+      hydrolog.open(odir + "/Log/hydro.log", logmode);
+    }
     std::ofstream nullout;
-    std::ostream* out = quiet ? nullptr : &std::cout;
+    std::ostream* out = (quiet || !io) ? nullptr : &std::cout;
 
     // ------------------------------------------------------------------
     // Initialize (radhydro.f90 order)
@@ -481,9 +537,15 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
+    s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
+    s.cfg.photon_conserve = (P.photon_conserve == 1);      // B17 fix
+    s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
+    copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
+    check_rt_backend_param(s.cfg);
+    check_rt_cells_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);
@@ -497,7 +559,7 @@ int main(int argc, char** argv) {
       if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
       s.cfg.rt_substep_carry = true;
     }
-    s.raylog = &raylog;
+    s.raylog = io ? &raylog : nullptr;
     s.out = out;
     const Config& cfg = s.cfg;
 
@@ -544,7 +606,13 @@ int main(int argc, char** argv) {
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
            << (P.redshift_per_distance ? ", redshift_per_distance = 1" : "")
            << (P.redshift_per_distance && !(P.c_reduced < 1) ? " (no effect: c_reduced >= 1)" : "")
+           << (P.rt_cells_per_substep != 1
+                   ? ", rt_cells_per_substep = " + std::to_string(P.rt_cells_per_substep)
+                   : std::string())
+           << (P.photon_conserve ? ", photon_conserve = 1" : "")
+           << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
+           << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
@@ -577,6 +645,7 @@ int main(int argc, char** argv) {
         xhe3 = xhe3 + (1 - static_cast<double>(G.fHeI[c]) - static_cast<double>(G.fHeII[c]));
       }
       const double nc = cfg.nrtcr;
+      if (!io) return;
       std::FILE* fp = std::fopen((d + "/stats.txt").c_str(), "w");
       if (!fp) throw std::runtime_error("cannot write stats.txt in " + d);
       auto i1 = [&](const char* k, long long x) { std::fprintf(fp, "%s = %lld\n", k, x); };
@@ -619,6 +688,7 @@ int main(int argc, char** argv) {
     };
 
     auto write_fields = [&](const std::string& d) {
+      if (!io) return;
       const RTGrid& G = s.rt;
       auto W = [&](const char* name, const std::vector<float>& v) {
         if (!P.fields.empty() && ("," + P.fields + ",").find(std::string(",") + name + ",") ==
@@ -649,7 +719,7 @@ int main(int argc, char** argv) {
       char name[32];
       std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
       const std::string d = odir + "/" + name;
-      std::filesystem::create_directories(d);
+      if (io) std::filesystem::create_directories(d);
       return d;
     };
 
@@ -666,6 +736,35 @@ int main(int argc, char** argv) {
       while (in >> tok) mfields.push_back(tok);
     }
     std::ofstream movielog;
+    // movie_slab > 0: the slabs of movie_slab cells normal to each axis in
+    // movie_slab_axes, one after the other in one file. Each block is the
+    // sub-array with that axis's index restricted to s0 .. s0+t-1 (0-based,
+    // s0 = Nrt/2 - t/2), in Fortran order (ncomp, nx, ny, nz) with
+    // n_axis = t and the other two = Nrt; ncomp = 1 except gamma (3) and
+    // ngam (Nfreq).
+    const int mN = cfg.Nrt;
+    const int mt = std::min(P.movie_slab, mN);
+    const int ms0 = mN / 2 - mt / 2;
+    std::vector<float> slabbuf;
+    auto write_slabs = [&](const std::string& path, const std::vector<float>& v) {
+      const std::int64_t nc = static_cast<std::int64_t>(mN) * mN * mN;
+      const std::int64_t ncomp = nc > 0 ? static_cast<std::int64_t>(v.size()) / nc : 0;
+      slabbuf.clear();
+      for (char a : P.movie_slab_axes) {
+        int lo[3] = {0, 0, 0}, hi[3] = {mN, mN, mN};
+        const int d = a - 'x';
+        lo[d] = ms0;
+        hi[d] = ms0 + mt;
+        for (int k = lo[2]; k < hi[2]; ++k)
+          for (int j = lo[1]; j < hi[1]; ++j) {
+            const std::int64_t c0 =
+                lo[0] + static_cast<std::int64_t>(mN) * (j + static_cast<std::int64_t>(mN) * k);
+            const float* p = v.data() + c0 * ncomp;
+            slabbuf.insert(slabbuf.end(), p, p + (hi[0] - lo[0]) * ncomp);
+          }
+      }
+      write_f32(path, slabbuf.data(), slabbuf.size());
+    };
     auto write_frame = [&](const Simulation& ss) {
       const RTGrid& G = ss.rt;
       char name[64];
@@ -679,8 +778,13 @@ int main(int argc, char** argv) {
         else if (fld == "ngam") v = &G.ngam;
         else if (fld == "gamma") v = &G.gamma;
         else throw std::runtime_error("movie_fields: unknown field " + fld);
-        std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
-        write_f32(odir + name, v->data(), v->size());
+        if (P.movie_slab > 0) {
+          std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.slab", dst.movie_frame, fld.c_str());
+          if (io) write_slabs(odir + name, *v);
+        } else {
+          std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
+          if (io) write_f32(odir + name, v->data(), v->size());
+        }
       }
       double xv = 0, xm = 0, mass = 0;
       for (std::int64_t c = 0; c < G.ncell; ++c) {
@@ -696,14 +800,48 @@ int main(int argc, char** argv) {
       dst.movie_next -= P.movie_dz;
     };
     if (P.movie_dz > 0) {
-      std::filesystem::create_directories(odir + "/movie");
-      movielog.open(odir + "/movie/frames.txt", logmode);
+      if (io) {
+        std::filesystem::create_directories(odir + "/movie");
+        if (P.movie_slab > 0) {
+          if (P.movie_slab > mN)
+            throw std::runtime_error("movie_slab = " + std::to_string(P.movie_slab) + " > N = " +
+                                     std::to_string(mN));
+          // the slab geometry, for the tools (tools/movies/movie_frames.py)
+          std::ostringstream sd;
+          sd << "# movie slab frames (movie_slab, docs/movies.md): frame_NNNNN_<field>.slab holds,\n"
+                "# for each axis in 'axes' in turn, the cells start .. start+thick-1 (0-based) along\n"
+                "# that axis and all N along the others: float32, Fortran order (ncomp, nx, ny, nz)\n"
+             << "N = " << mN << "\nthick = " << mt << "\naxes = " << P.movie_slab_axes
+             << "\nstart = " << ms0 << "\n";
+          const std::string sp = odir + "/movie/slab.txt";
+          if (!restart_from.empty() && std::filesystem::exists(sp)) {
+            std::ifstream in(sp);
+            std::stringstream prev;
+            prev << in.rdbuf();
+            if (prev.str() != sd.str())
+              throw std::runtime_error(sp + " differs from movie_slab/movie_slab_axes of this run: "
+                                       "keep them the same at every restart");
+          } else {
+            std::ofstream sout(sp);
+            sout << sd.str();
+          }
+        }
+        movielog.open(odir + "/movie/frames.txt", logmode);
+      }
       if (restart_from.empty()) {
-        movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
-                    "float32 (N,N,N) rt_grid fields)\n";
+        if (P.movie_slab > 0)
+          movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.slab: "
+                      "float32 slabs of rt_grid fields, geometry in slab.txt; xHII over the "
+                      "whole box)\n";
+        else
+          movielog << "# frame istep istep_rt redshift xHII_V xHII_M (frame_NNNNN_<field>.bin: "
+                      "float32 (N,N,N) rt_grid fields)\n";
         dst.movie_next = P.movie_z0 > 0 ? P.movie_z0 : zdata1.front();
       }
       s.substep_hook = [&](Simulation& ss) {
+        if (!(ss.clk.redshift <= dst.movie_next)) return;
+        // rt_backend = amrex: the fields live on the level inside a hydro step
+        if (use_amrex(cfg)) amrex_rt_sync_fields(ss);
         while (ss.clk.redshift <= dst.movie_next) write_frame(ss);
       };
     }
@@ -724,7 +862,8 @@ int main(int argc, char** argv) {
       if (P.fields_every > 0) write_fields(d);
     }
 
-    std::ofstream timing(odir + "/timing.txt", logmode);
+    std::ofstream timing;
+    if (io) timing.open(odir + "/timing.txt", logmode);
     if (restart_from.empty())
       timing << "# istep redshift nstep_rt Nsource nray_active t_hydro t_pm t_halos t_rt "
                 "t_summaries t_io t_total [s, this step]\n";
@@ -800,18 +939,19 @@ int main(int argc, char** argv) {
       const std::string d = step_dir();
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
       if (data2_out) {  // write_data_2 (F1 fix: all files)
-        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
+        if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
         idata2 = idata2 + 1;
         data2_out = false;
       }
       if (data1_out) {
         const auto tp = Clock::now();
         pm::calc_power_spectrum(pm, s.gas.u.data(), cfg.box, pk_dm, pk_gas);
-        pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
-                                 pk_gas);
+        if (io)
+          pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
+                                   pk_gas);
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
         // write_data_1 (F1 fix: all files)
-        write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
+        if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
@@ -832,7 +972,7 @@ int main(int argc, char** argv) {
                       T.hydro - T0.hydro, T.pm - T0.pm, T.halos - T0.halos, T.rt - T0.rt,
                       T.summaries - T0.summaries, T.io - T0.io, tstep);
         timing << buf << std::flush;
-        if (quiet) {
+        if (quiet && io) {
           std::printf(" step %4d  z = %9.5f  nstep_rt = %5d  Nsource = %5lld  %.3f s\n",
                       s.clk.istep, s.clk.redshift, s.clk.nstep_rt,
                       static_cast<long long>(s.Nsource), tstep);
@@ -846,7 +986,8 @@ int main(int argc, char** argv) {
 
       // Checkpoint (complete state at the end of this step)
       if (P.restart_every > 0 && (s.clk.istep % P.restart_every == 0 || last)) {
-        std::filesystem::create_directories(odir + "/restart");
+        if (io) std::filesystem::create_directories(odir + "/restart");
+        backend_barrier();
         char name[64];
         if (P.restart_keep_latest)
           std::snprintf(name, sizeof name, "/restart/checkpoint.bin");
@@ -860,16 +1001,20 @@ int main(int argc, char** argv) {
       if (P.run_steps > 0 && ++steps_run >= P.run_steps) break;
     }
 
+    backend_barrier();
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
-    std::printf(
-        " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
-        "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
-        s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
-        peak_rss_mb());
-    std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
-                format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
-                static_cast<long long>(s.rays.npool_forced));
-    if (cfg.hydro_scheme == HydroScheme::Unsplit) {
+    if (io) {
+      std::printf(
+          " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
+          "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
+          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
+          peak_rss_mb());
+      std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
+                  format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
+                  static_cast<long long>(s.rays.npool_forced));
+      if (use_amrex(cfg)) std::printf(" %s\n", amrex_rt_timers(s).c_str());
+    }
+    if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {
       const UnsplitCounters& U = hs.ucounters;
       std::printf(" unsplit hydro: %lld calls, %lld substeps (max %lld per call), dt_cfl min %.4g; "
                   "cell-substeps with p from e %lld (E reset %lld), synced %lld; floors T %lld, "

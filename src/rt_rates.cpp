@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "radray/fortran.hpp"
+#include "radray/kernels/rt_cell.hpp"
 
 namespace radray {
 
@@ -287,13 +288,26 @@ void calc_atomic_rates(AtomicRates& R, bool legacy_physics) {
   }
 }
 
-RateSet rates_node(const AtomicRates& R, int iT) {
+namespace {
+rrk::RatesView view(const AtomicRates& R) {
+  rrk::RatesView v;
+  v.cool = R.coef_cool_.data();
+  v.alpha = R.alpha_rec_.data();
+  v.gcol = R.gamma_col_.data();
+  return v;
+}
+RateSet from_kernel(const rrk::RateSetP& p) {
   RateSet r;
-  for (int n = 1; n <= 6; ++n) r.alpha[n - 1] = R.alpha_rec(n, iT);
-  for (int n = 1; n <= 3; ++n) r.gcol[n - 1] = R.gamma_col(n, iT);
-  for (int n = 1; n <= 16; ++n) r.cool[n - 1] = R.coef_cool(n, iT);
+  for (int n = 0; n < 6; ++n) r.alpha[n] = p.alpha[n];
+  for (int n = 0; n < 3; ++n) r.gcol[n] = p.gcol[n];
+  for (int n = 0; n < 16; ++n) r.cool[n] = p.cool[n];
   return r;
 }
+}  // namespace
+
+// The lookups are the kernels' (include/radray/kernels/rt_cell.hpp), so the
+// serial port and the AMReX backend evaluate the same arithmetic.
+RateSet rates_node(const AtomicRates& R, int iT) { return from_kernel(rrk::rates_node(view(R), iT)); }
 
 // P9 (legacy_physics = 0; harness PATCHES.md 10, rt_rates.f90 rate_lerp).
 // Linear interpolation of log R in log T: R = R_i exp(w log(R_{i+1}/R_i)).
@@ -303,70 +317,27 @@ RateSet rates_node(const AtomicRates& R, int iT) {
 // excitation at 1e4 K, about 12x smaller than linear interpolation of R
 // (whose error is dominated by (d ln R/d log T)^2). w = 0 gives a exactly.
 // If either node is 0 (below the lambda/2 > 100 cut-offs), linear in R.
-double rate_lerp(double a, double b, double w) {
-  if (a > 0 && b > 0) return a * std::exp(w * std::log(b / a));
-  return a + w * (b - a);
-}
+double rate_lerp(double a, double b, double w) { return rrk::rate_lerp(a, b, w); }
 
 RateSet rates_interp(const AtomicRates& R, int i, double w) {
-  RateSet r;
-  for (int n = 1; n <= 6; ++n) r.alpha[n - 1] = rate_lerp(R.alpha_rec(n, i), R.alpha_rec(n, i + 1), w);
-  for (int n = 1; n <= 3; ++n) r.gcol[n - 1] = rate_lerp(R.gamma_col(n, i), R.gamma_col(n, i + 1), w);
-  for (int n = 1; n <= 16; ++n)
-    r.cool[n - 1] = rate_lerp(R.coef_cool(n, i), R.coef_cool(n, i + 1), w);
-  return r;
+  return from_kernel(rrk::rates_interp(view(R), i, w));
 }
 
 // Harness rt_rates.f90 rates_interp: u = (log10 T - lgT_min)/lgT_del,
 // i = 1 + int(u), w = u - (i-1). Outside the table (u <= 0 or
 // u >= Ntemp-1, including NaN) the edge node is used, no extrapolation.
 RateSet rates_interp(const AtomicRates& R, double tmp) {
-  const double u = (std::log10(tmp) - cp::lgT_min) / cp::lgT_del;
-  if (u > 0 && u < cp::Ntemp - 1) {
-    const int i = 1 + static_cast<int>(u);
-    const double w = u - (i - 1);
-    return rates_interp(R, i, w);
-  }
-  return rates_node(R, u > 0 ? cp::Ntemp : 1);
+  return from_kernel(rrk::rates_interp(view(R), tmp));
 }
 
 // rt_rates.f90: photoion_sigma (Verner et al. 1996)
 SigmaTable photoion_sigma(const std::array<double, kNfreq>& nu) {
-  using namespace pc;
-  SigmaTable sig{};
-  for (int i = 0; i < kNfreq; ++i) {
-    const double fq = nu[i];
-    double x, y;
-    // HI
-    if (fq < HI_eV) {
-      sig[0][i] = 0;
-    } else {
-      x = fq / s(0.4298f);
-      y = x;
-      sig[0][i] = 5.475e-14 * f::pow2(x - 1) / std::pow(y, s(4.0185f)) /
-                  std::pow(1 + std::sqrt(y / s(32.88f)), s(2.963f));
-    }
-    // HeI: 2.136**2 and 2.039**2 are real(4) products
-    if (fq < HeI_eV) {
-      sig[1][i] = 0;
-    } else {
-      x = fq / s(13.61f) - s(0.4434f);
-      y = std::sqrt(f::pow2(x) + s(2.136f * 2.136f));
-      sig[1][i] = 9.492e-16 * (f::pow2(x - 1) + s(2.039f * 2.039f)) /
-                  std::pow(y, s(3.9060f)) /
-                  std::pow(1 + std::sqrt(y / s(1.469f)), s(3.188f));
-    }
-    // HeII
-    if (fq < HeII_eV) {
-      sig[2][i] = 0;
-    } else {
-      x = fq / s(1.720f);
-      y = x;
-      sig[2][i] = 1.369e-14 * f::pow2(x - 1) / std::pow(y, s(4.0185f)) /
-                  std::pow(1 + std::sqrt(y / s(32.88f)), s(2.963f));
-    }
-  }
-  return sig;
+  double sig[3][kNfreq];
+  rrk::photoion_sigma(nu.data(), sig);
+  SigmaTable t{};
+  for (int sp = 0; sp < 3; ++sp)
+    for (int i = 0; i < kNfreq; ++i) t[sp][i] = sig[sp][i];
+  return t;
 }
 
 }  // namespace radray

@@ -19,6 +19,13 @@ rays). Writes to DIR:
                   power spectrum of x_HII relative to the reference at
                   k = 2, 4, 8, 16 (in units of the fundamental mode).
                   Also the RT time and the peak memory from the logs.
+
+The history needs only movie/frames.txt (whole-box means, written with
+full-cube and slab frames alike). The field comparison needs whole cubes
+(power spectra, cell fractions): it uses full-cube movie frames
+(frame_NNNNN_<field>.bin) when every run has them, and otherwise, e.g.
+with slab frames (movie_slab > 0), the zdata1 field outputs
+step_NNNN/{fHI,temp,rhog}.bin at redshifts common to all runs.
 """
 import argparse
 import glob
@@ -61,6 +68,9 @@ def frames(run):
     fn = os.path.join(run, "movie", "frames.txt")
     if not os.path.exists(fn):
         return out
+    if os.path.exists(os.path.join(run, "movie", "slab.txt")):
+        print(f"note: {run} has slab movie frames (movie_slab); full-cube frames only are "
+              "used for the field comparison")
     for line in open(fn):
         if line.startswith("#") or not line.strip():
             continue

@@ -8,6 +8,10 @@
 // Lossy-precision experiment (changes results; research only):
 // --set ray_quant_bits=m [--set ray_quant_dither=0] [--set ray_quant_struct=1].
 // Moment RT instead of the rays (docs/rt_moments.md): --set rt_method=m1|otvet.
+// Rays crossing k RT cells per substep (docs/rt_multicell.md):
+// --set rt_cells_per_substep=k (legacy_rt = 0); --set rt_substep_carry=1;
+// --set photon_conserve=1 (the B17 fix of photo_cell's photon limit);
+// --set ray_deposit=exposure.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -31,12 +35,17 @@
 #include "radray/ray_dump.hpp"
 #include "radray/parallel.hpp"
 #include "radray/rt.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 
 int main(int argc, char** argv) {
   using namespace radray;
+  backend_init(argc, argv);  // rt_backend = amrex: amrex::Initialize (MPI)
+  struct Fin {
+    ~Fin() { backend_finalize(); }
+  } fin;
   if (argc < 3) {
     std::fprintf(stderr,
                  "usage: %s <problem_dir> <outdir> [--nsteps n] [--set key=value ...]\n",
@@ -69,8 +78,11 @@ int main(int argc, char** argv) {
     }
     if (nsteps_override >= 0) P.nsteps = nsteps_override;
 
-    std::filesystem::create_directories(odir);
-    std::ofstream raylog(odir + "/ray.log");
+    const bool io = io_rank();  // with MPI only rank 0 writes files
+    if (io) std::filesystem::create_directories(odir);
+    backend_barrier();
+    std::ofstream raylog;
+    if (io) raylog.open(odir + "/ray.log");
 
     auto sim = std::make_unique<Simulation>();
     Simulation& s = *sim;
@@ -82,12 +94,22 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
+    s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
+    s.cfg.photon_conserve = (P.photon_conserve == 1);      // B17 fix
+    s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
+    if (P.rt_substep_carry) {
+      if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
+      s.cfg.rt_substep_carry = true;
+    }
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
+    copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
+    check_rt_backend_param(s.cfg);
+    check_rt_cells_param(s.cfg);
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
-    s.raylog = &raylog;
+    s.raylog = io ? &raylog : nullptr;
     RayDumpConfig dump;
     dump.dir = P.ray_dump_dir;
     dump.every = P.ray_dump_every;
@@ -101,12 +123,12 @@ int main(int argc, char** argv) {
       std::cout << " RESEARCH: ray_quant bits=" << P.ray_quant_bits << " dither="
                 << P.ray_quant_dither << " struct=" << P.ray_quant_struct
                 << " (results differ from the original on purpose)\n";
-    s.out = &std::cout;
+    s.out = io ? &std::cout : nullptr;
 
     read_gas(pdir + "/gas.bin", s.gas);
     const std::vector<Source> sources = read_sources(pdir + "/sources.txt");
 
-    std::cout << " Problem    : " << pdir << "\n"
+    if (io) std::cout << " Problem    : " << pdir << "\n"
               << " N          : " << P.N << "\n"
               << " Nray_max   : " << s.cfg.Nray_max << "\n"
               << " z_init     : " << P.z_init << "\n"
@@ -118,7 +140,14 @@ int main(int argc, char** argv) {
               << " det_par    : " << P.deterministic_parallel << "\n"
               << " ray_rotate : " << P.ray_rotate << "\n"
               << " z_per_dist : " << P.redshift_per_distance << "\n"
+              << (P.rt_cells_per_substep != 1 || P.rt_substep_carry
+                      ? " rt_cells   : " + std::to_string(P.rt_cells_per_substep) +
+                            " per substep, substep carry " + std::to_string(P.rt_substep_carry) + "\n"
+                      : std::string())
+              << (P.photon_conserve ? " photon_cons: 1 (B17 fix)\n" : "")
+              << (P.ray_deposit ? " ray_deposit: exposure\n" : "")
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
+              << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"
               << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";
 
@@ -131,23 +160,29 @@ int main(int argc, char** argv) {
       calc_halo(s, sources);
       radiative_transfer(s);
 
-      std::cout << "\n Step number  : " << s.clk.istep << "\n"
-                << " Redshift     : " << z1 << " -> " << s.clk.redshift << "\n"
-                << " RT           : " << s.clk.nstep_rt << "  dtyr_rt = "
-                << static_cast<float>(s.clk.dtyr_rt) << "\n";
+      if (io)
+        std::cout << "\n Step number  : " << s.clk.istep << "\n"
+                  << " Redshift     : " << z1 << " -> " << s.clk.redshift << "\n"
+                  << " RT           : " << s.clk.nstep_rt << "  dtyr_rt = "
+                  << static_cast<float>(s.clk.dtyr_rt) << "\n";
       summarize_rt(s);
 
-      char name[32];
-      std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
-      const std::string sdir = odir + "/" + name;
-      std::filesystem::create_directories(sdir);
-      write_step_output(sdir, s);
+      if (io) {
+        char name[32];
+        std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
+        const std::string sdir = odir + "/" + name;
+        std::filesystem::create_directories(sdir);
+        write_step_output(sdir, s);
+      }
     }
+    backend_barrier();
     const double secs =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << "\n Simulation completed in " << secs << " s\n " << format_rt_timers(s.timers)
-              << "\n ray pool guard: split limited in " << s.rays.npool_limited
-              << " substeps, merging forced in " << s.rays.npool_forced << "\n";
+    if (io)
+      std::cout << "\n Simulation completed in " << secs << " s\n " << format_rt_timers(s.timers)
+                << "\n ray pool guard: split limited in " << s.rays.npool_limited
+                << " substeps, merging forced in " << s.rays.npool_forced << "\n"
+                << (use_amrex(s.cfg) ? " " + amrex_rt_timers(s) + "\n" : std::string());
   } catch (const std::exception& e) {
     std::fprintf(stderr, "rt_driver: error: %s\n", e.what());
     return 1;

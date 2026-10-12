@@ -281,6 +281,47 @@ policy on klone, and deleting the merged branches.
   - the OTVET source-cell self-weight 1/(0.5 cell)²;
   - `auto` switching between the direct sum and the FFT for the tensor.
 
+## Stage D thread (2026-10-10): the ray-tracing RT on AMReX
+
+* **Request (user):** Stage D of the roadmap on branch `stage-d-amrex`:
+  one physics implementation (`include/radray/kernels/`), the AMReX RT
+  level as a library component behind `rt_backend = amrex` (`legacy_rt = 0`
+  only, AMReX optional), the R-struct encoding behind `ray_encoding`,
+  the `amrex` test label, timings, and the CUDA target last and optional.
+  Report: `docs/stage_d.md`.
+* **Choices made in this thread** (open to revision):
+  - `radray::Ray` is `rrk::RayP` plus the chain links; the links moved to
+    the end of the struct, so the checkpoint format is version 5 and
+    versions ≤ 4 are converted on reading.
+  - The kernels take pointer views (`rrk::CellRef`) of the RT cell, so
+    the serial SoA grid and the backend's AoS cell share one function; the
+    rt_stat sums are returned per gas cell (`PhotoStats`) and added by
+    the host in its own order, which keeps the serial sums bit-identical.
+  - Stage D's MPI model: the hydro, PM, halo finder and sources run
+    redundantly on every rank on the full serial state; only the RT is
+    distributed, and the level's fields are gathered on rank 0 and
+    broadcast once per hydro step (plus before a movie frame). Stage E
+    distributes the rest.
+  - The RT statistics (the τ_es history among them) are summed in 128-bit
+    fixed point and reduced as 32-bit limbs, so they are rank- and
+    thread-independent like the fields.
+  - `spike/serial rt_serial` (now built against the library kernels, with
+    the pool guard) is the bitwise reference of the backend; the spike's
+    AMReX and Parthenon prototypes are frozen and no longer compile.
+  - R-struct: 28 B of ray data (7 int32 components), the photon shape as
+    5 × 8-bit log fractions at 1/16 octave with deterministic dithering,
+    the direction offset only for merged rays (on-centre flag), r at 1/8
+    cell with dr dropped, nu at 8 bits per band.
+  - Round-off tests against the serial port use rtol 1e-3 on the fields
+    (single I-front cells amplify the summation-order round-off to 1e-4)
+    with the source-cell `dx` excepted, and exact integer ray statistics.
+  - `recomb_rad`, the ray dumps and `ray_quant` stay serial-only for now.
+* **Not done here:** the GPU build (no nvcc ≥ 12.2 in the cloud
+  container; the CUDA target, device rate tables and the `ckpt` scripts
+  are in place), the klone 256³ timing (`tools/hyak/amrex_scaling.slurm`,
+  the user runs it), `ray_rotate` (its branch is not on the remote).
+
+
 ## B16 fix thread (2026-10-10): `ray_rotate`
 
 * **The user asked for the per-substep random rotation** of the source
@@ -364,6 +405,105 @@ policy on klone, and deleting the merged branches.
   too long at fixed Γ in these boxes (unresolved absorbers, box ≲ λ).
 * **f_esc:** with the bigger box err on the side of a smaller escape
   fraction, perhaps 0.1; the first 512³ run uses f_esc = 0.1 (constant).
+* **Calibrate on ṅ_ion (2026-10-11).** With f_esc = 0.23 the 40 Mpc/h 512³
+  run matches the Becker+21 / Gaikwad+Zhu ṅ, ends reionization at z ≈ 5.6
+  and gives τ_es = 0.052. But Γ_HI is ~3× and ⟨F_Lyα⟩ ~4× the data, and
+  λ_mfp is far too long. The user: the Lyα forest measures will be missed
+  until AMR resolves the sinks that set the mean free path, and ṅ is the
+  most important constraint. No sub-grid absorber model for now.
+* **Speed-of-light study (2026-10-11):** judge c_reduced on x_H alone (the
+  x_HII history and maps against 1c), in a bigger box than 10 Mpc/h. The
+  goal is the c that is acceptable as a function of x_H. Runs: 20 Mpc/h
+  256³ at c = 0.05–1, plus a 10 Mpc/h 128³ box check (`runs/sol/`).
+* **Movies always (2026-10-11):** every run saves frequent movie frames,
+  even when full snapshots are rare; slab-only frames to keep the disk
+  manageable (branch `movie-slab`).
+* **PM refinement** (`pm_refine = 2`, a PM mesh and particles 2× the gas
+  grid, for halo mass resolution) goes to a separate thread started by the
+  user, on Hyak.
+
+## Production defaults, moment RT, stored references on klone (2026-10-11/12)
+
+* **Production runs use `hydro_scheme = unsplit`** (user decision,
+  confirming the choice the production-256 thread made from the
+  recommendation of `docs/hydro_unsplit.md` §10). `make_production.py`
+  writes `hydro_scheme = unsplit` by default (`--hydro-scheme legacy` for
+  the original). The code default stays `legacy`, which is what the
+  bit-for-bit validation against the Fortran uses (ground rule 2).
+* **Production runs use `redshift_per_distance = 1`** (user decision): the
+  radiation is redshifted per distance travelled, not per time
+  (`docs/production_run.md` §1). With ĉ < c, per time redshifts the photons
+  that set Γ_HI c/ĉ times too much over their path to absorption (10× at
+  0.1c, 3.3× at 0.3c), which matters after overlap, when λ_mfp is large.
+  `make_production.py` writes `redshift_per_distance = 1` by default
+  (`--redshift-per-distance 0` for the original). The code default stays 0
+  (the original, ground rule 3); the flag is not tied to `legacy_physics`.
+* Expected effect: a higher Γ_HI and ⟨F_Lyα⟩ after overlap at fixed f_esc;
+  the ṅ_ion calibration (and so f_esc) is unchanged. Runs already started
+  keep the setting they started with unless changed at a restart (the flag
+  is not in the checkpoint).
+* **M1 and OTVET are only for comparison** with the ray tracing (user
+  decision): no second-order moment transport, and no moment hand-over in
+  transparent regions (ROADMAP §4.5) for now.
+* **OTVET stays as implemented (2026-10-12):** the explicit, time-dependent
+  two-moment system with the optically thin Eddington tensor (minimum-image
+  1/r² sum over the source cells), solved with the same GLF scheme as M1.
+  No need to follow a specific published formulation.
+* **Stored RT references on klone (2026-10-12): skip them there.** The 10
+  tests that differ on klone's libm (last-place double sums, threshold
+  rays; `docs/cluster.md` §3) carry the label `platform_ref`;
+  `tools/hyak/build_hyak.sh` leaves it out. They are not deleted, not
+  regenerated and not given a tolerance: CI (the platform the references
+  were made on) keeps running them bit for bit.
+
+## RT multicell thread (2026-10-11): rays crossing k cells per substep
+
+* **Request (user):** test a coarse RT substep for the RT on AMR (Stage F)
+  instead of sub-cycling fine levels in time: on the uniform grid, rays
+  travel k RT cells per substep with a k times longer substep at the same
+  ĉ. Branch `rt-multicell`; report `docs/rt_multicell.md`.
+* **The flag:** `rt_cells_per_substep = k` (default 1 = the original,
+  byte-identical; `params.txt` and `--set`; `radhydro` and `rt_driver`;
+  in the log, the summary line and the checkpoint, version 6). `nstep_rt`
+  counts the light crossings of k cells (carry and ≥ 1 guard on that
+  count), `ray_segment` covers k cells in up to 3k+1 segments, in the shared
+  kernels (`RTP::cells`), so the serial code and the AMReX backend agree.
+* **Restrictions:** `legacy_rt = 0` only; `rt_method = rays` only (the
+  moment solvers refuse k > 1); 1 ≤ k ≤ 16; light must cross at least k
+  cells per hydro step (otherwise the ≥ 1 guard makes it faster than ĉ).
+  `deterministic_parallel` domains d ≥ 2k+2. The AMReX backend supports
+  k > 1: its ghost layers and local `Redistribute` grow to k+1 (round-off
+  tests at k = 2, 4).
+* **Generalisations k forced (this thread's choices, in the k > 1 scheme,
+  no extra flag):** the photo-ionisation rate uses the crossing speed
+  k·len_rt/dtsec_rt (without it Γ in ionised gas is k times low); the split
+  radius clamp is [rmin, rmin+k]; for k > 4 sources emit at the nside whose
+  split radius covers the first path (`rrk::emit_nside`), since a ray splits
+  only once per substep; `redshift_per_distance` uses the k-cell distance.
+* **Two new options found necessary (defaults = the original):**
+  `photon_conserve = 1`, the B17 fix (`photo_cell`'s photon limit iterated to
+  convergence; the original lets photon-starved front cells ionise without
+  the photons, by an amount that grows as k²), and `ray_deposit = exposure`
+  (a ray's photons are kept for the cells further along its path unless
+  absorbed; the share deposit lets them jump past I-fronts by up to k − 1
+  cells). Neither is tied to `legacy_physics`/`legacy_rt` (no Fortran
+  mirror, per the 2026-10-08 rule).
+* **Defaults stay the original;** the recommended set for k > 1 is
+  `photon_conserve = 1` with `ray_deposit = exposure` (it passes the I-front
+  and production tests where the share deposit does not, `docs/rt_multicell.md`
+  §4, §7).
+* **Finding:** the transport over k cells is accurate; the error is the k
+  times longer substep (v_front > ĉ/k fails first: light-limited fronts at
+  0.1c for k ≥ 4, dense gas at k = 8). On the uniform grid k > 1 is
+  equivalent to fewer substeps and is not offered as a speed option.
+* **Recommendation for the AMR RT (proposed in `docs/rt_multicell.md` §9;
+  the user decides):** a mixture. Use the coarse substep with 2^l cells per
+  substep on level l (with the exposure deposit, `photon_conserve` and
+  per-level angular resolution). Add photo-chemistry sub-cycling in fine
+  cells, and time sub-cycling of the transport only in patches where a
+  front outruns the substep (flagged from cells deposited as thick that
+  transmit most of their deposit).
+
 ## Refined PM mesh (2026-10-11): `pm_refine`
 
 * **Goal: resolve halos of 1.3×10⁸ M☉ in the 40 Mpc/h, 512³ runs**, i.e.
@@ -387,10 +527,11 @@ policy on klone, and deleting the merged branches.
 * **FoF less often than every step** (user, 2026-10-11, after the cost
   of FoF on 10⁹ particles: 32 s per hydro step). Implemented as
   `fof_dt_myr` (default 0 = every hydro step; `docs/pm_refine.md` §5).
-  The production value is still open (20 Myr suggested).
+  (Superseded the same day: FoF stays every hydro step, below.)
 * The pm_refine = 2 abundance matching uses a FoF correction fitted to
   the 40 Mpc/h 1024³ catalogs (the documented rule: refit at each
-  resolution); `data/uv_lf/am_params_1024_40mpc_r2.txt`.
+  resolution); `data/uv_lf/am_params_1024_40mpc_r2.txt`. (Superseded the
+  same day by the Sheth–Tormen refit, below.)
 * **FoF every hydro step** (user, 2026-10-11, revising the above): the
   hydro steps are 20–30 Myr apart until overlap, so `fof_dt_myr` would
   save only minutes; production keeps the default 0 (every hydro step).

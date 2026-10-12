@@ -1,11 +1,11 @@
-// HEALPix NESTED pix2vec/vec2pix for the spike kernels: the same
+// HEALPix NESTED pix2vec/vec2pix for the kernels (host and device): the same
 // arithmetic as src/healpix.cpp (HEALPix 3.11 Fortran), but table-free
 // (bit (de)interleaving computed inline) and without exceptions, so it can
 // run on a GPU. Integer results are identical; the vector is identical on
 // the host (same libm calls in the same order).
 #pragma once
 
-#include "rr_hd.hpp"
+#include "radray/kernels/rr_hd.hpp"
 
 namespace rrhp {
 

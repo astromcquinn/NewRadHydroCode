@@ -23,6 +23,7 @@ namespace radray {
 struct RayDump;  // radray/ray_dump.hpp
 struct MomentState;  // radray/rt_moments.hpp
 struct RecombState;  // radray/recomb_rad.hpp
+struct AmrexRT;      // src/amrex/rt_level.cpp (rt_backend = amrex)
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -42,10 +43,11 @@ struct Domains {
 };
 
 // deterministic_parallel ray tracing: cubic domains of d^3 cells (d = 8
-// when possible), n1 = Nrt/d per dimension (even), grouped into 8 colours by
-// the parity of their domain indices. Domains of one colour are at least d
-// cells apart, more than twice the reach of one cell's ray work (<= 3
-// cells, checked at run time), so they can be swept concurrently.
+// when possible; d >= 2k+2 for rt_cells_per_substep = k), n1 = Nrt/d per
+// dimension (even), grouped into 8 colours by the parity of their domain
+// indices. Domains of one colour are at least d cells apart, at least twice
+// the reach of one cell's ray work (<= d/2 cells, checked at run time), so
+// they can be swept concurrently.
 struct DetDomains {
   int d = 0, n1 = 0;
   std::array<std::vector<std::array<int, 6>>, 8> colour;  // boxes per colour
@@ -92,6 +94,13 @@ struct Simulation {
   std::shared_ptr<MomentState> moments;
   // Recombination radiation (recomb_rad = 1, recomb_rad.hpp); null otherwise.
   std::shared_ptr<RecombState> recomb;
+  // The AMReX level of rt_backend = amrex (rt_backend.hpp); null otherwise.
+  // Between hydro steps the rt and gas grids above hold its state; the rays
+  // live only on the level (rays is then unused except for the counters
+  // and thresholds). ngam_total_backend: sum of the live rays' photons after
+  // post_rt (ngam_rays_total).
+  std::shared_ptr<AmrexRT> amrex;
+  double ngam_total_backend = 0;
   // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
   FofCache fof;
 };

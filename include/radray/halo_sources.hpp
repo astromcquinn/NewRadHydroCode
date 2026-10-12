@@ -146,6 +146,14 @@ struct SourceModelParams {
   LuvModel am;
   double log_xi_ion = 25.2;  // log10 ionising photons/s per erg/s/Hz at 1500 A
   double f_esc = cp::fResc;
+  // Optional redshift dependence (new, default off): with f_esc_beta != 0
+  // the escape fraction is min(f_esc_max, f_esc ((1+z)/(1+f_esc_z0))^beta),
+  // the power law of D'Aloisio et al. (fesc = f6 ((1+z)/7)^beta for
+  // f_esc_z0 = 6), for an emissivity that declines near the end of
+  // reionization (docs/production_run.md, tools/analysis/emissivity.py).
+  double f_esc_beta = 0;
+  double f_esc_z0 = 6;
+  double f_esc_max = 1;
   double z_max = 50;  // start of the integration for the stellar mass
 };
 
@@ -161,6 +169,9 @@ double global_stellar_density(double z, const SourceModelParams& p,
 
 // Cosmic time between z and z_max in years (flat LCDM of cosmo_parameters).
 double cosmic_time_yr(double z, double z_max);
+
+// Escape fraction at redshift z: f_esc, or the f_esc_beta power law.
+double f_esc_at(const SourceModelParams& p, double z);
 
 // Assign SFR, L, mstar and fgas to halos (already sorted by descending
 // mass). Returns the source_type records in the legacy order: star-forming
@@ -227,7 +238,8 @@ SourceCatalog onthefly_catalog(const Config& cfg, const SimClock& clk, const Uni
 // abundance), tvir_min, m_min, l_per_sfr, sfr_history, write_catalogs
 // (directory), add_metals (0|1), and for sfr_model = abundance: am_l0, am_l1,
 // am_l2, am_a0, am_a1, am_m0, am_m1, am_b, am_z0, am_zlo, am_zhi,
-// am_norm_z, am_norm_dl (comma-separated lists), xi_ion (log10), f_esc.
+// am_norm_z, am_norm_dl (comma-separated lists), xi_ion (log10), f_esc,
+// f_esc_beta, f_esc_z0, f_esc_max.
 bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::string& val);
 
 // What radhydro.f90 does once per hydro step before radiative_transfer:

@@ -121,7 +121,9 @@ stages:
      handing radiation over to a cheap moment (M1) or background field
      after overlap (standalone M1 and OTVET solvers now exist:
      `rt_method = m1 | otvet`, `docs/rt_moments.md`);
-   - casting multiple cells per substep where the gas is transparent;
+   - casting multiple cells per substep where the gas is transparent
+     (tested on the uniform grid as `rt_cells_per_substep`,
+     `docs/rt_multicell.md`);
    - the reduced speed of light (now in progress);
    - frequency-group experiments.
 
@@ -144,7 +146,9 @@ T, I-front positions and the photon budget. Measure them on the Iliev et al.
     the hydro test suite now being built.
 - **RT on AMR:**
   - Rays move one local cell per substep, so fine levels need substeps
-    sub-cycled within the coarse step.
+    sub-cycled within the coarse step. The alternative, a coarse substep
+    in which rays cross 2^l fine cells, was tested on the uniform grid
+    (`docs/rt_multicell.md`; §9 recommends a mixture of the two).
   - Angular resolution (`ray_per_cell`) is set relative to the local cell
     size, and splitting continues into fine levels.
   - Merging happens within cells at the ray's current level.

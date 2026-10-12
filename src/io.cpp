@@ -1,5 +1,6 @@
 #include "radray/io.hpp"
 
+#include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
 #include <cstdint>
@@ -35,6 +36,7 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     return;
   }
   if (set_rt_method_param(p.rtm, key, val)) return;  // rt_moments.hpp
+  if (set_rt_backend_param(p.rtm, key, val)) return;  // rt_backend.hpp
   for (auto& ch : val)
     if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
   if (key == "N")
@@ -81,6 +83,24 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.redshift_per_distance = std::stoi(val);
     if (p.redshift_per_distance != 0 && p.redshift_per_distance != 1)
       throw std::runtime_error("redshift_per_distance must be 0 or 1");
+  } else if (key == "rt_cells_per_substep") {
+    p.rt_cells_per_substep = std::stoi(val);
+    if (p.rt_cells_per_substep < 1) throw std::runtime_error("rt_cells_per_substep must be >= 1");
+  } else if (key == "ray_deposit") {
+    if (val == "share" || val == "0")
+      p.ray_deposit = 0;
+    else if (val == "exposure" || val == "1")
+      p.ray_deposit = 1;
+    else
+      throw std::runtime_error("ray_deposit must be share or exposure");
+  } else if (key == "photon_conserve") {
+    p.photon_conserve = std::stoi(val);
+    if (p.photon_conserve != 0 && p.photon_conserve != 1)
+      throw std::runtime_error("photon_conserve must be 0 or 1");
+  } else if (key == "rt_substep_carry") {
+    p.rt_substep_carry = std::stoi(val);
+    if (p.rt_substep_carry != 0 && p.rt_substep_carry != 1)
+      throw std::runtime_error("rt_substep_carry must be 0 or 1");
   } else if (key == "legacy_physics") {
     p.legacy_physics = std::stoi(val);
     if (p.legacy_physics != 0 && p.legacy_physics != 1)

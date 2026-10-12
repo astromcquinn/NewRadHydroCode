@@ -79,6 +79,7 @@ At the start of a session, read:
 | `tools/ics` | Zel'dovich ICs |
 | `tools/analysis` | figures |
 | `tools/ray_compression` | ray dumps → entropy, codec prototype, precision runs (`docs/ray_compression.md`) |
+| `tools/analysis/rt_multicell_*.py` | rays crossing k cells per substep: I-front, field and full-run comparisons, figures (`docs/rt_multicell.md`) |
 | `tools/production` | production parameters, f_esc calibration, timing (`docs/production_run.md`) |
 | `tools/hyak` | UW Hyak `klone` environment, build, production and scaling jobs (`docs/cluster.md`) |
 | `tools/movies` | movie and stills from a run directory (`docs/movies.md`) |

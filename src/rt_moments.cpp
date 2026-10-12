@@ -614,7 +614,7 @@ void moment_redshift(Simulation& s) {
         any = any || ng[g] > 0;
       }
       if (!any) continue;
-      redshift_spectrum(T, fscale, ngam_min, nu, ng, keep, down);
+      rrk::redshift_spectrum(T, fscale, ngam_min, nu, ng, keep, down);
       double after = 0;
       for (int g = 0; g < kNfreq; ++g) {
         const std::int64_t i = g * nc + c;

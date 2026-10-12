@@ -1,8 +1,8 @@
 # Project status
 
-*Last updated: 2026-10-11: `pm_refine`, a PM mesh finer than the gas grid (branch `pm-refine`, below); the 256³ production run (branch `production-256`, PR #23, below); 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching, merged with `main` (branch `pm-refine`, below); the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
-## Done 2026-10-11, branch `pm-refine` (from `production-256`; not merged)
+## Done 2026-10-11/12, branch `pm-refine` (merged with `main` 2026-10-12; PR pending)
 
 **`pm_refine`: a PM mesh of pm_refine·N cells for Ndm up to pm_refine·N
 particles (`docs/pm_refine.md`).** Goal: 1.3×10⁸ M☉ halos (20 particles)
@@ -51,7 +51,7 @@ in the 40 Mpc/h, 512³ runs.
   every step"): `fof_dt_myr`.
   - The FoF runs every Δt Myr; in between the cached halos are reused,
     drifted, and the sources re-assigned at the current z.
-  - The cache is in the checkpoint (version 5).
+  - The cache is in the checkpoint (version 7).
   - Default 0 = every hydro step (byte-identical).
   - Tests: `thread_full_fof_cadence`, `restart_smoke_fof_cadence`.
   - In the 512³ production schedule (39 source steps, 20–30 Myr apart
@@ -65,10 +65,115 @@ in the 40 Mpc/h, 512³ runs.
   wherever halos are resolved. `am_fit`/`hmf_table --st-params`,
   `tools/analysis/fit_st_fof.py`. FoF stays every hydro step (user).
   **f_esc needs recalibrating with the new parameters.**
-- **Open (user):**
-  - production with pm_refine = 2;
-  - the fof_dt_myr value;
-  - a better R(N, z) form.
+- Decided (user, 2026-10-11): FoF every hydro step (`fof_dt_myr` stays
+  as an option, default 0); abundance matching on the ST refit (the
+  R(N, z) correction is superseded).
+- **Open (user):** a production run with pm_refine = 2 (f_esc to
+  recalibrate with `am_params_st_fof.txt`).
+
+## Done 2026-10-12: rays crossing k cells per substep (branch `rt-multicell`, PR #27)
+
+**`docs/rt_multicell.md`.** This tests a coarse RT substep for the RT on
+AMR (Stage F). Instead of sub-cycling level l 2^l times, rays cross 2^l
+fine cells per coarse substep. On the uniform grid that is k cells per
+substep with a k times longer substep at the same ĉ.
+- **Flag:** `rt_cells_per_substep = k` (1–16, default 1 = the original,
+  byte-identical; `legacy_rt = 0` and `rt_method = rays` only; `rt_driver`
+  and `radhydro`; checkpoint version 6, a restart may change k). In the
+  shared kernels, so the AMReX backend supports it (ghosts and local
+  `Redistribute` ≥ k + 1; round-off tests at k = 2, 4).
+  `deterministic_parallel` domains d ≥ 2k + 2.
+- **Generalisations k forced:** the rate uses the crossing speed
+  k·len_rt/dtsec_rt; the split clamp is [rmin, rmin + k]; for k > 4
+  sources emit at the nside that covers the first path.
+- **New options, off by default:** `photon_conserve = 1` fixes **B17**
+  (new in `docs/port_notes.md`: the photon limit of `photo_gas_cell` stops
+  before converging, so photon-starved front cells ionise without the
+  photons; 1.8 % of the ionisations at k = 1, growing as k²).
+  `ray_deposit = exposure` keeps a ray's photons for the cells further
+  along its path unless absorbed. With the share deposit they jump up to
+  k − 1 cells past I-fronts.
+- **k = 1:** byte-identical; fast suite 117/117 (5 new tests), nightly label 22/22, AMReX label 54/54.
+- **Results** (exposure + pc against k = 1): the uniform I-front at c = 1
+  is within 0.04 cells for k ≤ 4 and 0.15 for k = 8. At 0.1c, k = 4 lags
+  2.3 cells while the front is light-limited. `uniform_8src` fronts are
+  within 0.02 cells (k ≤ 4); `lognormal_16src` x_HII,M is −1.8/−2.9/−14 %
+  at k = 2/4/8. In the 64³ production configuration at 0.1c, τ_es is off
+  by −0.12/−0.52/−1.6 % and T_M by 5/10/20 % early. At c = 1 (to z = 9), k = 4 matches k = 1 to 3e-5 in τ_es, Δz = 0.003 and 0.07 cells, with T_M 3 % high. The RT per hydro step falls only 1.3× at k = 2 and 4 (more live rays, k cells per ray-substep). k = 8 is 2× slower at 64³, because the deterministic domains leave one per colour.
+- **What fails first:** the lagged τ at fronts moving more than one cell
+  per substep (v_front > ĉ/k). The transport over k cells is accurate
+  (k = 8 at 8ĉ matches k = 1 at ĉ to 1 %); the error is the longer
+  substep. So on the uniform grid k > 1 equals fewer substeps and is not a
+  speed option.
+- **Recommendation for the AMR RT (§9, for the user to decide):** a
+  mixture. Use the coarse substep with 2^l cells per substep, the exposure
+  deposit and `photon_conserve`. Add photo-chemistry sub-cycling in fine
+  cells, and transport sub-cycling only in patches where a front outruns
+  the substep.
+- **Tests:** `ctest -L multicell` (`multicell`, `multicell_exposure`,
+  `photon_conserve`, the thread and restart tests, AMReX round-off).
+  `tools/hyak/rt_multicell.slurm` is a 128³ repeat of the production
+  comparison for the user to run.
+- **Follow-ups (not done):**
+  - an exposure field for Γ and a corrector pass of step 1 (§6);
+  - 27 deterministic colours so that k = 8 parallelises at 64³;
+  - `amrex_full64_vs_serial` (nightly) was not re-run on this branch;
+  - the 128³ repeat on klone.
+
+## Done 2026-10-11: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24)
+
+**`docs/stage_d.md`.** Uniform grid, CPU first; the serial port stays the
+bit-for-bit legacy reference and the AMReX path is the new option
+`rt_backend = amrex` (`legacy_rt = 0` only; AMReX optional,
+`-DRADRAY_AMREX=ON`).
+- **Milestone 1, one physics implementation:** the spike's ray and RT-cell
+  kernels moved to `include/radray/kernels/` (`ray_kernels.hpp`,
+  `rt_cell.hpp`, `healpix_hd.hpp`, `consts_hd.hpp`) and the serial port
+  calls them (`Ray` is `rrk::RayP` + links; cast, advance, split, merge,
+  emission, redshifting, `photo_cell`, rates, HEALPix exist once). Fast
+  suite 100/100 and the nightly label unchanged, every flag combination
+  byte-identical. Checkpoint version 5 (the old ray layout is read).
+- **Milestone 2, the library component** `src/amrex/rt_level.cpp`: rays in a
+  `ParticleContainerPureSoA`, cell FabArrays, int64 deposits with
+  `SumBoundary`, 2 ghost layers with the reach assertion, `Redistribute`
+  every substep, 128-bit fixed-point RT statistics; the full source model,
+  thick-source deposits, the pool guard, redshifting and `post_rt` in the
+  hydro loop, movie frames, checkpoints; wired into `rt_driver` and
+  `radhydro` (rank 0 writes; the hydro/PM run redundantly on every rank in
+  Stage D). Bitwise identical to `spike/serial rt_serial` for 1/2/4/8
+  ranks × 1/2 threads × box sizes 32/16/8 (and 4 ghosts, global
+  Redistribute); round-off against `rt_driver --set legacy_rt=0` on the
+  five RT problems; the full loop rank- and thread-independent with
+  bit-identical restarts.
+- **Milestone 3, R-struct:** `ray_encoding = rstruct`, 28 B of ray data per
+  ray (80 B float; 48 vs 100 B per particle with AMReX's position and id),
+  dithered. Errors against the float layout: x_HII ≤ 5e-4, τ_es ≤ 5e-6,
+  T_M ≤ 1e-3, 1 % rms per ionised cell, I-front ≤ 0.03 cell on
+  `lognormal_16src`/`uniform_8src` (100 steps) and the 64³ production
+  configuration, i.e. 10–100× inside the acceptance metrics.
+- **Milestone 4, tests:** `ctest -L amrex` (43 tests: the bitwise matrix,
+  the five round-off comparisons, threads, R-struct, 1 vs 2 ranks of the
+  full loop, restarts; nightly `amrex_full64_vs_serial`). The 64³
+  production run on the backend reproduces the serial history to 1e-5
+  (τ_es = 0.05224 in both). Timing (4-core VM, 64³, two hydro steps
+  from a production checkpoint): serial OpenMP 23.5 s of RT on 4 threads,
+  backend 24–27 s for any of 1×4, 2×2, 4×1 ranks×threads, 74 s on one
+  core (serial 87 s), R-struct +30 %; after removing the CPU atomics
+  (first measurement 137 s: a shared histogram and 13 atomics per
+  deposit serialised the threads). 128³ (22.5 M rays): serial 149 s,
+  backend 129–152 s on 4 cores (4 ranks × 1, 32³ boxes best), 391 s on one
+  core (serial 599 s), R-struct +26 % time, −36 % memory. Rank 0's peak
+  memory at restart (10–11 GB at 128³) is open. The klone
+  256³ job (24 ranks × 8 threads) is `tools/hyak/amrex_scaling.slurm`,
+  **the user runs it**.
+- **Milestone 5, GPU:** scaffolding only (CUDA CMake target, device rate
+  tables, `tools/hyak/build_amrex_gpu.sh`, `amrex_gpu.slurm`); **not
+  compiled** (no nvcc ≥ 12.2 here).
+- Open: `recomb_rad` on the backend; the per-box serial folds and host
+  copies for a GPU build; a team-level step 1 for source cells; Stage E
+  (distributed hydro/PM, the §3.3 multi-node hydro slowdown).
+
+*Last updated: 2026-10-11: slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, not merged). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, not merged); IGM diagnostics (branch `igm-diagnostics`); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Production run at 256³ (branch `production-256`, started 2026-10-10)
 
@@ -119,7 +224,61 @@ the same branch as PR #20. The duplicate merge was dropped and
 | 8. STATUS, PLAN, PR | this entry; PR opened for `production-256` |
 
 
-## Done 2026-10-10, branch `redshift-per-distance` (not merged)
+## Done 2026-10-11, branch `movie-slab` (merged into `main`)
+
+**Slab-only movie frames, faster movie tools and post-processing as a
+separate job (`docs/movies.md`, "Slab frames").**
+- **Problem.** A movie frame was a full cube per field: about 160 GB per
+  512³ run at Δz = 0.1. The tools read only a slab of it.
+- **New option.** `movie_slab = t` (default 0 = the full cube, byte-identical
+  to before) and `movie_slab_axes` (default `xyz`).
+  - Each frame field becomes `movie/frame_NNNNN_<field>.slab`: one block
+    per axis, holding cells N/2 − t/2 … N/2 − t/2 + t − 1 along that axis,
+    float32, Fortran order.
+  - The geometry is in `movie/slab.txt`. A restart with a different
+    geometry stops with an error.
+  - `frames.txt` is unchanged: x_HII,V and x_HII,M are whole-box sums.
+  - Disk with t = 8, at 512³: 25 MB per field instead of 537 MB, so 75 MB
+    instead of 1.6 GB per frame of fHI, temp and rhog.
+  - `make_production.py --movie-slab 8` sets it, recommended for N ≥ 256;
+    the default 0 writes no line.
+- **Tools.** A shared reader, `tools/movies/movie_frames.py`, serves
+  `make_movie.py`, `compare_movie.py`, `stills.py` and `compare_stills.py`.
+  They read both kinds of frame.
+  - With slabs, the slice must lie in the stored slab; otherwise the tool
+    says which cells are stored.
+  - `reion.py` and the other tools that read only `frames.txt` need nothing.
+  - `rt_methods_runs.py` needs whole cubes for its field statistics. With
+    slab frames it falls back to the zdata1 field outputs, and says so.
+- **Speed: whole-cube reads fixed.** The old slab reader called `np.take` on
+  the memory-mapped cube. That copies the whole file, so each 512³ field was
+  read and transposed in full. This made `make_movie.py` take 1–2.5 h after
+  every 512³ leg.
+  - The new reader slices instead. It reads the same values, and stills are
+    byte-identical to before.
+  - Synthetic 512³, 6 frames: 106 s → 1.6 s (slabs) for files not yet in
+    the page cache, and 9.5 s → 5.4 s for cached cubes. `stills.py`:
+    46 s → 5 s.
+- **Post-processing.** `tools/hyak/reion_post.slurm` now holds the
+  post-processing that `reion_production.slurm` ran after every
+  successful leg.
+  - `POST=1` (default) runs it in the same job, as before.
+  - `POST=0` skips it.
+  - `POST=sbatch` submits it as a separate 16-core job (`POST_CPUS`,
+    `POST_MEM`, `POST_OUT`), so the big node is released at once.
+  - `POST=sbatch` has not been tried in a production job yet.
+- **Tests.**
+  - New: `movie_slab` (smoke full loop: slabs against the cubes, frames.txt,
+    reion.py, identical make_movie and stills images from cubes and slabs,
+    the error messages, the planar style) and `restart_smoke_det_movie_slab`.
+  - Defaults: the main build (195426c) and this branch give byte-identical
+    outputs on the smoke problem with movie frames, 337 files including 44
+    frame files, for both legacy settings.
+  - Fast suite on klone: 101/111 pass. The 10 failures are the known
+    platform ones (`ref_*lognormal_16src*` ×6,
+    `ray_dump_*_lognormal_16src_smallbuf` ×2, `ref_c01_*` ×2).
+
+## Done 2026-10-10, branch `redshift-per-distance` (merged into `main`)
 
 **Redshift per distance travelled with a reduced speed of light
 (`docs/production_run.md` §1, "Redshifting per time or per distance").**
@@ -139,7 +298,9 @@ the same branch as PR #20. The duplicate merge was dropped and
   `legacy_physics = 0` and are unchanged). Not in the checkpoint: can be
   changed at a restart like `c_reduced`. Recorded in the `rt_driver` log,
   the `radhydro` summary line (when set) and the `ray_dump` json;
-  `make_production.py --redshift-per-distance 1` writes it.
+  `make_production.py` writes it; **production default `= 1` since
+  2026-10-11 (user decision, `docs/PLAN.md`)**, `--redshift-per-distance 0`
+  for the original.
 - Tests: `redshift_distance` (unit) and `redshift_distance_smoke`
   (`rt_driver`, rays and m1; physics label), both pass. Fast suite on
   klone (gcc 13): 99/109 pass; the 10 failures are the same ones as on
@@ -149,7 +310,7 @@ the same branch as PR #20. The duplicate merge was dropped and
 - **Open (user):** whether production runs should use it. Not turned on
   anywhere.
 
-## Done 2026-10-10, branch `igm-diagnostics` (not merged)
+## Done 2026-10-10, branch `igm-diagnostics` (merged into `main`)
 
 **IGM diagnostics for the f_esc calibration (`docs/igm_diagnostics.md`).**
 - `tools/analysis/igm_stats.py` measures a run's snapshots (z ≤ 7.1) to
@@ -178,6 +339,29 @@ the same branch as PR #20. The duplicate merge was dropped and
   - run the tools on the 512³/40 Mpc/h run when it has z < 6.5 outputs
     (the memory and time were checked on a synthetic 512³ snapshot);
   - check the Gaikwad+23 Γ definition against the paper.
+
+## Done, merged into `main` 2026-10-11 (branch `fesc-z`)
+
+**Redshift-dependent escape fraction and the emissivity of the runs.**
+- `f_esc_beta`, `f_esc_z0`, `f_esc_max` (abundance-matched sources):
+  f_esc(z) = min(f_esc_max, f_esc ((1+z)/(1+f_esc_z0))^β), the power law of
+  D'Aloisio et al. (declining emissivity near the end of reionization).
+  β = 0 (default) is the constant f_esc exactly. Unit test in
+  `test_abundance_matching`; `make_production.py --f-esc-beta`.
+- `tools/analysis/emissivity.py` (on `main`): escaped ṅ_ion(z) of the runs
+  from FoF catalogs (hmf256: same ICs), vs the Lopez et al. median read by
+  eye from D'Aloisio et al. Fig. 1. `reion256_prod` (f_esc = 0.28) matches
+  that median at z ≳ 9 but is 2–2.5× above it at z < 7.5. Matching it with
+  these halos needs f_esc ≈ 0.123 ((1+z)/7)^1.31 (0.12 at z = 6, 0.22 at
+  z = 10), a milder decline than their β = 2.6–3, because the
+  abundance-matched intrinsic emissivity already flattens at z < 7.
+- The z = 5–6 data (`data/igm/igm_z5_6.txt`, `emissivity.py --obs`) need
+  more than that law at z ≈ 5: a constant f_esc ≈ 0.15–0.2 with the hmf256
+  halos. The run with that law (`reion256_fz131`) was therefore cancelled,
+  and calibration moved to the 40 Mpc/h 512³ runs (constant f_esc; see
+  the IGM diagnostics entry above). No run uses `f_esc_beta` yet.
+- Production runs now end at z = 5 (user, 2026-10-10: Lyα forest
+  comparison); `make_production.py` default.
 
 ## Done, merged into `main` 2026-10-10 (branch `recomb-moments`)
 
@@ -240,6 +424,9 @@ helium lines (`docs/recomb_radiation.md` §2.1–2.3, §3, §4.3).**
   - nightly: `recomb_stromgren`, run by `tools/analysis/recomb_stromgren.py`.
 - Strömgren check: case A gives R_A/R_B to 1% of the temperature-corrected
   value, and case A + RR recovers R_B (1.002 with block 1).
+  With `ray_rotate = 3` (2026-10-11): the B16 holes in case B are gone,
+  and the block-2 excess of A + RR falls from 5.0% to 3.7%; the rest is
+  the wider edge (`docs/recomb_radiation.md` §3).
 - 256³ at 0.1c (block 4), runs
   `/gscratch/astro/mcquinn/radhydro/runs/reion256_c01_caseA{,_rr}`, comparison
   in `.../recomb_reion256_c01/`. Movie: `docs/movies/recomb_256_c01.mp4`.
@@ -710,8 +897,9 @@ Fortran, restart and thread tests) and nightly label, all passing.
 - On klone 8 RT stored-reference tests fail by 1 ulp in double sums and by
   rays at the removal threshold; the live gfortran harness built there shows
   the same differences and agrees with the C++ byte for byte. The stored RT
-  references are platform-dependent (libm). Decision needed: regenerate
-  them per platform, or compare the double sums with a tolerance.
+  references are platform-dependent (libm). Decided 2026-10-12: skip them
+  on klone (label `platform_ref`, left out by `tools/hyak/build_hyak.sh`);
+  CI keeps running them.
 - B16 (PR #12, `docs/port_notes.md`): the fixed HEALPix frame leaves a photon deficit
   along ±x/±y from every source. Fixed behind `ray_rotate` (2026-10-10).
   A fixed global rotation was not enough; the frame has to change every
@@ -941,15 +1129,18 @@ In the cloud (branch + PR each):
    > docs/STATUS.md, docs/PLAN.md (decisions taken) and CLAUDE.md's layout
    > table, and open the PR.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
-8. Smaller: the stored-RT-reference platform policy; the 2 % growth
+8. Smaller: ~~the stored-RT-reference platform policy~~ decided
+   2026-10-12 (skip on klone, label `platform_ref`); the 2 % growth
    deficit; ~~the unsplit open items (Sedov radius convergence, cold-gas
    time-step sensitivity at 128³)~~ done (`docs/hydro_unsplit.md` §6,
    both converge); the AMReX multi-node hydro anomaly
    (`docs/framework_decision.md` §3.3).
 
-**Decisions needed from the user:** `hydro_scheme` for production
-(`unsplit` recommended); the stored-reference policy on klone; the
-moment-RT questions below.
+**Decisions needed from the user:** none open from the merge thread.
+Decided 2026-10-11/12 (`docs/PLAN.md`): `hydro_scheme = unsplit` and
+`redshift_per_distance = 1` for production; M1/OTVET for comparison only,
+with our explicit OTVET kept as it is; the stored RT references that
+differ on klone are skipped there (label `platform_ref`).
 
 ## Next
 
@@ -1010,16 +1201,12 @@ moment-RT questions below.
 
 ## Open questions for the user
 
-- Whether production runs should use `redshift_per_distance = 1` (redshift
-  per distance travelled at ĉ < c, `docs/production_run.md` §1). It is off
-  by default and not tied to `legacy_physics`.
-
-- Moment RT (`docs/rt_moments.md` §5–§6): whether to invest in second-order
-  transport or first in faster photo-chemistry (now half the moment RT
-  time), and whether the moment methods should become the
-  transparent-region hand-over of ROADMAP §4.5 or stay a standalone
-  alternative. Which OTVET formulation the user has in mind (the paper
-  could not be read here).
+- RT on AMR (`docs/rt_multicell.md` §9): whether to adopt the proposed
+  mixture (a coarse substep with 2^l cells per substep on level l, plus
+  photo-chemistry sub-cycling and transport sub-cycling only where a front
+  outruns the substep), pure time sub-cycling, or a pure coarse substep.
+  Also whether `photon_conserve = 1` (B17) should become part of
+  `legacy_physics = 0`; it is a separate flag for now.
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see

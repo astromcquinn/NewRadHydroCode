@@ -19,6 +19,15 @@ enum class HydroScheme { Legacy, Unsplit };
 // (Gnedin & Abel 2001). New methods, not in the original.
 enum class RTMethod { Rays, M1, OTVET };
 
+// Where the ray tracing runs (docs/stage_d.md): Serial = the original's
+// per-cell ray chains on the host (default, bit-identical to the Fortran);
+// AMReX = the sorted-ray-array RT on an AMReX level (MPI + OpenMP),
+// legacy_rt = 0 only. The ray storage of the AMReX backend: Float = the
+// original's float fields (80 B of ray data, bitwise validation); RStruct =
+// the compact R-struct of docs/ray_compression.md (dithered, lossy).
+enum class RTBackend { Serial, AMReX };
+enum class RayEncoding { Float, RStruct };
+
 struct Config {
   // radhydro_global.f90: Ncpu. The reference is run with ONE thread, and the
   // port is serial; Ncpu enters ray-buffer sizes and the domain
@@ -116,6 +125,36 @@ struct Config {
   // nothing. Not tied to legacy_physics.
   bool redshift_per_distance = false;
 
+  // RT cells a ray crosses per RT substep (docs/rt_multicell.md). 1
+  // (default) is the original: nstep_rt counts the light crossings of one RT
+  // cell. k > 1: nstep_rt = nint(dl_c/(k dl_rt)*cscale) substeps, each k
+  // times longer, in which every ray moves k cells (up to 3k+1 segments),
+  // so the light distance per hydro step is unchanged; the photo-ionisation
+  // rate of a cell uses the crossing speed k*len_rt/dtsec_rt, the split
+  // radius clamp is [rmin, rmin+k], and for k > 4 sources emit at the nside
+  // whose split radius covers the first path (rrk::emit_nside: 768 rays for
+  // k = 5..8). legacy_rt = 0 and rt_method = rays only;
+  // with rt_backend = amrex the ghost layers grow to k+1. The test of
+  // coarse-substep RT for AMR (Stage F): a level-l region would move rays
+  // 2^l fine cells per coarse substep.
+  int rt_cells_per_substep = 1;
+
+  // B17 fix (docs/port_notes.md, docs/rt_multicell.md): photo_cell's photon
+  // limit is iterated to convergence (at most rrk::kPhotonIterMax
+  // iterations) instead of ending with ne after at most 5 iterations, which
+  // lets photon-starved front cells ionise without the photons. false
+  // (default) is the original. Independent of legacy_physics (whose fixes
+  // the Fortran harnesses mirror); rays and the moment RT.
+  bool photon_conserve = false;
+
+  // How a ray deposits its photons along the segments of its path
+  // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
+  // 1 = exposure, which keeps a ray's photons for the cells further along
+  // the path unless absorbed, so that an I-front reached in mid-path gets all
+  // of them (with k cells per substep the share deposit smears fronts over
+  // ~k cells). legacy_rt = 0 only; any rt_cells_per_substep.
+  int ray_deposit = 0;
+
   // params.txt hydro_scheme = legacy (default) | unsplit, and the parameters
   // of the unsplit scheme (set_hydro_scheme_param in hydro_unsplit.hpp):
   //   unsplit_cfl: Courant number against sum_d(|v_d| + c) of the sub-cycled
@@ -164,6 +203,23 @@ struct Config {
   RTMethod rt_method = RTMethod::Rays;
   int moment_nsub = 4;
   int otvet_tensor = 0;
+
+  // params.txt rt_backend = serial (default) | amrex and the parameters of
+  // the AMReX backend (set_rt_backend_param in rt_backend.hpp;
+  // docs/stage_d.md):
+  //   ray_encoding: float (default) | rstruct;
+  //   amrex_max_grid_size: box size of the level's decomposition;
+  //   amrex_ghosts: ghost layers of the optical depth / deposit FabArrays
+  //                (2 is the reach of one substep, checked at run time;
+  //                at least k+1 are used with rt_cells_per_substep = k);
+  //   amrex_redist_local: cells a ray may move per substep for the local
+  //                (neighbour-only) Redistribute; 0 = global (at least k+1
+  //                are used with rt_cells_per_substep = k).
+  RTBackend rt_backend = RTBackend::Serial;
+  RayEncoding ray_encoding = RayEncoding::Float;
+  int amrex_max_grid_size = 16;
+  int amrex_ghosts = 2;
+  int amrex_redist_local = 3;
 
   // Recombinations and recombination radiation (docs/recomb_radiation.md;
   // set_recomb_param in recomb_rad.hpp). New options, not in the original:

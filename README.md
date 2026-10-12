@@ -39,11 +39,16 @@ include/radray/   headers (namespace radray)
   rt.hpp          rt_tools.f90 (+ domains, sources)
   hydro.hpp, pm.hpp, fft.hpp   hydro_tools.f90, pm_tools.f90, fft_tools.f90 (FFTW)
   kernels/hydro_mh.hpp         unsplit MUSCL-Hancock + HLLC kernel (hydro_scheme = unsplit)
+  kernels/ray_kernels.hpp, rt_cell.hpp, healpix_hd.hpp
+                               the ray and RT-cell kernels, shared by the serial port and
+                               the AMReX backend (docs/stage_d.md)
+  rt_backend.hpp               rt_backend = serial | amrex, ray_encoding = float | rstruct
   halos.hpp, halo_sources.hpp  FoF halo finder, source model, legacy catalogs
   checkpoint.hpp  restart files
   simulation.hpp  all state, in explicit structs
   io.hpp          problem input, validation output
-src/              implementation
+src/              implementation; src/amrex/ the AMReX RT backend (rt_level.cpp, the
+                  ray encodings; built with -DRADRAY_AMREX=ON, a stub otherwise)
 apps/             rt_driver (RT only), hydro_driver, pm_driver, radhydro (full
                   loop), find_halos (FoF on a snapshot)
 tests/            unit tests, end-to-end checks, comparison with the references
@@ -54,7 +59,8 @@ tools/            compare/ (field and stats comparison), ics/ (Zel'dovich ICs),
                   analysis/ (figures), production/ (production parameters, timing),
                   movies/ (stills), ray_compression/ (ray dumps, codec, precision),
                   hyak/ (UW Hyak klone environment, build and job scripts; docs/cluster.md)
-spike/            framework spike: AMReX and Parthenon prototypes (docs/framework_decision.md)
+spike/            framework spike: AMReX and Parthenon prototypes (docs/framework_decision.md);
+                  serial/rt_serial is the bitwise reference of the AMReX backend
 docs/             plan, status, roadmap, validation spec, port notes, design docs, figures
 ```
 
@@ -70,6 +76,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release     # -O2
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+The AMReX backend of the ray tracing (`rt_backend = amrex`, MPI + OpenMP,
+`docs/stage_d.md`) is optional: `-DRADRAY_AMREX=ON` with
+`-DAMReX_DIR=<install>/lib/cmake/AMReX` (AMReX 26.10 built 3-D with MPI,
+OpenMP and particles in single precision), or `-DRADRAY_FETCH_AMREX=ON` to
+download and build it as a subproject; it needs a C++20 compiler and MPI.
+Its tests carry the label `amrex` (`ctest -L amrex`; `tools/hyak/build_amrex.sh`
+on klone).
 
 Other options:
 

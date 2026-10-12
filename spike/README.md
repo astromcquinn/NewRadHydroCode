@@ -4,10 +4,10 @@ Result and recommendation: `docs/framework_decision.md`.
 
 | dir | what |
 |---|---|
-| `common/` | framework-independent, header-only host/device kernels: rays (`ray_kernels.hpp`), per-cell RT physics (`rt_cell.hpp`), MUSCL-Hancock hydro (`hydro_mh.hpp`), host driver logic (`rt_host.hpp`). The hydro kernel's maintained copy is now `include/radray/kernels/hydro_mh.hpp` (PR #15, with dual energy); the copy here is frozen as what the prototypes validated against |
-| `serial/` | `rt_serial`, `hydro_serial`: the reference (OpenMP, no framework); `rt_serial_fx36` round-off sensitivity build |
-| `amrex/` | AMReX prototype (`rt_amrex`, `hydro_amrex`, `validate.sh`, README with notes) |
-| `parthenon/` | Parthenon prototype (`rt_parthenon`, `hydro_parthenon`, input decks, README with notes) |
+| `common/` | the host driver logic of the RT prototypes (`rt_host.hpp`) and the frozen hydro kernel (`hydro_mh.hpp`; its maintained copy is `include/radray/kernels/hydro_mh.hpp`, PR #15). The ray and RT-cell kernels (`ray_kernels.hpp`, `rt_cell.hpp`, `healpix_hd.hpp`, `consts_hd.hpp`, `rr_hd.hpp`) moved to `include/radray/kernels/` in Stage D (`docs/stage_d.md`) and are maintained there |
+| `serial/` | `rt_serial`, `hydro_serial`: the reference (OpenMP, no framework); `rt_serial_fx36` round-off sensitivity build. `rt_serial` builds against the library kernels and is the bitwise reference of the AMReX backend (`ctest -L amrex`, also built as `tests/rt_serial` with `RADRAY_AMREX=ON`) |
+| `amrex/` | AMReX prototype (`rt_amrex`, `hydro_amrex`, `validate.sh`, README with notes). **Frozen**: `rt_amrex.cpp` predates the moved kernels and no longer compiles; its successor is the library component `src/amrex/rt_level.cpp` (`rt_backend = amrex`) |
+| `parthenon/` | Parthenon prototype (`rt_parthenon`, `hydro_parthenon`, input decks, README with notes). **Frozen** likewise |
 | `bench/` | benchmark problem generator, `bench.sh` matrix runner, Sod check, `results/` |
 | `hyak/` | Hyak environment, build, single-node and 1–4 node benchmark jobs, GPU build |
 | `gpu/` | CUDA compile test of `common/` |

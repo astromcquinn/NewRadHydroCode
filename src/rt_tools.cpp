@@ -13,10 +13,13 @@
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
+#include "radray/kernels/ray_kernels.hpp"
+#include "radray/kernels/rt_cell.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/ray_quant.hpp"
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/recomb_rad.hpp"
 
@@ -114,17 +117,38 @@ void end_domain_rt(Domains& dom, int idom) {
     for (auto& d : dom.domain) d[0] = 0;
 }
 
+void check_rt_cells_param(const Config& c) {
+  const int k = c.rt_cells_per_substep;
+  if (k < 1 || k > rrk::kMaxCellsPerSubstep)
+    throw std::runtime_error("rt_cells_per_substep must be 1.." +
+                             std::to_string(rrk::kMaxCellsPerSubstep));
+  if (c.ray_deposit != 0 && c.legacy_rt)
+    throw std::runtime_error("ray_deposit = exposure requires legacy_rt = 0");
+  if (k == 1) return;
+  if (c.legacy_rt) throw std::runtime_error("rt_cells_per_substep > 1 requires legacy_rt = 0");
+  if (use_moments(c))
+    throw std::runtime_error("rt_cells_per_substep > 1 is implemented for rt_method = rays only");
+}
+
 // deterministic_parallel domains (simulation.hpp: DetDomains)
 void init_det_domains(const Config& cfg, DetDomains& dd) {
   const int N = cfg.Nrt;
   dd = DetDomains{};
-  for (int d = 8; d <= N / 2; ++d)
+  // The reach of one cell's ray work is k+1 cells for k = rt_cells_per_substep
+  // (a split or merge moves a ray by at most one cell, then a cast of k
+  // cells; a ray moves k cells, plus one at a cell face, in ray_tracing_3),
+  // and it must stay within d/2: d >= 2k+2. d = 8 (the original choice) for
+  // k <= 3.
+  const int dmin = std::max(8, 2 * cfg.rt_cells_per_substep + 2);
+  for (int d = dmin; d <= N / 2; ++d)
     if (N % d == 0 && (N / d) % 2 == 0) {
       dd.d = d;
       break;
     }
   if (dd.d == 0)
-    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= 8 (Nrt >= 16)");
+    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= " +
+                             std::to_string(dmin) + " (Nrt >= " + std::to_string(2 * dmin) +
+                             "; d >= 2k+2 for rt_cells_per_substep = k)");
   dd.n1 = N / dd.d;
   for (int k = 0; k < dd.n1; ++k)
     for (int j = 0; j < dd.n1; ++j)
@@ -281,15 +305,20 @@ void radiative_transfer(Simulation& s) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
 
     const bool moments = use_moments(s.cfg);
-    if (s.raydump_state && !moments) {
-      s.rays.prov_substep = ++s.raydump_state->substep;
-    }
-    rt_step_1(s);
-    rt_step_2(s);
-    rt_step_3(s);
-    if (!moments) {
-      if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
-      if (s.raydump_state) ray_dump_after_substep(s);
+    if (use_amrex(s.cfg)) {
+      // rt_backend = amrex (rt_backend.hpp): the whole substep on the level
+      amrex_rt_substep(s);
+    } else {
+      if (s.raydump_state && !moments) {
+        s.rays.prov_substep = ++s.raydump_state->substep;
+      }
+      rt_step_1(s);
+      rt_step_2(s);
+      rt_step_3(s);
+      if (!moments) {
+        if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
+        if (s.raydump_state) ray_dump_after_substep(s);
+      }
     }
 
     const std::int64_t nr = s.rays.Nray - s.rays.save.nfree;
@@ -336,46 +365,30 @@ void radiative_transfer(Simulation& s) {
 
 namespace {
 
-// Average of the Eulerian cells inside an RT cell + derived gas state.
-// Shared by calc_rt_i (prep_rt), calc_rt_f (post_rt) and the end of
-// photo_cell, which contain the same code.
-struct GasState {
-  double rhog, nH, nHe, nHI, nHeI, nHeII, nHII, nHeIII, ne, neff, tmp;
-};
-
-// es: the averaged internal-energy density of hydro_scheme = unsplit (the
-// dual-energy temperature, docs/hydro_unsplit.md section 4), or < 0 with
-// the legacy scheme (the arithmetic below is then the original's).
-GasState gas_state_from_avg(const double us_in[5], const double ws[4],
-                            const Units& u, bool clamp_density, double es = -1) {
-  GasState g;
-  double us1 = us_in[0];
-  if (clamp_density) us1 = f::max(us1, u.Dgas_min);
-  g.rhog = us1 * u.rho_unit;
-  g.nH = g.rhog * XHy / mH_cgs;
-  g.nHe = g.rhog * YHe / mHe_cgs;
-  g.nHI = f::min(ws[0] * u.H_unit, g.nH);
-  g.nHeI = f::min(ws[1] * u.He_unit, g.nHe);
-  g.nHeII = f::min(ws[2] * u.He_unit, g.nHe - g.nHeI);
-  g.nHII = g.nH - g.nHI;
-  g.nHeIII = g.nHe - g.nHeI - g.nHeII;
-  g.ne = g.nHII + g.nHeII + 2 * g.nHeIII;
-  g.neff = g.nH + g.nHe + g.ne;
-  // eth = (us(5)-sum(us(2:4)**2)/us(1)/2)*eden_unit   (real(8))
-  const double ksum = ((0.0 + us_in[1] * us_in[1]) + us_in[2] * us_in[2]) + us_in[3] * us_in[3];
-  double eth = (us_in[4] - ksum / us1 / 2) * u.eden_unit;
-  if (es >= 0) eth = es * u.eden_unit;
-  g.tmp = f::max((gamma_ideal - 1) * eth / k_cgs / g.neff, u.temp_min);
-  return g;
+// The rt_grid fields of cell c as the kernels' pointer view
+rrk::CellRef cell_ref(RTGrid& G, std::int64_t c) {
+  rrk::CellRef r;
+  r.rhog = &G.rhog[c];
+  r.fHI = &G.fHI[c];
+  r.fHeI = &G.fHeI[c];
+  r.fHeII = &G.fHeII[c];
+  r.temp = &G.temp[c];
+  r.Luv = &G.Luv[c];
+  r.sfr = &G.sfr[c];
+  r.dx = G.dx_p(c);
+  r.gamma = G.gamma_p(c);
+  r.lambda = G.lambda_p(c);
+  r.nu = G.nu_p(c);
+  r.ngam = G.ngam_p(c);
+  r.fgam = G.fgam_p(c);
+  r.tau = G.tau_p(c);
+  return r;
 }
 
-void store_gas_state(RTGrid& G, std::int64_t c, const GasState& g, const Units& u) {
-  G.rhog[c] = static_cast<float>(g.rhog / u.rhob_avg);
-  G.fHI[c] = static_cast<float>(f::min(f::max(g.nHI / g.nH, 0.0), 1.0));
-  G.fHeI[c] = static_cast<float>(f::min(f::max(g.nHeI / g.nHe, 0.0), 1.0));
-  G.fHeII[c] = static_cast<float>(f::min(f::max(g.nHeII / g.nHe, 0.0), 1.0));
-  G.temp[c] = static_cast<float>(g.tmp);
-}
+// The gas state of an RT cell from the averaged gas (calc_rt_i, calc_rt_f,
+// the end of photo_cell) is the kernels' rrk::gas_state_from_avg /
+// rrk::store_gas_state (include/radray/kernels/rt_cell.hpp).
+using GasState = rrk::GasStateP;
 
 // Sum u_gas/w_gas over the Eulerian cells of RT cell (irt,jrt,krt) and
 // normalise (us = us/N_rt_gas_c, us(1) = max(us(1),Dgas_min)). Returns the
@@ -428,13 +441,20 @@ void prep_rt(Simulation& s) {
       for (int irt = 1; irt <= Nrt; ++irt) {
         double us[5], ws[4];
         const double es = average_gas(s, irt, jrt, krt, us, ws);
-        const GasState g = gas_state_from_avg(us, ws, s.units, false, es);
-        store_gas_state(G, G.cell(irt, jrt, krt), g, s.units);
+        const GasState g = rrk::gas_state_from_avg(us, ws, s.units, es);
+        rrk::store_gas_state(cell_ref(G, G.cell(irt, jrt, krt)), g, s.units);
       }
 
   // recomb_rad = 1: buffers of the recombination radiation (recomb_rad.hpp)
   if (s.cfg.recomb_rad && !s.recomb) recomb_init(s);
   if (s.cfg.recomb_rad) check_recomb_param(s.cfg);
+
+  // rt_backend = amrex: the level holds the cells and the rays
+  // (rt_backend.hpp); the gas state above is recomputed there
+  if (use_amrex(s.cfg)) {
+    amrex_rt_prep(s);
+    return;
+  }
 
   // rt_method = m1 | otvet: no ray pool (rt_moments.hpp)
   if (use_moments(s.cfg)) {
@@ -476,6 +496,10 @@ void post_rt(Simulation& s) {
     ~Acc() { t += wall_seconds() - t0; }
   } acc{s.timers.post, wall_seconds()};
   const bool moments = use_moments(s.cfg);
+  if (use_amrex(s.cfg)) {
+    amrex_rt_post(s);  // redshift, calc_rt_f, fields back to s (rt_backend.hpp)
+    return;
+  }
   if (moments) {
     moment_redshift(s);  // rt_method = m1 | otvet (rt_moments.hpp)
   } else {
@@ -488,7 +512,8 @@ void post_rt(Simulation& s) {
   RTGrid& G = s.rt;
   RayState& R = s.rays;
   const int Nrt = s.cfg.Nrt;
-  const SigmaTable sig = photoion_sigma(freq_init);
+  double sig[3][kNfreq];
+  rrk::photoion_sigma(freq_init.data(), sig);
 
   std::int64_t nray_pdf[24] = {0};
   // Fortran: dimension(-9:10), but 1E-9 is real(4) (9.99999972e-10) so empty
@@ -505,13 +530,9 @@ void post_rt(Simulation& s) {
         const std::int64_t c = G.cell(irt, jrt, krt);
         double us[5], ws[4];
         const double es = average_gas(s, irt, jrt, krt, us, ws);
-        const GasState g = gas_state_from_avg(us, ws, s.units, false, es);
-        store_gas_state(G, c, g, s.units);
-        float* tau = G.tau_p(c);
-        for (int i = 0; i < kNfreq; ++i) {
-          const double sm = ((0.0 + g.nHI * sig[0][i]) + g.nHeI * sig[1][i]) + g.nHeII * sig[2][i];
-          tau[i] = static_cast<float>(sm * s.units.len_rt);
-        }
+        const GasState g = rrk::gas_state_from_avg(us, ws, s.units, es);
+        rrk::store_gas_state(cell_ref(G, c), g, s.units);
+        rrk::tau_from_state(G.tau_p(c), g, sig, s.units.len_rt);
       }
 
   if (moments) return;  // (the ray PDFs below)
@@ -550,7 +571,8 @@ void post_rt(Simulation& s) {
           ir = R.at(ir).next;
         }
         if (static_cast<double>(G.sfr[c]) > s.units.sfr_min)
-          nr = f::max<std::int64_t>(nr, rayp::nray_init);
+          nr = f::max<std::int64_t>(
+              nr, rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
         int b;
         if (nr <= 8) b = static_cast<int>(nr);
         else if (nr <= 12) b = 9;
@@ -586,6 +608,97 @@ void post_rt(Simulation& s) {
     *L << " PDF(ngam_ray)\n";
     for (int b = 1; b < 21; ++b) *L << "   " << (b - 10) << " : " << nrad_pdf[b] << "\n";
   }
+}
+
+// ---------------------------------------------------------------------------
+// ngam_ray thresholds and the pool guard (rt_step_1 / calc_ray_1), shared
+// with the AMReX backend (src/amrex/rt_level.cpp)
+// ---------------------------------------------------------------------------
+
+void calc_ngam_ray(const std::int64_t* ngam_pdf, int N_pdf, double ngam_avg, std::int64_t Nray,
+                   std::int64_t Nray_max, bool legacy, std::array<double, 64>& ngam_ray,
+                   std::ostream* log) {
+  const double lgn_min = rrk::kLgnMin;
+  const double lgn_del = folded::lgn_del;
+  // With legacy_rt, thresholds that are not reached keep their stale values
+  // (B2); otherwise they are recomputed from scratch.
+  if (ngam_avg == 0) {
+    ngam_ray.fill(0.0);
+    return;
+  }
+  ngam_avg = ngam_avg / Nray;
+  if (!legacy) ngam_ray.fill(0.0);  // B2 fix
+  // legacy: int(Nray_max/64.) is a real(4) division (int64 product here;
+  // the Fortran's int32 product overflows only for N >= ~323).
+  // B9 fix: exact 64-bit integer Nray_max/64.
+  const std::int64_t per =
+      legacy ? f::int4(static_cast<double>(static_cast<float>(Nray_max) / 64.0f)) : Nray_max / 64;
+  for (int j = 1; j <= 64; ++j) {
+    std::int64_t nr = 0;
+    for (int i = N_pdf; i >= 1; --i) {
+      nr = nr + ngam_pdf[i];
+      if (nr > j * per) {
+        ngam_ray[j - 1] = std::pow(1e1, (i - 1) * lgn_del + lgn_min);
+        break;
+      }
+    }
+    if (log && j % 4 == 0)
+      *log << " Rays       : " << j << " " << static_cast<float>(ngam_ray[j - 1]) << " "
+           << static_cast<float>(ngam_ray[j - 1] / ngam_avg) << "\n";
+  }
+}
+
+std::int64_t pool_split_candidates(const std::int64_t* spl_pdf, int N_pdf, double ngam_ray32) {
+  std::int64_t nspl = 0;
+  for (int n = 1; n <= N_pdf; ++n)
+    if (std::pow(1e1, n * folded::lgn_del + rrk::kLgnMin) > ngam_ray32) nspl += spl_pdf[n];
+  return nspl;
+}
+
+// F3 (legacy_rt = 0 only; RT harness PATCHES.md 13): keep the ray pool from
+// overflowing. Rays are only created by splits (3 per split) and sources
+// (nray_init per source cell, nray_src with rt_cells_per_substep > 4:
+// rrk::emit_nside). From the live count L, the number of source
+// cells and the histogram of the rays that may split, limit the splits of
+// this substep so that even if every candidate splits at most 0.9 Nray_max
+// rays are live after it (the rest of the pool covers the free buffer,
+// <= Nray_max/16): ngam_ray(32) (the split threshold) is raised to the
+// lower edge of the brightest bins whose candidates fit in a third of the
+// remaining budget. If even the sources do not fit, splitting stops and
+// every ray except fresh source rays is merged (ngam_ray(16) =
+// ngam_ray(32) = 1e30). Integer arithmetic on the histogram only:
+// deterministic, the same in the Fortran harness, and inactive unless the
+// pool could overflow in this substep.
+void pool_guard(const std::int64_t* spl_pdf, int N_pdf, std::int64_t L, std::int64_t nsrc,
+                std::int64_t nrec_rays, std::int64_t Nray_max, std::array<double, 64>& ngam_ray,
+                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log,
+                int nray_src) {
+  const double lgn_min = rrk::kLgnMin;
+  const double lgn_del = folded::lgn_del;
+  const std::int64_t budget = (9 * Nray_max) / 10 - L - nray_src * nsrc - nrec_rays;
+  if (budget <= 0) {
+    ngam_ray[16 - 1] = 1e30;
+    ngam_ray[32 - 1] = 1e30;
+    npool_forced += 1;
+  } else {
+    const std::int64_t smax = budget / 3;
+    std::int64_t nr = 0;
+    int i = N_pdf;
+    for (; i >= 1; --i) {
+      if (nr + spl_pdf[i] > smax) break;
+      nr = nr + spl_pdf[i];
+    }
+    if (i >= 1) {
+      const double thr = std::pow(1e1, i * lgn_del + lgn_min);
+      if (thr > ngam_ray[32 - 1]) {
+        ngam_ray[32 - 1] = thr;
+        npool_limited += 1;
+      }
+    }
+  }
+  if (log && (npool_forced > 0 || npool_limited > 0))
+    *log << " Pool guard : " << L << " " << nsrc << " " << budget << " " << npool_limited << " "
+         << npool_forced << "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -637,40 +750,13 @@ void rt_step_1(Simulation& s) {
   // (original behaviour, B3) and tau is only updated where fHI or fHeI < 0.99
   // (B4).
   const bool legacy = s.cfg.legacy_rt;
-  const SigmaTable sig = photoion_sigma(freq_init);
+  double sig[3][kNfreq];
+  rrk::photoion_sigma(freq_init.data(), sig);
 #pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
-      for (int irt = 1; irt <= Nrt; ++irt) {
-        const std::int64_t c = G.cell(irt, jrt, krt);
-        for (int n = 0; n < kNfreq; ++n) {
-          G.nu[c * kNfreq + n] = 0;
-          G.ngam[c * kNfreq + n] = 0;
-          G.fgam[c * kNfreq + n] = 0;
-        }
-        for (int d = 0; d < 3; ++d) {
-          G.gamma[c * 3 + d] = 0;
-          G.lambda[c * 3 + d] = 0;
-        }
-        // B3 fix: also reset the photon-weighted direction field
-        if (!legacy)
-          for (int d = 0; d < 3; ++d) G.dx[c * 3 + d] = 0;
-        // real(4) comparisons with real(4) literal 0.99.
-        // B4 fix: without legacy_rt, update tau in every cell.
-        if (G.fHI[c] < 0.99f || G.fHeI[c] < 0.99f || !legacy) {
-          const double rhog = static_cast<double>(G.rhog[c]) * u.rhob_avg;
-          const double nH = rhog * XHy / mH_cgs;
-          const double nHe = rhog * YHe / mHe_cgs;
-          const double nHI = nH * static_cast<double>(G.fHI[c]);
-          const double nHeI = nHe * static_cast<double>(G.fHeI[c]);
-          const double nHeII = nHe * static_cast<double>(G.fHeII[c]);
-          float* tau = G.tau_p(c);
-          for (int i = 0; i < kNfreq; ++i) {
-            const double sm = ((0.0 + nHI * sig[0][i]) + nHeI * sig[1][i]) + nHeII * sig[2][i];
-            tau[i] = static_cast<float>(sm * u.len_rt);
-          }
-        }
-      }
+      for (int irt = 1; irt <= Nrt; ++irt)
+        rrk::calc_rt_1_cell(cell_ref(G, G.cell(irt, jrt, krt)), u, sig, legacy);
 
   lap(s.timers.calc_rt1);
   // calc_ray_1: histogram of photon counts over ALL storage slots with
@@ -724,47 +810,11 @@ void rt_step_1(Simulation& s) {
     ngam_avg = std::ldexp(static_cast<double>(fix), -40);
   }
 
-  // Calculate ngam_ray. With legacy_rt, thresholds that are not reached keep
-  // their stale values (B2); otherwise they are recomputed from scratch.
-  if (ngam_avg == 0) {
-    R.ngam_ray.fill(0.0);
-  } else {
-    ngam_avg = ngam_avg / R.Nray;
-    if (!legacy) R.ngam_ray.fill(0.0);  // B2 fix
-    // legacy: int(Nray_max/64.) is a real(4) division (int64 product here;
-    // the Fortran's int32 product overflows only for N >= ~323).
-    // B9 fix: exact 64-bit integer Nray_max/64.
-    const std::int64_t per =
-        legacy ? f::int4(static_cast<double>(static_cast<float>(R.Nray_max) / 64.0f))
-               : R.Nray_max / 64;
-    for (int j = 1; j <= 64; ++j) {
-      std::int64_t nr = 0;
-      for (int i = N_pdf; i >= 1; --i) {
-        nr = nr + ngam_pdf[i];
-        if (nr > j * per) {
-          R.ngam_ray[j - 1] = std::pow(1e1, (i - 1) * lgn_del + lgn_min);
-          break;
-        }
-      }
-      if (s.raylog && j % 4 == 0)
-        *s.raylog << " Rays       : " << j << " " << static_cast<float>(R.ngam_ray[j - 1])
-                  << " " << static_cast<float>(R.ngam_ray[j - 1] / ngam_avg) << "\n";
-    }
-  }
+  // Calculate ngam_ray (calc_ngam_ray below)
+  calc_ngam_ray(ngam_pdf.data(), N_pdf, ngam_avg, R.Nray, R.Nray_max, legacy, R.ngam_ray,
+                s.raylog);
 
-  // F3 (legacy_rt = 0 only; RT harness PATCHES.md 13): keep the ray pool from
-  // overflowing. Rays are only created by splits (3 per split) and sources
-  // (nray_init per source cell). From the live count L, the number of source
-  // cells and the histogram of the rays that may split, limit the splits of
-  // this substep so that even if every candidate splits at most 0.9 Nray_max
-  // rays are live after it (the rest of the pool covers the free buffer,
-  // <= Nray_max/16): ngam_ray(32) (the split threshold) is raised to the
-  // lower edge of the brightest bins whose candidates fit in a third of the
-  // remaining budget. If even the sources do not fit, splitting stops and
-  // every ray except fresh source rays is merged (ngam_ray(16) =
-  // ngam_ray(32) = 1e30). Integer arithmetic on the histogram only:
-  // deterministic, the same in the Fortran harness, and inactive unless the
-  // pool could overflow in this substep.
+  // F3 (legacy_rt = 0 only): the ray pool guard (pool_guard below)
   if (!legacy) {
     std::int64_t L = 0;
     for (int n = 1; n <= N_pdf; ++n) L += ngam_pdf[n];
@@ -779,35 +829,12 @@ void rt_step_1(Simulation& s) {
       // stellar splits expected this substep: candidates above the split
       // threshold ngam_ray(32), 3 new rays each; the recombination rays only
       // get the room left after them
-      std::int64_t nspl = 0;
-      for (int n = 1; n <= N_pdf; ++n)
-        if (std::pow(1e1, n * lgn_del + lgn_min) > R.ngam_ray[32 - 1]) nspl += spl_pdf[n];
+      const std::int64_t nspl = pool_split_candidates(spl_pdf.data(), N_pdf, R.ngam_ray[32 - 1]);
       nrec_rays = recomb_prepare(s, L, nsrc, 3 * nspl);
     }
-    const std::int64_t budget = (9 * R.Nray_max) / 10 - L - rayp::nray_init * nsrc - nrec_rays;
-    if (budget <= 0) {
-      R.ngam_ray[16 - 1] = 1e30;
-      R.ngam_ray[32 - 1] = 1e30;
-      R.npool_forced += 1;
-    } else {
-      const std::int64_t smax = budget / 3;
-      std::int64_t nr = 0;
-      int i = N_pdf;
-      for (; i >= 1; --i) {
-        if (nr + spl_pdf[i] > smax) break;
-        nr = nr + spl_pdf[i];
-      }
-      if (i >= 1) {
-        const double thr = std::pow(1e1, i * lgn_del + lgn_min);
-        if (thr > R.ngam_ray[32 - 1]) {
-          R.ngam_ray[32 - 1] = thr;
-          R.npool_limited += 1;
-        }
-      }
-    }
-    if (s.raylog && (R.npool_forced > 0 || R.npool_limited > 0))
-      *s.raylog << " Pool guard : " << L << " " << nsrc << " " << budget << " "
-                << R.npool_limited << " " << R.npool_forced << "\n";
+    pool_guard(spl_pdf.data(), N_pdf, L, nsrc, nrec_rays, R.Nray_max, R.ngam_ray,
+               R.npool_limited, R.npool_forced, s.raylog,
+               rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
   }
 
   lap(s.timers.calc_ray1);
@@ -1000,51 +1027,33 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   RTGrid& G = s.rt;
   const Units& u = s.units;
   const SimClock& clk = s.clk;
-  const AtomicRates& AR = s.rates;
   const int Nrt = s.cfg.Nrt;
-  const double g = gamma_ideal;
-  const double nu0[3] = {HI_eV, HeI_eV, HeII_eV};
   const double dtsec_rt = clk.dtsec_rt;
   const double Ncell = s.cfg.ncellr;
   const double Nc = s.cfg.N_rt_gas_c;
   std::vector<std::array<int, 3>> index_gas_rt;
+  // The per-gas-cell physics is the kernels' photo_gas_cell
+  // (include/radray/kernels/rt_cell.hpp)
+  rrk::PhysCtx X;
+  X.u = u;
+  X.rates.cool = s.rates.coef_cool_.data();
+  X.rates.alpha = s.rates.alpha_rec_.data();
+  X.rates.gcol = s.rates.gamma_col_.data();
+  X.rates.legacy_physics = s.cfg.legacy_physics;
+  X.dtsec_rt = dtsec_rt;
+  X.cells = s.cfg.rt_cells_per_substep;
+  X.photon_conserve = s.cfg.photon_conserve;
+  X.want_nrab = static_cast<bool>(s.recomb);
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {
     for (int irt = 1; irt <= Nrt; ++irt) {
       const std::int64_t c = G.cell(irt, jrt, krt);
-      float* gng = G.ngam_p(c);
-      float* gnu = G.nu_p(c);
-      float* gfg = G.fgam_p(c);
-      float* gdx = G.dx_p(c);
+      const rrk::CellRef cr = cell_ref(G, c);
 
-      // Effective frequency
-      for (int n = 0; n < kNfreq; ++n) {
-        if (static_cast<double>(gng[n]) < u.ngam_min) {
-          gnu[n] = static_cast<float>(freq_init[n]);
-          gng[n] = 0;
-        } else {
-          gnu[n] = gnu[n] / gng[n];
-        }
-      }
-
-      const double ngam_tot = static_cast<double>(f::sum4<kNfreq>(gng));
-
-      // Effective unit direction vector
-      if (ngam_tot < u.ngam_min) {
-        gdx[0] = gdx[1] = gdx[2] = 0;
-      } else {
-        const float sng = f::sum4<kNfreq>(gng);
-        double dx[3];
-        for (int d = 0; d < 3; ++d) dx[d] = static_cast<double>(gdx[d] / sng);
-        const double dl = std::sqrt(((0.0 + dx[0] * dx[0]) + dx[1] * dx[1]) + dx[2] * dx[2]);
-        if (dl > static_cast<double>(1e-9f)) {
-          for (int d = 0; d < 3; ++d) gdx[d] = static_cast<float>(dx[d] / dl);
-        } else {
-          gdx[0] = gdx[1] = gdx[2] = 0;
-        }
-      }
-
-      if (!(ngam_tot > u.ngam_min || G.fHI[c] < 0.99f)) continue;
+      // Effective frequency and unit direction vector; skip neutral cells
+      // without photons
+      double ngam_tot = 0;
+      if (!rrk::cell_radiation_prep(cr, u, ngam_tot)) continue;
 
       if (ngam_tot > u.ngam_min) sink.ngfill += 1;
 
@@ -1052,311 +1061,75 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
 
       // photo_source
       if (static_cast<double>(G.sfr[c]) > u.sfr_min) {
-        for (int inu = 0; inu < kNfreq; ++inu) {
-          const double nu = freq_init[inu];
-          double ngam = fResc * pop2_init[inu] * (static_cast<double>(G.Luv[c]) * dtsec_rt);
-          ngam = ngam / u.vol_rt / u.nH_avg;
-          if (nu > HI_eV) sink.add(RPSink::kNgam + 0, ngam / s.cfg.nrtcr);
-          if (nu > HeI_eV)
-            sink.add(RPSink::kNgam + 1, ngam / s.cfg.nrtcr * (u.nH_avg / u.nHe_avg));
-          if (nu > HeII_eV)
-            sink.add(RPSink::kNgam + 2, ngam / s.cfg.nrtcr * (u.nH_avg / u.nHe_avg));
-        }
+        double ngam_sp[3][kNfreq];
+        rrk::source_stats(G.Luv[c], dtsec_rt, u, ngam_sp);
+        for (int inu = 0; inu < kNfreq; ++inu)
+          for (int sp = 0; sp < 3; ++sp)
+            if (ngam_sp[sp][inu] != 0) sink.add(RPSink::kNgam + sp, ngam_sp[sp][inu] / s.cfg.nrtcr);
         sink.nsfill += 1;
       }
 
       // ---- photo_cell ----
       double us[5] = {0, 0, 0, 0, 0}, ws[4] = {0, 0, 0, 0}, es = 0;
-      std::array<double, kNfreq> nu;
-      double nrad[kNfreq];
+      double nu[kNfreq], nrad[kNfreq];
       for (int n = 0; n < kNfreq; ++n) {
-        nu[n] = gnu[n];
-        nrad[n] = static_cast<double>(gng[n]) * u.nH_avg * u.vol_rt;
+        nu[n] = cr.nu[n];
+        nrad[n] = static_cast<double>(cr.ngam[n]) * u.nH_avg * u.vol_rt;
       }
-      const SigmaTable sigma_pht = photoion_sigma(nu);
+      double sigma_pht[3][kNfreq];
+      rrk::photoion_sigma(nu, sigma_pht);
+
+      // recomb_case = A: case A rates and cooling (alpha_rec(1:3),
+      // coef_cool(1:3)); B (default, the original): alpha_rec(4:6),
+      // coef_cool(4:6). With recomb_rad = 1, cells whose block is on the
+      // spot this substep use case B.
+      const bool onspot = s.recomb && recomb_onspot(*s.recomb, c);
+      X.ia = (s.cfg.recomb_case_A && !onspot) ? 0 : 3;
 
       for (const auto& gi : index_gas_rt) {
         const std::int64_t gc = s.gas.cell(gi[0], gi[1], gi[2]);
         float* uu = &s.gas.u[gc * 5];
         float* ww = &s.gas.w[gc * 4];
-
-        // Gas densities
-        uu[0] = static_cast<float>(f::max(static_cast<double>(uu[0]), u.Dgas_min));
-        const double rhog = static_cast<double>(uu[0]) * u.rho_unit;
-        const double nH = rhog * XHy / mH_cgs;
-        const double nHe = rhog * YHe / mHe_cgs;
-        double nHI = f::min(static_cast<double>(ww[0]) * u.H_unit, nH);
-        double nHeI = f::min(static_cast<double>(ww[1]) * u.He_unit, nHe);
-        double nHeII = f::min(static_cast<double>(ww[2]) * u.He_unit, nHe - nHeI);
-        double nHII = nH - nHI;
-        double nHeIII = nHe - nHeI - nHeII;
-        double ne = nHII + nHeII + 2 * nHeIII;
-        double neff = nH + nHe + ne;
-        double nff = nHII + nHeII + 4 * nHeIII;
-
-        // Temperature. kin = sum(u(2:4)**2)/u(1)/2 is pure real(4).
-        const float kin_f =
-            (((0.0f + uu[1] * uu[1]) + uu[2] * uu[2]) + uu[3] * uu[3]) / uu[0] / 2.0f;
-        const double kin = static_cast<double>(kin_f);
-        double eth = (static_cast<double>(uu[4]) - kin) * u.eden_unit;
         // hydro_scheme = unsplit (docs/hydro_unsplit.md section 4): the
         // thermal energy is the dual-energy field, which gets the same
         // heating/cooling as u(5). Empty with the legacy scheme: no-op.
         float* ee = s.gas.e.empty() ? nullptr : &s.gas.e[gc];
-        if (ee) eth = static_cast<double>(*ee) * u.eden_unit;
-        double tmp = (g - 1) * eth / k_cgs / neff;
-        if (tmp < u.temp_min) {
-          tmp = u.temp_min;
-          eth = neff * k_cgs * tmp / (g - 1);
-        }
 
-        // Temperature index for RT rates
-        int iT = 1 + f::nint((std::log10(tmp) - lgT_min) / lgT_del);
-        if (s.cfg.legacy_physics && (iT < 1 || iT > Ntemp))
-          throw std::runtime_error("radiative_physics: temperature index out of table, iT=" +
-                                   std::to_string(iT));
-        // P9 (legacy_physics = 0; harness PATCHES.md 10): rates interpolated
-        // in log T (rates_interp). With legacy_physics they are the table
-        // values at the nearest node iT, as in the original.
-        const RateSet rs = s.cfg.legacy_physics ? rates_node(AR, iT) : rates_interp(AR, tmp);
+        rrk::PhotoStats st;
+        const int err = rrk::photo_gas_cell(uu, ww, ee, cr.ngam, nu, sigma_pht, nrad, X, st);
+        if (err == rrk::kPhotoBadTemperatureIndex)
+          throw std::runtime_error("radiative_physics: temperature index out of table");
+        if (s.recomb)
+          recomb_count(s, c, st.nrab, s.cfg.recomb_rad_lines ? st.nrB : nullptr, st.T_in, u.vol_gas);
 
-        double ngam[kNfreq];
-        for (int n = 0; n < kNfreq; ++n) ngam[n] = static_cast<double>(gng[n]) * u.nH_avg;
-
-        // Recombination radiation: disabled in the original (`if (.false.)`);
-        // with recomb_rad = 1 counted below, after the update, and emitted
-        // as rays at the next substep (recomb_rad.hpp)
-        double nrab[3] = {0, 0, 0};
-        // recomb_case = A: case A rates and cooling (alpha_rec(1:3),
-        // coef_cool(1:3)); B (default, the original): alpha_rec(4:6),
-        // coef_cool(4:6). With recomb_rad = 1, cells whose block is on the
-        // spot this substep use case B.
-        const bool onspot = s.recomb && recomb_onspot(*s.recomb, c);
-        const int ia = (s.cfg.recomb_case_A && !onspot) ? 0 : 3;
-
-        // Maximum photoionization rate in 1/s
-        double gamma_pht[3][kNfreq], gamma_max[3][kNfreq];
-        for (int inu = 0; inu < kNfreq; ++inu)
-          for (int sp = 0; sp < 3; ++sp)
-            gamma_pht[sp][inu] = ngam[inu] * sigma_pht[sp][inu] * (u.len_rt / dtsec_rt);
-        for (int sp = 0; sp < 3; ++sp)
-          for (int inu = 0; inu < kNfreq; ++inu) gamma_max[sp][inu] = gamma_pht[sp][inu];
-        double gam_pht[3];
-        auto sum_dim2 = [&](double out[3]) {
-          for (int sp = 0; sp < 3; ++sp) {
-            double t = 0;
-            for (int inu = 0; inu < kNfreq; ++inu) t += gamma_pht[sp][inu];
-            out[sp] = t;
-          }
-        };
-        sum_dim2(gam_pht);
-
-        // Implicit solution for ionisation balance
-        int n = 0;
-        double ne_prev = static_cast<double>(f::huge_r4);
-        double nH1 = 0, nHe1 = 0, nHe2 = 0;
-        while (std::fabs(ne / ne_prev - 1) > static_cast<double>(1e-3f) && n < 5) {
-          n = n + 1;
-          ne_prev = ne;
-          const double AH2 = rs.alpha[ia + 0] * ne * dtsec_rt;
-          const double AHe2 = rs.alpha[ia + 1] * ne * dtsec_rt;
-          const double AHe3 = rs.alpha[ia + 2] * ne * dtsec_rt;
-          const double BH1 = (gam_pht[0] + rs.gcol[0] * ne) * dtsec_rt;
-          const double BHe1 = (gam_pht[1] + rs.gcol[1] * ne) * dtsec_rt;
-          const double BHe2 = (gam_pht[2] + rs.gcol[2] * ne) * dtsec_rt;
-          const double sub1 = 1 + AHe3 + AHe2 + BHe2;
-          const double sub2 = AHe2;
-          const double sub3 = BHe1 - AHe3;
-          const double sub4 = 1 + BHe1;
-          const double sub5 = AHe3 * nHe;
-          const double sub6 = sub1 * sub4 - sub2 * sub3;
-          nH1 = (nHI + AH2 * nH) / (1 + AH2 + BH1);
-          nHe1 = (nHeI * sub1 + (nHeII + sub5) * sub2) / sub6;
-          nHe2 = (nHeI * sub3 + (nHeII + sub5) * sub4) / sub6;
-          ne = (nH - nH1) + nHe2 + 2 * (nHe - nHe1 - nHe2);
-
-          // Photoionisations can not exceed the number of photons
-          for (int inu = 0; inu < kNfreq; ++inu) {
-            const double num1 = (((0.0 + gamma_pht[0][inu] * nH1) + gamma_pht[1][inu] * nHe1) +
-                                 gamma_pht[2][inu] * nHe2) *
-                                dtsec_rt * u.vol_gas;
-            if (num1 > u.ngam_min) {
-              const double x = nrad[inu] / num1;
-              for (int sp = 0; sp < 3; ++sp)
-                gamma_pht[sp][inu] = f::min(x * gamma_pht[sp][inu], gamma_max[sp][inu]);
-            }
-          }
-          sum_dim2(gam_pht);
-        }
-        // (n == 0 cannot happen: the first test is ~1 > 1e-3)
-
-        // Update H, He number densities
-        nHI = nH1;
-        nHII = nH - nHI;
-        nHeI = nHe1;
-        nHeII = nHe2;
-        nHeIII = nHe - nHeI - nHeII;
-        ne = nHII + nHeII + 2 * nHeIII;
-        neff = nH + nHe + ne;
-        nff = nHII + nHeII + 4 * nHeIII;
-
-        // Count photoionisations, photon conservation
-        double nion[3] = {0, 0, 0};
-        for (int inu = 0; inu < kNfreq; ++inu) {
-          const double d = rhog / u.rhob_avg;
-          const double x = f::min(std::exp(-(d - rho_source) / rho_source), 1.0);
-          const double num3[3] = {gamma_pht[0][inu] * nHI * dtsec_rt,
-                                  gamma_pht[1][inu] * nHeI * dtsec_rt,
-                                  gamma_pht[2][inu] * nHeII * dtsec_rt};
-          for (int sp = 0; sp < 3; ++sp) nion[sp] = nion[sp] + num3[sp];
-          const double snum3 = ((0.0 + num3[0]) + num3[1]) + num3[2];
-          nrad[inu] = f::max(nrad[inu] - x * snum3 * u.vol_gas, 0.0);
-        }
-
-        // Collisional ionisations and recombinations
-        const double nsp[3] = {nHI, nHeI, nHeII};
-        const double nsp_rec[3] = {nHII, nHeII, nHeIII};
-        double ncol[3], nrec[3];
-        for (int sp = 0; sp < 3; ++sp) {
-          ncol[sp] = rs.gcol[sp] * nsp[sp] * ne * dtsec_rt;
-          nrec[sp] = rs.alpha[sp + ia] * nsp_rec[sp] * ne * dtsec_rt;
-        }
-        if (s.recomb) {
-          // ground-state recombinations: case A - case B
-          // and, with recomb_rad_lines, the case-B ones (helium lines)
-          double nrB[3];
-          for (int sp = 0; sp < 3; ++sp) {
-            nrab[sp] = (rs.alpha[sp] - rs.alpha[sp + 3]) * nsp_rec[sp] * ne * dtsec_rt;
-            nrB[sp] = rs.alpha[sp + 3] * nsp_rec[sp] * ne * dtsec_rt;
-          }
-          recomb_count(s, c, nrab, s.cfg.recomb_rad_lines ? nrB : nullptr, tmp, u.vol_gas);
-        }
-
-        // Photoheating
-        double lam_pht[3];
-        for (int sp = 0; sp < 3; ++sp) {
-          double t = 0;
-          for (int inu = 0; inu < kNfreq; ++inu)
-            t += gamma_pht[sp][inu] * (nu[inu] - nu0[sp]) * eV2erg;
-          lam_pht[sp] = t;
-        }
-        const double heat_rate =
-            ((0.0 + lam_pht[0] * nHI) + lam_pht[1] * nHeI) + lam_pht[2] * nHeII;
-
-        // SN heating
-        double sn_rate;
-        if (tmp > 1e4 && rhog / u.rhob_avg > rho_source) {
-          const double d = rhog / u.rhob_avg;
-          const double x = f::max(1 - std::exp(-(d - rho_source) / rho_source), 0.0);
-          const double tdyn = std::sqrt(3 * pi / (32 * G_cgs * rhog));
-          sn_rate = x * eSN * eSF * rhog / tdyn * (c_cgs * c_cgs);
-        } else {
-          sn_rate = 0;
-        }
-
-        // Cooling
-        const double Tcmb = u.Tcmb;
-        double cool_rate;
-        if (s.cfg.legacy_physics) {
-          cool_rate = rs.cool[ia + 0] * ne * nHII + rs.cool[ia + 1] * ne * nHeII +
-                      rs.cool[ia + 2] * ne * nHeIII + rs.cool[6] * ne * nHI +
-                      rs.cool[7] * ne * nHeI + rs.cool[8] * ne * nHeII +
-                      rs.cool[9] * ne * nHI + rs.cool[10] * ne * nHeI +
-                      rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +
-                      rs.cool[13] * ne * (tmp - Tcmb) * f::pow4(Tcmb);
-        } else {
-          // P2/P3 (legacy_physics = 0): HeI collisional excitation (Cen 1992)
-          // scales as ne^2*nHeII; slot 15 is HeII dielectronic recombination
-          // cooling (Hui & Gnedin 1997), times ne*nHeII. Same term order as
-          // the Fortran, left to right.
-          cool_rate = rs.cool[ia + 0] * ne * nHII + rs.cool[ia + 1] * ne * nHeII +
-                      rs.cool[ia + 2] * ne * nHeIII + rs.cool[6] * ne * nHI +
-                      rs.cool[7] * ne * nHeI + rs.cool[8] * ne * nHeII +
-                      rs.cool[9] * ne * nHI + rs.cool[10] * ne * ne * nHeII +
-                      rs.cool[11] * ne * nHeII + rs.cool[12] * ne * nff +
-                      rs.cool[13] * ne * (tmp - Tcmb) * f::pow4(Tcmb) +
-                      rs.cool[14] * ne * nHeII + rs.cool[15] * ne * nHeI;
-        }
-
-        // Prevent overcooling/overheating
-        {
-          const double x = rhog / u.rhob_avg;
-          if (x > 200) {
-            cool_rate = cool_rate * f::pow2(200 / x);
-            sn_rate = sn_rate * std::pow(200 / x, 1.5);
-          }
-        }
-
-        const double net_rate = heat_rate + sn_rate - cool_rate;
-
-        if (net_rate > 0) {
-          eth = eth + net_rate * dtsec_rt;
-        } else if (net_rate < 0) {
-          eth = eth / (1 + std::log(1 - net_rate * dtsec_rt / eth));
-        }
-
-        tmp = (g - 1) * eth / k_cgs / neff;
-        if (tmp < u.temp_min) {
-          tmp = u.temp_min;
-          eth = neff * k_cgs * tmp / (g - 1);
-        }
-
-        // Update u_gas and w_gas
-        uu[4] = static_cast<float>(kin + eth / u.eden_unit);
-        if (ee) {
-          *ee = static_cast<float>(eth / u.eden_unit);
-          es = es + static_cast<double>(*ee);
-        }
-        ww[0] = static_cast<float>(f::min(f::max(nHI, 0.0), nH) / u.H_unit);
-        ww[1] = static_cast<float>(f::min(f::max(nHeI, 0.0), nHe) / u.He_unit);
-        ww[2] = static_cast<float>(f::min(f::max(nHeII, 0.0), nHe) / u.He_unit);
+        if (ee) es = es + static_cast<double>(*ee);
         for (int m = 0; m < 5; ++m) us[m] = us[m] + static_cast<double>(uu[m]);
         for (int m = 0; m < 4; ++m) ws[m] = ws[m] + static_cast<double>(ww[m]);
 
         // Update radiation on RT grid
-        float* gga = G.gamma_p(c);
-        float* gla = G.lambda_p(c);
         for (int sp = 0; sp < 3; ++sp) {
-          gga[sp] = static_cast<float>(static_cast<double>(gga[sp]) + gam_pht[sp] / Nc);
-          gla[sp] = static_cast<float>(static_cast<double>(gla[sp]) + lam_pht[sp] / Nc);
+          cr.gamma[sp] = static_cast<float>(static_cast<double>(cr.gamma[sp]) + st.gam[sp] / Nc);
+          cr.lambda[sp] = static_cast<float>(static_cast<double>(cr.lambda[sp]) + st.lam[sp] / Nc);
         }
 
         // Update RT statistics
         const double navg[3] = {u.nH_avg, u.nHe_avg, u.nHe_avg};
         for (int sp = 0; sp < 3; ++sp) {
-          sink.add(RPSink::kNion + sp, nion[sp] / navg[sp] / Ncell);
-          sink.add(RPSink::kNcol + sp, ncol[sp] / navg[sp] / Ncell);
-          sink.add(RPSink::kNrec + sp, nrec[sp] / navg[sp] / Ncell);
-          sink.add(RPSink::kNrab + sp, nrab[sp] / navg[sp] / Ncell);
-          sink.add(RPSink::kGamma + sp, gam_pht[sp] / Ncell);
-          sink.add(RPSink::kLambda + sp, lam_pht[sp] / Ncell);
+          sink.add(RPSink::kNion + sp, st.nion[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kNcol + sp, st.ncol[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kNrec + sp, st.nrec[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kNrab + sp, st.nrab[sp] / navg[sp] / Ncell);
+          sink.add(RPSink::kGamma + sp, st.gam[sp] / Ncell);
+          sink.add(RPSink::kLambda + sp, st.lam[sp] / Ncell);
         }
         // Thomson optical depth: physical c (and physical dt), also with
         // c_reduced < 1
-        sink.add(RPSink::kDtau, sT_cgs * ne * (c_cgs * dtsec_rt) / Ncell);
+        sink.add(RPSink::kDtau, st.dtau / Ncell);
       }
 
-      // Remaining photons -> fgam (numerator)
-      for (int n = 0; n < kNfreq; ++n)
-        gfg[n] = static_cast<float>(static_cast<double>(gfg[n]) + nrad[n] / u.vol_rt / u.nH_avg);
-
-      // Update gas on RT grid (no Dgas_min clamp here, as in the original)
-      for (int m = 0; m < 5; ++m) us[m] = us[m] / Nc;
-      for (int m = 0; m < 4; ++m) ws[m] = ws[m] / Nc;
-      const GasState gs = gas_state_from_avg(us, ws, u, false, s.gas.e.empty() ? -1.0 : es / Nc);
-      store_gas_state(G, c, gs, u);
-      // ---- end photo_cell ----
-
-      // Update radiation on RT grid
-      for (int m = 0; m < kNfreq; ++m) {
-        if (static_cast<double>(gng[m]) < u.ngam_min) {
-          gfg[m] = 0;
-          gng[m] = 0;
-        } else {
-          gfg[m] = gfg[m] / gng[m];
-          gng[m] = gng[m] * gfg[m];
-        }
-      }
+      // Remaining photons -> fgam, the gas on the RT grid, the transmitted
+      // fraction (photo_cell_finish)
+      rrk::photo_cell_finish(cr, nrad, us, ws, s.gas.e.empty() ? -1.0 : es, Nc, u);
     }
   }
 }
@@ -1394,7 +1167,12 @@ void rt_step_3(Simulation& s) {
     G.htoc[c * 4 + 1] = G.htoc[c * 4 + 3];
   }
   // (calc_gas_3: redshift of reionisation, zreion only -- not ported)
+  accumulate_rt_stats(s);
+}
 
+// rt_step_3: the per-hydro-step sums of the substep's rt_stat(1) and
+// ray_stat(1) (also called by the AMReX backend after its substep)
+void accumulate_rt_stats(Simulation& s) {
   RTStat& sv = s.rt_save;
   const RTStat& st = s.rt_stat;
   sv.nsfill = 0;
@@ -1479,10 +1257,16 @@ std::int64_t count_live_rays(const Simulation& s) {
 }
 
 double ngam_rays_total(const Simulation& s) {
-  // Live rays = those linked in the cell chains. Summed in storage order
-  // over slots with nside > 0; valid after post_rt (dead slots zeroed).
   // rt_method = m1 | otvet: the photons of the moment solver
   if (use_moments(s.cfg)) return moment_photons_total(s);
+  // rt_backend = amrex: the fixed-point sum over the level's rays
+  if (use_amrex(s.cfg)) return s.ngam_total_backend;
+  return ngam_rays_total_serial(s);
+}
+
+double ngam_rays_total_serial(const Simulation& s) {
+  // Live rays = those linked in the cell chains. Summed in storage order
+  // over slots with nside > 0; valid after post_rt (dead slots zeroed).
   double t = 0;
   if (s.cfg.det_parallel) {
     // deterministic_parallel: storage slots depend on thread timing; sum in

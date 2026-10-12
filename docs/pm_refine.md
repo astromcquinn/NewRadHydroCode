@@ -345,7 +345,7 @@ per hydro step after the first zdata1 output (z = 15 in production).
 * `write_catalogs` writes a catalog only when the FoF runs.
 * stdout says `(FoF)` or `(reused, FoF x Myr ago)`.
 * `timing.txt` ends with `# fof_dt_myr … fof_calls … reused …`.
-* Checkpoint version 5 holds the cache (halos, time of the last FoF,
+* Checkpoint version 7 holds the cache (halos, time of the last FoF,
   vel_unit, Σ dt_sim), so restarts stay bit-identical. Versions 1–4 are
   read with an empty cache, so the next update runs the FoF.
 * Tests: `thread_full_fof_cadence` and `restart_smoke_fof_cadence`

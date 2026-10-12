@@ -2,6 +2,8 @@
 #include "radray/checkpoint.hpp"
 
 #include "radray/recomb_rad.hpp"
+#include "radray/rt.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
 #include <cstdio>
@@ -24,9 +26,26 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // Version 4 (recomb_rad = 1, docs/recomb_radiation.md): the recombination
 // photon buffers, on-the-spot counts, cell modes and budget before the
 // trailer (empty when off).
-// Version 5 (fof_dt_myr, docs/pm_refine.md): the on-the-fly FoF cache
-// before the trailer (empty when off). Versions 1-4 are read as "no cache".
-constexpr std::int32_t kVersion = 5;
+// Version 5 (Stage D, docs/stage_d.md): the ray storage layout is
+// rrk::RayP + links (the links moved from between ipix and r to the end;
+// versions <= 4 are converted on reading), and the AMReX backend's section
+// (rt_backend, then its rays gathered on rank 0) before the trailer.
+// Version 6 (docs/rt_multicell.md): rt_cells_per_substep before the
+// trailer (versions <= 5: 1). The substep carry rt_carry of the clock is in
+// substeps of that many cells; a restart with another value converts it.
+// Version 7 (fof_dt_myr, docs/pm_refine.md): the on-the-fly FoF cache
+// before the trailer (empty when off). Versions <= 6 are read as "no cache".
+constexpr std::int32_t kVersion = 7;
+
+// The ray layout of versions <= 4
+struct RayV4 {
+  std::int32_t nside, ipix;
+  std::int32_t next, prev;
+  float r, dr;
+  float x[3], dx[3];
+  float nu[kNfreq], ngam[kNfreq];
+};
+static_assert(sizeof(RayV4) == sizeof(Ray), "RayV4 layout");
 
 struct Out {
   std::ofstream f;
@@ -50,6 +69,14 @@ struct In {
   void pod(T& x) {
     static_assert(std::is_trivially_copyable<T>::value, "POD only");
     f.read(reinterpret_cast<char*>(&x), sizeof x);
+    if (!f) throw std::runtime_error("checkpoint truncated: " + path);
+  }
+  // skips a vector written by Out::vec
+  template <class T>
+  void skip_vec() {
+    std::int64_t n = 0;
+    pod(n);
+    f.seekg(static_cast<std::streamoff>(n * static_cast<std::int64_t>(sizeof(T))), std::ios::cur);
     if (!f) throw std::runtime_error("checkpoint truncated: " + path);
   }
   template <class T>
@@ -82,6 +109,11 @@ void ray_stat_io(IO& io, RS& r) {
 
 void write_checkpoint(const std::string& path, const Simulation& s, const HydroState& hs,
                       const pm::PMState& pm, const DriverState& d) {
+  // rt_backend = amrex: the rays live on the level; gather them on rank 0
+  // (collective: every rank calls this function, only io_rank() writes)
+  std::vector<rrk::RayP> brays;
+  if (use_amrex(s.cfg)) amrex_rt_gather_rays(s, brays);
+  if (!io_rank()) return;
   const std::string tmp = path + ".tmp";
   {
     Out o;
@@ -177,7 +209,15 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.vec(Rc ? Rc->mode : none8);
     const double rbud[3] = {Rc ? Rc->launched : 0, Rc ? Rc->dropped : 0, Rc ? Rc->onspot : 0};
     o.pod(rbud);
-    // FoF cache (version 5)
+    // AMReX backend (version 5): its rays in the float layout
+    const std::int32_t backend = static_cast<std::int32_t>(s.cfg.rt_backend);
+    o.pod(backend);
+    o.vec(brays);
+    o.pod(s.ngam_total_backend);
+    // rt_cells_per_substep (version 6)
+    const std::int32_t cells = s.cfg.rt_cells_per_substep;
+    o.pod(cells);
+    // FoF cache (version 7)
     const FofCache& fc = s.fof;
     const std::int32_t fvalid = fc.valid ? 1 : 0;
     o.pod(fvalid);
@@ -242,9 +282,37 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   std::int64_t hwm = 0;
   in.pod(hwm);
   if (hwm > R.Nray_max) throw std::runtime_error("checkpoint: ray high-water mark > Nray_max");
-  if (hwm > 0) {
+  // rt_backend = amrex: only rank 0 needs the serial rays (they go to the
+  // level through rank 0); the other ranks skip them
+  const bool skip_rays = use_amrex(s.cfg) && !io_rank();
+  if (hwm > 0 && skip_rays) {
+    in.f.seekg(static_cast<std::streamoff>(hwm * static_cast<std::int64_t>(sizeof(Ray))), std::ios::cur);
+    if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+  } else if (hwm > 0) {
     in.f.read(reinterpret_cast<char*>(&R.ray[1]), static_cast<std::streamsize>(hwm * sizeof(Ray)));
     if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+    if (ver <= 4) {
+      // the links sat between ipix and r
+      for (std::int64_t ir = 1; ir <= hwm; ++ir) {
+        RayV4 o;
+        std::memcpy(&o, &R.ray[ir], sizeof o);
+        Ray& r = R.ray[ir];
+        r.nside = o.nside;
+        r.ipix = o.ipix;
+        r.next = o.next;
+        r.prev = o.prev;
+        r.r = o.r;
+        r.dr = o.dr;
+        for (int d = 0; d < 3; ++d) {
+          r.x[d] = o.x[d];
+          r.dx[d] = o.dx[d];
+        }
+        for (int n = 0; n < kNfreq; ++n) {
+          r.nu[n] = o.nu[n];
+          r.ngam[n] = o.ngam[n];
+        }
+      }
+    }
   }
   R.det_set_hwm(hwm);
   in.vec(R.ray_index_);
@@ -316,8 +384,57 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   } else if (s.cfg.recomb_rad) {
     throw std::runtime_error("checkpoint has no recombination radiation state: " + path);
   }
-  s.fof = FofCache{};
+  std::int32_t backend = 0;
+  std::vector<rrk::RayP> brays;
   if (ver >= 5) {
+    in.pod(backend);
+    if (skip_rays)
+      in.skip_vec<rrk::RayP>();
+    else
+      in.vec(brays);
+    in.pod(s.ngam_total_backend);
+  }
+  if (backend == 0 && use_amrex(s.cfg)) {
+    // A serial (legacy_rt = 0) checkpoint restarted on the backend: the
+    // live rays of the serial chains go to the level (the timing and
+    // scaling runs restart production checkpoints this way; the result is
+    // the backend's, not the serial continuation). The serial pool is then
+    // released.
+    if (s.cfg.legacy_rt) throw std::runtime_error("rt_backend = amrex needs a legacy_rt = 0 checkpoint");
+    brays.clear();
+    double tot = 0;
+    if (!skip_rays) {
+      for (std::int64_t c = 0; c < G.ncell; ++c)
+        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = R.at(ir).next) brays.push_back(R.at(ir));
+      tot = ngam_rays_total_serial(s);
+    }
+    // (rank 0 writes the outputs and checkpoints; the other ranks keep 0
+    // until the next post_rt sets the reduced total on every rank)
+    s.ngam_total_backend = tot;
+    R.init(R.Nray_max, R.Nfree_max);
+    std::fill(G.htoc.begin(), G.htoc.end(), 0);
+    R.Nray = static_cast<std::int64_t>(brays.size());
+  } else if (backend != static_cast<std::int32_t>(s.cfg.rt_backend)) {
+    throw std::runtime_error("checkpoint was written with rt_backend = " +
+                             std::string(backend ? "amrex" : "serial") + ", this run has " +
+                             rt_backend_summary(s.cfg));
+  }
+  if (use_amrex(s.cfg)) amrex_rt_scatter_rays(s, brays);
+  std::int32_t cells = 1;
+  if (ver >= 6) in.pod(cells);
+  if (cells < 1) throw std::runtime_error("checkpoint: bad rt_cells_per_substep: " + path);
+  if (cells != s.cfg.rt_cells_per_substep) {
+    // rt_carry counts light substeps of `cells` RT cells; this run's
+    // substeps cross rt_cells_per_substep cells
+    s.clk.rt_carry = s.clk.rt_carry * cells / s.cfg.rt_cells_per_substep;
+    if (io_rank())
+      std::fprintf(stderr,
+                   " read_checkpoint: rt_cells_per_substep changes from %d to %d at this restart "
+                   "(substep carry converted)\n",
+                   static_cast<int>(cells), s.cfg.rt_cells_per_substep);
+  }
+  s.fof = FofCache{};
+  if (ver >= 7) {
     std::int32_t fvalid = 0;
     double fd[3];
     std::int64_t fn[2];

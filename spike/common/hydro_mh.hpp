@@ -14,7 +14,7 @@
 // (docs/ROADMAP.md section 5); it is NOT the original's split TVD scheme.
 #pragma once
 
-#include "rr_hd.hpp"
+#include "radray/kernels/rr_hd.hpp"
 
 namespace rrh {
 

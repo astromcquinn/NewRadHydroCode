@@ -23,6 +23,7 @@ the original behaviour:
 | `fof_dt_myr` | 0 | run the on-the-fly FoF only when ≥ this many Myr have passed since the last one; in between reuse its halos (drifted, sources re-assigned at the current z); 0: every hydro step (`docs/pm_refine.md` §5); `make_production.py --fof-dt-myr` |
 | `ra_max` | the original 0.1 | max expansion per hydro step, da/a ≤ ra_max/(1−ra_max) (`legacy_rt = 0` only) |
 | `movie_dz`, `movie_z0`, `movie_fields` | 0, first zdata1, `fHI,temp` | movie frames every `movie_dz` in redshift, written from inside the RT substeps (section 4) |
+| `movie_slab`, `movie_slab_axes` | 0, `xyz` | t > 0: write only the slabs of t cells through the box centre normal to each axis listed, instead of the full cube (`docs/movies.md`, "Slab frames"); 0: the full cube |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
@@ -132,6 +133,7 @@ detail:
   would silently change the running production runs. It is recorded in the
   `rt_driver` log (`z_per_dist`), the `radhydro` summary line (when set)
   and the `ray_dump` json; `make_production.py --redshift-per-distance 1`
+  (its default since 2026-10-11, user decision; the code default stays 0)
   writes it.
 * Not changed: the emission, Γ in the optically thin limit and everything
   else in the table above. The radiation's redshift **per unit time** is
@@ -298,6 +300,10 @@ at the end of the hydro step). Disk: 2·4N³ B per frame: 0.4 GB (N = 64),
 movie tool, `tools/movies/make_movie.py` (`docs/movies.md`). Frames
 written before the first RT step carry an uninitialised rt_grid (fHI =
 rhog = 0, x_HII,M = nan in frames.txt); the movie tool skips them.
+
+At N ≥ 256 set `movie_slab = 8` (`make_production.py --movie-slab 8`): each
+frame then holds three 8-cell slabs per field instead of the cube, 25 MB
+instead of 512 MB per field at 512³ (`docs/movies.md`, "Slab frames").
 
 ## 5. Measured runs, cost and timing table
 
