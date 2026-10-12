@@ -26,10 +26,10 @@ docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
 
 Movie disk: a full-cube frame takes 4N^3 B per field (512 MB at 512^3).
 --movie-slab t writes only the three slabs of t cells through the box
-centre instead (movie_slab = t: 3 x t x N^2 x 4 B per field, 25 MB at
-512^3 with t = 8), which is all that make_movie.py, stills.py and reion.py need
-(docs/movies.md, "Slab frames"). Recommended: --movie-slab 8 for
-N >= 256. Default 0: full cubes (no line written).
+centre instead (movie_slab = t: 3 x t x N^2 x 4 B per field, 3.1 MB at
+512^3 with t = 1), which is all that make_movie.py, stills.py and reion.py need
+(docs/movies.md, "Slab frames"). Default since 2026-10-12 (user): t = 1, the
+three central planes (the movies show one plane); 0: full cubes.
 """
 import argparse
 import os
@@ -52,13 +52,18 @@ def main():
     ap.add_argument("--movie-fields", default="fHI,temp,rhog",
                     help="rt_grid fields per movie frame (tools/movies/make_movie.py uses "
                          "fHI, temp, rhog); 4N^3 B each per frame")
-    ap.add_argument("--movie-slab", type=int, default=0,
+    ap.add_argument("--movie-slab", type=int, default=1,
                     help="movie frames hold only slabs of this many cells normal to x, y and z "
-                         "through the box centre (movie_slab; recommended 8 for N >= 256); "
-                         "0: full cubes")
+                         "through the box centre (movie_slab; default 1: the three central "
+                         "planes; more cells allow thin projections); 0: full cubes")
     ap.add_argument("--ra-max", type=float, default=0.0,
                     help="max da/a per hydro step as ra_max/(1-ra_max); 0: original 0.1")
-    ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5 5")
+    ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5 5",
+                    help="snapshot redshifts; the RT (sources) starts at the first one, so start "
+                         "at >= 15")
+    ap.add_argument("--fields", default="fHI,fHeI,fHeII,temp,rhog,gamma",
+                    help="step_NNNN field files at each zdata1 output; gammaHI writes only the "
+                         "HI photoionization rate (1 float per cell, gamma has 3)")
     ap.add_argument("--no-ics", action="store_true", help="params.txt only")
     ap.add_argument("--am-params", default="",
                     help="am_params.txt from apps/am_fit: abundance-matched sources "
@@ -73,6 +78,26 @@ def main():
                          "(tools/analysis/emissivity.py); 0: constant f_esc")
     ap.add_argument("--f-esc-z0", type=float, default=6.0)
     ap.add_argument("--restart-every", type=int, default=1)
+    ap.add_argument("--recomb-case", default="A", choices=("A", "B"),
+                    help="recombination case (docs/recomb_radiation.md); production default "
+                         "since 2026-10-11: A with the recombination radiation transported "
+                         "(--recomb-rad 1); B: on the spot, the original")
+    ap.add_argument("--recomb-rad", type=int, default=1, choices=(0, 1),
+                    help="transport the ground-state recombination photons (case A only)")
+    ap.add_argument("--recomb-rad-block", type=int, default=4,
+                    help="rays: recombination emission gathered over b^3 RT cells (4: 79%% "
+                         "launched at 78 kpc/h cells, docs/recomb_radiation.md section 4.1)")
+    ap.add_argument("--recomb-rad-cell-onspot", type=float, default=1.0,
+                    help="rays: cells with optical depth > tau at the HI edge keep their "
+                         "recombination photons on the spot (recomb_rad_cell_onspot; default 1, "
+                         "docs/rt_methods_512.md); 0: off")
+    ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
+                    help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
+                         "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
+                         "the source-start mean free path)")
+    ap.add_argument("--restart-keep", type=int, default=0,
+                    help="keep the newest n numbered checkpoints (restart_keep); 0: one "
+                         "checkpoint.bin, rewritten (no line written)")
     ap.add_argument("--ray-rotate", type=int, default=3, choices=(0, 1, 2, 3),
                     help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
                          "3: every RT substep and source (production), 0: the original")
@@ -97,6 +122,9 @@ def main():
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
                  f"int32 ray links (rays.hpp); use at most {(2 ** 31 - 1) // a.N ** 3}")
+    if float(a.zdata1.split()[0]) < 15:
+        print(f"warning: --zdata1 starts at {a.zdata1.split()[0]}: the RT starts at the first "
+              f"zdata1 redshift, so sources before it do not shine; start the list at >= 15")
     os.makedirs(a.outdir, exist_ok=True)
     ics = os.path.join(a.outdir, "ics")
     if not a.no_ics and not os.path.exists(os.path.join(ics, "u_gas.init")):
@@ -128,10 +156,18 @@ def main():
         f"movie_fields = {a.movie_fields}",
     ] + ([f"movie_slab = {a.movie_slab}"] if a.movie_slab > 0 else []) + [
         f"restart_every = {a.restart_every}",
+    ] + ([f"restart_keep = {a.restart_keep}"] if a.restart_keep > 0 else []) + [
         "fields_at_data1 = 1",
-        "fields = fHI,fHeI,fHeII,temp,rhog,gamma",
-        "data_files = norays",
+        f"fields = {a.fields}",
+        f"data_files = {a.data_files}",
+        f"recomb_case = {a.recomb_case}",
     ]
+    if a.recomb_case == "A" and a.recomb_rad:
+        lines += ["recomb_rad = 1", f"recomb_rad_block = {a.recomb_rad_block}"]
+        if a.recomb_rad_cell_onspot > 0:
+            lines.append(f"recomb_rad_cell_onspot = {a.recomb_rad_cell_onspot:g}")
+    elif a.recomb_rad and a.recomb_case == "B":
+        sys.exit("--recomb-rad 1 needs --recomb-case A (case B already absorbs them on the spot)")
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")

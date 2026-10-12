@@ -55,6 +55,12 @@ bool set_recomb_param(Config& c, const std::string& key, const std::string& val)
     if (c.recomb_rad_block < 1) throw std::runtime_error("recomb_rad_block must be >= 1");
     return true;
   }
+  if (key == "recomb_rad_cell_onspot") {
+    c.recomb_rad_cell_onspot = std::stod(val);
+    if (!(c.recomb_rad_cell_onspot >= 0))
+      throw std::runtime_error("recomb_rad_cell_onspot must be >= 0 (an optical depth; 0: off)");
+    return true;
+  }
   if (key == "recomb_rad_pool") {
     c.recomb_rad_pool = std::stod(val);
     if (!(c.recomb_rad_pool > 0 && c.recomb_rad_pool < 0.9))
@@ -71,6 +77,7 @@ void copy_recomb_param(const Config& from, Config& to) {
   to.recomb_rad_nside = from.recomb_rad_nside;
   to.recomb_rad_block = from.recomb_rad_block;
   to.recomb_rad_pool = from.recomb_rad_pool;
+  to.recomb_rad_cell_onspot = from.recomb_rad_cell_onspot;
 }
 
 void check_recomb_param(const Config& c) {
@@ -443,7 +450,18 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
         const std::uint8_t m = launch ? 1 : 0;
         for (int k = 0; k < b; ++k)
           for (int j = 0; j < b; ++j)
-            for (int i = 0; i < b; ++i) Rc.mode[cell_in(bi, bj, bk, i, j, k)] = m;
+            for (int i = 0; i < b; ++i) {
+              const std::int64_t c = cell_in(bi, bj, bk, i, j, k);
+              std::uint8_t mc = m;
+              if (mc && s.cfg.recomb_rad_cell_onspot > 0) {
+                // recomb_rad_cell_onspot = tau: a cell optically thick at
+                // the HI edge (group 1, where the HI recombination photons
+                // are) reabsorbs its own recombination photons (case B),
+                // whatever its block does
+                if (static_cast<double>(G.tau_p(c)[0]) > s.cfg.recomb_rad_cell_onspot) mc = 0;
+              }
+              Rc.mode[c] = mc;
+            }
       }
 
   const double norm = 1.0 / static_cast<double>(s.cfg.Nrtc);

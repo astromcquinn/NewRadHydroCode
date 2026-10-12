@@ -24,6 +24,7 @@ radhydro  <problem> <out> --set rt_method=m1 --set recomb_case=A --set recomb_ra
 | `recomb_rad_nside` | 1 (default), 2, 4 | Rays only: HEALPix nside of a recombination emission, 12·nside² rays |
 | `recomb_rad_block` | integer dividing N, default 2 | Rays only: emission is gathered over blocks of b³ RT cells |
 | `recomb_rad_pool` | (0, 0.9), default 0.75 | Rays only: recombination rays are launched only while the live rays stay below this fraction of `Nray_max` |
+| `recomb_rad_cell_onspot` | τ ≥ 0, default 0 (off) | Rays only: a cell with optical depth > τ at the HI edge keeps its recombination photons on the spot (case B) even when its block launches. Without it a dense cell loses its photons to the block's emitting cell and can self-shield spuriously (`docs/rt_methods_512.md` §6c); `make_production.py` writes 1 |
 
 The three meaningful combinations are:
 - **case B** (the original): ground-state recombination photons are absorbed

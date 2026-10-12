@@ -50,7 +50,8 @@ def main():
         # measured with (docs/stage_d.md section 4), before make_production.py's production
         # defaults became unsplit and per distance (2026-10-11)
         run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
-             "--movie-dz", "0", "--hydro-scheme", "legacy", "--redshift-per-distance", "0"],
+             "--movie-dz", "0", "--hydro-scheme", "legacy", "--redshift-per-distance", "0",
+             "--recomb-case", "B", "--recomb-rad", "0"],  # recomb_rad: serial RT only
             os.path.join(work, "make.log"))
     common = ["--quiet", "--set", "restart_every=0", "--set", "movie_dz=0.25", "--set", "movie_z0=15"]
     runs = {"serial": [exe, prob, os.path.join(work, "serial")] + common,

@@ -36,7 +36,10 @@ ZFIX = [10, 9, 8, 7.5, 7, 6.5, 6, 5.5]
 
 
 def read(run):
-    d = np.genfromtxt(os.path.join(run, "movie", "frames.txt"), comments="#")
+    # the first 6 columns (later lines may carry the Gamma_HI columns too)
+    rows = [l.split()[:6] for l in open(os.path.join(run, "movie", "frames.txt"))
+            if l.strip() and not l.lstrip().startswith("#")]
+    d = np.array(rows, dtype=float).reshape(-1, 6)
     d = d[np.isfinite(d[:, 5])]
     return d[:, 3], d[:, 4], d[:, 5]  # z, x_V, x_M (z decreasing)
 
