@@ -38,7 +38,10 @@ Metrics, S0-weighted over the cells of each regime:
   noise the same distance between the odd- and even-substep h_true / 2
 The block metrics use the tensors summed over --block^3 cells (S0 h) before
 normalising: the large-scale tensor that sets P_Gamma at low k, nearly free
-of ray noise.
+of ray noise. Scale by scale: the radiation force D = div(S0 h), the only
+way the closure enters the flux equation; per k bin (factors of 2 from the
+fundamental) the error power |D_c - D_true|^2 / |D_true|^2 and the
+cross-correlation with the truth.
 
 --moment RUNSTEP:label adds a moment run's own tensor.bin at the nearest
 redshift (a posteriori; its own N, so cell-by-cell only where the
@@ -343,6 +346,54 @@ def main():
             if not m.any():
                 continue
             out("%-24s " % r + " ".join("%10.3f" % wmean(aniso(cl[k]), S0, m) for k in names))
+        # scale by scale: the radiation force div(N h) that drives the flux
+        # in the moment equations; error spectrum |D_c - D_true|^2 / |D_true|^2
+        # and the cross-correlation r(k), in k bins [h/Mpc] (box from params)
+        Pt_hat = [sfft.rfftn(P[..., m], workers=a.workers) for m in range(6)]
+        kf = 2 * np.pi * np.fft.fftfreq(N)  # rad per cell
+        kr = 2 * np.pi * np.fft.rfftfreq(N)
+        KZ, KY, KX = np.meshgrid(kf, kf, kr, indexing="ij")
+        kmag = np.sqrt(KX ** 2 + KY ** 2 + KZ ** 2)
+        idx = {(0, 0): 0, (1, 1): 1, (2, 2): 2, (0, 1): 3, (1, 0): 3, (0, 2): 4, (2, 0): 4, (1, 2): 5, (2, 1): 5}
+        kv = (KX, KY, KZ)
+
+        def divP(Ph):
+            return [sum(1j * kv[j] * Ph[idx[(i, j)]] for j in range(3)) for i in range(3)]
+        Dt = divP(Pt_hat)
+        del Pt_hat
+        boxl = a.box
+        if boxl is None:
+            for line in open(os.path.join(d, "..", "..", "params.txt")):
+                t = line.split("=")
+                if len(t) == 2 and t[0].strip() == "box":
+                    boxl = float(t[1])
+        kunit = N / boxl  # grid k (rad/cell) -> h/Mpc
+        kb = np.array([0.5, 1, 2, 4, 8, 16, 32, 64]) * 2 * np.pi / N * 2
+        kb = kb[kb < np.pi * np.sqrt(3)]
+        mult = np.where(KX == 0, 1.0, 2.0)
+        out("radiation force div(S0 h): error power / true power by k (and r(k) with the truth)")
+        hdrk = "%-16s" % "k [h/Mpc]" + " ".join("%9.2f" % (0.5 * (kb[i] + kb[i + 1]) * kunit) for i in range(len(kb) - 1))
+        out(hdrk)
+        tpow = []
+        for i in range(len(kb) - 1):
+            mk = (kmag >= kb[i]) & (kmag < kb[i + 1])
+            tpow.append(sum((mult * np.abs(Dt[q]) ** 2)[mk].sum() for q in range(3)))
+        for k_ in names:
+            Pc_hat = [sfft.rfftn(S0 * cl[k_][..., m], workers=a.workers) for m in range(6)]
+            Dc = divP(Pc_hat)
+            del Pc_hat
+            row_e, row_r = [], []
+            for i in range(len(kb) - 1):
+                mk = (kmag >= kb[i]) & (kmag < kb[i + 1])
+                e = sum((mult * np.abs(Dc[q] - Dt[q]) ** 2)[mk].sum() for q in range(3))
+                cc = sum((mult * (Dc[q] * np.conj(Dt[q])).real)[mk].sum() for q in range(3))
+                pc = sum((mult * np.abs(Dc[q]) ** 2)[mk].sum() for q in range(3))
+                row_e.append(e / tpow[i] if tpow[i] > 0 else np.nan)
+                row_r.append(cc / np.sqrt(pc * tpow[i]) if pc * tpow[i] > 0 else np.nan)
+            out("%-16s" % k_[:16] + " ".join("%9.3f" % v for v in row_e))
+            out("%-16s" % ("  r") + " ".join("%9.3f" % v for v in row_r))
+            del Dc
+        del Dt, KX, KY, KZ, kmag, mult
         # block level
         b = a.block
         S0b = block_sum(S0, b)
