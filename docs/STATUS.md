@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-11: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24)
 
@@ -779,8 +779,9 @@ Fortran, restart and thread tests) and nightly label, all passing.
 - On klone 8 RT stored-reference tests fail by 1 ulp in double sums and by
   rays at the removal threshold; the live gfortran harness built there shows
   the same differences and agrees with the C++ byte for byte. The stored RT
-  references are platform-dependent (libm). Decision needed: regenerate
-  them per platform, or compare the double sums with a tolerance.
+  references are platform-dependent (libm). Decided 2026-10-12: skip them
+  on klone (label `platform_ref`, left out by `tools/hyak/build_hyak.sh`);
+  CI keeps running them.
 - B16 (PR #12, `docs/port_notes.md`): the fixed HEALPix frame leaves a photon deficit
   along ±x/±y from every source. Fixed behind `ray_rotate` (2026-10-10).
   A fixed global rotation was not enough; the frame has to change every
@@ -1010,16 +1011,18 @@ In the cloud (branch + PR each):
    > docs/STATUS.md, docs/PLAN.md (decisions taken) and CLAUDE.md's layout
    > table, and open the PR.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
-8. Smaller: the stored-RT-reference platform policy; the 2 % growth
+8. Smaller: ~~the stored-RT-reference platform policy~~ decided
+   2026-10-12 (skip on klone, label `platform_ref`); the 2 % growth
    deficit; ~~the unsplit open items (Sedov radius convergence, cold-gas
    time-step sensitivity at 128³)~~ done (`docs/hydro_unsplit.md` §6,
    both converge); the AMReX multi-node hydro anomaly
    (`docs/framework_decision.md` §3.3).
 
-**Decisions needed from the user:** the stored-reference policy on klone;
-the OTVET formulation question below. (`hydro_scheme = unsplit` and
-`redshift_per_distance = 1` for production: decided 2026-10-11,
-`docs/PLAN.md`.)
+**Decisions needed from the user:** none open from the merge thread.
+Decided 2026-10-11/12 (`docs/PLAN.md`): `hydro_scheme = unsplit` and
+`redshift_per_distance = 1` for production; M1/OTVET for comparison only,
+with our explicit OTVET kept as it is; the stored RT references that
+differ on klone are skipped there (label `platform_ref`).
 
 ## Next
 
@@ -1079,12 +1082,6 @@ the OTVET formulation question below. (`hydro_scheme = unsplit` and
    - adaptive RT.
 
 ## Open questions for the user
-
-- Moment RT: M1 and OTVET are for comparison only (user, 2026-10-11;
-  `docs/PLAN.md`). Still open: whether our OTVET (the explicit
-  time-dependent two-moment system with the OTVET tensor) should follow a
-  specific published formulation (Gnedin & Abel 2001, Petkova & Springel
-  2009, ...; `docs/rt_moments.md` §5); that needs the paper.
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see
