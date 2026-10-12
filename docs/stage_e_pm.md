@@ -245,7 +245,38 @@ for the RT) is the right nightly check and is not added here.
 time per step on the 4-core VM (OpenMPI 4.1.6, `--bind-to none`), serial
 PM (`src/pm.cpp`, OpenMP) against the backend:
 
-TIMING_TABLE
+| `particle_mesh` per step [s] | 128³ (2.1 M particles) | 256³ (16.8 M) |
+|---|---|---|
+| serial PM, 4 threads | 0.39 | 2.74 |
+| serial PM, 1 thread | 0.83 | 7.16 |
+| backend, 1 rank × 4 threads, 32³ boxes | 0.44 | 2.74 |
+| backend, 2 ranks × 2 threads, 32³ boxes | 0.61 | 4.55 |
+| backend, 4 ranks × 1 thread, 32³ boxes | 1.02 | 8.14 |
+| backend, 4 × 1, 16³ boxes | 1.04 | 7.60 |
+| backend, 4 × 1, 64³ boxes | 1.02 | 7.43 |
+| backend, 1 rank × 1 thread, 32³ boxes | 0.85 | 7.07 |
+| backend, 4 × 1, 32³ boxes, `amrex_pm_fft = amrex` | 0.91 | 7.14 |
+
+(`pm_driver`'s outputs are 1.3 GB per step at 256³; the runs were timed
+with the disk free, after a first set that filled it and doubled the
+copy-out times.)
+
+On one rank the backend matches the serial OpenMP PM at 256³ and costs
+10 % more at 128³; on one thread it matches the serial code. With more
+ranks it gets slower, not faster: every rank walks the full host particle
+array to pick its own particles (`prep`, about 1.5 s per step at 256³) and
+the gathers all-reduce 340 MB per step (the DM velocities and the gas),
+so at 4 ranks the copy in and out costs more than the whole serial step.
+The compute phases themselves (deposit, FFT, force, kicks) scale with the
+ranks: PHASES
+
+This is the price of Stage E2's MPI model (the full state on every rank),
+not of the level. When the particles stay on the level (the drifts and a
+`Redistribute` there, the halo finder and the checkpoint reading the
+container), `prep` disappears and the gather shrinks to the gas kick; the
+distributed hydro of E1 removes the latter too. `amrex_pm_fft = amrex` is
+10 % faster than the pencil transform at 4 ranks (its `plan_many`
+transforms and fewer copies).
 
 ## 5. Findings and traps
 

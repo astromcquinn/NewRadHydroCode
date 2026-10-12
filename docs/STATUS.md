@@ -40,7 +40,13 @@ holds no state between steps (checkpoints unchanged).
   force round-off (1e-6 of the maximum) to 2e-5 in T_V by step 15 (the RT
   backend's round-off: 1e-8–3e-7); a 64³ production-configuration nightly
   comparison is the right check and is not added yet.
-- **Timing (4-core VM, `pm_driver`, 3 steps, Ngas = Ndm):** TIMING_STATUS
+- **Timing (4-core VM, `pm_driver`, 3 steps, Ngas = Ndm):** per step, serial PM on 4 threads
+  0.39 s (128³) / 2.74 s (256³); backend 1 rank × 4 threads 0.44 / 2.74 s,
+  1 × 1 0.85 / 7.07 s (serial 1 thread 0.83 / 7.16 s), 4 ranks × 1 thread
+  1.02 / 8.1 s. On one rank the backend matches the serial OpenMP PM; more
+  ranks cost more because every rank walks the full host particle array
+  and the gathers all-reduce 340 MB per step at 256³ (the Stage E2 model
+  of a full host state, not the level).
 - **Not done / open:** the particles staying on the level between steps
   (needs E1 and the end of the redundant host state); E3–E6; the GPU
   build (plain OpenMP loops here).
