@@ -280,10 +280,21 @@ RR_HD void post_cell(CellData& c, const radray::Units& u, const double sig[3][5]
 // the recombination-radiation buffer (recomb_count).
 // ---------------------------------------------------------------------------
 
+constexpr int kPhotonIterMax = 1000;  // photon_conserve: iteration cap of photo_gas_cell
+
 struct PhysCtx {
   radray::Units u;
   RatesView rates;
   double dtsec_rt = 0;
+  // rt_cells_per_substep (docs/rt_multicell.md): a ray crosses this many RT
+  // cells per substep, so the photons deposited in a cell (its share of the
+  // ray's path) cross it at cells*len_rt/dtsec_rt. 1 is the original.
+  int cells = 1;
+  // B17 fix (photon_conserve, docs/rt_multicell.md): iterate the ionisation
+  // balance until the photon limit holds in every frequency group (at most
+  // kPhotonIterMax iterations), not only until ne converges (at most 5, the
+  // original). false is the original.
+  bool photon_conserve = false;
   // recomb_case = A: ia = 0 (alpha_rec(1:3), coef_cool(1:3)); B (the
   // original): 3. The host lowers it to 3 for cells on the spot
   // (recomb_rad). want_nrab: count the ground-state recombinations
@@ -418,7 +429,7 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   double gamma_pht[3][5], gamma_max[3][5];
   for (int inu = 0; inu < 5; ++inu)
     for (int sp = 0; sp < 3; ++sp)
-      gamma_pht[sp][inu] = ngam[inu] * sigma_pht[sp][inu] * (u.len_rt / dtsec_rt);
+      gamma_pht[sp][inu] = ngam[inu] * sigma_pht[sp][inu] * (u.len_rt * X.cells / dtsec_rt);
   for (int sp = 0; sp < 3; ++sp)
     for (int inu = 0; inu < 5; ++inu) gamma_max[sp][inu] = gamma_pht[sp][inu];
   double gam_pht[3];
@@ -431,12 +442,23 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   };
   sum_dim2(gam_pht);
 
-  // Implicit solution for ionisation balance
+  // Implicit solution for ionisation balance. B17: the photon limit below
+  // rescales gamma_pht after the densities were computed with the previous
+  // rates, and the loop ends when ne has converged or after 5 iterations.
+  // In a photon-starved cell with gamma*dt >> 1 every iteration ionises the
+  // cell almost fully, so ne "converges" while the rates still exceed the
+  // photons: the cell is ionised by photons it was not given (a few per cent
+  // of the ionisations in dense fronts; the error grows with gamma_max*dt,
+  // as k^2 with rt_cells_per_substep = k). photon_conserve = 1 iterates
+  // until no group is limited by more than 1e-3 as well.
   int n = 0;
   double ne_prev = static_cast<double>(3.40282346638528859812e+38F);  // huge(0.)
   double nH1 = 0, nHe1 = 0, nHe2 = 0;
-  while (std::fabs(ne / ne_prev - 1) > static_cast<double>(1e-3f) && n < 5) {
+  bool limited = false;
+  const int nit_max = X.photon_conserve ? kPhotonIterMax : 5;
+  while ((std::fabs(ne / ne_prev - 1) > static_cast<double>(1e-3f) || limited) && n < nit_max) {
     n = n + 1;
+    limited = false;
     ne_prev = ne;
     const double AH2 = rs.alpha[ia + 0] * ne * dtsec_rt;
     const double AHe2 = rs.alpha[ia + 1] * ne * dtsec_rt;
@@ -461,6 +483,7 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
                           dtsec_rt * u.vol_gas;
       if (num1 > u.ngam_min) {
         const double x = nrad[inu] / num1;
+        if (X.photon_conserve && x < 1 - 1e-3) limited = true;
         for (int sp = 0; sp < 3; ++sp)
           gamma_pht[sp][inu] = rrf::min(x * gamma_pht[sp][inu], gamma_max[sp][inu]);
       }

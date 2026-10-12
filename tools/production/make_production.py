@@ -3,7 +3,7 @@
 
     make_production.py OUTDIR --N 128 [--box 10] [--z-init 100] [--seed 7]
                        [--c-reduced 0.01] [--nray-max-factor 16] [--threads 4]
-                       [--hydro-scheme unsplit]
+                       [--hydro-scheme unsplit] [--redshift-per-distance 1]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
 Ngas = Ndm = N) in OUTDIR/ics. Run with
@@ -17,7 +17,9 @@ and restart after an interruption with
 The configuration: all fixes on (legacy_rt = legacy_physics = 0), the
 deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), the source-ray frame rotated every RT substep
-and source (ray_rotate = 3, the B16 fix; --ray-rotate), on-the-fly FoF sources, RT from z = 15 (the
+and source (ray_rotate = 3, the B16 fix; --ray-rotate), the unsplit hydro with dual energy
+(hydro_scheme = unsplit, docs/hydro_unsplit.md; --hydro-scheme), radiation redshifted per distance
+travelled (redshift_per_distance = 1; --redshift-per-distance), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5 (Lyman-alpha forest comparison), movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
 docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
@@ -95,14 +97,23 @@ def main():
     ap.add_argument("--ray-rotate", type=int, default=3, choices=(0, 1, 2, 3),
                     help="HEALPix frame rotation of emitted rays (B16 fix, docs/port_notes.md); "
                          "3: every RT substep and source (production), 0: the original")
-    ap.add_argument("--hydro-scheme", default="", choices=("", "legacy", "unsplit"),
-                    help="hydro_scheme line (docs/hydro_unsplit.md): unsplit for production (it "
-                         "fixes the cold-gas overheating of the legacy scheme); empty: not written, "
-                         "i.e. the code default, legacy")
-    ap.add_argument("--redshift-per-distance", type=int, default=0, choices=(0, 1),
-                    help="redshift the radiation per distance travelled instead of per time "
-                         "(fscale^s, docs/production_run.md); 0: the original (default, "
-                         "no line written)")
+    ap.add_argument("--hydro-scheme", default="unsplit", choices=("legacy", "unsplit"),
+                    help="hydro_scheme (docs/hydro_unsplit.md): unsplit for production (it fixes "
+                         "the cold-gas overheating of the legacy scheme; user decision "
+                         "2026-10-11); legacy: the original, the code default")
+    ap.add_argument("--redshift-per-distance", type=int, default=1, choices=(0, 1),
+                    help="1: redshift the radiation per distance travelled instead of per time "
+                         "(fscale^s, docs/production_run.md; production, user decision "
+                         "2026-10-11); 0: the original, per time")
+    ap.add_argument("--rt-cells-per-substep", type=int, default=1,
+                    help="RT cells a ray crosses per RT substep (rt_cells_per_substep, "
+                         "docs/rt_multicell.md); 1: the original (default, no line written)")
+    ap.add_argument("--ray-deposit", default="share", choices=("share", "exposure"),
+                    help="how rays deposit photons along their path (ray_deposit, "
+                         "docs/rt_multicell.md); share: the original (default, no line)")
+    ap.add_argument("--photon-conserve", type=int, default=0, choices=(0, 1),
+                    help="iterate photo_cell's photon limit to convergence (photon_conserve, "
+                         "the B17 fix, docs/rt_multicell.md); 0: the original (default, no line)")
     a = ap.parse_args()
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
@@ -135,8 +146,7 @@ def main():
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]
-    if a.hydro_scheme:
-        lines.append(f"hydro_scheme = {a.hydro_scheme}")
+    lines.append(f"hydro_scheme = {a.hydro_scheme}")
     lines += [
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",
@@ -154,8 +164,13 @@ def main():
         sys.exit("--recomb-rad 1 needs --recomb-case A (case B already absorbs them on the spot)")
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
-    if a.redshift_per_distance:
-        lines.append("redshift_per_distance = 1")
+    lines.append(f"redshift_per_distance = {a.redshift_per_distance}")
+    if a.photon_conserve:
+        lines.append("photon_conserve = 1")
+    if a.ray_deposit != "share":
+        lines.append(f"ray_deposit = {a.ray_deposit}")
+    if a.rt_cells_per_substep != 1:
+        lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
     if a.am_params:
         if not a.f_esc > 0:
             sys.exit("--am-params needs --f-esc")

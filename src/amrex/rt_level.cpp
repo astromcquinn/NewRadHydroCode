@@ -271,8 +271,14 @@ struct Level : LevelBase {
 
   Level(const Config& cfg, bool with_e) {
     N = cfg.Nrt;
-    ng = cfg.amrex_ghosts;
-    redist_local = cfg.amrex_redist_local;
+    // The reach of one substep is k+1 cells for rt_cells_per_substep = k (a
+    // split moves a ray by up to one cell, then it is cast k cells; a ray
+    // moves k cells, plus one at a cell face): the ghost layers and the
+    // local Redistribute grow with k (docs/rt_multicell.md). k = 1: the
+    // parameters as given.
+    const int reach = cfg.rt_cells_per_substep + 1;
+    ng = std::max(cfg.amrex_ghosts, reach);
+    redist_local = cfg.amrex_redist_local > 0 ? std::max(cfg.amrex_redist_local, reach) : 0;
     has_e = with_e;
     domain = ax::Box(ax::IntVect(0), ax::IntVect(N - 1));
     const ax::RealBox rb({0., 0., 0.}, {double(N), double(N), double(N)});  // dx = 1
@@ -603,7 +609,8 @@ struct Level : LevelBase {
       }
       ax::ParallelDescriptor::ReduceLongSum(nsrc);
       pool_guard(spl_pdf.data(), Np, L, nsrc, 0, s.rays.Nray_max, s.rays.ngam_ray, s.rays.npool_limited,
-                 s.rays.npool_forced, s.raylog);
+                 s.rays.npool_forced, s.raylog,
+                 rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
     }
     const rrk::RTP P = rt_params(s);
     double t2 = now();
@@ -810,6 +817,8 @@ struct Level : LevelBase {
       X.u = s.units;
       X.rates = rates_view(s);
       X.dtsec_rt = s.clk.dtsec_rt;
+      X.cells = s.cfg.rt_cells_per_substep;
+      X.photon_conserve = s.cfg.photon_conserve;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;
       const bool he = has_e;

@@ -42,10 +42,11 @@ struct Domains {
 };
 
 // deterministic_parallel ray tracing: cubic domains of d^3 cells (d = 8
-// when possible), n1 = Nrt/d per dimension (even), grouped into 8 colours by
-// the parity of their domain indices. Domains of one colour are at least d
-// cells apart, more than twice the reach of one cell's ray work (<= 3
-// cells, checked at run time), so they can be swept concurrently.
+// when possible; d >= 2k+2 for rt_cells_per_substep = k), n1 = Nrt/d per
+// dimension (even), grouped into 8 colours by the parity of their domain
+// indices. Domains of one colour are at least d cells apart, at least twice
+// the reach of one cell's ray work (<= d/2 cells, checked at run time), so
+// they can be swept concurrently.
 struct DetDomains {
   int d = 0, n1 = 0;
   std::array<std::vector<std::array<int, 6>>, 8> colour;  // boxes per colour

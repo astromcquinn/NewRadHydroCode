@@ -139,6 +139,7 @@ detail:
   would silently change the running production runs. It is recorded in the
   `rt_driver` log (`z_per_dist`), the `radhydro` summary line (when set)
   and the `ray_dump` json; `make_production.py --redshift-per-distance 1`
+  (its default since 2026-10-11, user decision; the code default stays 0)
   writes it.
 * Not changed: the emission, Γ in the optically thin limit and everything
   else in the table above. The radiation's redshift **per unit time** is

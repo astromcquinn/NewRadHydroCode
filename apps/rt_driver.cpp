@@ -8,6 +8,10 @@
 // Lossy-precision experiment (changes results; research only):
 // --set ray_quant_bits=m [--set ray_quant_dither=0] [--set ray_quant_struct=1].
 // Moment RT instead of the rays (docs/rt_moments.md): --set rt_method=m1|otvet.
+// Rays crossing k RT cells per substep (docs/rt_multicell.md):
+// --set rt_cells_per_substep=k (legacy_rt = 0); --set rt_substep_carry=1;
+// --set photon_conserve=1 (the B17 fix of photo_cell's photon limit);
+// --set ray_deposit=exposure.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -90,10 +94,18 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
+    s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
+    s.cfg.photon_conserve = (P.photon_conserve == 1);      // B17 fix
+    s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
+    if (P.rt_substep_carry) {
+      if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
+      s.cfg.rt_substep_carry = true;
+    }
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
+    check_rt_cells_param(s.cfg);
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
@@ -128,6 +140,12 @@ int main(int argc, char** argv) {
               << " det_par    : " << P.deterministic_parallel << "\n"
               << " ray_rotate : " << P.ray_rotate << "\n"
               << " z_per_dist : " << P.redshift_per_distance << "\n"
+              << (P.rt_cells_per_substep != 1 || P.rt_substep_carry
+                      ? " rt_cells   : " + std::to_string(P.rt_cells_per_substep) +
+                            " per substep, substep carry " + std::to_string(P.rt_substep_carry) + "\n"
+                      : std::string())
+              << (P.photon_conserve ? " photon_cons: 1 (B17 fix)\n" : "")
+              << (P.ray_deposit ? " ray_deposit: exposure\n" : "")
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
               << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"
               << " threads    : " << par::max_threads() << "\n"

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "radray/constants.hpp"
 #include "radray/simulation.hpp"
 
 namespace radray {
@@ -35,6 +36,11 @@ void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init);
 // Sources are summed per cell in the given order (= link_halo order).
 void calc_halo(Simulation& s, const std::vector<Source>& sources);
 
+// rt_cells_per_substep = k (Config, docs/rt_multicell.md): throws unless
+// 1 <= k <= rrk::kMaxCellsPerSubstep, and for k > 1 unless legacy_rt = 0
+// and rt_method = rays; ray_deposit = exposure needs legacy_rt = 0.
+void check_rt_cells_param(const Config& c);
+
 // rt_tools.f90: radiative_transfer and its parts
 void radiative_transfer(Simulation& s);
 void prep_rt(Simulation& s);
@@ -54,9 +60,12 @@ void calc_ngam_ray(const std::int64_t* ngam_pdf, int N_pdf, double ngam_avg, std
                    std::int64_t Nray_max, bool legacy, std::array<double, 64>& ngam_ray,
                    std::ostream* log);
 std::int64_t pool_split_candidates(const std::int64_t* spl_pdf, int N_pdf, double ngam_ray32);
+// nray_src: rays per stellar emission (nray_init = 192; more with
+// rt_cells_per_substep > 4, rrk::emit_nside).
 void pool_guard(const std::int64_t* spl_pdf, int N_pdf, std::int64_t L, std::int64_t nsrc,
                 std::int64_t nrec_rays, std::int64_t Nray_max, std::array<double, 64>& ngam_ray,
-                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log);
+                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log,
+                int nray_src = rayp::nray_init);
 
 // rt_tools.f90: summarize_rt (writes to s.out)
 void summarize_rt(Simulation& s);

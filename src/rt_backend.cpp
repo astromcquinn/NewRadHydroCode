@@ -1,6 +1,7 @@
 // rt_backend parameters (rt_backend.hpp); AMReX-free.
 #include "radray/rt_backend.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace radray {
@@ -52,11 +53,15 @@ void copy_rt_backend_param(const Config& from, Config& to) {
 
 std::string rt_backend_summary(const Config& c) {
   if (!use_amrex(c)) return "rt_backend = serial";
+  // the values the level uses: at least the reach k+1 of one substep for
+  // rt_cells_per_substep = k (src/amrex/rt_level.cpp)
+  const int reach = c.rt_cells_per_substep + 1;
   return "rt_backend = amrex (ray_encoding = " +
          std::string(c.ray_encoding == RayEncoding::RStruct ? "rstruct" : "float") +
          ", max_grid_size = " + std::to_string(c.amrex_max_grid_size) +
-         ", ghosts = " + std::to_string(c.amrex_ghosts) +
-         ", redist_local = " + std::to_string(c.amrex_redist_local) + ")";
+         ", ghosts = " + std::to_string(std::max(c.amrex_ghosts, reach)) +
+         ", redist_local = " +
+         std::to_string(c.amrex_redist_local > 0 ? std::max(c.amrex_redist_local, reach) : 0) + ")";
 }
 
 void check_rt_backend_param(const Config& c) {

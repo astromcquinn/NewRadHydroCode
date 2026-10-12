@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Before that, 2026-10-11: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 
 ## Done 2026-10-12: rays, M1 and OTVET at 40 Mpc/h, 512³ (branch `rt-methods-512`)
@@ -36,6 +36,55 @@ f_esc = 0.23, `redshift_per_distance`) plus rays with case B; runs
   substep-averaged Γ to remove the rays' sampling noise; disk — the runs'
   checkpoints (≈ 0.9 TB, incl. a saved 166 GB step-48 checkpoint of the
   ray run) can be deleted once no restart is needed.
+
+## Done 2026-10-12: rays crossing k cells per substep (branch `rt-multicell`, PR #27)
+
+**`docs/rt_multicell.md`.** This tests a coarse RT substep for the RT on
+AMR (Stage F). Instead of sub-cycling level l 2^l times, rays cross 2^l
+fine cells per coarse substep. On the uniform grid that is k cells per
+substep with a k times longer substep at the same ĉ.
+- **Flag:** `rt_cells_per_substep = k` (1–16, default 1 = the original,
+  byte-identical; `legacy_rt = 0` and `rt_method = rays` only; `rt_driver`
+  and `radhydro`; checkpoint version 6, a restart may change k). In the
+  shared kernels, so the AMReX backend supports it (ghosts and local
+  `Redistribute` ≥ k + 1; round-off tests at k = 2, 4).
+  `deterministic_parallel` domains d ≥ 2k + 2.
+- **Generalisations k forced:** the rate uses the crossing speed
+  k·len_rt/dtsec_rt; the split clamp is [rmin, rmin + k]; for k > 4
+  sources emit at the nside that covers the first path.
+- **New options, off by default:** `photon_conserve = 1` fixes **B17**
+  (new in `docs/port_notes.md`: the photon limit of `photo_gas_cell` stops
+  before converging, so photon-starved front cells ionise without the
+  photons; 1.8 % of the ionisations at k = 1, growing as k²).
+  `ray_deposit = exposure` keeps a ray's photons for the cells further
+  along its path unless absorbed. With the share deposit they jump up to
+  k − 1 cells past I-fronts.
+- **k = 1:** byte-identical; fast suite 117/117 (5 new tests), nightly label 22/22, AMReX label 54/54.
+- **Results** (exposure + pc against k = 1): the uniform I-front at c = 1
+  is within 0.04 cells for k ≤ 4 and 0.15 for k = 8. At 0.1c, k = 4 lags
+  2.3 cells while the front is light-limited. `uniform_8src` fronts are
+  within 0.02 cells (k ≤ 4); `lognormal_16src` x_HII,M is −1.8/−2.9/−14 %
+  at k = 2/4/8. In the 64³ production configuration at 0.1c, τ_es is off
+  by −0.12/−0.52/−1.6 % and T_M by 5/10/20 % early. At c = 1 (to z = 9), k = 4 matches k = 1 to 3e-5 in τ_es, Δz = 0.003 and 0.07 cells, with T_M 3 % high. The RT per hydro step falls only 1.3× at k = 2 and 4 (more live rays, k cells per ray-substep). k = 8 is 2× slower at 64³, because the deterministic domains leave one per colour.
+- **What fails first:** the lagged τ at fronts moving more than one cell
+  per substep (v_front > ĉ/k). The transport over k cells is accurate
+  (k = 8 at 8ĉ matches k = 1 at ĉ to 1 %); the error is the longer
+  substep. So on the uniform grid k > 1 equals fewer substeps and is not a
+  speed option.
+- **Recommendation for the AMR RT (§9, for the user to decide):** a
+  mixture. Use the coarse substep with 2^l cells per substep, the exposure
+  deposit and `photon_conserve`. Add photo-chemistry sub-cycling in fine
+  cells, and transport sub-cycling only in patches where a front outruns
+  the substep.
+- **Tests:** `ctest -L multicell` (`multicell`, `multicell_exposure`,
+  `photon_conserve`, the thread and restart tests, AMReX round-off).
+  `tools/hyak/rt_multicell.slurm` is a 128³ repeat of the production
+  comparison for the user to run.
+- **Follow-ups (not done):**
+  - an exposure field for Γ and a corrector pass of step 1 (§6);
+  - 27 deterministic colours so that k = 8 parallelises at 64³;
+  - `amrex_full64_vs_serial` (nightly) was not re-run on this branch;
+  - the 128³ repeat on klone.
 
 ## Done 2026-10-11: Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24)
 
@@ -215,7 +264,9 @@ separate job (`docs/movies.md`, "Slab frames").**
   `legacy_physics = 0` and are unchanged). Not in the checkpoint: can be
   changed at a restart like `c_reduced`. Recorded in the `rt_driver` log,
   the `radhydro` summary line (when set) and the `ray_dump` json;
-  `make_production.py --redshift-per-distance 1` writes it.
+  `make_production.py` writes it; **production default `= 1` since
+  2026-10-11 (user decision, `docs/PLAN.md`)**, `--redshift-per-distance 0`
+  for the original.
 - Tests: `redshift_distance` (unit) and `redshift_distance_smoke`
   (`rt_driver`, rays and m1; physics label), both pass. Fast suite on
   klone (gcc 13): 99/109 pass; the 10 failures are the same ones as on
@@ -339,6 +390,9 @@ helium lines (`docs/recomb_radiation.md` §2.1–2.3, §3, §4.3).**
   - nightly: `recomb_stromgren`, run by `tools/analysis/recomb_stromgren.py`.
 - Strömgren check: case A gives R_A/R_B to 1% of the temperature-corrected
   value, and case A + RR recovers R_B (1.002 with block 1).
+  With `ray_rotate = 3` (2026-10-11): the B16 holes in case B are gone,
+  and the block-2 excess of A + RR falls from 5.0% to 3.7%; the rest is
+  the wider edge (`docs/recomb_radiation.md` §3).
 - 256³ at 0.1c (block 4), runs
   `/gscratch/astro/mcquinn/radhydro/runs/reion256_c01_caseA{,_rr}`, comparison
   in `.../recomb_reion256_c01/`. Movie: `docs/movies/recomb_256_c01.mp4`.
@@ -809,8 +863,9 @@ Fortran, restart and thread tests) and nightly label, all passing.
 - On klone 8 RT stored-reference tests fail by 1 ulp in double sums and by
   rays at the removal threshold; the live gfortran harness built there shows
   the same differences and agrees with the C++ byte for byte. The stored RT
-  references are platform-dependent (libm). Decision needed: regenerate
-  them per platform, or compare the double sums with a tolerance.
+  references are platform-dependent (libm). Decided 2026-10-12: skip them
+  on klone (label `platform_ref`, left out by `tools/hyak/build_hyak.sh`);
+  CI keeps running them.
 - B16 (PR #12, `docs/port_notes.md`): the fixed HEALPix frame leaves a photon deficit
   along ±x/±y from every source. Fixed behind `ray_rotate` (2026-10-10).
   A fixed global rotation was not enough; the frame has to change every
@@ -1040,15 +1095,18 @@ In the cloud (branch + PR each):
    > docs/STATUS.md, docs/PLAN.md (decisions taken) and CLAUDE.md's layout
    > table, and open the PR.
 7. **Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).
-8. Smaller: the stored-RT-reference platform policy; the 2 % growth
+8. Smaller: ~~the stored-RT-reference platform policy~~ decided
+   2026-10-12 (skip on klone, label `platform_ref`); the 2 % growth
    deficit; ~~the unsplit open items (Sedov radius convergence, cold-gas
    time-step sensitivity at 128³)~~ done (`docs/hydro_unsplit.md` §6,
    both converge); the AMReX multi-node hydro anomaly
    (`docs/framework_decision.md` §3.3).
 
-**Decisions needed from the user:** `hydro_scheme` for production
-(`unsplit` recommended); the stored-reference policy on klone; the
-moment-RT questions below.
+**Decisions needed from the user:** none open from the merge thread.
+Decided 2026-10-11/12 (`docs/PLAN.md`): `hydro_scheme = unsplit` and
+`redshift_per_distance = 1` for production; M1/OTVET for comparison only,
+with our explicit OTVET kept as it is; the stored RT references that
+differ on klone are skipped there (label `platform_ref`).
 
 ## Next
 
@@ -1109,16 +1167,12 @@ moment-RT questions below.
 
 ## Open questions for the user
 
-- Whether production runs should use `redshift_per_distance = 1` (redshift
-  per distance travelled at ĉ < c, `docs/production_run.md` §1). It is off
-  by default and not tied to `legacy_physics`.
-
-- Moment RT (`docs/rt_moments.md` §5–§6): whether to invest in second-order
-  transport or first in faster photo-chemistry (now half the moment RT
-  time), and whether the moment methods should become the
-  transparent-region hand-over of ROADMAP §4.5 or stay a standalone
-  alternative. Which OTVET formulation the user has in mind (the paper
-  could not be read here).
+- RT on AMR (`docs/rt_multicell.md` §9): whether to adopt the proposed
+  mixture (a coarse substep with 2^l cells per substep on level l, plus
+  photo-chemistry sub-cycling and transport sub-cycling only where a front
+  outruns the substep), pure time sub-cycling, or a pure coarse substep.
+  Also whether `photon_conserve = 1` (B17) should become part of
+  `legacy_physics = 0`; it is a separate flag for now.
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see

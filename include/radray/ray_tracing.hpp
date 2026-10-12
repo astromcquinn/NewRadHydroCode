@@ -50,6 +50,10 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt);
 // range check on nseg.)
 std::array<double, 4> ray_segment(const double x0[3], const double dx[3],
                                   double seg_min, int nseg = 3);
+// The segments of a path of `cells` RT cells (rt_cells_per_substep,
+// legacy_rt = 0): 3 cells + 1 values; ray_segment(..., 4) for cells = 1.
+std::vector<double> ray_segment_path(const double x0[3], const double dx[3], double seg_min,
+                                     int cells);
 
 // ray_tracing_tools.f90: ray_create / ray_remove / ray_insert_head/tail
 void ray_create(Simulation& s, int nr, std::int64_t* indx);
