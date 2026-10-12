@@ -407,7 +407,8 @@ std::int64_t recomb_prepare(Simulation& s, std::int64_t L, std::int64_t nsrc, st
   // the order. Blocks without production stay in launch mode at no cost.
   const RayState& R = s.rays;
   const std::int64_t cap = static_cast<std::int64_t>(s.cfg.recomb_rad_pool * static_cast<double>(R.Nray_max));
-  const std::int64_t room = cap - L - rayp::nray_init * nsrc - nsplit - ne * nray;
+  const std::int64_t nray_src = rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep));
+  const std::int64_t room = cap - L - nray_src * nsrc - nsplit - ne * nray;
   const std::int64_t nmax = room > 0 ? room / nray : 0;
   std::int64_t ncand = 0;
   for (int h = 1; h <= NH; ++h) ncand += hist[h];

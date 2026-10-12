@@ -13,6 +13,7 @@
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
+#include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/ray_quant.hpp"
@@ -116,17 +117,38 @@ void end_domain_rt(Domains& dom, int idom) {
     for (auto& d : dom.domain) d[0] = 0;
 }
 
+void check_rt_cells_param(const Config& c) {
+  const int k = c.rt_cells_per_substep;
+  if (k < 1 || k > rrk::kMaxCellsPerSubstep)
+    throw std::runtime_error("rt_cells_per_substep must be 1.." +
+                             std::to_string(rrk::kMaxCellsPerSubstep));
+  if (c.ray_deposit != 0 && c.legacy_rt)
+    throw std::runtime_error("ray_deposit = exposure requires legacy_rt = 0");
+  if (k == 1) return;
+  if (c.legacy_rt) throw std::runtime_error("rt_cells_per_substep > 1 requires legacy_rt = 0");
+  if (use_moments(c))
+    throw std::runtime_error("rt_cells_per_substep > 1 is implemented for rt_method = rays only");
+}
+
 // deterministic_parallel domains (simulation.hpp: DetDomains)
 void init_det_domains(const Config& cfg, DetDomains& dd) {
   const int N = cfg.Nrt;
   dd = DetDomains{};
-  for (int d = 8; d <= N / 2; ++d)
+  // The reach of one cell's ray work is k+1 cells for k = rt_cells_per_substep
+  // (a split or merge moves a ray by at most one cell, then a cast of k
+  // cells; a ray moves k cells, plus one at a cell face, in ray_tracing_3),
+  // and it must stay within d/2: d >= 2k+2. d = 8 (the original choice) for
+  // k <= 3.
+  const int dmin = std::max(8, 2 * cfg.rt_cells_per_substep + 2);
+  for (int d = dmin; d <= N / 2; ++d)
     if (N % d == 0 && (N / d) % 2 == 0) {
       dd.d = d;
       break;
     }
   if (dd.d == 0)
-    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= 8 (Nrt >= 16)");
+    throw std::runtime_error("deterministic_parallel needs Nrt = 2*m*d with d >= " +
+                             std::to_string(dmin) + " (Nrt >= " + std::to_string(2 * dmin) +
+                             "; d >= 2k+2 for rt_cells_per_substep = k)");
   dd.n1 = N / dd.d;
   for (int k = 0; k < dd.n1; ++k)
     for (int j = 0; j < dd.n1; ++j)
@@ -549,7 +571,8 @@ void post_rt(Simulation& s) {
           ir = R.at(ir).next;
         }
         if (static_cast<double>(G.sfr[c]) > s.units.sfr_min)
-          nr = f::max<std::int64_t>(nr, rayp::nray_init);
+          nr = f::max<std::int64_t>(
+              nr, rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
         int b;
         if (nr <= 8) b = static_cast<int>(nr);
         else if (nr <= 12) b = 9;
@@ -634,7 +657,8 @@ std::int64_t pool_split_candidates(const std::int64_t* spl_pdf, int N_pdf, doubl
 
 // F3 (legacy_rt = 0 only; RT harness PATCHES.md 13): keep the ray pool from
 // overflowing. Rays are only created by splits (3 per split) and sources
-// (nray_init per source cell). From the live count L, the number of source
+// (nray_init per source cell, nray_src with rt_cells_per_substep > 4:
+// rrk::emit_nside). From the live count L, the number of source
 // cells and the histogram of the rays that may split, limit the splits of
 // this substep so that even if every candidate splits at most 0.9 Nray_max
 // rays are live after it (the rest of the pool covers the free buffer,
@@ -647,10 +671,11 @@ std::int64_t pool_split_candidates(const std::int64_t* spl_pdf, int N_pdf, doubl
 // pool could overflow in this substep.
 void pool_guard(const std::int64_t* spl_pdf, int N_pdf, std::int64_t L, std::int64_t nsrc,
                 std::int64_t nrec_rays, std::int64_t Nray_max, std::array<double, 64>& ngam_ray,
-                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log) {
+                std::int64_t& npool_limited, std::int64_t& npool_forced, std::ostream* log,
+                int nray_src) {
   const double lgn_min = rrk::kLgnMin;
   const double lgn_del = folded::lgn_del;
-  const std::int64_t budget = (9 * Nray_max) / 10 - L - rayp::nray_init * nsrc - nrec_rays;
+  const std::int64_t budget = (9 * Nray_max) / 10 - L - nray_src * nsrc - nrec_rays;
   if (budget <= 0) {
     ngam_ray[16 - 1] = 1e30;
     ngam_ray[32 - 1] = 1e30;
@@ -808,7 +833,8 @@ void rt_step_1(Simulation& s) {
       nrec_rays = recomb_prepare(s, L, nsrc, 3 * nspl);
     }
     pool_guard(spl_pdf.data(), N_pdf, L, nsrc, nrec_rays, R.Nray_max, R.ngam_ray,
-               R.npool_limited, R.npool_forced, s.raylog);
+               R.npool_limited, R.npool_forced, s.raylog,
+               rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
   }
 
   lap(s.timers.calc_ray1);
@@ -1015,6 +1041,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   X.rates.gcol = s.rates.gamma_col_.data();
   X.rates.legacy_physics = s.cfg.legacy_physics;
   X.dtsec_rt = dtsec_rt;
+  X.cells = s.cfg.rt_cells_per_substep;
+  X.photon_conserve = s.cfg.photon_conserve;
   X.want_nrab = static_cast<bool>(s.recomb);
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {

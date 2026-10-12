@@ -190,6 +190,30 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(ifront_rsla_${m} PROPERTIES TIMEOUT 600 LABELS "physics;moments")
   endforeach()
 
+  # rays crossing k = 2 cells per substep (docs/rt_multicell.md): the
+  # uniform I-front of ifront_rsla at c_reduced = 1 against k = 1 (within
+  # half a cell), the finite-c solution and the interior x_HI (the
+  # crossing-speed factor of the photo-ionisation rate); and photo_cell's
+  # photon budget (B17, photon_conserve)
+  add_test(NAME multicell
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/rt_multicell_ifront.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/multicell --k 1 2 --c 1 --check)
+  set_tests_properties(multicell PROPERTIES TIMEOUT 600 LABELS "physics;multicell")
+  # the exposure deposit with the converged photon limit at k = 4: the front
+  # profile stays that of k = 1 (docs/rt_multicell.md)
+  add_test(NAME multicell_exposure
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/rt_multicell_ifront.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/multicell_exposure --k 1 4 --c 1
+                   --set photon_conserve=1 --set ray_deposit=exposure --check)
+  set_tests_properties(multicell_exposure PROPERTIES TIMEOUT 600 LABELS "physics;multicell")
+  add_test(NAME photon_conserve
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/photon_conserve_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
+                   ${CMAKE_CURRENT_BINARY_DIR}/photon_conserve)
+  set_tests_properties(photon_conserve PROPERTIES TIMEOUT 900 LABELS "physics;multicell")
+
   # Stromgren sphere: case A, case B and case A + recombination radiation
   # (docs/recomb_radiation.md section 3); ~10 min with 4 threads
   if(RADRAY_NIGHTLY_TESTS)
@@ -546,6 +570,16 @@ if(Python3_Interpreter_FOUND)
                    --set nsteps=6)
   set_tests_properties(thread_rt_det_rotate_lognormal_16src PROPERTIES TIMEOUT 1800 LABELS threads
                        ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  # rays crossing k = 3 cells per substep (docs/rt_multicell.md): the
+  # largest k with 8^3 domains (reach k+1 = d/2), vs threads
+  add_test(NAME thread_rt_det_multicell_lognormal_16src
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_det_multicell $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set legacy_rt=0
+                   --set legacy_physics=0 --set deterministic_parallel=1 --set ray_rotate=3
+                   --set rt_cells_per_substep=3 --set nsteps=6)
+  set_tests_properties(thread_rt_det_multicell_lognormal_16src PROPERTIES TIMEOUT 1800
+                       LABELS "threads;multicell" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   # legacy order (rt_step_2 and the RT grid loops in parallel), vs threads
   add_test(NAME thread_rt_legacy_lognormal_16src
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
@@ -689,6 +723,15 @@ if(Python3_Interpreter_FOUND)
                      --set legacy_physics=0 --set deterministic_parallel=1 --set movie_dz=0.5
                      --set movie_z0=25)
     set_tests_properties(movie_slab PROPERTIES TIMEOUT 900 LABELS movie)
+    # rays crossing 2 cells per substep (docs/rt_multicell.md): the
+    # checkpoint records rt_cells_per_substep and the k-cell substep carry
+    add_test(NAME restart_smoke_det_multicell
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/det_multicell 14 --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set rt_substep_carry=1
+                     --set rt_cells_per_substep=2)
+    set_tests_properties(restart_smoke_det_multicell PROPERTIES TIMEOUT 600 LABELS "restart;multicell")
     add_test(NAME restart_smoke_det_movie_slab
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
@@ -780,6 +823,50 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
     set_tests_properties(amrex_roundoff_${p} PROPERTIES FIXTURES_REQUIRED amrex_serial_${p} LABELS amrex
                          ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS 2)
+  endforeach()
+  # rays crossing k cells per substep (docs/rt_multicell.md): the ghost
+  # layers and the local Redistribute grow to k+1; round-off against the
+  # serial port with the same k
+  foreach(k 2 4 4x)
+    set(xs "")
+    set(xsets)
+    set(xtol "")
+    if(k STREQUAL "4x")
+      # k = 4 with the exposure deposit and the converged photon limit. The
+      # exposure deposit passes photons attenuated by exp(-tau) into thick
+      # gas; deposits of ~1e-12 photons per H atom are at the resolution of
+      # the backend's int64 fixed point (2^-44), so the faint heating of
+      # cold neutral cells near the temperature floor (3-30 K) differs by a
+      # few per cent (ray statistics exact, x_HII to 1e-7)
+      set(xs ",ray_deposit=exposure,photon_conserve=1")
+      set(xsets --set ray_deposit=exposure --set photon_conserve=1)
+      set(xtol "--field-rtol;temp=0.05;--field-rtol;dx=2")
+    endif()
+    string(REPLACE "x" "" kk "${k}")
+    foreach(p uniform_8src lognormal_16src)
+      add_test(NAME amrex_serial_ref_multicell${k}_${p}
+               COMMAND rt_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                       ${amrex_runs}/serial_multicell${k}_${p} --set legacy_rt=0
+                       --set rt_cells_per_substep=${kk} ${xsets})
+      set_tests_properties(amrex_serial_ref_multicell${k}_${p} PROPERTIES
+                           FIXTURES_SETUP amrex_serial_multicell${k}_${p} LABELS "amrex;multicell"
+                           TIMEOUT 1800)
+      add_test(NAME amrex_roundoff_multicell${k}_${p}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
+                 -DOUT=${amrex_runs}/roundoff_multicell${k}_${p}
+                 -DREF=${amrex_runs}/serial_multicell${k}_${p}
+                 "-DSET=legacy_rt=0,rt_backend=amrex,rt_cells_per_substep=${kk},amrex_max_grid_size=8${xs}"
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                 -DSTRICT=0 "-DEXTRA_TOL=${xtol}"
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(amrex_roundoff_multicell${k}_${p} PROPERTIES
+                           FIXTURES_REQUIRED amrex_serial_multicell${k}_${p} LABELS "amrex;multicell"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS 2)
+    endforeach()
   endforeach()
   # thread-count independence of the backend (1 rank)
   add_test(NAME amrex_thread_lognormal_16src

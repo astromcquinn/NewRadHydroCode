@@ -70,7 +70,15 @@ struct RTP {
   double nrtr = 0, hrtr = 0;
   double seg_min = 0, ngam_min = 0, fgam_min = 0, sfr_min = 0;
   double vol_rt = 0, nH_avg = 0, dtsec_rt = 0;
-  int nseg = 4;        // 3 with legacy_rt = 1 (B8), 4 otherwise
+  int nseg = 4;        // 3 with legacy_rt = 1 (B8), 4 otherwise (3k+1 for k cells per substep)
+  // rt_cells_per_substep (config.hpp, docs/rt_multicell.md): the path of a
+  // ray in one substep, in RT cells. 1 (default) is the original.
+  int cells = 1;
+  // ray_deposit (config.hpp): 0 = share (the original: a segment takes
+  // max(dl/remaining path, fabs) of the photons not yet deposited), 1 =
+  // exposure (max(dl/path, fabs) of the photons that arrive there; the
+  // photons passed on are reduced by the absorption estimate fabs only)
+  int deposit = 0;
   int nside_merge = 2;  // HEALPix nside of the merge cones (12 nside^2 cones)
   double ngam_ray16 = 0, ngam_ray32 = 0;  // ngam_ray(16), ngam_ray(32)
   // B16 fix ray_rotate (config.hpp): the mode, the seed, the bits of the
@@ -111,18 +119,27 @@ RR_HD double rmax_from_nside(int nside) {
   return nside * std::sqrt(3 / (pc::pi * rayp::ray_per_cell));
 }
 
+// Most RT cells a ray may cross per substep (rt_cells_per_substep), and the
+// segments of such a path: a path of k cells crosses at most k faces normal
+// to each axis, so at most 3k faces and 3k+1 segments.
+constexpr int kMaxCellsPerSubstep = 16;
+constexpr int kNsegMax = 3 * kMaxCellsPerSubstep + 1;
+RR_HD int nseg_for(bool legacy_rt, int cells) { return legacy_rt ? 3 : 3 * cells + 1; }
+
 // ray_tracing_tools.f90: ray_segment -- lengths of the cell crossings of a
-// unit-length step from x0 along dx. nseg = 3 (the original; can truncate
-// the step, B8) or 4 (legacy_rt = 0: always covers it). Elements beyond
-// nseg are 0.
+// step of `len` cells (1 in the original) from x0 along dx. nseg = 3 (the
+// original; can truncate the step, B8) or 4 (legacy_rt = 0: always covers
+// it); 3 len + 1 for a path of len cells (rt_cells_per_substep). seg has
+// room for nseg values.
 RR_HD void ray_segment(const double x0[3], const double dx[3], double seg_min, int nseg,
-                       double seg[4]) {
+                       double* seg, int len = 1) {
   double l = 0;
   double x[3] = {x0[0], x0[1], x0[2]};
   const double eps = static_cast<double>(1e-6f);  // 1E-6 is real(4)
-  for (int n = 0; n < 4; ++n) seg[n] = 0;
+  const double len_d = static_cast<double>(len);
+  for (int n = 0; n < nseg; ++n) seg[n] = 0;
   for (int n = 0; n < nseg; ++n) {
-    double dl = 1 - l;
+    double dl = len_d - l;
     if (dl > seg_min) {
       for (int i = 0; i < 3; ++i) {
         if (std::fabs(dx[i]) > eps) {
@@ -148,6 +165,32 @@ RR_HD void ray_segment(const double x0[3], const double dx[3], double seg_min, i
 RR_HD double sum_ngam(const RayP& r) { return static_cast<double>(rrf::sum4<NF>(r.ngam)); }
 
 // ---------------------------------------------------------------------------
+// The exposure deposit (ray_deposit = exposure, docs/rt_multicell.md). The
+// share deposit of the original gives segment n the fraction
+// max(dl_n/sum(dl_n:), fabs_n) of the photons not yet deposited, so the
+// deposits sum to the ray's photons. A ray that crosses an ionised stretch
+// and then a neutral cell in one substep therefore deposits in the neutral
+// cell only the share of its photons that belongs to the rest of the path;
+// the photons of the ionised stretch (transmitted there) jump with the ray to
+// the end of the path and are deposited up to k - 1 cells beyond the front
+// in the next substep. With one cell per substep the jump is within a cell;
+// with k cells it smears every I-front over ~k cells. Physically every
+// photon of the ray crosses every cell of the path during the substep. The
+// exposure deposit gives segment n max(dl_n/L, fabs_n) of the photons that
+// reach it (L = the path length; dl_n/L is the time the ray's photons spend
+// there, which with the crossing-speed factor of the photo-ionisation rate
+// gives the right rate in thin cells) and passes on A (1 - fabs_n), fabs_n
+// from the optical depth of the previous substep as everywhere. cast_3
+// subtracts what the cells absorbed, dep_n (1 - fgam_n), from the photons
+// that actually arrive. The same as the share deposit in thin cells.
+// ---------------------------------------------------------------------------
+RR_HD double path_length(const double* dl, int nseg) {
+  double L = 0;
+  for (int n = 0; n < nseg; ++n) L += dl[n];
+  return L;
+}
+
+// ---------------------------------------------------------------------------
 // ray_cast_1: deposit all photons of a ray along its <= nseg segments.
 // tau(i,j,k) -> const float* (5 values); dep(i,j,k, const double v[13])
 // receives the 13 addends (dngam(5), dngam*nu(5), dx*sum(dngam)(3)) of one
@@ -165,8 +208,10 @@ RR_HD void cast_1(const RayP& ry, const RTP& P, const TauF& tau, const DepF& dep
     nu[n] = ry.nu[n];
     ngam[n] = ry.ngam[n];
   }
-  double dl[4];
-  ray_segment(x, dx, P.seg_min, P.nseg, dl);
+  double dl[kNsegMax];
+  ray_segment(x, dx, P.seg_min, P.nseg, dl, P.cells);
+  const bool expo = P.deposit == 1;
+  const double L = expo ? path_length(dl, P.nseg) : 0;
   double l = 0;
   for (int n = 0; n < P.nseg; ++n) {
     l = l + dl[n];
@@ -175,20 +220,29 @@ RR_HD void cast_1(const RayP& ry, const RTP& P, const TauF& tau, const DepF& dep
       for (int d = 0; d < 3; ++d)
         x1[d] = rrf::mod(x[d] + (l - dl[n] / 2) * dx[d] + P.nrtr, P.nrtr);
       const int i = cell_of(x1[0], P.N), j = cell_of(x1[1], P.N), k = cell_of(x1[2], P.N);
-      // fdl = dl(n)/sum(dl(n:))
-      double sdl = 0;
-      for (int m = n; m < P.nseg; ++m) sdl += dl[m];
-      const double fdl = dl[n] / sdl;
       const float* t = tau(i, j, k);
       double dng[NF];
-      for (int q = 0; q < NF; ++q) {
-        const double fabs_ = 1 - std::exp(static_cast<double>(-t[q]) * dl[n]);
-        if (fabs_ < fdl) {
-          dng[q] = ngam[q] * fdl;
-          ngam[q] = ngam[q] - dng[q];
-        } else {
-          dng[q] = ngam[q] * fabs_;
-          ngam[q] = ngam[q] - dng[q];
+      if (expo) {
+        // exposure deposit: ngam holds the photons that reach segment n
+        for (int q = 0; q < NF; ++q) {
+          const double fabs_ = 1 - std::exp(static_cast<double>(-t[q]) * dl[n]);
+          dng[q] = ngam[q] * rrf::max(dl[n] / L, fabs_);
+          ngam[q] = ngam[q] - ngam[q] * fabs_;
+        }
+      } else {
+        // fdl = dl(n)/sum(dl(n:))
+        double sdl = 0;
+        for (int m = n; m < P.nseg; ++m) sdl += dl[m];
+        const double fdl = dl[n] / sdl;
+        for (int q = 0; q < NF; ++q) {
+          const double fabs_ = 1 - std::exp(static_cast<double>(-t[q]) * dl[n]);
+          if (fabs_ < fdl) {
+            dng[q] = ngam[q] * fdl;
+            ngam[q] = ngam[q] - dng[q];
+          } else {
+            dng[q] = ngam[q] * fabs_;
+            ngam[q] = ngam[q] - dng[q];
+          }
         }
       }
       double v[kNdep];
@@ -215,8 +269,8 @@ RR_HD bool cast_3(RayP& ry, const RTP& P, const TFF& tf) {
     dx[d] = ry.dx[d];
   }
   for (int n = 0; n < NF; ++n) ngam[n] = ry.ngam[n];
-  double dl[4];
-  ray_segment(x, dx, P.seg_min, P.nseg, dl);
+  double dl[kNsegMax];
+  ray_segment(x, dx, P.seg_min, P.nseg, dl, P.cells);
   // Save original
   const double r0 = r, dr0 = dr;
   const double x0[3] = {x[0], x[1], x[2]};
@@ -227,6 +281,36 @@ RR_HD bool cast_3(RayP& ry, const RTP& P, const TFF& tf) {
   }
   const double ngam_cut = rrf::max(P.ngam_min, rrf::sum8<NF>(ngam) * P.fgam_min);
   double l = 0;
+  if (P.deposit == 1) {
+    // exposure deposit (above): ng1 = the photons reaching segment n as
+    // cast_1 estimated them (its deposits), ng2 = those that do reach it
+    const double L = path_length(dl, P.nseg);
+    for (int n = 0; n < P.nseg; ++n) {
+      l = l + dl[n];
+      if (!(dl[n] >= P.seg_min && rrf::sum8<NF>(ng2) > ngam_cut)) continue;
+      double x1[3];
+      for (int d = 0; d < 3; ++d)
+        x1[d] = rrf::mod(x0[d] + (l - dl[n] / 2) * dx[d] + P.nrtr, P.nrtr);
+      const int i = cell_of(x1[0], P.N), j = cell_of(x1[1], P.N), k = cell_of(x1[2], P.N);
+      const float* tau;
+      const float* fgam;
+      tf(i, j, k, tau, fgam);
+      for (int q = 0; q < NF; ++q) {
+        const double fabs_ = 1 - std::exp(static_cast<double>(-tau[q]) * dl[n]);
+        const double dng = ng1[q] * rrf::max(dl[n] / L, fabs_);
+        ng1[q] = ng1[q] - ng1[q] * fabs_;
+        // the cell absorbed dng (1 - fgam) of its deposit
+        ng2[q] = rrf::max(ng2[q] - dng * static_cast<double>(1.0f - fgam[q]), 0.0);
+      }
+      if (rrf::sum8<NF>(ng2) > ngam_cut) {
+        for (int d = 0; d < 3; ++d)
+          x[d] = rrf::mod(x0[d] + (l + static_cast<double>(1e-6f)) * dx[d] + P.nrtr, P.nrtr);
+        r = r0 + l;
+        dr = dr0 - l;
+      }
+    }
+    for (int q = 0; q < NF; ++q) ngam[q] = ng2[q];
+  } else {
   for (int n = 0; n < NF; ++n) ngam[n] = 0;
   for (int n = 0; n < P.nseg; ++n) {
     l = l + dl[n];
@@ -264,6 +348,7 @@ RR_HD bool cast_3(RayP& ry, const RTP& P, const TFF& tf) {
       }
     }
   }
+  }
   if (rrf::sum8<NF>(ngam) < ngam_cut) return false;
   ry.r = static_cast<float>(r);
   ry.dr = static_cast<float>(dr);
@@ -275,7 +360,7 @@ RR_HD bool cast_3(RayP& ry, const RTP& P, const TFF& tf) {
 // ---------------------------------------------------------------------------
 // ray_cast_split: 4 daughters (child[0] corresponds to the parent's slot).
 // clamped (optional) reports whether the daughters' radius was clamped to
-// [rmin, rmin+1] of the new level, i.e. the effective origin moved
+// [rmin, rmin+k] of the new level (k = P.cells), i.e. the effective origin moved
 // (ray-dump provenance of the serial port).
 // ---------------------------------------------------------------------------
 RR_HD void split(const RayP& p, const RTP& P, RayP child[4], bool* clamped = nullptr) {
@@ -301,7 +386,9 @@ RR_HD void split(const RayP& p, const RTP& P, RayP child[4], bool* clamped = nul
   const double rmin = rmin_from_nside(nside);
   const double rmax = rmax_from_nside(nside);
   const double r_parent = r;
-  r = rrf::min(rrf::max(r, rmin), rmin + 1);
+  // [rmin, rmin + 1]: a ray past its split radius has moved at most one
+  // substep beyond it, P.cells RT cells (1 in the original)
+  r = rrf::min(rrf::max(r, rmin), rmin + P.cells);
   dr = rmax - r;
   if (clamped) *clamped = (r != r_parent);
   // Effective origin, position corresponding to r = 0
@@ -527,19 +614,34 @@ RR_HD void source_thick_deposit(float Luv, const RTP& P, double v[kNdep]) {
   for (int d = 0; d < 3; ++d) v[10 + d] = 0;
 }
 
-// Emission of nside_init^2*12 rays of a stellar source cell (ray_source);
-// nu = freq_init, ngam = the cell's photons / nray_init per ray.
+// HEALPix nside of a stellar emission. nside_init (the original) unless the
+// rays cross more cells in their first substep than its split radius
+// (rt_cells_per_substep = k): a ray splits at most once per substep, so it
+// would stay at nside_init over its whole first path of k cells and beyond
+// (k = 8: about 4 cells^2 per ray at r = 8, against ray_per_cell = 1). The
+// smallest nside >= nside_init with rmax(nside) >= k - 1; from there one
+// split per substep keeps up (rmax doubles, r grows by k). k <= 4: nside_init.
+RR_HD int emit_nside(int cells) {
+  int n = radray::rayp::nside_init;
+  while (rmax_from_nside(n) < cells - 1 && n < radray::rayp::nside_max) n *= 2;
+  return n;
+}
+
+// Emission of 12 nside^2 rays of a stellar source cell (ray_source), nside =
+// emit_nside(P.cells) (nside_init = 4, 192 rays, for k <= 4); nu = freq_init,
+// ngam = the cell's photons / the number of rays per ray.
 RR_HD SourceSpec source_spec(int i, int j, int k, float Luv, const RTP& P) {
   using namespace radray;
   SourceSpec s;
-  s.nside = rayp::nside_init;
+  s.nside = emit_nside(P.cells);
   cell_centre(i, j, k, s.x);
-  s.dr = static_cast<float>(rmax_from_nside(rayp::nside_init));
+  s.dr = static_cast<float>(rmax_from_nside(s.nside));
+  const int nray = nray_from_nside(s.nside);
   double ngam[NF];
   source_photons(Luv, P, ngam);
   for (int n = 0; n < NF; ++n) {
     s.nu[n] = static_cast<float>(rrk::freq_init(n));
-    s.ngam[n] = static_cast<float>(ngam[n] / rayp::nray_init);
+    s.ngam[n] = static_cast<float>(ngam[n] / nray);
   }
   return s;
 }

@@ -4,12 +4,14 @@
 #include <cmath>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <vector>
 
 #include "check.hpp"
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
+#include "radray/kernels/ray_kernels.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 
@@ -67,6 +69,93 @@ static void test_segment() {
     if (s4[3] >= seg_min) ++n_four;
   }
   CHECK(n_four > 0);  // a 4th segment does occur
+}
+
+// rt_cells_per_substep = k (docs/rt_multicell.md): a path of k cells in
+// 3k+1 segments always covers the path; k = 1 is the 4-segment step exactly.
+static void test_segment_path() {
+  const double seg_min = static_cast<double>(1e-4f);
+  std::mt19937_64 rng(11);
+  std::uniform_real_distribution<double> U(0, 8);
+  std::normal_distribution<double> G;
+  for (int n = 0; n < 50000; ++n) {
+    double x[3] = {U(rng), U(rng), U(rng)}, dx[3] = {G(rng), G(rng), G(rng)};
+    const double nr = std::sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]);
+    for (double& d : dx) d /= nr;
+    const auto s4 = ray_segment(x, dx, seg_min, 4);
+    const auto p1 = ray_segment_path(x, dx, seg_min, 1);
+    CHECK(p1.size() == 4);
+    for (int m = 0; m < 4; ++m) CHECK(p1[m] == s4[m]);
+    for (int k : {2, 3, 4, 8, 16}) {
+      const auto p = ray_segment_path(x, dx, seg_min, k);
+      CHECK(static_cast<int>(p.size()) == 3 * k + 1);
+      double tot = 0;
+      int nreal = 0;
+      for (double d : p) {
+        CHECK(d >= -1e-12);
+        tot += d;
+        if (d >= seg_min) ++nreal;
+      }
+      CHECK(std::fabs(tot - k) < 1e-9);
+      // at most k crossings per axis
+      int ncross = 0;
+      for (int a = 0; a < 3; ++a)
+        ncross += std::abs(static_cast<int>(std::floor(x[a] + k * dx[a]) - std::floor(x[a])));
+      CHECK(ncross <= 3 * k);
+      CHECK(nreal <= ncross + 1);
+    }
+  }
+  // The diagonal, the most crossings: k = 2 crosses 6 faces (7 segments)
+  {
+    const double x[3] = {0.95, 0.96, 0.97};  // faces 1 and 2 on every axis
+    const double q = 1 / std::sqrt(3.0), dx[3] = {q, q, q};
+    const auto p = ray_segment_path(x, dx, seg_min, 2);
+    int nreal = 0;
+    for (double d : p)
+      if (d >= seg_min) ++nreal;
+    CHECK(nreal == 7);
+  }
+  bool threw = false;
+  try {
+    ray_segment_path(nullptr, nullptr, seg_min, rrk::kMaxCellsPerSubstep + 1);
+  } catch (const std::invalid_argument&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+// The split radius clamp [rmin, rmin + k] (rt_cells_per_substep = k)
+static void test_split_clamp_cells() {
+  rrk::RTP P;
+  P.N = 32;
+  P.nrtr = 32;
+  P.hrtr = 16;
+  rrk::RayP p;
+  p.nside = 4;
+  p.ipix = 37;
+  const double rmin8 = rmin_from_nside(8);
+  p.r = static_cast<float>(rmin8 + 2.5);  // 2.5 cells past the split radius
+  p.dr = -2.5f;
+  double dxv[3];
+  healpix::pix2vec_nest(4, 37, dxv);
+  for (int d = 0; d < 3; ++d) {
+    p.dx[d] = static_cast<float>(dxv[d]);
+    p.x[d] = static_cast<float>(16.5 + p.r * dxv[d]);
+  }
+  for (int n = 0; n < 5; ++n) {
+    p.nu[n] = 20;
+    p.ngam[n] = 1;
+  }
+  rrk::RayP c[4];
+  bool clamped = false;
+  P.cells = 1;
+  rrk::split(p, P, c, &clamped);
+  CHECK(clamped);
+  CHECK(std::fabs(c[0].r - (rmin8 + 1)) < 1e-5);
+  P.cells = 4;
+  rrk::split(p, P, c, &clamped);
+  CHECK(!clamped);
+  CHECK(c[0].r == p.r);
 }
 
 static void test_nside_radius() {
@@ -386,6 +475,8 @@ static void test_ray_rotate() {
 
 int main() {
   test_segment();
+  test_segment_path();
+  test_split_clamp_cells();
   test_nside_radius();
   test_chain_ops();
   test_split_conserves();

@@ -389,6 +389,34 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
     the effect for a full cosmological run, where many overlapping sources
     fill each other's gaps.
 
+* **B17. `photo_cell` ionises photon-starved cells without the photons.**
+  The ionisation balance is iterated (`ne` to 1e-3, at most 5 times). In
+  each iteration the densities are first computed implicitly with the
+  current photo-ionisation rates, then the rates are rescaled by
+  nrad/num1 so that the photo-ionisations do not exceed the photons the
+  cell received ("Photoionisations can not exceed the number of
+  photons"). In a photon-starved cell with Γ·dt ≫ 1 (a neutral front cell
+  that receives fewer photons than it has atoms) every iteration ionises
+  the cell almost fully, because backward Euler gives
+  x_HI(new) = x_HI/(1 + Γdt) for any large Γdt; `ne` therefore
+  "converges" at once while the rates still exceed the photons by the
+  factor nHI/nrad, and the loop ends. The densities are kept, but only
+  the photons of the rescaled rates are taken from the cell: it is
+  ionised by photons it was not given. Found in the
+  `rt_cells_per_substep` study (`docs/rt_multicell.md`): on
+  `lognormal_16src` (c = 1, 20 steps, fixed flags) the ionised hydrogen
+  exceeds the counted net photo- and collisional ionisations by 1.8 % of
+  x_HII,M; the excess grows with Γ_max·dt, which scales as k² with k RT
+  cells per substep (6.5 % at k = 2, 16 % at k = 4). Uniform gas hardly
+  shows it (the front cells are less starved). **Option
+  `photon_conserve = 1`** (default 0 = the original; params.txt /
+  `--set`, `radhydro`, `rt_driver`, the AMReX backend; independent of
+  `legacy_rt` and `legacy_physics`, so the Fortran-mirrored modes are
+  unchanged) also iterates while any frequency group is limited by more
+  than 1e-3, at most 1000 times (`rrk::kPhotonIterMax`). The budget then
+  closes to 4e-5 per H atom at negligible cost (`radiative_physics` time
+  unchanged). Effects and tests: `docs/rt_multicell.md`.
+
 * **Redshift per time with a reduced speed of light** (not a quirk of the
   original, which hard-wires c: a consequence of the C++ `c_reduced`).
   `ray_redshifting` and `moment_redshift` scale frequencies by
@@ -814,7 +842,9 @@ in both modes:
   * SN heating itself.
 * Recombination radiation stays disabled (`if (.false.)`).
 * The rates are looked up at `tmp` from before the ionisation update, and
-  ne is iterated at most 5 times, to 1e-3. These are numerical choices.
+  ne is iterated at most 5 times, to 1e-3. These are numerical choices;
+  the photon leak the 5-iteration limit causes in photon-starved cells is
+  B17 (`photon_conserve`).
 * The original fits use single-precision exponent literals (`x**1.503` is
   `pow(x, 1.50300002…)`). This shifts the rates by about 1e-7 relative,
   which is harmless, so they are kept.
