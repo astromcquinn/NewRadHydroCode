@@ -7,6 +7,9 @@
 // Options:
 //   --hmf st|tinker        analytic halo mass function (default tinker)
 //   --tinker-zmax Z        freeze the Tinker z-evolution above Z
+//   --st-params A,a,p      Sheth-Tormen coefficients (default 0.3222,0.707,0.3;
+//                          production: the fit to the FoF halos,
+//                          data/hmf/st_fof_*.txt)
 //   --sim-hmf FILE         match to the simulated FoF halos: the analytic HMF
 //                          (--hmf; use st with fit_fof_hmf.py) times the
 //                          fitted correction in FILE (data/hmf/*.txt); the
@@ -52,7 +55,7 @@ namespace {
 void usage() {
   std::cerr << "usage: am_fit --lf FILE --out DIR [--hmf st|tinker] [--dust 0|1] "
                "[--beta0 B] [--dbeta D] [--extend-faint M] [--logM-min X] [--logM-max X] "
-               "[--free l0,l1,...] [--set am_x=v] [--zlo Z] [--zhi Z] [--tinker-zmax Z] [--sim-hmf FILE] "
+               "[--free l0,l1,...] [--set am_x=v] [--zlo Z] [--zhi Z] [--tinker-zmax Z] [--st-params A,a,p] [--sim-hmf FILE] "
                "[--only-confirmed]\n";
 }
 
@@ -91,6 +94,11 @@ int main(int argc, char** argv) {
         else if (v == "ps") opt.hmf = MassFunction::Kind::PressSchechter;
         else throw std::runtime_error("--hmf st|tinker|ps");
       } else if (a == "--tinker-zmax") opt.tinker_zmax_evol = std::stod(next());
+      else if (a == "--st-params") {  // A,a,p (data/hmf/st_fof_*.txt)
+        const std::string v = next();
+        if (std::sscanf(v.c_str(), "%lf,%lf,%lf", &opt.st.A, &opt.st.a, &opt.st.p) != 3)
+          throw std::runtime_error("--st-params A,a,p");
+      }
       else if (a == "--sim-hmf") opt.sim_hmf = SimHMF::read(next());
       else if (a == "--dust") opt.dust.enabled = std::stoi(next()) != 0;
       else if (a == "--beta0") opt.dust.beta0 = std::stod(next());
@@ -176,6 +184,10 @@ int main(int argc, char** argv) {
       o << "# sfr_model = abundance parameters from am_fit (" << lf_path << ")\n"
         << "# hmf = "
         << (opt.hmf == MassFunction::Kind::Tinker08 ? "tinker" : opt.hmf == MassFunction::Kind::ShethTormen ? "st" : "ps")
+        << (opt.hmf == MassFunction::Kind::ShethTormen
+                ? " (A " + std::to_string(opt.st.A) + ", a " + std::to_string(opt.st.a) + ", p " +
+                      std::to_string(opt.st.p) + ")"
+                : std::string())
         << (opt.sim_hmf.enabled ? " x simulated-FoF correction" : "")
         << ", dust = " << (opt.dust.enabled ? 1 : 0) << ", rms = " << fr.rms_dex
         << " dex over " << fr.npoints << " points"

@@ -268,7 +268,8 @@ two nearest catalogs (the runs' time steps differ). Ratios to `hmf256`
   the small box; the 40 Mpc/h runs extend the function to 10^11.5–10^12 M☉.
 * **Abundance matching.** pm_refine = 2 runs need their own FoF
   correction. §6 has it, fitted to these catalogs:
-  `data/uv_lf/am_params_1024_40mpc_r2.txt`.
+  `data/uv_lf/am_params_1024_40mpc_r2.txt` (superseded by the ST refit,
+  §6).
 
 ## 4. Cost
 
@@ -380,63 +381,73 @@ the abundance matching. The drift moves halos by ≲ 0.5 gas cell
 (300 km/s for 20 Myr). 30 Myr halves the calls before overlap at about
 twice the mass lag.
 
-## 6. Abundance matching for pm_refine = 2
+## 6. Abundance matching: Sheth–Tormen refit to the FoF halos
 
-The abundance matching uses the **simulated** FoF mass function
-(`docs/abundance_matching.md`): n_halo = ST × R(N, z), with R fitted to a
-no-source run at the run's particle mass. R is "resolution-specific:
-refit it from a no-source run at each N". The 512³ production uses the
-128³/10 Mpc/h fit (m_p = 5.1e7 M☉). A pm_refine = 2 run has
-m_p = 6.4e6 M☉, so its fit comes from `hmf512_40mpc_r2`, made exactly as
-the 256³ one was (`docs/hmf_validation.md`):
+**Production (user decision 2026-10-11):** match the UV LF to an
+*analytic* mass function, Sheth–Tormen with coefficients refit to the
+well-resolved FoF halos of the 40 Mpc/h 1024³ run. The L_UV(M_halo, z)
+relation is then the same for every box and resolution. Halos below a
+box's resolution are simply missing faint sources (f_esc absorbs the
+budget). This replaces matching to each box's own FoF mass function
+(2026-10-09), whose correction had to be refit per resolution, and whose
+fitted form failed at 1024³ (below).
+
+**Why refit ST.** In the 40 Mpc/h box, FoF (b = 0.2) halos above
+~500 particles are 1.1–1.9× standard ST (z = 5.5–10; §3 table), i.e. at
+fixed abundance an FoF halo is 0.10–0.15 dex heavier than ST implies.
+The code assigns L by FoF mass, so plain ST would give ~1.5–2× too many
+bright galaxies.
+
+**Fit** (`tools/analysis/fit_st_fof.py`: Poisson likelihood of the counts
+in 0.1 dex bins over 31 catalogs, z = 5.5–10.5, ≥ 1000 particles):
 
 ```
-python3 tools/analysis/fit_fof_hmf.py $RUNS/hmf512_40mpc_r2/run/halos --box 40 --N 1024 --out data/hmf/fof_1024_40mpc_r2.txt
-build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --sim-hmf data/hmf/fof_1024_40mpc_r2.txt --out am
+python3 tools/analysis/fit_st_fof.py --run $RUNS/hmf512_40mpc_r2/run/halos:40:1024 \
+    --nmin 1000 --zmax 10.5 --fix-p 0.3 --hmf-table build/hmf_table \
+    --check $RUNS/hmf512_40mpc_r1/run/halos:40:512:1000 --check $RUNS/hmf256/run/halos:10:256:1000
+build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --st-params 0.345835,0.616383,0.3 --out am
 ```
 
-→ `data/hmf/fof_1024_40mpc_r2.txt` and
-`data/uv_lf/am_params_1024_40mpc_r2.txt`. Use the latter with
-`make_production.py --pm-refine 2 --am-params …` for 40 Mpc/h, N = 512.
+| | A | a | p |
+|---|---|---|---|
+| Sheth & Tormen (1999) | 0.3222 | 0.707 | 0.3 |
+| **FoF refit (production)** | **0.3458** | **0.6164** | 0.3 (fixed) |
 
-| | r∞ | p | N_c0 | q |
-|---|---|---|---|---|
-| 256³ / 10 Mpc/h | 5.03 | 0.336 | 13 278 | 2.64 |
-| 1024³ / 40 Mpc/h (pm_refine = 2) | 1.7×10⁸ | 0.279 | 1.2×10³² | 3.20 |
+→ `data/hmf/st_fof_40mpc_1024.txt`, `data/uv_lf/am_params_st_fof.txt`
+(`make_production.py --am-params data/uv_lf/am_params_st_fof.txt`, any
+box and pm_refine).
 
-**The 1024³ fit sits at a degenerate corner.** N ≪ N_c everywhere, so
-R ≈ 0.19 N^0.28 ((1+z)/7)^−0.89, a pure power law. Measured FoF/ST of the
-1024³ catalogs against the two fits (z = 6.04):
+* **Quality.** Data/fit 0.92–1.07 in nearly every bin from 10^9.85 to
+  10^10.9 M☉ at z = 5.5–8 (0.8–1.0 at z = 10), no trend in mass.
+* **Threshold.** Above 300 particles the fit fails (p = −1.0, data/fit
+  0.65–0.97 at 300–500 particles rising to 1.2–2 above): the FoF deficit
+  near the resolution limit grows with z and still reaches ~500 particles
+  at z ≥ 8. From 1000 particles up the fit is stable; p is poorly
+  constrained (free fits: −0.6 at 1000, −0.74 at 2000 particles, same
+  quality), so it is fixed at the standard 0.3, which keeps ST's shape at
+  the low masses where the matching extrapolates. A·∫ ≠ 1 (A = 0.346): an
+  empirical fit over the measured range, not a normalised f(ν).
+* **Box/resolution independence.** The 512³-particle 40 Mpc/h run
+  (≥ 1000 particles = 10^10.7 M☉): data/fit 0.94–1.0 at z ≤ 7. The
+  10 Mpc/h 256³ box: 0.83–0.97 (≤ 60 halos per bin; that box is ~10% low
+  throughout, §3).
+* **Box LF check** (`tools/analysis/box_lf.py` on the 1024³ catalogs;
+  figure `figures/am_st_fof_box_lf_1024.png`): box/observed 0.90–1.0 for
+  M_UV = −20 … −14.5 at z = 5.9 (Bouwens+22), 0.95–1.12 at z = 7
+  (Atek+26), 1.1–1.36 at the bright end at z = 7.9; it falls below the
+  observed LF only where the halos are unresolved (0.76–0.84 at
+  −13 … −11 at z = 5.9, 0.57–0.7 at −16 … −14 at z = 7.9). The previous
+  simulated-HMF parameters gave 0.2–0.6 at −20 … −18 (z = 5.9) and
+  1.4–1.7 at the bright end (z = 7.9).
+* **f_esc must be recalibrated** for runs with these parameters: the
+  ionising emissivity per halo changes (the 512³ runs used
+  `am_params_128_10mpc.txt`).
 
-| particles | 27 | 47 | 150 | 474 | 1500 | 4743 | 15 000 |
-|---|---|---|---|---|---|---|---|
-| measured | 0.44 | 0.37 | 0.60 | 0.99 | 1.32 | 1.37 | 1.63 |
-| 1024³ fit | 0.46 | 0.55 | 0.75 | 1.04 | 1.43 | 1.97 | 2.72 |
-| 256³ fit | 0.55 | 0.66 | 0.91 | 1.23 | 1.63 | 2.08 | 2.56 |
-
-The form r∞/(1 + (N/N_c)^−p) with a z-independent r∞ cannot follow the
-data. The measured ratio rises steeply to ~500 particles and then
-flattens at 1.3–1.7 (z ≈ 6), but at high mass it grows with z (2.0–2.6 at
-z = 8–10). The model total counts are 4% high at z = 5.5 and 2× high at
-z = 13.3. The 256³ fit has the same problem; its 10 Mpc/h box had too few
-massive halos to show it. So the fit is good near 20–500 particles at
-z ≈ 6–8 and too high above ~10^10 M☉ and at z ≳ 11. **Open:** a better
-R(N, z) form (e.g. r∞(z)) in `fit_fof_hmf.py` and `am_fit`, or matching
-directly to the tabulated catalog counts.
-
-Resulting M_UV(M) (am_fit summary; 1024³ fit / 256³ fit):
-
-| z | 10^8.5 M☉ | 10^9 | 10^10 | 10^11 |
-|---|---|---|---|---|
-| 6 | −11.14 / −10.81 | −12.70 / −12.46 | −15.83 / −15.77 | −18.94 / −19.04 |
-| 8 | −12.25 / −11.91 | −13.84 / −13.57 | −17.03 / −16.89 | −20.12 / −20.11 |
-| 10 | −13.30 / −12.96 | −14.91 / −14.63 | −18.12 / −17.95 | −21.14 / −21.10 |
-
-The 1024³ fit makes the faint sources brighter: by 0.33–0.34 mag at
-10^8.5 M☉ (L +36%) and 0.24–0.28 mag at 10⁹ (+25%). The difference falls
-to 0.06–0.17 mag at 10¹⁰ M☉ and to ≲ 0.1 at 10¹¹. Its R is lower at
-47–500 particles, so the same LF is matched with fewer resolved halos per
-unit L. Overall source luminosity is in any case calibrated by f_esc.
+Superseded (kept for the record): `data/hmf/fof_1024_40mpc_r2.txt` and
+`data/uv_lf/am_params_1024_40mpc_r2.txt`, the simulated-HMF matching at
+1024³. Its correction form R(N, z) = r∞/(1 + (N/N_c)^−p) went to a
+degenerate power law (r∞ = 1.7×10⁸) and overshot FoF/ST by 1.4–1.6× at
+47–150 particles and ×1.7 at 15 000 particles (z = 6).
 
 ## 7. Notes
 

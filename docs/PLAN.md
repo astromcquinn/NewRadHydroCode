@@ -391,3 +391,15 @@ policy on klone, and deleting the merged branches.
 * The pm_refine = 2 abundance matching uses a FoF correction fitted to
   the 40 Mpc/h 1024³ catalogs (the documented rule: refit at each
   resolution); `data/uv_lf/am_params_1024_40mpc_r2.txt`.
+* **FoF every hydro step** (user, 2026-10-11, revising the above): the
+  hydro steps are 20–30 Myr apart until overlap, so `fof_dt_myr` would
+  save only minutes; production keeps the default 0 (every hydro step).
+  The option stays.
+* **Abundance matching to an analytic mass function** (user, 2026-10-11,
+  replacing the 2026-10-09 decision to match to the box's own FoF mass
+  function): "calibrate to it so that the calibration doesn't change
+  depending on the box". Plain ST fits the 40 Mpc/h FoF halos badly
+  (FoF/ST 1.1–1.9 above 500 particles), so the user chose ST with its
+  coefficients refit to the well-resolved FoF halos (option 2):
+  A = 0.3458, a = 0.6164, p = 0.3, `data/uv_lf/am_params_st_fof.txt`
+  (`docs/pm_refine.md` §6). f_esc has to be recalibrated with it.

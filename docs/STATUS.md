@@ -57,11 +57,14 @@ in the 40 Mpc/h, 512³ runs.
   - In the 512³ production schedule (39 source steps, 20–30 Myr apart
     until overlap): 20 Myr → 33 FoF calls, 30 Myr → 22, 50 → 16. That is
     only 3–12 min saved at 1024³; 20 Myr suggested.
-- **Abundance matching for pm_refine = 2:** refitted from the 1024³
-  catalogs (`data/uv_lf/am_params_1024_40mpc_r2.txt`). Faint sources are
-  brighter than with the 256³ fit (+0.33 mag at 10^8.5 M☉, +0.25 at
-  10⁹). The R(N, z) fit form overshoots FoF/ST above ~10^10 M☉ and at
-  z ≳ 11, for both fits (`docs/pm_refine.md` §6).
+- **Abundance matching (user decision 2026-10-11):** Sheth–Tormen refit to
+  the FoF halos ≥ 1000 particles of the 40 Mpc/h 1024³ run (A = 0.3458,
+  a = 0.6164, p = 0.3), `data/uv_lf/am_params_st_fof.txt`, for every box
+  and pm_refine. Data/fit 0.92–1.07 at z = 5.5–8; the 512³ and 10 Mpc/h
+  boxes agree; the 1024³ box LF matches the observed LFs to 0.9–1.1
+  wherever halos are resolved. `am_fit`/`hmf_table --st-params`,
+  `tools/analysis/fit_st_fof.py`. FoF stays every hydro step (user).
+  **f_esc needs recalibrating with the new parameters.**
 - **Open (user):**
   - production with pm_refine = 2;
   - the fof_dt_myr value;

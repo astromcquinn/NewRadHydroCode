@@ -15,9 +15,16 @@ existing models are bit-identical to before.
    data constrain and a weight. φ* is in the observers' Mpc⁻³ mag⁻¹ (h = 0.7).
 2. **Matching** (`abundance_match`, `include/radray/abundance_matching.hpp`):
    at each LF redshift, M_UV(M_halo) from n_halo(>M) = n_gal(<M_UV).
-   * **Production: n_halo is the simulated FoF mass function** (user
-     decision, 2026-10-09). The box's own UV LF then matches the observed
-     one by construction, down to the resolution limit.
+   * **Production (user decision 2026-10-11): n_halo is Sheth–Tormen
+     refit to the well-resolved FoF halos** of the 40 Mpc/h 1024³ run
+     (A = 0.3458, a = 0.6164, p = 0.3; `data/hmf/st_fof_40mpc_1024.txt`,
+     `am_fit --hmf st --st-params 0.345835,0.616383,0.3`, parameters
+     `data/uv_lf/am_params_st_fof.txt`; `docs/pm_refine.md` §6). The
+     L_UV(M) relation is the same for every box and resolution; halos
+     below a box's resolution are missing faint sources.
+   * Before (2026-10-09 to 2026-10-11): n_halo was the simulated FoF mass
+     function, so the box's own UV LF matched the observed one by
+     construction down to the resolution limit (below; kept as an option).
      * `tools/analysis/fit_fof_hmf.py` fits the FoF catalogs of a
        no-source run (`docs/hmf_validation.md`) as Sheth–Tormen times
        R(N, z) = r∞ / (1 + (N/N_c)^−p), with N_c = N_c0((1+z)/7)^q.

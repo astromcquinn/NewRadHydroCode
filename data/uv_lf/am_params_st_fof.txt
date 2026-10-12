@@ -1,0 +1,19 @@
+# Production abundance matching (docs/abundance_matching.md, user decision 2026-10-11):
+# Sheth-Tormen refit to the FoF halos (>= 1000 particles) of the 40 Mpc/h 1024^3 run, data/hmf/st_fof_40mpc_1024.txt;
+# box- and resolution-independent. build/am_fit --lf data/uv_lf/lf_params.txt --hmf st --st-params 0.345835,0.616383,0.3
+# sfr_model = abundance parameters from am_fit (data/uv_lf/lf_params.txt)
+# hmf = st (A 0.345835, a 0.616383, p 0.300000), dust = 0, rms = 0.0534664 dex over 121 points
+sfr_model = abundance
+am_l0 = 29.096732
+am_l1 = -0.1246293432
+am_l2 = -0.05156652063
+am_a0 = 1.486136421
+am_a1 = 0.0255368079
+am_m0 = 11.38823653
+am_m1 = -0.1404545307
+am_b = 0.2810735695
+am_z0 = 8
+am_zlo = 5.9
+am_zhi = 9
+am_norm_z = 10,11,12.5
+am_norm_dl = 0.3205722651,0.5840562069,0.7969103106

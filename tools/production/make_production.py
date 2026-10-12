@@ -70,9 +70,9 @@ def main():
                     help="PM mesh refinement (docs/pm_refine.md): writes pm_refine and "
                          "Ndm = pm_refine*N, and makes ICs with pm_refine*N particles per "
                          "dimension whose large scales are those of the N^3 ICs of the same "
-                         "seed (--phases-from-ndm N); 1: the original, Ndm = N. The abundance matching for "
-                         "40 Mpc/h with --pm-refine 2 (N = 512): --am-params "
-                         "data/uv_lf/am_params_1024_40mpc_r2.txt (docs/pm_refine.md)")
+                         "seed (--phases-from-ndm N); 1: the original, Ndm = N. The abundance matching (any box, "
+                         "any pm_refine): --am-params data/uv_lf/am_params_st_fof.txt "
+                         "(docs/pm_refine.md section 6)")
     ap.add_argument("--fof-dt-myr", type=float, default=0.0,
                     help="run the on-the-fly FoF only every this many Myr, reusing its halos "
                          "in between (docs/pm_refine.md, FoF cadence); 0: every hydro step "
