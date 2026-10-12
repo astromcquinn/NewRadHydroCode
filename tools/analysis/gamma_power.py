@@ -27,6 +27,10 @@ their proximity zones (in the 128^3 tests the top 100 of 2M cells hold
 fluctuations of the background itself. The txt also gives the fraction of
 the variance in the top 0.01 % of cells.
 
+P(k_max), the power in the highest k bin, bounds a white-noise floor (for
+the rays, the sampling noise of the discrete rays): its share of the power
+at k is P(k_max)/P(k).
+
 Note: Gamma_HI is the value of the last RT substep. With the rays it carries
 the sampling noise of the discrete rays (roughly white at high k); the
 moment methods have none, so the high-k ratio rays/moments contains it.
@@ -199,8 +203,8 @@ def main():
         for lab, e in zip(labels, row):
             if e:
                 rep.append("#   %-10s z = %.4f  x_HII,V = %.6f  <Gamma_HI>_V = %.4e  sigma_delta = %.3f  "
-                           "var in top 0.01%% cells = %.2f  %s"
-                           % (lab, e["z"], e["xV"], e["gmean"], e["sd"], e["top"], e["dir"]))
+                           "var in top 0.01%% cells = %.2f  P(k_max) = %.3e  %s"
+                           % (lab, e["z"], e["xV"], e["gmean"], e["sd"], e["top"], e["P"][-1], e["dir"]))
         hdr = "# %10s" % "k" + "".join(" %11s %11s %7s %7s" % ("P_" + l, "D2_" + l, "rat_" + l[:3], "r_" + l[:3])
                                         for l, e in zip(labels, row) if e)
         rep.append(hdr)
