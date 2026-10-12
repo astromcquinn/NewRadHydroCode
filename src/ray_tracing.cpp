@@ -371,7 +371,7 @@ void ray_source(Simulation& s, int irt, int jrt, int krt) {
       gng[n] = static_cast<float>(static_cast<double>(gng[n]) + v[n]);
       gnu[n] = static_cast<float>(static_cast<double>(gnu[n]) + v[5 + n]);
     }
-    if (s.tdiag && s.tdiag->active) tensor_diag_iso(*s.tdiag, c, v);  // diagnostic
+    if (s.tdiag && s.tdiag->acc) tensor_diag_iso(*s.tdiag, c, v);  // diagnostic
     return;
   }
 
@@ -572,7 +572,7 @@ void ray_cast_1(Simulation& s, std::int64_t ir, int /*irt*/, int /*jrt*/,
   RTGrid& G = s.rt;
   const rrk::RTP P = rt_params(s);
   auto tau = [&](int i, int j, int k) -> const float* { return G.tau_p(G.cell(i + 1, j + 1, k + 1)); };
-  TensorDiag* TD = (s.tdiag && s.tdiag->active) ? s.tdiag.get() : nullptr;  // diagnostic
+  TensorDiag* TD = (s.tdiag && s.tdiag->acc) ? s.tdiag.get() : nullptr;  // diagnostic
   auto dep = [&](int i, int j, int k, const double* v) {
     const std::int64_t c = G.cell(i + 1, j + 1, k + 1);
     float* gng = G.ngam_p(c);

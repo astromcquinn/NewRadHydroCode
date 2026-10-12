@@ -708,10 +708,7 @@ void pool_guard(const std::int64_t* spl_pdf, int N_pdf, std::int64_t L, std::int
 
 // rt_tools.f90: rt_step_1
 void rt_step_1(Simulation& s) {
-  if (s.tdiag && s.tdiag->active) {  // diagnostic (rt_tensor_diag.hpp)
-    s.tdiag->nsub += 1;
-    s.tdiag->dt_sum += s.clk.dtsec_rt;
-  }
+  if (s.tdiag && s.tdiag->active) tensor_diag_substep(s);  // diagnostic (rt_tensor_diag.hpp)
   if (use_moments(s.cfg)) {
     moment_step_1(s);  // rt_method = m1 | otvet (rt_moments.hpp)
     return;

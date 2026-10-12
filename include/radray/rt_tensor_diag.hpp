@@ -29,8 +29,11 @@ struct TensorDiag {
   bool active = false;
   int nsub = 0;
   double dt_sum = 0;  // sum of dtsec_rt over the substeps
-  // 10 per cell: S0, S1 (x, y, z), S2 (xx, yy, zz, xy, xz, yz)
-  std::vector<double> S;
+  // 10 per cell: S0, S1 (x, y, z), S2 (xx, yy, zz, xy, xz, yz); S over
+  // all substeps, So over the odd ones (to estimate the ray sampling noise)
+  std::vector<double> S, So;
+  int nsub_odd = 0;
+  double* acc = nullptr;  // S, or So on odd substeps (set by rt_step_1)
 };
 
 // Starts the accumulation for one hydro step (allocates and zeroes).
@@ -40,7 +43,10 @@ void tensor_diag_begin(Simulation& s);
 void tensor_diag_ray(TensorDiag& T, std::int64_t c, const double* v);
 // An isotropic deposit (thick source cell), same layout (v[10..12] unused).
 void tensor_diag_iso(TensorDiag& T, std::int64_t c, const double* v);
+// Called at the start of every substep (rt_step_1).
+void tensor_diag_substep(Simulation& s);
 // Writes tensor.bin (float32, 10 per cell, means over the substeps),
+// tensor_odd.bin (the same over the odd substeps only),
 // otvet_h.bin (6 per cell) and sources.txt (i j k Luv, 1-based) into dir,
 // then stops the accumulation.
 void tensor_diag_write(Simulation& s, const std::string& dir, bool io);

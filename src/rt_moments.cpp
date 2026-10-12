@@ -416,7 +416,7 @@ void moment_tensor_diag(const MomentState& M, TensorDiag& T, bool otvet) {
     }
     if (!any) continue;
     rrk::photoion_sigma(nu, sig);
-    double* S = &T.S[10 * c];
+    double* S = &T.acc[10 * c];
     for (int g = 0; g < kNfreq; ++g) {
       const std::int64_t i = g * nc + c;
       const double Ng = M.n[i];
@@ -577,7 +577,7 @@ void moment_step_1(Simulation& s) {
     for (int it = 0; it < nsub; ++it) transport_group(M, g, otvet, C);
   }
   lap(s.timers.trace1);
-  if (s.tdiag && s.tdiag->active) moment_tensor_diag(M, *s.tdiag, otvet);  // diagnostic
+  if (s.tdiag && s.tdiag->acc) moment_tensor_diag(M, *s.tdiag, otvet);  // diagnostic
 
   // Deposit for radiative_physics: ngam = N, nu = E (= nu*ngam, divided by
   // ngam in radiative_physics), dx = sum over groups of F
