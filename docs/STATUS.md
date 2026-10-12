@@ -1,7 +1,31 @@
 # Project status
 
-*Last updated: 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
+## Done 2026-10-12: nightly workflow out of disk (branch `claude/new-session-knktw3`)
+
+The first scheduled `nightly.yml` run (on `main` at d8d6029) died after
+2 h 50 min with "No space left on device", leaving no log.
+- **Cause:** the full hydro tier keeps every run in `build/`. A dry run
+  of the generated problems gives 6.9 GB for the legacy scheme and 7.6 GB
+  for unsplit (KH and the pancake ~2 GB each). The repository is private,
+  so the job gets the standard private-repo runner: 2 cores and 14 GB of
+  disk (from memory, not checked against GitHub's docs; the workflow now
+  prints `nproc`, `free` and `df`).
+- **Fix:** `run_suite.py --clean` removes each test's problem and run
+  directories once it is analysed (the results JSON stays); the nightly
+  full-tier CTests pass it. `nightly.yml` runs the label as three jobs,
+  each on its own runner: `rt-full` (full-loop references, pool guard,
+  Stromgren), `hydro-legacy` and `hydro-unsplit`. It uses ctest
+  `-j$(nproc)` and a 350-minute limit per job.
+- **Measured here** (4-core container; each hydro scheme pinned to 2
+  cores, as on a runner): `rt-full` 8/8 in 30 min on 4 cores, peak 2.5 GB
+  (`recomb_stromgren` 2.2 GB). `hydro-legacy` 7/7 in 1 h 41 min, peak
+  3.1 GB. `hydro-unsplit` 7/7 in 1 h 39 min, peak 2.7 GB. Not yet run on
+  GitHub.
+- **Open, for the user:** the daily cadence uses roughly 4–5 runner-hours
+  per night, beyond the included Actions minutes of a private repository
+  on the Free and Pro plans. The hydro jobs could run weekly instead.
 
 ## Done 2026-10-12: rays, M1 and OTVET at 40 Mpc/h, 512³ (branch `rt-methods-512`)
 

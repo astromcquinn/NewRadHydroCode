@@ -3,7 +3,7 @@
 
 usage: run_suite.py <test> [--tier quick|full] [--scheme legacy|unsplit]
                     [--rundir DIR] [--check] [--jobs n] [--driver PATH]
-                    [--results DIR] [--reuse]
+                    [--results DIR] [--reuse] [--clean]
 
   test   tubes | galilean | sedov | sound | pancake | cosmobox | kh | all
   tier   quick: the small cases used by CTest (label hydro_suite);
@@ -14,6 +14,8 @@ usage: run_suite.py <test> [--tier quick|full] [--scheme legacy|unsplit]
   --check   apply the pass/fail tolerances (exit status 1 on failure); they
             are per scheme (tolerances.py)
   --reuse   do not re-run cases whose output already exists
+  --clean   remove the problem and run directories of each test once it is
+            analysed (the full tier writes ~7 GB per scheme; CTest nightly)
 Results go to <results>/<test>_<tier>[_unsplit].json (default
 tests/hydro_suite/results for the full tier, <rundir>/results for quick);
 runs to <rundir>/<case>. Figures: analyze.py figures [... scheme].
@@ -21,6 +23,7 @@ runs to <rundir>/<case>. Figures: analyze.py figures [... scheme].
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -41,6 +44,7 @@ class Ctx:
         self.rundir = os.path.abspath(args.rundir)
         self.driver = args.driver or hc.driver_path()
         self.fails = []
+        self.made = []
         os.makedirs(self.rundir, exist_ok=True)
 
     def sets(self, extra=None):
@@ -55,7 +59,14 @@ class Ctx:
         pdir = os.path.join(self.rundir, "problems", name)
         odir = os.path.join(self.rundir, name)
         meta = genfun(pdir, **kw)
+        self.made += [pdir, odir]
         return pdir, odir, meta
+
+    def clean(self):
+        """--clean: remove the problem and run directories made so far"""
+        for d in self.made:
+            shutil.rmtree(d, ignore_errors=True)
+        self.made = []
 
     def run_many(self, cases, sets=None):
         """cases: list of (name, pdir, odir); runs in parallel; returns walls"""
@@ -202,6 +213,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--reuse", action="store_true")
+    ap.add_argument("--clean", action="store_true")
     args = ap.parse_args()
     suffix = "" if args.scheme == "legacy" else "_" + args.scheme
     if args.rundir is None:
@@ -220,7 +232,11 @@ def main():
     for name in names:
         print(f"== {name} ({args.tier}, {args.scheme})", flush=True)
         t0 = time.time()
-        res = tests[name](ctx, args.tier)
+        try:
+            res = tests[name](ctx, args.tier)
+        finally:
+            if args.clean:
+                ctx.clean()
         res["suite_wall"] = time.time() - t0
         res["scheme"] = args.scheme
         hc.save_json(os.path.join(args.results, f"{name}_{args.tier}{suffix}.json"), res)
