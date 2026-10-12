@@ -1,6 +1,8 @@
 // Moment-based radiative transfer (rt_moments.hpp, docs/rt_moments.md).
 #include "radray/rt_moments.hpp"
 #include "radray/recomb_rad.hpp"
+#include "radray/rt_tensor_diag.hpp"
+#include "radray/kernels/rt_cell.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -399,6 +401,42 @@ void transport_group(MomentState& M, int g, bool otvet, double C) {
   }
 }
 
+// rt_tensor_diag.hpp: the Gamma_HI-weighted moments N, F and D N of the
+// state after the transport, D = the closure used (OTVET h or M1)
+void moment_tensor_diag(const MomentState& M, TensorDiag& T, bool otvet) {
+  const std::int64_t nc = M.ncell;
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) {
+    double nu[kNfreq], sig[3][kNfreq];
+    bool any = false;
+    for (int g = 0; g < kNfreq; ++g) {
+      const std::int64_t i = g * nc + c;
+      nu[g] = M.n[i] > 0 ? static_cast<double>(M.e[i]) / M.n[i] : 0.0;
+      any = any || M.n[i] > 0;
+    }
+    if (!any) continue;
+    rrk::photoion_sigma(nu, sig);
+    double* S = &T.S[10 * c];
+    for (int g = 0; g < kNfreq; ++g) {
+      const std::int64_t i = g * nc + c;
+      const double Ng = M.n[i];
+      if (!(Ng > 0)) continue;
+      const double w = sig[0][g] * 1e18;
+      double Q[6];
+      if (otvet) {
+        for (int m = 0; m < 6; ++m) Q[m] = Ng * static_cast<double>(M.h[6 * c + m]);
+      } else {
+        m1_pressure(Ng, M.fx[i], M.fy[i], M.fz[i], Q);
+      }
+      S[0] += w * Ng;
+      S[1] += w * M.fx[i];
+      S[2] += w * M.fy[i];
+      S[3] += w * M.fz[i];
+      for (int m = 0; m < 6; ++m) S[4 + m] += w * Q[m];
+    }
+  }
+}
+
 // Sum of per-plane partial sums in plane order (thread-count independent)
 template <class F>
 double plane_sum(int N, F&& plane) {
@@ -539,6 +577,7 @@ void moment_step_1(Simulation& s) {
     for (int it = 0; it < nsub; ++it) transport_group(M, g, otvet, C);
   }
   lap(s.timers.trace1);
+  if (s.tdiag && s.tdiag->active) moment_tensor_diag(M, *s.tdiag, otvet);  // diagnostic
 
   // Deposit for radiative_physics: ngam = N, nu = E (= nu*ngam, divided by
   // ngam in radiative_physics), dx = sum over groups of F

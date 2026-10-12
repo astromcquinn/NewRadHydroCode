@@ -29,6 +29,7 @@ add_library(radray
   src/ray_dump.cpp
   src/ray_quant.cpp
   src/rt_moments.cpp
+  src/rt_tensor_diag.cpp
   src/rt_moments_fft.cpp
   src/recomb_rad.cpp
   src/rt_backend.cpp

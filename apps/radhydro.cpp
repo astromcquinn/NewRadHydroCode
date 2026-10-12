@@ -58,6 +58,7 @@
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
+#include "radray/rt_tensor_diag.hpp"
 #include "radray/simulation.hpp"
 
 namespace {
@@ -135,6 +136,9 @@ struct RunParams {
   // Output and control
   int fields_every = 0;     // write fields every n steps (0: never)
   int fields_at_data1 = 1;  // write fields at the zdata1 output steps
+  // tensor_dump = 1: the Eddington-tensor diagnostic at the zdata1 output
+  // steps (rt_tensor_diag.hpp; tensor.bin, otvet_h.bin, sources.txt)
+  int tensor_dump = 0;
   int max_steps = 1000;     // the original's timing(1000) array
   int run_steps = 0;        // > 0: stop after this many steps of this invocation
                             // (timing runs from a checkpoint; 0: run to the end)
@@ -249,6 +253,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.fields_every = std::stoi(val);
   else if (key == "fields_at_data1")
     P.fields_at_data1 = std::stoi(val);
+  else if (key == "tensor_dump")
+    P.tensor_dump = std::stoi(val);
   else if (key == "max_steps")
     P.max_steps = std::stoi(val);
   else if (key == "run_steps")
@@ -600,6 +606,8 @@ int main(int argc, char** argv) {
     bool& data2_out = dst.data2_out;
     fft::fft_3d('f', cfg.Ngas, cfg.Ngas, cfg.Ngas, pm.density.data());  // init_fft
     calc_sim_var(cfg, s.clk, s.units);
+    if (P.tensor_dump && use_amrex(cfg))
+      throw std::runtime_error("tensor_dump is implemented for the serial RT backend only");
 
     if (restart_from.empty()) pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
 
@@ -970,6 +978,7 @@ int main(int argc, char** argv) {
         T.halos += std::chrono::duration<double>(Clock::now() - th).count();
         if (cat.Nsource > 0) {
           th = Clock::now();
+          if (P.tensor_dump && data1_out) tensor_diag_begin(s);  // diagnostic
           radiative_transfer(s);
           T.rt += std::chrono::duration<double>(Clock::now() - th).count();
         }
@@ -999,6 +1008,10 @@ int main(int argc, char** argv) {
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
+        if (s.tdiag && s.tdiag->active) {
+          if (io) std::filesystem::create_directories(d);
+          tensor_diag_write(s, d, io);
+        }
       }
       const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
       write_stats(d);

@@ -23,6 +23,7 @@ struct RayDump;  // radray/ray_dump.hpp
 struct MomentState;  // radray/rt_moments.hpp
 struct RecombState;  // radray/recomb_rad.hpp
 struct AmrexRT;      // src/amrex/rt_level.cpp (rt_backend = amrex)
+struct TensorDiag;   // radray/rt_tensor_diag.hpp
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -100,6 +101,9 @@ struct Simulation {
   // post_rt (ngam_rays_total).
   std::shared_ptr<AmrexRT> amrex;
   double ngam_total_backend = 0;
+  // Eddington-tensor diagnostic (rt_tensor_diag.hpp); null (off) by default.
+  // Never read by the RT.
+  std::shared_ptr<TensorDiag> tdiag;
 };
 
 }  // namespace radray
