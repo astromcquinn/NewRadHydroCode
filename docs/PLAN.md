@@ -537,3 +537,33 @@ policy on klone, and deleting the merged branches.
   (C++ default 0; `make_production.py` default 1). **User: do not rerun the
   512³ case A + RR ray run**; its post-overlap residual HI, ρ_HI/x_HII power
   and λ_mfp stay flagged as affected in the document.
+## OTVET-closure thread (2026-10-12): a better Eddington tensor for `rt_method = otvet`
+
+* **Request (user):** branch `otvet-closure`; improve OTVET's Eddington tensor,
+  whose post-overlap P_Γ is 2–9× the rays' at k ≲ 6 h/Mpc (r ≥ 0.95), with a Γ
+  floor at 0.62⟨Γ⟩ and low peaks (`docs/rt_methods_512.md`), while keeping its
+  good pre-overlap morphology. An attenuated kernel exp(−r/λ_mfp) is **the
+  baseline to beat**, not the answer. Steps: (1) ground truth — a ray-tracer
+  diagnostic of the true second-moment tensor per cell, compared on 256³ runs
+  with OTVET's h and M1; (2) brainstorm candidate closures with reasoning,
+  cost and memory, **show the list and ranking to the user before
+  implementing**; (3) implement the best two or three behind flags, measure
+  against the rays' tensor, then full runs (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`). Report: `docs/otvet_closure.md`.
+* **Choices made in this thread** (open to revision):
+  - the diagnostic is `tensor_dump = 1` (radhydro only, serial RT backend):
+    on the zdata1 snapshot steps the Γ_HI-weighted moments S0, S1, S2 of the
+    radiation, summed over the substeps (also over the odd substeps alone, for
+    the ray noise), with the thin OTVET tensor of the step's sources and the
+    source list. For the moment methods the same moments of their own N, F
+    and closure D N. Off by default (byte-identical, a null pointer);
+  - the ground-truth runs are new 256³ runs (`$RUNS/otvcl256{,_m1,_otvet}`)
+    at **20 Mpc/h**, the 512³ run's cell size (78 kpc/h), mass resolution and
+    configuration (case A + RR with `recomb_rad_cell_onspot = 1`, ĉ = 0.2,
+    f_esc = 0.23, `redshift_per_distance`, unsplit), snapshots and tensor
+    dumps at z = 15, 10, 9, 8.5, …, 5. The existing 256³ runs (10 Mpc/h,
+    0.1c) kept only their final checkpoints, so any 256³ ground truth needed
+    reruns;
+  - fixed on the way (no flag: it only enables a restart that used to
+    throw): a checkpoint written before the RT starts holds empty
+    recombination buffers, and restarting it with `recomb_rad = 1` failed.
