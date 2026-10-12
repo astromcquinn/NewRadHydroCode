@@ -6,7 +6,8 @@ usage: movie_slab_check.py RADHYDRO PROBLEM WORKDIR [--set key=value ...]
 Runs PROBLEM three times with movie frames (fHI, temp, rhog, gamma, gammaHI):
   full   movie_slab = 0 (default): full cubes, frame_NNNNN_<field>.bin;
   slab   movie_slab = 4 (all three axes);
-  slab3  movie_slab = 3, movie_slab_axes = zx (odd thickness, axis order).
+  slab3  movie_slab = 3, movie_slab_axes = zx (odd thickness, axis order);
+  slab1  movie_slab = 1 (the make_production.py default).
 Checks that the slab runs write no cubes, that every slab file holds exactly
 the cells of the full cube that slab.txt describes (gamma: 3 components per
 cell), and that frames.txt (whole-box x_HII means) is the same in all runs
@@ -62,7 +63,8 @@ def main():
     os.makedirs(work)
     common = sets + ["--set", "movie_fields=fHI,temp,rhog,gamma,gammaHI"]
     cases = {"full": [], "slab": ["--set", "movie_slab=4"],
-             "slab3": ["--set", "movie_slab=3", "--set", "movie_slab_axes=zx"]}
+             "slab3": ["--set", "movie_slab=3", "--set", "movie_slab_axes=zx"],
+             "slab1": ["--set", "movie_slab=1"]}
     dirs = {}
     for name, extra in cases.items():
         d = os.path.join(work, name, "run")
@@ -103,7 +105,7 @@ def main():
         ng += gi.size > 0
     print(f"  Gamma_HI columns checked on {len(lines)} frames ({ng} with ionised cells)")
 
-    for name, t, axes in (("slab", 4, "xyz"), ("slab3", 3, "zx")):
+    for name, t, axes in (("slab", 4, "xyz"), ("slab3", 3, "zx"), ("slab1", 1, "xyz")):
         d = dirs[name]
         print(f"{name}: movie_slab = {t}, axes {axes}")
         info = mf.run_slab_info(d)
@@ -184,6 +186,13 @@ def main():
     movie("slab", "mv_slab_planar", "--style", "planar")
     check("slab normal to" in open(os.path.join(work, "mv_slab_planar.log")).read(),
           "planar style on slab frames: no note")
+    # stills.py on 1-cell slabs (the make_production.py default) with its
+    # default --slab 2: falls back to the stored cell
+    out = os.path.join(work, "stills_slab1")
+    run([sys.executable, os.path.join(MOVIES, "stills.py"), dirs["slab1"], out, "--z", "24,22"],
+        out + ".log")
+    check(os.path.exists(os.path.join(out, "stills_grid.png")), "stills.py slab1: no grid")
+    check("using 1 cell" in open(out + ".log").read(), "stills.py slab1: no fallback note")
     # stills.py: slab frames, default position (most ionised within the slab)
     out = os.path.join(work, "stills_slab")
     run([sys.executable, os.path.join(MOVIES, "stills.py"), dirs["slab"], out, "--z", "24,22"],

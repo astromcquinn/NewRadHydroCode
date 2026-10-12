@@ -157,6 +157,13 @@ def main():
             picks.append(fr[i])
     # rhog and gammaHI only if the run wrote them (movie_fields)
     fields = [f for f in ("rhog", "fHI", "temp", "gammaHI") if has_field(a.run, picks[0]["frame"], f)]
+    # slab frames thinner than --slab (movie_slab = 1, the default since
+    # 2026-10-12): use the stored thickness
+    p0 = mf.frame_file(a.run, picks[0]["frame"], "fHI")
+    if p0 is not None and mf.is_slab(p0) and a.slab > mf.info_of(p0)["thick"]:
+        print(f"note: --slab {a.slab} is thicker than the stored slab; using "
+              f"{mf.info_of(p0)['thick']} cell(s)")
+        a.slab = mf.info_of(p0)["thick"]
     if a.pos >= 0:
         k0 = a.pos
     else:

@@ -307,7 +307,7 @@ movie tool, `tools/movies/make_movie.py` (`docs/movies.md`). Frames
 written before the first RT step carry an uninitialised rt_grid (fHI =
 rhog = 0, x_HII,M = nan in frames.txt); the movie tool skips them.
 
-At N ≥ 256 set `movie_slab = 8` (`make_production.py --movie-slab 8`): each
+At N ≥ 256 use slab frames (`make_production.py` writes `movie_slab = 1` by default since 2026-10-12; earlier runs used 8): each
 frame then holds three 8-cell slabs per field instead of the cube, 25 MB
 instead of 512 MB per field at 512³ (`docs/movies.md`, "Slab frames").
 

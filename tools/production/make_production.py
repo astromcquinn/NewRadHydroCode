@@ -26,10 +26,10 @@ docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
 
 Movie disk: a full-cube frame takes 4N^3 B per field (512 MB at 512^3).
 --movie-slab t writes only the three slabs of t cells through the box
-centre instead (movie_slab = t: 3 x t x N^2 x 4 B per field, 25 MB at
-512^3 with t = 8), which is all that make_movie.py, stills.py and reion.py need
-(docs/movies.md, "Slab frames"). Recommended: --movie-slab 8 for
-N >= 256. Default 0: full cubes (no line written).
+centre instead (movie_slab = t: 3 x t x N^2 x 4 B per field, 3.1 MB at
+512^3 with t = 1), which is all that make_movie.py, stills.py and reion.py need
+(docs/movies.md, "Slab frames"). Default since 2026-10-12 (user): t = 1, the
+three central planes (the movies show one plane); 0: full cubes.
 """
 import argparse
 import os
@@ -52,10 +52,10 @@ def main():
     ap.add_argument("--movie-fields", default="fHI,temp,rhog",
                     help="rt_grid fields per movie frame (tools/movies/make_movie.py uses "
                          "fHI, temp, rhog); 4N^3 B each per frame")
-    ap.add_argument("--movie-slab", type=int, default=0,
+    ap.add_argument("--movie-slab", type=int, default=1,
                     help="movie frames hold only slabs of this many cells normal to x, y and z "
-                         "through the box centre (movie_slab; recommended 8 for N >= 256); "
-                         "0: full cubes")
+                         "through the box centre (movie_slab; default 1: the three central "
+                         "planes; more cells allow thin projections); 0: full cubes")
     ap.add_argument("--ra-max", type=float, default=0.0,
                     help="max da/a per hydro step as ra_max/(1-ra_max); 0: original 0.1")
     ap.add_argument("--zdata1", default="15 14 13 12 11 10 9 8 7.5 7 6.5 6 5.5 5",
