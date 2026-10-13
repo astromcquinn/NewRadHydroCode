@@ -32,7 +32,10 @@ and S1 for M1):
             cone_tensor.py); cap limits each cell's group-1 tau (clumps
             saturate: a crude covering-fraction correction of the mip average);
             suffix x<lam>: also screened by exp(-s/lam) (--cone-lamx), the
-            attenuation the HI does not give (light horizon, redshifting)
+            attenuation the HI does not give (light horizon, redshifting);
+            suffix xbud: lam set by the photon budget, sum N_dir = sum S0
+            (none if the cones alone give less), as the solver would set it
+            from its own sum N
   split_cone  split with the cone-traced direct light
   blend_A_B_s (--blend A:B:s) h_A + G_s * (h_B - h_A): the small scales of
             closure A and the large ones of B (Gaussian of s cells)
@@ -226,7 +229,8 @@ def main():
                     help="cone-traced attenuated tensors nside[:coarse[:tau_cap[:r_c]]] (cone_tensor.py)")
     ap.add_argument("--cone-lamx", nargs="*", default=["inf"],
                     help="extra screening lengths for the cones, exp(-s/lam): inf (none), cells, "
-                         "auto or auto*f (lambda_eff times f); one tensor each, label suffix x<lam>")
+                         "auto or auto*f (lambda_eff times f); one tensor each, label suffix x<lam>; "
+                         "budget: lam such that sum N_dir = sum S0, none if the cones give less (suffix xbud)")
     ap.add_argument("--box", type=float, default=None, help="Mpc/h (default: the run's params.txt)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -312,14 +316,28 @@ def main():
             Pn = np.moveaxis(convolve(rho, Kn, a.workers), 0, -1)
             del Kn
             lamx = [None if l == "inf" else lam_eff * (float(l[5:]) if l.startswith("auto*") else 1.0)
-                    if l.startswith("auto") else float(l) for l in a.cone_lamx]
-            Pks, _ = cone_tensor(rho, colc, s18, Wg, nside=ns, coarse=co, rc=rc, workers=a.workers,
-                                 lam_extra=lamx)
-            for lx, Pk in zip(lamx, Pks):
+                    if l.startswith("auto") else float(l) for l in a.cone_lamx if l != "budget"]
+            # 'budget': lam_x from the photon budget, applied per half-octave distance bin
+            sbins = rc * 2.0 ** (np.arange(0, 2 * np.log2(8.0 * N / rc) + 2) / 2) if "budget" in a.cone_lamx else None
+            res = cone_tensor(rho, colc, s18, Wg, nside=ns, coarse=co, rc=rc, workers=a.workers,
+                              lam_extra=lamx, sbins=sbins)
+            Pks = list(res[0])
+            tags = [None if lx is None else f"x{lx:.0f}" for lx in lamx]
+            if sbins is not None:
+                from cone_tensor import budget_screen, prolong
+                ntr = (Pn[..., 0] + Pn[..., 1] + Pn[..., 2]).sum()
+                lxb, Pcb = budget_screen(res[2], sbins, ntr, S0.sum(), co)
+                out(f"# cone{ns}c{co} budget: lam_x = "
+                    + ("inf" if lxb is None else f"{lxb:.0f} cells = {lxb / lam_eff:.2f} lambda_eff"))
+                Pks.append(prolong(Pcb, N))
+                tags.append("xbud")
+                del Pcb
+            del res
+            for tg, Pk in zip(tags, Pks):
                 Pd = Pn + Pk
                 Nd = Pd[..., 0] + Pd[..., 1] + Pd[..., 2]
                 lab = (f"cone{ns}c{co}" + ("" if not np.isfinite(cap) else f"t{cap:g}")
-                       + ("" if len(t) < 4 else f"r{rc:g}") + ("" if lx is None else f"x{lx:.0f}"))
+                       + ("" if len(t) < 4 else f"r{rc:g}") + ("" if tg is None else tg))
                 cl[lab] = normalise(Pd)
                 cl["split_" + lab] = split(Nd, cl[lab])
                 out(f"# {lab}: sum N_dir / sum S0 = {Nd.sum() / S0.sum():.3f}")

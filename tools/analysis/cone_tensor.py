@@ -70,14 +70,17 @@ def smoothstep(r, r0, r1):
 
 
 def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0,
-                step=0.5, tmin=1e-4, near_kernel=None, workers=8, lam_extra=(None,)):
+                step=0.5, tmin=1e-4, near_kernel=None, workers=8, lam_extra=(None,), sbins=None):
     """rho: (N,N,N) Q/(4 pi) per cell; col: (N,N,N) HI column per cell in
     1e-18 cm^-2 (tau_g = sigma18_g * col); W: group weights. lam_extra: a
     list of extra screening lengths in cells (None: none), each multiplying
     the transmission by exp(-s / lam): the attenuation the HI column does not
     give (light horizon, redshifting out of the band). Returns, per
     lam_extra, the cone part on the RT grid, shape (N,N,N,6), and on the
-    coarse grid."""
+    coarse grid. sbins: distance bin edges (cells); if given, also returns
+    the unscreened cone part per bin on the coarse grid, shape
+    (nbins, nc, nc, nc, 6), so that any extra screening can be applied
+    afterwards bin by bin (budget_screen)."""
     N = rho.shape[0]
     W = np.asarray(W, float) / np.sum(W)
     s18 = np.asarray(sigma18, float)
@@ -95,6 +98,8 @@ def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0
     lam_extra = list(lam_extra)
     Pc = np.zeros((len(lam_extra), X.shape[0], 6))
     smax = smax_boxes * N
+    nb = 0 if sbins is None else len(sbins) - 1
+    Pb = np.zeros((nb, X.shape[0], 6))
 
     def sample(levels, l, pos):
         a = levels[l]
@@ -112,6 +117,7 @@ def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0
         s = rc
         colacc = np.zeros(X.shape[0])
         I = np.zeros((len(lam_extra), X.shape[0]))
+        Ib = np.zeros((nb, X.shape[0]))
         alive = np.ones(X.shape[0], bool)
         while s < smax:
             d = max(2 * s * np.tan(theta), 1.0)
@@ -125,22 +131,60 @@ def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0
             T = trans(colacc + c * ds / 2)
             for j, lx in enumerate(lam_extra):
                 I[j] += w * r * omega * ds * T * (np.exp(-sm / lx) if lx else 1.0)
+            if nb:
+                Ib[min(max(np.searchsorted(sbins, sm, "right") - 1, 0), nb - 1)] += w * r * omega * ds * T
             colacc += c * ds
             s += ds
             if T.max() < tmin:
                 break
         for m in range(6):
             Pc[:, :, m] += I * nn[m]
+            if nb:
+                Pb[:, :, m] += Ib * nn[m]
     Pc = Pc.reshape(len(lam_extra), nc, nc, nc, 6)
-    # prolong to the RT grid (trilinear, periodic)
+    Ps = [prolong(Pc[j], N) for j in range(len(lam_extra))]
+    if sbins is not None:
+        return Ps, Pc, Pb.reshape(nb, nc, nc, nc, 6)
+    return Ps, Pc
+
+
+def prolong(Pc, N):
+    """Coarse (nc,nc,nc,6) to the RT grid (N,N,N,6), trilinear, periodic."""
+    coarse = N // Pc.shape[0]
     f = np.arange(N)
     cz = (f + 0.5) / coarse - 0.5
     Z, Y, Xg = np.meshgrid(cz, cz, cz, indexing="ij")
     coords = np.stack([Z.ravel(), Y.ravel(), Xg.ravel()])
-    Ps = []
-    for j in range(len(lam_extra)):
-        P = np.empty((N, N, N, 6))
-        for m in range(6):
-            P[..., m] = ndimage.map_coordinates(Pc[j, ..., m], coords, order=1, mode="grid-wrap").reshape(N, N, N)
-        Ps.append(P)
-    return Ps, Pc
+    P = np.empty((N, N, N, 6))
+    for m in range(6):
+        P[..., m] = ndimage.map_coordinates(Pc[..., m], coords, order=1, mode="grid-wrap").reshape(N, N, N)
+    return P
+
+
+def budget_screen(Pb, sbins, near_trace, target, coarse):
+    """The extra screening length lam_x (cells) for which the direct light
+    sum_cells tr P_dir = near_trace + coarse^3 sum_b tr Pb_b exp(-s_b/lam_x)
+    equals target (the photons the solution holds; here the rays' sum S0),
+    with s_b the geometric centre of bin b. None (no screening) if the
+    unscreened light is already <= target. Returns (lam_x, Pc screened)."""
+    sb = np.sqrt(sbins[:-1] * sbins[1:])
+    tb = coarse ** 3 * (Pb[..., 0] + Pb[..., 1] + Pb[..., 2]).reshape(len(sb), -1).sum(1)
+
+    def light(lx):
+        return near_trace + (tb * (np.exp(-sb / lx) if lx else 1.0)).sum()
+
+    if light(None) <= target:
+        lx = None
+    elif near_trace >= target:
+        lx = 1.0  # the unscreened near field alone exceeds the budget
+    else:
+        lo, hi = 0.0, 12.0  # log10 lam_x in cells; light(lam) increases with lam
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            if light(10 ** mid) > target:
+                hi = mid
+            else:
+                lo = mid
+        lx = 10 ** (0.5 * (lo + hi))
+    fac = np.ones(len(sb)) if lx is None else np.exp(-sb / lx)
+    return lx, np.tensordot(fac, Pb, axes=(0, 0))

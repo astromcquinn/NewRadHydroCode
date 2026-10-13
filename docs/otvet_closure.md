@@ -169,11 +169,36 @@ tensor is **too isotropic**, not too anisotropic.
 - One global λ cannot do this. The screened kernel is worse than OTVET on
   blocks and in the force at every k ≥ 1 h/Mpc, because which directions
   should be cut is a property of the geometry, not of the distance.
-- **The cone's weakness is small scales.** Its force error at
-  k ≥ 3.8 h/Mpc is 2–5× OTVET's at nside 2. Finer angles help: at z = 9.6,
-  nside 4 has 0.22 against 0.46 for nside 2 at k = 3.8 (OTVET 0.18). The
-  coarse receivers and the near-field hand-over are being tested in
-  `cmp_conevar2` (r_c = 8).
+- **The cone's weakness at nside 2 is small scales, and finer cones fix
+  it** (`cmp_conevar2`). At nside 2 its force error at k ≥ 3.8 h/Mpc is
+  2–5× OTVET's. nside 4 with the near field out to r_c = 8 cells fixes
+  that, and receivers 4× coarser (64³ at 256³) do as well as 2× coarser:
+
+  | z | closure | cell err | block err | block A (truth) | force err, k = 0.94 / 1.9 / 3.8 / 7.5 |
+  |---|---|---|---|---|---|
+  | 7.40 | OTVET | 0.132 | 0.100 | 0.319 (0.418) | 0.19 / 0.51 / 1.11 / 1.32 |
+  | 7.40 | cone nside 2, C 2, r_c 4 | 0.095 | 0.062 | 0.415 | 0.06 / 0.33 / 1.46 / 2.19 |
+  | 7.40 | cone nside 4, C 2, r_c 8 | 0.068 | 0.038 | 0.422 | 0.03 / 0.07 / 0.28 / 0.94 |
+  | 7.40 | cone nside 4, C 4, r_c 8 | 0.066 | 0.038 | 0.419 | 0.02 / 0.07 / 0.27 / 1.03 |
+  | 6.19 | OTVET | 0.092 | 0.075 | 0.275 (0.258) | 1.07 / 0.93 / 1.56 / 3.43 |
+  | 6.19 | split | 0.087 | 0.068 | 0.246 | 0.62 / 0.78 / 1.29 / 2.13 |
+  | 6.19 | cone nside 2, C 2, r_c 4 | 0.077 | 0.053 | 0.255 | 0.53 / 1.13 / 4.98 / 7.12 |
+  | 6.19 | cone nside 4, C 2, r_c 8 | 0.078 | 0.058 | 0.230 | 0.37 / 0.86 / 1.39 / 3.30 |
+  | 6.19 | cone nside 4, C 4, r_c 8 | 0.078 | 0.058 | 0.229 | 0.38 / 0.90 / 1.39 / 3.54 |
+
+  At z = 7.4 the nside-4 cone beats OTVET at every k, and halves its cell
+  error. At z = 6.2 it matches OTVET at k ≥ 3.8 and is better below. At
+  z = 7.4 and 6.2 it is also better than the split, except at
+  k ≥ 7.5 h/Mpc at z = 6.2 (3.5 against 2.1).
+- **Blending scales** (`cmp_blend`: h_split + G_σ * (h_cone − h_split),
+  σ = 4 or 8 cells, i.e. the split's small scales and the cone's large
+  ones; tested with the nside-2 cone). The blend keeps the cone's large
+  scales and the split's small scales. At z = 6.19, σ = 8 gives cell error
+  0.071 and force 0.44 / 0.69 / 1.37 / 2.60. At z = 7.40, σ = 4 gives cell
+  error 0.083 and force 0.06 / 0.27 / 0.83 / 1.23. That is close to the
+  nside-4 cone on its own. The blend of the nside-4 cone with the split and
+  the budget cutoff below is the configuration being run as the final
+  check (`cmp_final`).
 
 **After overlap (z ≤ 6.2): Wu+21's normalisation error, measured.** The
 minimum-image thin sum per unit emissivity is
@@ -236,12 +261,52 @@ the split's falls to 0.026, the screened kernel's to 0.023.)
     λ_x = ∞ at z ≥ 6.2 and ≈ 1.5–2 λ_eff at z = 5.85.
   - With λ_x ≈ λ_eff the cone matches or beats the split at k ≤ 1 h/Mpc
     and on cells and blocks. It is still 4× worse at k ≥ 3.8 h/Mpc.
-  - Combining it with the split makes it worse (force 23 against 10 at
-    k = 0.47). Once normalised, the cone's own h = P/tr P is better than
-    adding an isotropic remainder.
+  - Applying the split cell by cell to the cone makes it worse (force 23
+    against 10 at k = 0.47). Once normalised, the cone's own h = P/tr P is
+    better than adding an isotropic remainder.
+  - Blending scales instead (the split's small scales, the cone's large
+    ones, σ = 8 cells) works. With λ_x = λ_eff it is the best closure at
+    z = 5.85: cell error 0.060, block error 0.044, block A 0.119 against the
+    truth's 0.147, force 10 / 4.4 / 4.6 / 6.1 at k = 0.47 / 0.94 / 1.9 /
+    3.8 h/Mpc. The split alone gives 20 / 4.2 / 4.5 / 5.8, the cone alone
+    10 / 5.0 / 7.0 / 24.
+  - At z ≤ 5.67 the split, the screened kernel at λ_eff and the screened
+    cone are within 10 % of each other: cell errors 0.050–0.053 at 5.67 and
+    0.040–0.043 at 4.92, against OTVET's 0.141/0.166 and the rays' noise
+    0.014. Their cell-level anisotropy is 0.10–0.12 against the truth's
+    0.124 (z = 5.67); OTVET's is 0.27.
+  - The force errors after overlap stay large for every closure (3–80×
+    the true force power), but the true force is small then. What matters
+    for P_Γ is that the anisotropy, and with it the spurious large-scale
+    flux, falls to the truth's level. Only OTVET's force is
+    anti-correlated with the truth.
 - The oracle M1 is too isotropic (A = 0.015–0.03 against 0.11): the net
   flux of a nearly isotropic field says little about its anisotropy. Its
   force error is as large as OTVET's.
+
+**The 256³ runs, a posteriori (the baseline the new closures must beat).**
+`gamma_power.py` and `rt_methods_runs.py` on `otvcl256` (rays),
+`otvcl256_m1` and `otvcl256_otvet`, 20 Mpc/h (outputs in
+`scratch/otvet-closure/post256`). The 256³ box shows the same failure as
+512³, and it grows as λ_eff/0.61 L does:
+
+| z | σ_δ rays / M1 / OTVET | P_Γ OTVET/rays at k ≈ 0.9 / 2.2 / 4.2 / 6.7 h/Mpc | r(k) OTVET | P_Γ M1/rays at the same k |
+|---|---|---|---|---|
+| 6.38 | 1.50 / 0.86 / 1.18 | 1.11 / 1.24 / 1.36 / 1.32 | 0.97–0.98 | 0.45 / 0.64 / 0.54 / 0.42 |
+| 6.19 | 1.15 / 0.60 / 1.00 | 1.37 / 1.74 / 1.88 / 1.89 | 0.96–0.98 | 0.71 / 0.65 / 0.62 / 0.47 |
+| 5.85 | 0.64 / 0.24 / 0.78 | 3.97 / 4.25 / 4.29 / 4.10 | 0.94–0.98 | 0.45 / 0.49 / 0.46 / 0.38 |
+| 5.67 | 0.54 / 0.18 / 0.81 | 6.99 / 6.95 / 6.91 / 6.32 | 0.95–0.98 | 0.24 / 0.36 / 0.42 / 0.36 |
+| 5.34 | 0.46 / 0.11 / 0.76 | 10.6 / 11.4 / 11.3 / 10.0 | 0.92–0.98 | 0.12 / 0.28 / 0.39 / 0.34 |
+| 4.92 | 0.40 / 0.07 / 0.74 | 15.9 / 19.3 / 18.9 / 15.3 | 0.89–0.97 | 0.06 / 0.19 / 0.34 / 0.26 |
+
+- The excess in P_Γ is roughly (A_OTVET/A_true)², taken from the block
+  anisotropies above: 3.2, 5.6 and 14 at z = 5.85, 5.67 and 4.92, against
+  the measured 4.1, 6.9 and 16–19. This is a heuristic, not a derivation.
+- M1 errs the other way, and by as much: it is too isotropic, and P_Γ is
+  0.1–0.5× the rays'.
+- The reionization histories agree to Δz ≤ 0.035 at x_V = 0.1–0.9. Only
+  the end differs: x_V = 0.99 at z = 6.00 (rays), 6.07 (OTVET) and 6.10
+  (M1).
 
 ## 4. Candidate closures
 
