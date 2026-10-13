@@ -21,7 +21,7 @@ every rank holds about 100 GB of redundant state at 512³,
 | Rank-0 I/O through slab gathers: fields, movie frames and slabs, data files, checkpoints in the existing formats; chunked ray gather (the 2 GB `MPI_Gatherv` limit); restart by scatter | **done** (the mirror on rank 0 is refreshed before every output and checkpoint; a restart scatters rank 0's grids and particles onto the levels) |
 | Statistics: maxima by exact reduction (the timestep uses only `cmax_gas` and `amax_dm`), the order-dependent serial sums of `summarize_gas`, `write_stats` and `write_frame` computed on rank 0 from the gathered fields (bitwise the serial order) | **done**: every sum stays the serial one on rank 0's mirror, so every file is bitwise that of the host-state run; the per-step cost is the gathers of §4 |
 | Validation: the full loop with `amrex_state = 1` byte-identical to the same run with `amrex_state = 0` (the three backends with the host state), for 1/2/3 ranks and 1/2 threads; bit-identical restarts | **done**: `ctest -L amrex_state` (5 tests), §3 |
-| klone: 512³ on one node, 1–4 nodes scaling | phase 4 |
+| klone: 256³ on one node bitwise identical to the host-state run, the other ranks at 4.5 GB; 512³ on one node, 1–4 nodes scaling | 256³ done (§4), 512³ running |
 
 Ground rules kept: nothing changes without `amrex_state = 1` (default 0);
 the serial code and the Stage D/E1/E2 paths are untouched in behaviour.
@@ -209,6 +209,41 @@ and the sparse metals), and the three levels:
   the particles); the catalogue and the small state. Rank 0 adds the
   mirror (about 230 B per cell plus 24 B per particle) and, at a restart,
   the serial ray pool and ray list of the checkpoint.
+
+## 4. klone (2026-10-13)
+
+`tools/hyak/amrex_scaling.slurm` with `EXTRA="--set hydro_scheme=unsplit
+--set hydro_backend=amrex --set pm_backend=amrex --set
+amrex_hydro_max_grid_size=0 --set amrex_state=1"` (the build of commit
+`8ef34cc`'s phase 1, without the threaded slab loops), one hydro step
+restarted from the production checkpoint, 24 ranks × 8 threads on one
+`cpu-g2` node, the UCX setting of `docs/stage_e_hydro.md` §5.
+
+**256³** (`reion256_f0.2`, step 49, jobs 41822519 and 41823171): the
+fields and `stats.txt` of `amrex_state = 1` are **bitwise identical** to
+the run with the same three backends and the host state on every rank
+(`amrex_state = 0`); against Stage D's run with the serial hydro and PM
+the differences are the PM backend's round-off (its fixed-point CIC and
+pencil FFT, `docs/stage_e_pm.md`), 13 rays of 144 M.
+
+| 256³, step 49, 24 × 8 on one node | RT [s] | hydro [s] | PM [s] | io [s] | step [s] | peak RSS rank 0 / min / mean [GB] |
+|---|---|---|---|---|---|---|
+| Stage D (serial hydro and PM on every rank) | 156.8 | 9.9 | 1.4 | 2.1 | 172.8 | 37.3 / 12.8 / 14.7 |
+| the three backends, host state (`amrex_state = 0`) | 156.4 | 1.1 | 0.7 | 2.0 | 163.1 | 37.3 / 8.0 / |
+| **the state on the levels** (`amrex_state = 1`) | 151.3 | 1.3 | 0.5 | 21.4 | 177.7 | 37.4 / **4.5** / |
+
+Reading: the ranks other than 0 hold 4.5 GB (the level's share of the
+cells and rays, `Luv`/`sfr`, the catalogue) against 8 GB with the host
+state and 12.8 GB in Stage D; rank 0's peak is the restart (the serial
+ray pool and ray list read from the checkpoint, as before). The RT is 3 %
+faster (no `sync_fields` broadcast after `post`), the hydro and PM are
+the level steps alone. The io of 21 s is the mirror: the five-field
+gather of `write_stats` and the gas gather of `summaries` every step,
+and the full gather for the fields of the last step, unpacked by rank 0
+in a single thread at about 200 MB/s. The slab loops are threaded in
+the next commit; the per-step gathers (60 B per cell) are the price of
+keeping every statistic bitwise the serial one, and a 128-bit on-level
+path can replace them where round-off is acceptable.
 
 ## 3. Phases and validation
 
