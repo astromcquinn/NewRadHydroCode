@@ -33,8 +33,8 @@ bool set_amrex_state_param(Config& c, const std::string& key, const std::string&
     return true;
   }
   if (key == "amrex_balance_min_gain") {
-    c.amrex_balance_min_gain = std::stod(val);
-    if (!(c.amrex_balance_min_gain >= 0)) throw std::runtime_error("amrex_balance_min_gain must be >= 0");
+    c.amrex_balance_min_gain = std::stod(val);  // negative: remap at every RT step (tests)
+    if (!(c.amrex_balance_min_gain >= -1)) throw std::runtime_error("amrex_balance_min_gain must be >= -1");
     return true;
   }
   if (key == "amrex_balance_method") {

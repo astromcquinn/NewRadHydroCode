@@ -263,7 +263,8 @@ struct Config {
   // shared decomposition is rebalanced before every RT step on the cost
   // cells + amrex_balance_ray_weight * rays per box (amrex_balance_method
   // = sfc | knapsack), when the balance efficiency would improve by more
-  // than amrex_balance_min_gain (docs/stage_e_state.md section 5).
+  // than amrex_balance_min_gain (negative: at every RT step;
+  // docs/stage_e_state.md section 5).
   bool amrex_balance = false;
   double amrex_balance_ray_weight = 10.0;
   double amrex_balance_min_gain = 0.05;
