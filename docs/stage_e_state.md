@@ -250,9 +250,12 @@ gathers of the step and the fields of the last step, single-threaded in
 this build). With phase 2 and the threaded transfers (job 41824737): RT 1783.2 s,
 step 1837.5 s, io 29.4 s, P(k) 14.0 s, PM 0.7 s, the ranks other than 0
 at 23.8 GB (rank 0 293 GB, the restart), the fields and statistics
-bitwise identical to the phase-1 run. The bitwise comparison against the
-2-node host-state run with the same backends (job 41823172) and the 2-
-and 4-node runs (jobs 41824738–9) follow when they have run.
+bitwise identical to the phase-1 run, and **bitwise identical to the
+2-node run with the same three backends and the host state on every
+rank** (`amrex_state = 0`, 12 ranks × 16 threads, job 41823172: RT
+1123.1 s, step 1164.6 s, the ranks other than 0 at 64.7 GB): every
+field and `stats.txt`. The 2- and 4-node runs with the state on the
+levels (jobs 41824738–9) follow when they have run.
 
 Reading: the ranks other than 0 hold 3.1 GB with the particles on the
 level (4.5 GB in phase 1: the level's share of the cells and rays,

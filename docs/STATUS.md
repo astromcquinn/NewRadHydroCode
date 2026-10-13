@@ -23,8 +23,10 @@ Needs the three backends, `hydro_scheme = unsplit`, `rt_method = rays`.
   (24 ranks × 8 threads, rank 0 293 GB in the restart, the others 35 GB
   with the phase-1 build): RT 1756 s, step 1849 s, 1.48× faster than the
   serial code on the same node (Stage D needed 2 nodes, or 8 fat ranks
-  at 3258 s). The 2- and 4-node runs and the bitwise check at 512³ are
-  queued (jobs 41823172, 41824737–9).
+  at 3258 s), and **bitwise identical at 512³** to the 2-node run with
+  the same backends and the host state; with phase 2 the other ranks
+  hold 24 GB. The 2- and 4-node runs with the state on the levels are
+  queued (jobs 41824738–9).
 - Costs to remove next: the per-step mirror gathers (60 B per cell, for
   bitwise statistics; a 128-bit on-level path where round-off is fine),
   rank 0's restart transient (the serial ray pool and list of the
