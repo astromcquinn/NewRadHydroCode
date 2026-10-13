@@ -52,6 +52,11 @@ g++ --version | head -1; mpicxx --version | head -1; cmake --version | head -1
 # (amrex-26.10-fft: the FFT module of the PM backend, docs/stage_e_pm.md;
 # an older install without it does not satisfy find_package)
 AMREX_DIR="${AMREX_DIR:-$RADRAY_SW/amrex-26.10-fft}"
+# The FFTW libraries of AMReX's FFT module (pkg-config fftw3 and fftw3f),
+# for the AMReX build and for the project's configure, whose
+# find_package(AMReX) looks them up again
+FFTW_DOUBLE="${FFTW_DOUBLE:-$RADRAY_SW/fftw-3.3.10-double}"
+export PKG_CONFIG_PATH="$RADRAY_FFTW/lib/pkgconfig:$FFTW_DOUBLE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 if [ ! -f "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" ] || \
    ! grep -q "AMReX_FFT_FOUND *ON" "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake"; then
   echo "building AMReX 26.10 into $AMREX_DIR"
@@ -60,14 +65,12 @@ if [ ! -f "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" ] || \
   # fftw3f), although the PM backend only uses the float transforms: the
   # double-precision library is built in user space next to the float one
   # of setup_sw.sh (the klone fftw module is gcc-11 built).
-  FFTW_DOUBLE="${FFTW_DOUBLE:-$RADRAY_SW/fftw-3.3.10-double}"
   if [ ! -f "$FFTW_DOUBLE/lib/pkgconfig/fftw3.pc" ]; then
     ( cd "$RADRAY_SW/src" && { [ -f fftw-3.3.10.tar.gz ] || curl -fsSLO https://www.fftw.org/fftw-3.3.10.tar.gz; } \
       && rm -rf fftw-3.3.10-dbl && mkdir fftw-3.3.10-dbl && tar xzf fftw-3.3.10.tar.gz -C fftw-3.3.10-dbl --strip-components=1 \
       && cd fftw-3.3.10-dbl && ./configure --prefix="$FFTW_DOUBLE" --enable-sse2 --enable-openmp CC=gcc CFLAGS="-O2" \
       && make -j"$ncpu" && make install )
   fi
-  export PKG_CONFIG_PATH="$RADRAY_FFTW/lib/pkgconfig:$FFTW_DOUBLE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   [ -d "$RADRAY_SW/src/amrex" ] || git clone --branch 26.10 --depth 1 https://github.com/AMReX-Codes/amrex.git "$RADRAY_SW/src/amrex"
   # AMReX_FFTW_IGNORE_OMP: with AMReX_OMP the FFT module insists on the
   # threaded FFTW libraries of both precisions, which neither backend uses
@@ -89,7 +92,7 @@ case "$launcher" in
   *)     default_flags="--bind-to;none;--oversubscribe" ;;
 esac
 cmake -S "$src" -B "$bld" -DCMAKE_BUILD_TYPE=Release -DRADRAY_AMREX=ON \
-  -DAMReX_DIR="$AMREX_DIR/lib/cmake/AMReX" \
+  -DAMReX_DIR="$AMREX_DIR/lib/cmake/AMReX" -DAMReX_FFTW_IGNORE_OMP=ON \
   -DRADRAY_MPIEXEC="$launcher" -DRADRAY_MPIEXEC_FLAGS="${RADRAY_MPIEXEC_FLAGS:-$default_flags}" \
   ${CMAKE_EXTRA:-}
 cmake --build "$bld" -j "$ncpu"
