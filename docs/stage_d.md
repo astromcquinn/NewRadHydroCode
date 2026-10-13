@@ -16,7 +16,7 @@ implemented for `legacy_rt = 0` only.*
 | 1. One physics implementation (`include/radray/kernels/`) | done | fast suite 100/100 and the nightly label unchanged, every flag combination byte-identical to the stored and live gfortran references |
 | 2. Library component `src/amrex/rt_level.cpp`, `rt_backend = amrex` in `rt_driver` and `radhydro` | done | bitwise identical to `spike/serial rt_serial` for 1/2/4/8 ranks × 1/2 threads × box sizes 32/16/8; round-off against `rt_driver --set legacy_rt=0`; rank- and thread-independent full loop; bit-identical restarts (checkpoint version 5) |
 | 3. R-struct encoding, `ray_encoding = rstruct` | done | 28 B of ray data per ray (80 B float); x_HII, τ_es and T errors in §3 |
-| 4. Tests (`ctest -L amrex`), timing, klone job | done; klone 256³ on one node and 512³ on 2 and 4 nodes (2026-10-12) | §4, §4.4 |
+| 4. Tests (`ctest -L amrex`), timing, klone job | done; klone 256³ on 1, 2 and 4 nodes, 512³ on 2 and 4 nodes (2026-10-12) | §4, §4.4 |
 | 5. GPU | scaffolding only: CUDA CMake target, device rate tables, build and `ckpt` job scripts; **not compiled** (no nvcc ≥ 12.2 in the cloud container) | §5 |
 
 Ground rules kept: the serial code is untouched in behaviour (the kernels
@@ -357,11 +357,11 @@ CCD) and, on one node, the serial code on 192 threads for the comparison
 with `docs/cluster.md` §6; `tools/hyak/build_amrex.sh` builds AMReX and
 the code on a node. The results are in §4.4.
 
-### 4.4 klone: 256³ on one node, 512³ on 1, 2 and 4 nodes (2026-10-12)
+### 4.4 klone: 256³ and 512³ on 1, 2 and 4 nodes (2026-10-12)
 
 Stage E prerequisites on `cpu-g2` (AMD EPYC 9654, 2 × 96 cores, 1.5 TB;
 gcc 13.2, OpenMPI 4.1.6, AMReX 26.10 built by `tools/hyak/build_amrex.sh`
-into `$RADRAY_SW/amrex-26.10`; `ctest -L amrex` 54/54 on a 32-core
+into `$RADRAY_SW/amrex-26.10`; `ctest -L amrex` 54/54 (81/81 with the 27 `amrex_hydro` tests of Stage E1) on a 32-core
 allocation, launched with `mpirun --oversubscribe` because a one-task
 allocation gives OpenMPI a single slot). One hydro step restarted from the
 last checkpoint of a production run, `run_steps = 1`, no checkpoint or
@@ -376,35 +376,54 @@ rank by `radhydro` (rank 0, and the min/max over the ranks) and by
 
 **256³** (`reion256_f0.2`, `docs/production_256.md`: 10 Mpc/h, 0.1c,
 factor 16, `unsplit`, `ray_rotate = 3`; checkpoint of step 48, step 49 to
-z = 5.32, 92 RT substeps, 144 M live rays, 5437 source cells; job
-41796867, node n3483):
+z = 5.32, 92 RT substeps, 144 M live rays, 5437 source cells). Run twice:
+first with the build of commit `d927abd` on one node (job 41796867: RT
+159.0 s, serial 144.0 s) and again, after Stage E1 was merged, with the
+build of commit `5c0c974` on 1, 2 and 4 nodes (jobs 41812550–41812552,
+2026-10-12 evening), which the table shows. The fields of the three
+node counts are bitwise identical to each other (every field and
+`stats.txt`), as are those of the two builds.
 
-| 256³, step 49 | RT [s] | step [s] | peak RSS rank 0 [GB] | min / mean / max over ranks [GB] |
-|---|---|---|---|---|
-| serial, 192 threads | 144.0 | 172.6 | 30.6 | |
-| backend, 24 ranks × 8 threads | 159.0 | 175.2 | 61.7 | 14.9 / 18.0 / 61.7 |
+| 256³, step 49 | RT [s] | step [s] | RT speed-up vs 1 node | peak RSS rank 0 [GB] | min / mean / max over ranks [GB] |
+|---|---|---|---|---|---|
+| serial, 192 threads (1 node) | 144.4 | 173.2 | | 30.6 | |
+| backend, 1 node, 24 ranks × 8 threads | 156.8 | 172.8 | 1 | 37.3 | 12.8 / 14.7 / 37.3 |
+| backend, 2 nodes, 48 ranks × 8 threads | 100.2 | 116.2 | 1.56 | 37.4 | 12.6 / 13.6 / 37.4 |
+| backend, 4 nodes, 96 ranks × 8 threads | 76.8 | 92.9 | 2.04 | 37.4 | 12.5 / 13.4 / 37.4 |
 
-RT phase timers of the step, serial (`ray_tracing_1` 48.7, `radiative_physics`
-42.1, `ray_tracing_3` 45.1, `calc_ray_1` 5.1, `post_rt` 1.1 s) against the
-backend (`step1` 27.6, `cast1` 40.2, `phys` 22.6, `cast3` 33.8, `sort`
-13.5, `migrate` 8.9, `sync` 5.0 of which `SumBoundary` 10.3 counted
-inside the phases, `hist` 4.0, `post_rt` 7.7 s). So on one node the
-backend's RT is 10 % slower than the serial OpenMP code on the same 192
-cores: the physics is 2× faster (each rank's cells are local to its CCD),
-the casts are the same, and the backend pays for the sort, the migration,
-the boundary sums and the gather/broadcast of `post_rt` that the serial
-code does not have. The non-RT parts of the step run redundantly on every
-rank with 8 threads (hydro 10.0 s against 5.0 s on 192 threads), which the
-step total hides only because the serial run's `io` includes writing the
-fields (21.5 s against 2.1 s on the backend). Memory: rank 0's peak is the
-restart (the serial ray pool, the ray list and the particle tile before
-the first `Redistribute`, as on the 4-core VM); the other ranks (14.9 GB
-at least, 18 GB on average) hold the redundant serial state plus their
-share of the level (6 M rays and 0.7 M cells per rank, about 1.5 GB), i.e.
-the redundant state costs about 13 GB per rank at 256³, four times the
-§2.2 estimate of the field arrays alone: what else every rank keeps
-(the serial RT grid, the halo and source lists, the hydro work arrays) is
-to measure in Stage E, where it goes away.
+RT phase timers of the step, serial (`ray_tracing_1` 48.7,
+`radiative_physics` 41.6, `ray_tracing_3` 44.9, `calc_ray_1` 6.0,
+`post_rt` 1.1 s) against the backend on 1 / 2 / 4 nodes (`step1` 28.0 /
+17.2 / 12.4, `cast1` 40.3 / 22.6 / 16.6, `phys` 22.5 / 13.2 / 9.5,
+`cast3` 32.5 / 19.7 / 13.9, `sort` 13.6 / 8.6 / 5.9, `migrate` 8.9 / 7.4
+/ 6.5, `hist` 3.9 / 2.2 / 1.7, `cell` 1.2 / 3.9 / 4.3, `sync` 3.9 / 3.9 /
+4.7, `post_rt` 6.5 / 5.5 / 5.7 s; inside the phases `SumBoundary` 10.5 /
+5.4 / 6.2 and `FillBoundary` 0.8 / 5.4 / 7.4 s). So on one node the
+backend's RT is 9 % slower than the serial OpenMP code on the same 192
+cores: the physics is 1.8× faster (each rank's cells are local to its
+CCD), the casts are the same, and the backend pays for the sort, the
+migration, the boundary sums and the gather/broadcast of `post_rt` that
+the serial code does not have. Across nodes the RT scales 1.56× on 2 and
+2.04× on 4 (against the spike's 1.42× and 2.13× for its RT at 256³,
+`docs/framework_decision.md` §3.3): the casts, the physics and the sort
+halve per doubling, while `migrate`, `post_rt` (the gather of the rays
+to rank 0 and the broadcast of the fields), `sync` and the boundary
+exchanges do not shrink, and `cell` (the per-rank serial part of
+`calc_rt_1`) grows. 256³ is small for 4 nodes: 512 boxes over 96 ranks
+is 5 boxes and 1.5 M rays per rank. The non-RT parts of the step run
+redundantly on every rank with 8 threads (hydro 9.9 s against 4.9 s on
+192 threads), which the step total hides only because the serial run's
+`io` includes writing the fields (21.8 s against 2.1 s on the backend).
+Memory: rank 0's peak is the restart (the serial ray pool read from the
+checkpoint and the ray list, before the first `Redistribute`; it was
+61.7 GB before the slab broadcast and the chunked scatter of commit
+`d927abd`); the other ranks (12.5 GB at least, 13–15 GB on average) hold
+the redundant serial state plus their share of the level (6 M rays and
+0.7 M cells per rank on one node, about 1.5 GB), i.e. the redundant
+state costs about 12 GB per rank at 256³, four times the §2.2 estimate
+of the field arrays alone, and it does not shrink with more nodes: what
+else every rank keeps (the serial RT grid, the halo and source lists,
+the hydro work arrays) is to measure in Stage E, where it goes away.
 
 Fields of the last step, backend against serial (rms relative difference
 over the grid, the fraction of cells beyond 1e-3, and the largest
