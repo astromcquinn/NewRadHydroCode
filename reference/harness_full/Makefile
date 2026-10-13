@@ -50,7 +50,11 @@ DEFS = -DMF -DNGRID=$(N) -DNDM=$(NDM) -DNCPU=1 -DNRAY_MAX_FACTOR=$(NRF) -DBOX=$(
        -DNHALO_MAX=$(NHALO_MAX) -DHARNESS_FULL_F1
 ifeq ($(ONTHEFLY),1)
   DEFS    += -DONTHEFLY
-  CXXDEPS  = $(RADRAY_BUILD)/libradray_halos.a $(RADRAY_BUILD)/libradray.a
+  # libradray_backend_stubs.a exists in a build with the AMReX backends,
+  # whose libradray.a references them (resolved here by the stubs: the
+  # harness never runs a backend)
+  CXXDEPS  = $(RADRAY_BUILD)/libradray_halos.a $(RADRAY_BUILD)/libradray.a \
+             $(wildcard $(RADRAY_BUILD)/libradray_backend_stubs.a)
   CXXLIBS  = $(CXXDEPS) -lstdc++ -lm
 endif
 

@@ -105,6 +105,13 @@ if(RADRAY_AMREX)
     target_compile_options(radray_amrex PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
   endif()
   set(RADRAY_RT_BACKEND_LIB radray_amrex)
+  # The stubs as a library of their own: the gfortran harness of the live
+  # full-loop tests links libradray.a (whose rt_tools.cpp and halo code
+  # reference the backend functions) without AMReX, so it links these
+  # after it (reference/harness_full/Makefile, when the file exists).
+  add_library(radray_backend_stubs STATIC src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp
+                                          src/amrex/hydro_level_stub.cpp src/amrex/gas_state_stub.cpp)
+  target_link_libraries(radray_backend_stubs PUBLIC radray)
   message(STATUS "AMReX RT backend: enabled (AMReX ${AMReX_VERSION})")
 else()
   target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp src/amrex/hydro_level_stub.cpp
