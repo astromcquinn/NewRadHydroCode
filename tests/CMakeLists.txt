@@ -800,6 +800,30 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject 13 --set rt_method=m1
                      --set recomb_case=A --set recomb_rad=1 --set moment_inject=1)
     set_tests_properties(restart_smoke_m1_inject PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+    # tensor_dump (docs/otvet_closure.md section 1) is a pure diagnostic: the
+    # other outputs byte-identical with and without it, for rays (with
+    # recombination rays) and OTVET; and independent of the thread count
+    add_test(NAME tensor_dump_rays
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensor_dump_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/tensor_dump/rays $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set "zdata1=30 25 20"
+                     --set recomb_case=A --set recomb_rad=1)
+    add_test(NAME tensor_dump_otvet
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensor_dump_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/tensor_dump/otvet $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set "zdata1=30 25 20"
+                     --set rt_method=otvet)
+    set_tests_properties(tensor_dump_rays tensor_dump_otvet PROPERTIES TIMEOUT 900 LABELS moments)
+    add_test(NAME thread_full_tensor_dump
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/tensor_dump $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set "zdata1=30 25 20"
+                     --set tensor_dump=1)
+    set_tests_properties(thread_full_tensor_dump PROPERTIES TIMEOUT 1800 LABELS threads
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          restart_smoke_rotate PROPERTIES TIMEOUT 600 LABELS restart)
     # slab-only movie frames (movie_slab, docs/movies.md): the slabs against
