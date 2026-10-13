@@ -230,7 +230,8 @@ pencil FFT, `docs/stage_e_pm.md`), 13 rays of 144 M.
 |---|---|---|---|---|---|---|
 | Stage D (serial hydro and PM on every rank) | 156.8 | 9.9 | 1.4 | 2.1 | 172.8 | 37.3 / 12.8 / 14.7 |
 | the three backends, host state (`amrex_state = 0`) | 156.4 | 1.1 | 0.7 | 2.0 | 163.1 | 37.3 / 8.0 / |
-| **the state on the levels** (`amrex_state = 1`) | 151.3 | 1.3 | 0.5 | 21.4 | 177.7 | 37.4 / **4.5** / |
+| the state on the levels, phase 1 (`amrex_state = 1`, job 41822519) | 151.3 | 1.3 | 0.5 | 21.4 | 177.7 | 37.4 / 4.5 / |
+| **the state on the levels, phase 2 + threaded transfers** (job 41823773) | 150.3 | 0.4 | 0.1 | 5.3 | **159.0** | 37.4 / **3.1** / |
 
 **512³ on one node** (`reion512_40mpc_f0.23`, step 53, 1.12 G rays, job
 41822520, the same phase-1 build, 24 ranks × 8 threads, `--mem=1400G`):
@@ -249,18 +250,21 @@ gathers of the step and the fields of the last step, single-threaded in
 this build). The bitwise comparison against the 2-node host-state run
 with the same backends (job 41823172) is in §4.1 when it has run.
 
-Reading: the ranks other than 0 hold 4.5 GB (the level's share of the
-cells and rays, `Luv`/`sfr`, the catalogue) against 8 GB with the host
-state and 12.8 GB in Stage D; rank 0's peak is the restart (the serial
+Reading: the ranks other than 0 hold 3.1 GB with the particles on the
+level (4.5 GB in phase 1: the level's share of the cells and rays,
+`Luv`/`sfr`, the catalogue) against 8 GB with the host state and
+12.8 GB in Stage D; rank 0's peak is the restart (the serial
 ray pool and ray list read from the checkpoint, as before). The RT is 3 %
 faster (no `sync_fields` broadcast after `post`), the hydro and PM are
 the level steps alone. The io of 21 s is the mirror: the five-field
 gather of `write_stats` and the gas gather of `summaries` every step,
 and the full gather for the fields of the last step, unpacked by rank 0
-in a single thread at about 200 MB/s. The slab loops are threaded in
-the next commit; the per-step gathers (60 B per cell) are the price of
-keeping every statistic bitwise the serial one, and a 128-bit on-level
-path can replace them where round-off is acceptable.
+in a single thread at about 200 MB/s in phase 1; with the slab loops
+threaded (phase 2) the io is 5.3 s and the step 159.0 s, faster than
+every host-state layout, with the hydro at 0.4 s and the PM at 0.1 s
+(no particle rebuild, no gather). The per-step gathers (60 B per cell)
+are the price of keeping every statistic bitwise the serial one; a
+128-bit on-level path can replace them where round-off is acceptable.
 
 ## 3. Phases and validation
 
