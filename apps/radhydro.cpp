@@ -562,12 +562,10 @@ int main(int argc, char** argv) {
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
-    check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
-    check_rt_backend_param(s.cfg);
-    check_pm_backend_param(s.cfg);
     copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
+    check_pm_backend_param(s.cfg);
     check_hydro_backend_param(s.cfg);
     check_rt_cells_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
@@ -636,8 +634,8 @@ int main(int argc, char** argv) {
            << (P.photon_conserve ? ", photon_conserve = 1" : "")
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
-           << ", " << rt_backend_summary(cfg) << ", " << pm_backend_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
+           << ", " << pm_backend_summary(cfg)
            << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
