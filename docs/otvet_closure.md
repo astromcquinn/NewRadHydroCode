@@ -668,12 +668,27 @@ same Γ-weighted radiation averaged over the hydro step's ~140 substeps.
 | single substep (`gammaHI.bin`) | 0.20 / 0.67 / 1.33 / 2.72 |
 | hydro-step mean (S0) | 0.72 / 0.89 / 1.09 / 2.69 |
 
-The odd and even substeps of the dump give 2 % noise per cell in S0. So
-most of the rays' ±35 % spread, and of their long low tail, at 256³ is
-single-substep sampling noise. The moment methods' Γ has none.
-`gamma_power.py --s0` therefore compares the hydro-step means. The noise
-in the rays' Δ² at k ≳ 10 h/Mpc (`docs/rt_methods_512.md` §6) is then gone:
-r(k) with the rays stays ≥ 0.9 up to k ≈ 16 h/Mpc.
+Averaging over the hydro step narrows the rays' spread from ±33 % to
+±10 %, and their long low tail goes. So most of the single-substep spread
+at 256³ is sampling noise (or variation within the step), which the moment
+methods' Γ does not have.
+- The odd and even substeps of the dump differ by 2 % per cell. That is a
+  lower bound on the noise left in S0: a ray lives for many substeps, so
+  the noise of consecutive substeps is correlated and partly cancels in the
+  difference.
+- `gamma_power.py --s0` compares the hydro-step means. The rays' white
+  noise at k ≳ 10 h/Mpc (`docs/rt_methods_512.md` §6) is much reduced:
+  r(k) with the rays stays ≥ 0.9 up to k ≈ 16 h/Mpc.
+- The rays' Δ² still rises at k ≳ 20 h/Mpc. That is residual noise or
+  real structure; it cannot be separated here.
+
+![P_Gamma 256^3](figures/otvet_closure_256_gamma_pk.png)
+
+*Γ_HI power spectra of the hydro-step means at z = 7.40, 6.59, 6.19, 5.67
+and 4.92. Top: Δ²; middle: the ratio to the rays; bottom: r(k) with the
+rays. Table: [`figures/otvet_closure_256_gamma_pk.txt`](figures/otvet_closure_256_gamma_pk.txt).
+Histories and morphology:
+[`figures/otvet_closure_256_compare.txt`](figures/otvet_closure_256_compare.txt).*
 
 **P_Γ after overlap: the excess is gone.** P_Γ ratio to the rays (r(k)),
 hydro-step means:
@@ -716,9 +731,9 @@ hydro-step means:
   redshifts (the proximity zones of the sources).
 - **Their lower half is too narrow by z = 4.92:** 16 % quantile 0.93
   against 0.89, 0.1 % 0.89–0.91 against 0.72. At z = 5.67 the split's is
-  right (0.72 / 0.83 against 0.66 / 0.84). The missing low tail is
-  shadowing by self-shielded gas, which the direct + isotropic-diffuse
-  description fills in.
+  right (0.72 / 0.83 against 0.66 / 0.84). The rays' lower tail may still
+  hold residual sampling noise (above). The rest would be shadowing by
+  self-shielded gas, which the isotropic diffuse part fills in.
 
 **Reionization history and morphology:**
 - Within Δz ≤ 0.03 of the rays for every closure at x_V = 0.1–0.9.
