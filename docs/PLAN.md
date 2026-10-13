@@ -645,3 +645,20 @@ policy on klone, and deleting the merged branches.
     the grown box rather than exchanged.
   - `amrex_hydro_max_grid_size` defaults to 32 (the spike's 16³ boxes are
     the suspect of the multi-node slowdown; §5 of the doc).
+## M1 neutral source cells (2026-10-12, branch `m1-clumps`)
+
+* **User asked** whether M1's many neutral absorbers after overlap are
+  surprising, and asked for a check (512³ snapshots, then a 128³ test with
+  the source map written).
+* **Found:** an injection-order artifact, not the closure. The moment RT
+  injected a substep's source and recombination photons before the
+  transport, so most left the source cell before `photo_cell` absorbed
+  anything; bright, dense source cells stayed neutral
+  (`docs/rt_moments.md` §5a).
+* **Choices made in this thread** (open to revision): `moment_inject = 1`
+  (inject after the transport) behind a flag, C++ default 0 (ground
+  rule 3); `make_production.py --moment-inject` default 1, as for
+  `recomb_rad_cell_onspot`; `fields = ...,Luv` writes the source
+  luminosity per cell (only when listed). The 512³ M1 and OTVET runs are
+  not rerun; `docs/rt_methods_512.md` flags the affected results.
+
