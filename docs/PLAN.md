@@ -657,6 +657,31 @@ policy on klone, and deleting the merged branches.
   the ob1/TCP path (as fast, but a bus error at exit) was not pursued;
   512³ on one node with 8 fat ranks was not tried.
 
+## Stage E3 (2026-10-13): the state on the levels
+
+* **Request (user):** merge the branches, understand the hydro threshold
+  oddity, try the 8 × 24 layout, then continue through the E stages.
+* Done: PR #32 (Stage E1 and the klone runs) and PR #33 (Stage E2,
+  opened from this thread since E3 needs both) merged into `main`; the
+  threshold oddity is the gather's 16–32 MB broadcast blocks going eager
+  above 16 MB (`docs/stage_e_hydro.md` §5), 8 MB stays; 8 × 24 fits one
+  node at 512³ but is 1.26× slower than the serial code.
+* **Choices made in this thread** (open to revision; `docs/stage_e_state.md`):
+  - `amrex_state = 1` is a switch on top of the three backends (default
+    0); the host grids become rank 0's mirror rather than disappearing,
+    so that every file format and every statistic stays bitwise the
+    host-state run's, which is the test (`ctest -L amrex_state`).
+  - The halo finder stays serial on rank 0's particle mirror (gathered
+    by id in chunks); a distributed FoF is left for later.
+  - The per-step statistics gather the gas (40 B per cell) and five RT
+    fields (20 B per cell) to rank 0 every step; the on-level 128-bit
+    alternative is deferred until round-off there is accepted.
+  - P(k) stays the host code on rank 0's mirror.
+  - The checkpoint format is unchanged (version 7); the ray gather is
+    chunked.
+  - One decomposition: `amrex_hydro_max_grid_size` 0 (= `amrex_max_grid_size`),
+    `amrex_pm_max_grid_size` 0 (= `pm_refine` × that).
+
 ## Stage E1 (2026-10-12): the unsplit hydro on AMReX
 
 * **Request (user):** start Stage E with the hydro (E1) in this thread;
