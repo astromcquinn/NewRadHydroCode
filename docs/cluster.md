@@ -30,6 +30,7 @@ come free (other users' jobs share the nodes); the scaling jobs below waited
 | CMake | 4.4.4 | conda env |
 | Python | 3.12.15, numpy 2.5.3, matplotlib 3.11.2, scipy 1.18.1, healpy 1.20.1 | conda env `/gscratch/astro/mcquinn/sw/conda-envs/radray` (conda-forge, Miniforge 25.9.1 from `/mmfs1/sw/miniforge3`) |
 | ffmpeg | 9.0.2 | the same conda env |
+| MPI (AMReX backend) | OpenMPI 4.1.6, UCX 1.16.0, over InfiniBand (`mlx5_0`) | module `ompi/4.1.6-2`, loaded by the AMReX scripts through `radray_module_load`; **across nodes the scripts also call `radray_ucx_eager`** (`UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf`): with the module's defaults UCX's rendezvous path makes AMReX's `FillBoundary` 10× slower on 2 and 4 nodes than on one (`docs/stage_e_hydro.md` §5) |
 
 Why not the modules:
 * `fftw/3.3.10` (and the contributed FFTW modules) are double precision only.

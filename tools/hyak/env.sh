@@ -57,5 +57,17 @@ radray_module_load() {
   return $_rml_rc
 }
 
+# UCX across nodes: the rendezvous (zero-copy) path of the ompi module's
+# UCX 1.16 makes AMReX's FillBoundary about 10x slower on 2 and 4 nodes
+# than on one (the hydro step did not speed up at all beyond one node,
+# docs/stage_e_hydro.md section 5). Sending everything eagerly through
+# UCX's bounce buffers removes it. The AMReX job scripts call this after
+# loading the modules; RADRAY_UCX_EAGER=0 keeps the module's defaults.
+radray_ucx_eager() {
+  if [ "${RADRAY_UCX_EAGER:-1}" != 0 ]; then
+    export UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf
+  fi
+}
+
 [ "$_radray_u" = 1 ] && set -u
 unset _radray_u

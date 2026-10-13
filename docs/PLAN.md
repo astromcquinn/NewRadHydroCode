@@ -608,6 +608,18 @@ policy on klone, and deleting the merged branches.
   12 ranks × 16 threads per node, on 2 nodes or more. The next backend
   optimisation target is the deposit `SumBoundary` (25 % of the RT at
   512³); Stage E removes the redundant state.
+* Later the same day (klone, after the Stage E1 merge): the build of
+  `5c0c974` passes `ctest -L amrex` 81/81 and the fast suite 125/125;
+  256³ re-timed on 1, 2 and 4 nodes (RT 156.8 / 100.2 / 76.8 s against
+  the serial 144.4 s), the 512³ 2- and 4-node results of the morning
+  kept (the RT level is unchanged). The multi-node hydro slowdown
+  measured (`docs/stage_e_hydro.md` §5): it is the UCX rendezvous path
+  of the klone OpenMPI, not the ghost volume. Choices made without the
+  user: `tools/hyak/env.sh` exports `UCX_RNDV_THRESH=inf
+  UCX_ZCOPY_THRESH=inf` for every AMReX job (`radray_ucx_eager`,
+  `RADRAY_UCX_EAGER=0` to turn off); the production box size stays 32³;
+  the ob1/TCP path (as fast, but a bus error at exit) was not pursued;
+  512³ on one node with 8 fat ranks was not tried.
 
 ## Stage E1 (2026-10-12): the unsplit hydro on AMReX
 

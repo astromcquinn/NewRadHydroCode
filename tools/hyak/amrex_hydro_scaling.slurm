@@ -21,6 +21,9 @@
 #   EXE        build with the backend (default build-amrex/hydro_driver)
 #   SERIAL     1 (default): also run the serial code on all cores of one node
 #   HYAK_MODULES  modules (default "ompi/4.1.6-2")
+#   RADRAY_UCX_EAGER  1 (default): UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf,
+#              without which FillBoundary is 10x slower across nodes
+#              (docs/stage_e_hydro.md section 5); 0: the module's defaults
 #SBATCH --job-name=amrex-hydro-scaling
 #SBATCH --account=astro
 #SBATCH --partition=cpu-g2
@@ -34,6 +37,7 @@ set -u
 cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
 radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
+radray_ucx_eager  # UCX eager across nodes (env.sh; RADRAY_UCX_EAGER=0 for the module defaults)
 PROB="${PROB:?set PROB to the problem directory}"
 NODES="${SLURM_JOB_NUM_NODES:-1}"
 OUT="${OUT:-$PROB/amrex_hydro_scaling/n$NODES}"

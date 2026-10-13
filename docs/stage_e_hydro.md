@@ -14,8 +14,8 @@ parts of Stage E.*
 | `hydro_backend = amrex`: the unsplit MUSCL-Hancock + HLLC step with the dual-energy formulation (`hydro_scheme = unsplit`) on AMReX MultiFabs, MPI + OpenMP (`src/amrex/hydro_level.cpp`) | done |
 | One implementation of the face and update arithmetic (`rrh::face_all`, `face_neighbour_max`, `update_from_faces` in `include/radray/kernels/hydro_mh.hpp`), called by the serial driver and the level | done; the serial unsplit outputs are bitwise unchanged |
 | **Bitwise identical to `hydro_backend = serial`** for 1–8 ranks × 1–2 threads × box sizes 32/16/8 on three hydro problems, and in the full loop (with `rt_backend = amrex` and `serial`) | done, `ctest -L amrex_hydro` (27 tests) |
-| Timing on the 4-core VM at 128³ and 256³ against the serial OpenMP code | §4 |
-| The multi-node hydro slowdown of the spike (`docs/framework_decision.md` §3.3) | a hypothesis and the job that measures it (`tools/hyak/amrex_hydro_scaling.slurm`), §5; **the klone runs are the user's** |
+| Timing on the 4-core VM at 128³ and 256³ against the serial OpenMP code; klone, 256³ on 1, 2 and 4 `cpu-g2` nodes | §4, §4.1 |
+| The multi-node hydro slowdown of the spike (`docs/framework_decision.md` §3.3) | measured on klone (2026-10-12): it is the UCX rendezvous (zero-copy) path of the klone OpenMPI, not the ghost volume; `UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf` removes it, §5 |
 | The legacy split scheme (`hydro_scheme = legacy`) | stays on the serial code, by design (its pencil FFT and transposes do not decompose) |
 
 Ground rules kept: the serial code is untouched in behaviour (the kernel
@@ -199,38 +199,134 @@ Reading:
   be halved by computing the predictor per face pair instead of storing
   it, at the cost of recomputing it 6× per cell.
 
-## 5. The multi-node hydro slowdown: hypothesis and the measurement
+### 4.1 klone: 256³ on 1, 2 and 4 nodes (2026-10-12)
+
+`tools/hyak/amrex_hydro_scaling.slurm` on `cpu-g2` (2 × 96-core EPYC 9654
+per node, InfiniBand, OpenMPI 4.1.6 with UCX 1.16 from the klone `ompi`
+module): the 256³ random3d problem of `tools/hyak/make_hydro_problem.py`,
+2 steps (4 unsplit calls, 22 substeps, 3.7×10⁸ cell-updates), 24 ranks ×
+8 threads per node, `--cpu-bind=cores`, against the serial OpenMP code on
+192 threads of one node (jobs 41812553–41812555 with the module's
+default MPI settings, 41813037–41813039 with the UCX eager setting of §5).
+Every layout, box size and transport setting below is byte-identical to
+the serial run (`diff -r` of every step's fields and stats).
+
+| 256³, 2 steps, hydro [s] (`fill` [s]) | boxes 16³ | 32³ | 64³ |
+|---|---|---|---|
+| serial, 192 threads | 38.0 | | |
+| backend, 1 node, 24 × 8, module defaults | 8.20 (0.71) | 8.08 (0.44) | 8.46 (0.42) |
+| backend, 2 nodes, 48 × 8, module defaults | 8.63 (4.47) | 7.85 (3.92) | 8.27 (3.80) |
+| backend, 4 nodes, 96 × 8, module defaults | 9.15 (4.15) | 12.34 (6.84) | 8.65 (3.21) |
+| backend, 1 node, 24 × 8, UCX eager | 7.47 (0.75) | 6.99 (0.41) | 7.31 (0.47) |
+| backend, 2 nodes, 48 × 8, UCX eager | 5.51 (0.64) | 5.32 (0.47) | 5.93 (0.39) |
+| backend, 4 nodes, 96 × 8, UCX eager | 5.22 (0.43) | 5.39 (0.29) | 6.34 (0.32) |
+
+The other timers at 32³ boxes, 1 / 2 / 4 nodes (UCX eager): `predict`
+0.45 / 0.21 / 0.11, `flux` 0.80 / 0.42 / 0.21, `update` + `finalize`
+0.7 / 0.3 / 0.1, `copyout` 3.2 / 2.4 / 3.0 (of which the per-rank
+broadcasts 3.0 / 2.2 / 2.8), and the rest of the driver's step outside
+the level (`fold_frame`, the serial per-rank work of
+`radhydro_hydro_step`) about 2 s on every layout. Reading:
+
+- On one node the backend is 4.7× faster than the serial OpenMP code
+  (8.1 against 38.0 s; the serial unsplit driver does not scale to 192
+  threads across the two sockets, while every rank's cells are local to
+  its CCD).
+- The compute phases scale: they halve per doubling of the nodes
+  (`predict` + `flux` + `update` + `finalize` 1.95 → 0.93 → 0.43 s).
+  What does not is the Stage E1 model: the gather of the whole level to
+  every rank (`copyout`, 0.67 GB broadcast per half step to every rank,
+  2.4–3.0 s whatever the node count) and the redundant host work (2 s),
+  which together are 5 of the 5.3 s on 2 nodes. They go away with the
+  state on the level (E2–E4), after which the hydro step at 256³ is
+  about 1 s on 2 nodes.
+- The box size matters little: 32³ is the best or within 3 % of it on
+  every layout; 16³ costs 5–10 % more (ghost volume in `fill` and
+  per-box overhead), 64³ gives 64 boxes, fewer than the 96 ranks of 4
+  nodes (a third idle) and 1–4 % slower on 2 nodes. **Production keeps
+  32³** (`amrex_hydro_max_grid_size = 32`, the default, the same as the
+  RT level's `amrex_max_grid_size`).
+
+## 5. The multi-node hydro slowdown: measured, and it is the UCX transport
 
 `docs/framework_decision.md` §3.3: the spike's AMReX hydro cost
 6.8–7.6 µs per cell-update·core on 2 and 4 nodes against 0.69 on one
 node, with 16³ boxes, while the RT on the same `FillBoundary` and
-Parthenon's hydro did not slow down. It could not be reproduced here (one
-machine). What the level is built to test:
+Parthenon's hydro did not slow down. The hypothesis written before the
+measurement was the ghost volume of 16³ boxes against the node's
+injection bandwidth (about one ghost cell per cell per `FillBoundary`
+at 16³, 0.42 at 32³, 0.2 at 64³, so the slowdown should shrink with the
+box size). The measurement (§4.1, jobs of 2026-10-12) says otherwise:
 
-- **Ghost volume.** A 16³ box with 2 ghost layers exchanges 3904 ghost
-  cells per 4096 valid cells, i.e. about one ghost cell per cell per
-  `FillBoundary`; at 5 doubles that is 40 B per cell-update across the
-  network for the fraction of faces that cross nodes, per `FillBoundary`.
-  At 0.69 µs per cell-update·core a node updates 2.8×10⁸ cells/s, so the
-  ghost traffic of the spike's hydro is of order 10 GB/s, at the limit of
-  one node's injection bandwidth, whereas inside a node it is a memory
-  copy. The RT does not show it because its cost per cell is 100× larger.
-  The spike's prototype also did one `FillBoundary` per substep of 5
-  components, with no overlap. The level here needs three exchanges per
-  substep (`U`: 10 components, `Es` and `En`: 1 each), so the hypothesis
-  predicts the slowdown appears here too with 16³ boxes and shrinks with
-  32³ (0.42 ghost cells per cell) and 64³ (0.2).
-- **The measurement** is `tools/hyak/amrex_hydro_scaling.slurm`: 24 ranks
-  × 8 threads per node on 1, 2 and 4 nodes with box sizes 16, 32 and 64,
-  on a 256³ random3d problem, against the serial OpenMP code on one node;
-  it prints the level's timers (`fill` separately from the compute
-  phases) and checks that every layout gives byte-identical outputs. If
-  `fill` dominates on 2 nodes with 16³ boxes and not with 64³, the
-  hypothesis holds and the production layout uses large boxes (one or two
-  boxes per rank) and, later, overlapped communication. If the slowdown
-  is independent of the box size, the next suspect is the MPI transport of
-  the klone OpenMPI module across nodes (UCX/verbs settings), which the
-  RT would hide.
+1. **The slowdown appears.** With the klone module's default MPI
+   settings the step takes 7.9–8.6 s on 2 nodes and 8.7–12.3 s on 4,
+   against 8.1 s on one: no speed-up at all, while the compute phases
+   halve per doubling. All of it is `fill` (the three `FillBoundary` per
+   substep, 66 exchanges): 0.44 s on one node (shared memory), 3.9 s on
+   2 nodes, 6.8 s on 4, i.e. 60–100 ms per exchange.
+2. **It does not scale with the ghost volume.** On 2 nodes `fill` is
+   4.47, 3.92 and 3.80 s for 16³, 32³ and 64³ boxes (ghost volume 5×
+   apart); on 4 nodes 4.15, 6.84 and 3.21. The volume across the network
+   is small: at 32³ about 12 MB per rank per exchange, 0.8 GB per rank
+   per run, under a second at any sensible bandwidth. So the hypothesis
+   is wrong and the per-exchange cost is per message, not per byte.
+3. **It is the MPI transport.** The diagnostics (job 41812852 and the
+   2-node runs at 32³ below, every one byte-identical to the serial run):
+   the nodes have InfiniBand (mlx5_0, port active), the module's OpenMPI
+   selects the UCX PML (priority 51 over ob1's 20, devices `mlx*`, UCX
+   picks `dc_mlx5`; the module sets `UCX_TLS=all`), and forcing it
+   (`OMPI_MCA_pml=ucx`) gives the same `fill` (4.9 s), so the default
+   runs were already on UCX over InfiniBand, not on TCP.
+
+   | 2 nodes, 48 × 8, 32³ boxes | `fill` [s] | hydro [s] |
+   |---|---|---|
+   | module defaults (UCX, `dc_mlx5`) | 3.92 | 7.85 |
+   | `OMPI_MCA_pml=ucx` (forced, verbose: `dc_mlx5/mlx5_0:1`) | 4.89 | 10.24 |
+   | `UCX_TLS=rc_x,sm,self` | 3.85 | 10.38 |
+   | `UCX_TLS=tcp,sm,self` (UCX over TCP) | 4.96 | 9.03 |
+   | `UCX_RNDV_SCHEME=put_zcopy` | 4.13 | 10.02 |
+   | `UCX_PROTO_ENABLE=n` (the pre-1.15 protocol selection) | 2.54 | 6.31 |
+   | `MALLOC_MMAP_THRESHOLD_=32M MALLOC_TRIM_THRESHOLD_=2G MALLOC_TOP_PAD_=512M` | 3.86 | 7.69 |
+   | `OMPI_MCA_pml_ucx_opal_mem_hooks=1` | 4.03 | 7.87 |
+   | `OMP_WAIT_POLICY=passive` | 3.48 | 7.14 |
+   | 24 ranks × 1 thread per node | 2.81 | 17.0 |
+   | 8 ranks × 24 threads per node | 1.59 | 5.29 |
+   | 96 ranks × 2 threads per node | 10.7 | 19.1 |
+   | `UCX_RNDV_THRESH=inf` (no rendezvous) | 1.25 | 6.11 |
+   | `UCX_TLS=rc_x,sm,self UCX_RNDV_THRESH=inf` | 1.40 | 6.43 |
+   | **`UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf`** (eager, copied) | **0.76** | **5.63** |
+   | `OMPI_MCA_pml=ob1 OMPI_MCA_btl=tcp,self,vader` (no UCX, TCP over IPoIB) | 0.37 | 5.36 (bus error at exit) |
+
+   The cost is UCX's rendezvous zero-copy path for the medium-sized
+   messages of `FillBoundary` (a few hundred KB to a few MB per
+   neighbour pair, posted all at once and waited on together): it grows
+   with the number of ranks per node (1.6 → 3.9 → 10.7 s for 8, 24 and 96
+   ranks per node) and goes away when UCX is told to send everything
+   eagerly through its bounce buffers (`UCX_RNDV_THRESH=inf
+   UCX_ZCOPY_THRESH=inf`: `fill` 0.76 s, and 0.47 / 0.29 s in the full
+   runs of §4.1 on 2 / 4 nodes, the same as one node's shared memory),
+   or when UCX is bypassed altogether (ob1 over TCP: 0.37 s, but the run
+   died with a bus error in the shared-memory BTL at `MPI_Finalize`, so
+   not a usable configuration without more work). It is not the memory
+   registration cache (the glibc thresholds that keep the buffers mapped
+   change nothing, nor OpenMPI's memory hooks), not the InfiniBand
+   transport (UCX over TCP is as slow), not the OpenMP threads (1 thread
+   per rank is still 2.8 s, `passive` waiting 3.5 s). AMReX's
+   communication buffers on a CPU build come from the plain-malloc
+   `BArena` (`AMReX_Arena.cpp`, `the_comms_arena = The_BArena()` without
+   GPU), allocated and freed per exchange, which is what the zero-copy
+   path dislikes; a caching comms arena is not selectable at run time on
+   CPU. The RT did not show the slowdown in the spike because its
+   `FillBoundary` traffic is small against its compute and its ray
+   migration is a few large messages.
+4. **What production uses.** `tools/hyak/env.sh` now exports
+   `UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf` (`radray_ucx_eager`,
+   called by the AMReX job scripts; `RADRAY_UCX_EAGER=0` turns it off)
+   and the box size stays 32³ (§4.1). With it the hydro step on 2 and 4
+   nodes is 5.3 s against 7.0 s on one node, the remaining cost being the
+   Stage E1 gather and the redundant host work, both of which E2–E4
+   remove. The RT on the same setting: `docs/stage_d.md` §4.4 (the 256³
+   2-node step, job 41813041).
 
 ## 6. What this stage does not do (yet)
 

@@ -425,6 +425,22 @@ of the field arrays alone, and it does not shrink with more nodes: what
 else every rank keeps (the serial RT grid, the halo and source lists,
 the hydro work arrays) is to measure in Stage E, where it goes away.
 
+**The UCX eager setting** (`docs/stage_e_hydro.md` §5: the klone
+module's UCX makes AMReX's `FillBoundary` 10× slower across nodes;
+`tools/hyak/env.sh` now exports `UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf`
+for every AMReX job). The 256³ step on 2 nodes with it (job 41813041):
+RT 95.1 s against 100.2 s with the module's defaults, the fields and
+`stats.txt` bitwise identical. Phases: `FillBoundary` 5.4 → 1.6 s,
+`migrate` 7.4 → 5.7, `cast3` 19.7 → 18.7, `phys` 13.2 → 11.7, `step1`
+17.2 → 14.2, `SumBoundary` 5.4 → 5.2 (unchanged: it is the reduction,
+not the transport), while the large broadcasts get slower, `sync` 3.9 →
+8.9 s (the fields to every rank) and `post_rt` 5.5 → 10.5 s (the ray
+gather and the field broadcast), which eager copying through bounce
+buffers does not suit. A net gain of 5 % at 256³; at 512³, where the
+field broadcast is 25 GB and the ray gather larger, the balance is to
+be checked (job 41813111, 4 nodes, results below when it has run) and
+the Stage E removal of the gather and broadcast settles it anyway.
+
 Fields of the last step, backend against serial (rms relative difference
 over the grid, the fraction of cells beyond 1e-3, and the largest
 relative difference in a single cell): fHI 1.2e-4, 3.3e-4 of the cells,

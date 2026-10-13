@@ -1,52 +1,67 @@
 # Project status
 
-*Last updated: 2026-10-12: Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); Stage E prerequisites on klone, the AMReX backend built, tested and timed at 256³ and 512³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12 (evening): Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf` in `env.sh`), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-12: Stage E prerequisites on klone (branch `claude/clever-fermi-aa4km4`)
 
-**`docs/stage_d.md` §4.4.** The AMReX backend built and timed on `cpu-g2`.
-- **Build and tests:** `tools/hyak/build_amrex.sh` builds AMReX 26.10 into
-  `$RADRAY_SW/amrex-26.10` and the code into `build-amrex` on a 32-core
-  allocation (about 2 min). Fixed in the repo: the module loading under
-  `set -u` (`radray_module_load`, carried on this branch) and the test
-  launcher: a one-task allocation gives OpenMPI a single slot, so the
-  default is now `mpirun --bind-to none --oversubscribe` (and with
-  `RADRAY_MPIEXEC=srun` the runners pass `--overlap --cpus-per-task` per
-  test). `ctest -L amrex` 54/54; the default build's fast suite 125/125
-  outside `platform_ref` (the 10 known klone libm differences).
-- **256³, one node** (`reion256_f0.2`, step 49 to z = 5.32, 144 M rays):
-  RT 159.0 s for 24 ranks × 8 threads against 144.0 s for the serial code
-  on 192 threads (10 % slower: the physics 2× faster, the casts equal,
-  plus sort, migration, boundary sums and the gather). Peak RSS 61.7 GB on
-  rank 0 (the restart), 14.9–18 GB on the others (the redundant serial
-  state, about 13 GB per rank, is more than the §2.2 estimate), serial
-  30.6 GB. Fields to round-off: rms 1e-4 (fHI), 4e-4 (Γ), 6e-7 (T), ρ
-  identical, single I-front cells up to 0.3–0.5; the global statistics to
-  1e-9, ray counts to 3e-7.
-- **512³** (`reion512_40mpc_f0.23`, step 53 to z = 4.83, 1.12 G rays,
-  151 substeps): 24 ranks × 8 threads per node ran out of memory on 1
-  and 2 nodes (rank 0 490 GB in the restart, 36 + 25 GB on the others),
-  fixed by broadcasting the fields in slabs and scattering the restart
-  rays in chunks (the 256³ step re-run bitwise identical, rank 0's peak
-  61.7 → 37.3 GB). At 12 ranks × 16 threads per node: 1 node still OOM
-  (12 ranks sum to 1.7 TB: 300 GB on rank 0, 126 GB each on the others,
-  the redundant serial state is about 100 GB per rank at 512³, 200 B per
-  cell); 2 nodes RT 1460.7 s, step 1540.9 s against the serial code's
-  2593.4 s and 2878.7 s on 192 threads (1.78× on 2× the cores: physics
-  4×, casts 1.5×, `SumBoundary` a quarter of the RT), peak RSS 292.9 GB
-  on rank 0, 103–112 GB on the others, serial 203.8 GB; 4 nodes: RT
-  782.1 s, step 876.2 s (1.87× from 2 to 4 nodes, 3.3× the serial RT on
-  4× the cores; the 2-node `SumBoundary` of 368 s was memory contention
-  on the node holding rank 0, 50 s on 4 nodes), peak RSS 292.9 GB on
-  rank 0, 99.7–110 GB on the others, the fields bitwise identical to the
-  2-node run.
-  Fields to round-off as at 256³ (rms ≤ 6e-4, single I-front cells up to
-  0.6–1.2, global statistics to 1e-9, ray counts to 5e-8). So Stage D
-  needs ≥ 2 nodes at 512³ until Stage E removes the redundant state.
-- Substitutions: `reion256_c01` has no checkpoint (`run/restart/
-  checkpoint.bin` absent), so the 256³ run is `reion256_f0.2`; the 512³
-  checkpoint without `recomb_rad` is the case B run `reion512_40mpc_f0.23`.
-- `radhydro` now reports the peak RSS of every rank (min/max in
+**`docs/stage_d.md` §4.4 and `docs/stage_e_hydro.md` §4.1, §5.** The AMReX
+backend built, tested and timed on `cpu-g2`, 1 to 4 nodes.
+- **Build and tests** (build of commit `5c0c974`, Stage E1 included):
+  `tools/hyak/build_amrex.sh` on a 32-core allocation, `ctest -L amrex`
+  **81/81** (54 RT + the 27 `amrex_hydro` tests: the hydro backend
+  byte-identical to the serial unsplit step for every rank, thread and
+  box-size combination), launched with `mpirun --oversubscribe`; the
+  default build's fast suite **125/125** outside `platform_ref`. Fixed in
+  the repo earlier the same day: the module loading under `set -u`
+  (`radray_module_load`), the test launcher flags, the slab-wise field
+  broadcast and the chunked restart scatter (`d927abd`).
+- **256³ RT** (`reion256_f0.2`, step 49, 144 M rays; 24 ranks × 8
+  threads per node): RT 156.8 s on one node against the serial code's
+  144.4 s on 192 threads (**9 % slower**: physics 1.8× faster, casts
+  equal, plus sort, migration, boundary sums and the gather), 100.2 s on
+  2 nodes (1.56×) and 76.8 s on 4 (2.04×; the spike's RT scaled 1.42×
+  and 2.13×). Peak RSS 37.3 GB on rank 0 (the restart), 12.5–15 GB on
+  the others (the redundant serial state, 12 GB per rank, does not
+  shrink with more nodes), serial 30.6 GB. The fields are bitwise
+  identical across 1, 2 and 4 nodes and agree with the serial run to
+  round-off (rms 1e-4 fHI, 4e-4 Γ, 6e-7 T, ρ identical, single I-front
+  cells up to 0.3–0.5; global statistics to 1e-9, ray counts to 3e-7).
+- **512³ RT** (`reion512_40mpc_f0.23`, the only case B `legacy_rt = 0`
+  checkpoint; `reion512_rays_caseB` kept none and `reion256_c01` has no
+  `run/` at all, so the 256³ run is `reion256_f0.2`): step 53, 1.12 G
+  rays, 12 ranks × 16 threads per node (24 × 8 ran out of memory in the
+  restart). **One node does not fit** (12 ranks sum to 1.7 TB: 300 GB on
+  rank 0, 126 GB on each other rank, the redundant serial state about
+  100 GB per rank, 200 B per cell); 2 nodes RT 1460.7 s, 4 nodes 782.1 s
+  (1.87×) against the serial 2593.4 s on 192 threads (1.78× and 3.3×);
+  peak RSS 292.9 GB on rank 0, 100–112 GB on the others, serial 203.8 GB.
+  The 2-node `SumBoundary` of 368 s (a quarter of the RT) was memory
+  contention on the node holding rank 0, 50 s on 4 nodes. Fields to
+  round-off as at 256³, bitwise identical between 2 and 4 nodes. These
+  512³ runs are from the earlier build (`d927abd`); the RT level is
+  unchanged since. Stage D needs ≥ 2 nodes at 512³ until Stage E removes
+  the redundant state; 8 ranks × 24 threads on one node was not tried.
+- **The multi-node hydro slowdown is the UCX transport, not the ghost
+  volume** (`docs/stage_e_hydro.md` §5; 256³ random3d, 2 steps, 24 × 8
+  per node, every layout byte-identical to the serial run). With the
+  klone module's defaults the hydro step is 8.1 s on 1 node, 7.9 on 2,
+  12.3 on 4: no speed-up, all of it `FillBoundary` (0.44 → 3.9 → 6.8 s),
+  independent of the box size (16³/32³/64³ within 15 %). UCX's
+  rendezvous zero-copy path is the cost (per message, growing with the
+  ranks per node; UCX over TCP as slow; registration-cache knobs,
+  memory hooks and OpenMP waiting policy change nothing); **`UCX_RNDV_THRESH=inf
+  UCX_ZCOPY_THRESH=inf`** brings `fill` to 0.3–0.5 s on 2 and 4 nodes
+  (as on one) and the step to 5.3 s on 2 and 4 nodes against 7.0 on one,
+  the rest being the Stage E1 gather (2.4–3 s) and the redundant host
+  work (2 s). `tools/hyak/env.sh` now exports it (`radray_ucx_eager`,
+  called by the AMReX job scripts, `RADRAY_UCX_EAGER=0` to turn off).
+  Box size for production: **32³** (16³ costs 5–10 % more, 64³ leaves
+  ranks idle at 4 nodes). The backend on one node is 4.7× faster than
+  the serial OpenMP hydro (8.1 against 38.0 s). With the same setting the 256³ RT on 2 nodes is 95.1 s against 100.2 s (`FillBoundary` 5.4 → 1.6 s, migration 7.4 → 5.7 s; the large field broadcasts of `sync` and `post_rt` get slower, 3.9 → 8.9 and 5.5 → 10.5 s), fields bitwise identical; the 512³ 4-node check with it is job 41813111 (`docs/stage_d.md` §4.4).
+- Substitutions: `reion256_c01` has no checkpoint, so the 256³ run is
+  `reion256_f0.2`; the 512³ checkpoint without `recomb_rad` is the case
+  B run `reion512_40mpc_f0.23`.
+- `radhydro` reports the peak RSS of every rank (min/max in
   `timing.txt`); `amrex_scaling.slurm` runs on several nodes and compares
   the fields (`tools/hyak/amrex_scaling_compare.py`).
 
