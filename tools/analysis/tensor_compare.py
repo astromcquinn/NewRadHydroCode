@@ -24,11 +24,12 @@ and S1 for M1):
             (--lam; 'auto' = lambda_eff = sum S0 / sum_s w_s, the photons'
             mean path, from the rays' own budget; 'auto*f' = f lambda_eff)
   split_atten  split with the attenuated, image-summed N_loc and h_loc
-  coneNcC   (--cone N:C[:cap]) the direct light attenuated by the HI along
+  coneNcC   (--cone N:C[:cap[:rc]]) the direct light attenuated by the HI along
             HEALPix cones (nside N) from receivers on a C-times coarser grid
             through mip-maps of the emissivity and the HI column, with the
             periodic images out to 8 boxes, plus the thin near field
-            (cone_tensor.py); cap limits each cell's group-1 tau (clumps
+            (r < rc, default 2C cells, handed over to the cones by 2 rc;
+            cone_tensor.py); cap limits each cell's group-1 tau (clumps
             saturate: a crude covering-fraction correction of the mip average)
   split_cone  split with the cone-traced direct light
 
@@ -215,7 +216,7 @@ def main():
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--no-plot", action="store_true")
     ap.add_argument("--cone", nargs="*", default=[],
-                    help="cone-traced attenuated tensors nside[:coarse[:tau_cap]] (cone_tensor.py)")
+                    help="cone-traced attenuated tensors nside[:coarse[:tau_cap[:r_c]]] (cone_tensor.py)")
     ap.add_argument("--box", type=float, default=None, help="Mpc/h (default: the run's params.txt)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -235,8 +236,10 @@ def main():
         # noise: odd vs even substeps
         n, no = hdr["nsub"], hdr["nodd"]
         So = load(d, N, "tensor_odd.bin", 10)
-        Se = (S * n - So * no) / max(n - no, 1)
-        noise = fro(normalise(So[..., 4:10]), normalise(Se[..., 4:10])) / 2
+        Se = (S.astype(np.float64) * n - So * no) / max(n - no, 1)
+        # float32 cancellation in Se can leave a cell's half nearly empty:
+        # clip to the largest distance of two trace-1 tensors (sqrt 2) / 2
+        noise = np.minimum(fro(normalise(So[..., 4:10]), normalise(Se[..., 4:10])) / 2, np.sqrt(0.5))
         del So, Se
         fHI = load(d, N, "fHI.bin", 1)
         x = 1 - fHI
@@ -292,7 +295,8 @@ def main():
             ns = int(t[0])
             co = int(t[1]) if len(t) > 1 else 4
             cap = float(t[2]) if len(t) > 2 else float("inf")
-            rc = 2.0 * co  # near field r < 2 rc (unattenuated), cones beyond rc
+            # near field r < 2 rc (unattenuated), cones beyond rc
+            rc = float(t[3]) if len(t) > 3 else 2.0 * co
             colc = col if not np.isfinite(cap) else np.minimum(col, cap / s18[0])
             Kn = thin_kernel(N) * (1 - smoothstep(rr, rc, 2 * rc))[None]
             Pn = np.moveaxis(convolve(rho, Kn, a.workers), 0, -1)
@@ -301,7 +305,7 @@ def main():
             Pd = Pn + Pk
             del Pn, Pk
             Nd = Pd[..., 0] + Pd[..., 1] + Pd[..., 2]
-            lab = f"cone{ns}c{co}" + ("" if not np.isfinite(cap) else f"t{cap:g}")
+            lab = f"cone{ns}c{co}" + ("" if not np.isfinite(cap) else f"t{cap:g}") + ("" if len(t) < 4 else f"r{rc:g}")
             cl[lab] = normalise(Pd)
             cl["split_" + lab] = split(Nd, cl[lab])
             out(f"# {lab}: sum N_dir / sum S0 = {Nd.sum() / S0.sum():.3f}")
