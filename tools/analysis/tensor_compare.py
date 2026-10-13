@@ -34,6 +34,8 @@ and S1 for M1):
             suffix x<lam>: also screened by exp(-s/lam) (--cone-lamx), the
             attenuation the HI does not give (light horizon, redshifting)
   split_cone  split with the cone-traced direct light
+  blend_A_B_s (--blend A:B:s) h_A + G_s * (h_B - h_A): the small scales of
+            closure A and the large ones of B (Gaussian of s cells)
 
 Metrics, S0-weighted over the cells of each regime:
   err   the Frobenius distance |h - h_true| (off-diagonals counted twice)
@@ -215,6 +217,9 @@ def main():
     ap.add_argument("--block", type=int, default=8)
     ap.add_argument("--lam", nargs="*", default=["auto"])
     ap.add_argument("--moment", nargs="*", default=[])
+    ap.add_argument("--blend", nargs="*", default=[],
+                    help="A:B:sigma -> h_A + G_sigma * (h_B - h_A): A's small scales, B's large ones "
+                         "(xauto in a name: x<lambda_eff>)")
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--no-plot", action="store_true")
     ap.add_argument("--cone", nargs="*", default=[],
@@ -320,6 +325,18 @@ def main():
                 out(f"# {lab}: sum N_dir / sum S0 = {Nd.sum() / S0.sum():.3f}")
                 del Pd
             del Pn, Pks
+        for spec in a.blend:
+            # small scales of closure A, large scales (Gaussian sigma cells) of B
+            ka, kb, sg = (t_.replace("xauto", "x%.0f" % lam_eff) for t_ in spec.split(":"))
+            if ka in cl and kb in cl:
+                from scipy.ndimage import gaussian_filter
+                dh = cl[kb] - cl[ka]
+                for m in range(6):
+                    dh[..., m] = gaussian_filter(dh[..., m], float(sg), mode="wrap")
+                cl[f"blend_{ka}_{kb}_{sg}"] = cl[ka] + dh
+                del dh
+            else:
+                out(f"# blend {spec}: no closure {ka if ka not in cl else kb}")
         for spec in a.moment:
             path, lab = spec.rsplit(":", 1)
             cl["post_" + lab] = normalise(load(path, N, "tensor.bin", 10)[..., 4:10])
@@ -346,6 +363,9 @@ def main():
         out(f"z = {z:.3f}  N = {N}  sources = {len(src)}  x_V = {x.mean():.4f}  "
             f"lambda_eff = {lam_eff:.1f} cells  <N/N_loc>_ion = {np.median(q[reg['ionised x>0.9']]) if reg['ionised x>0.9'].any() else float('nan'):.3f} (median)")
         names = list(cl)
+        # the same numbers, untruncated, for tensor_summary.py
+        M = {"z": z, "xv": float(x.mean()), "lam": float(lam_eff), "cell": {}, "Atrue": {}, "noise": {},
+             "A": {}, "force": {}, "r": {}, "block": {}, "blockA": {}}
         out("cell level: S0-weighted err |h - h_true| (A = anisotropy; truth A and noise first)")
         out("%-24s %7s %7s %7s " % ("regime", "frac", "A_true", "noise") + " ".join("%10s" % k[:10] for k in names))
         for r, m in reg.items():
@@ -353,13 +373,17 @@ def main():
                 continue
             row = "%-24s %7.4f %7.3f %7.3f " % (r, (S0 * m).sum() / (S0 * (S0 > 0)).sum(), wmean(aniso(h_true), S0, m),
                                              wmean(noise, S0, m))
-            row += " ".join("%10.3f" % wmean(fro(cl[k], h_true), S0, m) for k in names)
+            M["cell"][r] = {k: float(wmean(fro(cl[k], h_true), S0, m)) for k in names}
+            M["Atrue"][r] = float(wmean(aniso(h_true), S0, m))
+            M["noise"][r] = float(wmean(noise, S0, m))
+            row += " ".join("%10.3f" % M["cell"][r][k] for k in names)
             out(row)
         out("anisotropy A of each closure (S0-weighted)")
         for r, m in reg.items():
             if not m.any():
                 continue
-            out("%-24s " % r + " ".join("%10.3f" % wmean(aniso(cl[k]), S0, m) for k in names))
+            M["A"][r] = {k: float(wmean(aniso(cl[k]), S0, m)) for k in names}
+            out("%-24s " % r + " ".join("%10.3f" % M["A"][r][k] for k in names))
         # scale by scale: the radiation force div(N h) that drives the flux
         # in the moment equations; error spectrum |D_c - D_true|^2 / |D_true|^2
         # and the cross-correlation r(k), in k bins [h/Mpc] (box from params)
@@ -388,6 +412,7 @@ def main():
         out("radiation force div(S0 h): error power / true power by k (and r(k) with the truth)")
         hdrk = "%-16s" % "k [h/Mpc]" + " ".join("%9.2f" % (0.5 * (kb[i] + kb[i + 1]) * kunit) for i in range(len(kb) - 1))
         out(hdrk)
+        M["k"] = [float(0.5 * (kb[i] + kb[i + 1]) * kunit) for i in range(len(kb) - 1)]
         tpow = []
         for i in range(len(kb) - 1):
             mk = (kmag >= kb[i]) & (kmag < kb[i + 1])
@@ -404,6 +429,7 @@ def main():
                 pc = sum((mult * np.abs(Dc[q]) ** 2)[mk].sum() for q in range(3))
                 row_e.append(e / tpow[i] if tpow[i] > 0 else np.nan)
                 row_r.append(cc / np.sqrt(pc * tpow[i]) if pc * tpow[i] > 0 else np.nan)
+            M["force"][k_], M["r"][k_] = [float(v) for v in row_e], [float(v) for v in row_r]
             out("%-16s" % k_[:16] + " ".join("%9.3f" % v for v in row_e))
             out("%-16s" % ("  r") + " ".join("%9.3f" % v for v in row_r))
             del Dc
@@ -444,10 +470,16 @@ def main():
                      "partly ionised": (S0b > 0) & (xb <= 0.9)}.items():
             if not m.any():
                 continue
-            out("%-24s " % r + " ".join("%10.3f" % wmean(fro(blk[k], Pb_true), S0b, m) for k in names))
-        out("block anisotropy: truth %.3f | " % wmean(aniso(Pb_true), S0b, S0b > 0) +
-            " ".join("%s %.3f" % (k, wmean(aniso(blk[k]), S0b, S0b > 0)) for k in names))
+            M["block"][r] = {k: float(wmean(fro(blk[k], Pb_true), S0b, m)) for k in names}
+            out("%-24s " % r + " ".join("%10.3f" % M["block"][r][k] for k in names))
+        M["blockA"] = {k: float(wmean(aniso(blk[k]), S0b, S0b > 0)) for k in names}
+        M["blockA"]["truth"] = float(wmean(aniso(Pb_true), S0b, S0b > 0))
+        out("block anisotropy: truth %.3f | " % M["blockA"]["truth"] +
+            " ".join("%s %.3f" % (k, M["blockA"][k]) for k in names))
         out()
+        import json
+        with open(os.path.join(a.out, f"metrics_z{z:.2f}.json"), "w") as fj:
+            json.dump(M, fj, indent=1)
 
         if not a.no_plot:
             import matplotlib

@@ -3,7 +3,7 @@
 figure (docs/otvet_closure.md §3): errors of each closure against the rays'
 Eddington tensor as a function of redshift.
 
-usage: tensor_summary.py LOG... [--closures otvet split ...] [--png FILE]
+usage: tensor_summary.py LOG_OR_JSON... [--closures otvet split ...] [--png FILE]
                          [--txt FILE]
 
 The screened kernels are logged as atten<lambda> with lambda in cells; the
@@ -27,6 +27,16 @@ def untruncate(names):
 
 
 def parse(path):
+    """A metrics_z*.json (tensor_compare.py, untruncated names) or a log.txt.
+    """
+    if path.endswith(".json"):
+        import json
+        with open(path) as f:
+            return json.load(f)
+    return parse_log(path)
+
+
+def parse_log(path):
     """One log -> dict(z, xv, lam, cell{regime: {closure: err}},
     A{regime: {closure: A}}, Atrue{regime}, block{regime: {closure: err}},
     blockA{closure}, force{closure: [err/true per k]}, r{closure: [...]}, k)."""
@@ -112,20 +122,20 @@ def main():
         k = key_of(d, table, name)
         return table[k] if k else np.nan
 
-    hdr = "%6s %5s %6s | %-6s" % ("z", "x_V", "lam", "A_true") + "".join("%11s" % c[:11] for c in a.closures)
+    hdr = "%6s %5s %6s | %-6s" % ("z", "x_V", "lam", "A_true") + "".join("%16s" % c[:15] for c in a.closures)
     for title, get in [
-        ("cell error |h - h_true|, ionised x > 0.9 (S0-weighted)", lambda d, c: col(d, d["cell"]["ionised x>0.9"], c)),
+        ("cell error |h - h_true|, ionised x > 0.9 (S0-weighted)", lambda d, c: col(d, d["cell"].get("ionised x>0.9", {}), c)),
         ("cell error, ionised cells with Gamma < 0.5 <Gamma>", lambda d, c: col(d, d["cell"].get("ion G<0.5<G>", {}), c)),
         ("cell error, shadowed cells N < N_loc/2", lambda d, c: col(d, d["cell"].get("N<N_loc/2 (shadowed)", {}), c)),
-        ("block 8^3 error, ionised blocks", lambda d, c: col(d, d["block"]["ionised blocks x>0.9"], c)),
+        ("block 8^3 error, ionised blocks", lambda d, c: col(d, d["block"].get("ionised blocks x>0.9", {}), c)),
         ("block 8^3 anisotropy (truth in the A_true column)", lambda d, c: col(d, d["blockA"], c)),
     ]:
         lines.append("## " + title)
         lines.append(hdr)
         for d in runs:
-            at = d["Atrue"]["ionised x>0.9"] if "anisotropy" not in title else d["blockA"].get("truth", np.nan)
+            at = d["Atrue"].get("ionised x>0.9", np.nan) if "anisotropy" not in title else d["blockA"].get("truth", np.nan)
             lines.append("%6.2f %5.2f %6.0f | %6.3f" % (d["z"], d["xv"], d["lam"], at)
-                         + "".join("%11.3f" % get(d, c) for c in a.closures))
+                         + "".join("%16.3f" % get(d, c) for c in a.closures))
         lines.append("")
     for ik in range(len(runs[0]["k"])):
         k = runs[0]["k"][ik]
@@ -154,9 +164,9 @@ def main():
         fig, ax = plt.subplots(2, 3, figsize=(15, 8.5))
         ax = ax.ravel()
         panels = [
-            ("cell error, ionised", lambda d, c: col(d, d["cell"]["ionised x>0.9"], c)),
+            ("cell error, ionised", lambda d, c: col(d, d["cell"].get("ionised x>0.9", {}), c)),
             ("cell error, Γ < 0.5⟨Γ⟩", lambda d, c: col(d, d["cell"].get("ion G<0.5<G>", {}), c)),
-            ("block 8³ error, ionised", lambda d, c: col(d, d["block"]["ionised blocks x>0.9"], c)),
+            ("block 8³ error, ionised", lambda d, c: col(d, d["block"].get("ionised blocks x>0.9", {}), c)),
         ]
         for i, (t, get) in enumerate(panels):
             for c in a.closures:
