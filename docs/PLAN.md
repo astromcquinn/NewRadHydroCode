@@ -596,6 +596,18 @@ policy on klone, and deleting the merged branches.
   `recomb_rad_cell_onspot` defaults are unchanged).
 * The Hyak scripts' module loading was broken under `set -u` (Lmod reads
   unset variables); `radray_module_load` in `tools/hyak/env.sh` fixes it.
+* Done on klone the same day (`docs/stage_d.md` §4.4, `docs/STATUS.md`):
+  the backend built and `ctest -L amrex` green; 256³ on one node and
+  512³ on 2 and 4 nodes timed against the serial code, fields to
+  round-off. Choices made without the user: `reion256_c01` has no
+  checkpoint, so the 256³ timing uses `reion256_f0.2`; the 512³ run is
+  the case B checkpoint `reion512_40mpc_f0.23`; 512³ at 24 ranks × 8
+  threads per node runs out of memory (the redundant serial state is
+  about 100 GB per rank), so the field broadcast and the restart scatter
+  were made piecewise (bitwise identical results) and the 512³ layout is
+  12 ranks × 16 threads per node, on 2 nodes or more. The next backend
+  optimisation target is the deposit `SumBoundary` (25 % of the RT at
+  512³); Stage E removes the redundant state.
 
 ## Stage E1 (2026-10-12): the unsplit hydro on AMReX
 

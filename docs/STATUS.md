@@ -1,6 +1,54 @@
 # Project status
 
-*Last updated: 2026-10-12: Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); Stage E prerequisites on klone, the AMReX backend built, tested and timed at 256³ and 512³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-12: Stage E prerequisites on klone (branch `claude/clever-fermi-aa4km4`)
+
+**`docs/stage_d.md` §4.4.** The AMReX backend built and timed on `cpu-g2`.
+- **Build and tests:** `tools/hyak/build_amrex.sh` builds AMReX 26.10 into
+  `$RADRAY_SW/amrex-26.10` and the code into `build-amrex` on a 32-core
+  allocation (about 2 min). Fixed in the repo: the module loading under
+  `set -u` (`radray_module_load`, carried on this branch) and the test
+  launcher: a one-task allocation gives OpenMPI a single slot, so the
+  default is now `mpirun --bind-to none --oversubscribe` (and with
+  `RADRAY_MPIEXEC=srun` the runners pass `--overlap --cpus-per-task` per
+  test). `ctest -L amrex` 54/54; the default build's fast suite 125/125
+  outside `platform_ref` (the 10 known klone libm differences).
+- **256³, one node** (`reion256_f0.2`, step 49 to z = 5.32, 144 M rays):
+  RT 159.0 s for 24 ranks × 8 threads against 144.0 s for the serial code
+  on 192 threads (10 % slower: the physics 2× faster, the casts equal,
+  plus sort, migration, boundary sums and the gather). Peak RSS 61.7 GB on
+  rank 0 (the restart), 14.9–18 GB on the others (the redundant serial
+  state, about 13 GB per rank, is more than the §2.2 estimate), serial
+  30.6 GB. Fields to round-off: rms 1e-4 (fHI), 4e-4 (Γ), 6e-7 (T), ρ
+  identical, single I-front cells up to 0.3–0.5; the global statistics to
+  1e-9, ray counts to 3e-7.
+- **512³** (`reion512_40mpc_f0.23`, step 53 to z = 4.83, 1.12 G rays,
+  151 substeps): 24 ranks × 8 threads per node ran out of memory on 1
+  and 2 nodes (rank 0 490 GB in the restart, 36 + 25 GB on the others),
+  fixed by broadcasting the fields in slabs and scattering the restart
+  rays in chunks (the 256³ step re-run bitwise identical, rank 0's peak
+  61.7 → 37.3 GB). At 12 ranks × 16 threads per node: 1 node still OOM
+  (12 ranks sum to 1.7 TB: 300 GB on rank 0, 126 GB each on the others,
+  the redundant serial state is about 100 GB per rank at 512³, 200 B per
+  cell); 2 nodes RT 1460.7 s, step 1540.9 s against the serial code's
+  2593.4 s and 2878.7 s on 192 threads (1.78× on 2× the cores: physics
+  4×, casts 1.5×, `SumBoundary` a quarter of the RT), peak RSS 292.9 GB
+  on rank 0, 103–112 GB on the others, serial 203.8 GB; 4 nodes: RT
+  782.1 s, step 876.2 s (1.87× from 2 to 4 nodes, 3.3× the serial RT on
+  4× the cores; the 2-node `SumBoundary` of 368 s was memory contention
+  on the node holding rank 0, 50 s on 4 nodes), peak RSS 292.9 GB on
+  rank 0, 99.7–110 GB on the others, the fields bitwise identical to the
+  2-node run.
+  Fields to round-off as at 256³ (rms ≤ 6e-4, single I-front cells up to
+  0.6–1.2, global statistics to 1e-9, ray counts to 5e-8). So Stage D
+  needs ≥ 2 nodes at 512³ until Stage E removes the redundant state.
+- Substitutions: `reion256_c01` has no checkpoint (`run/restart/
+  checkpoint.bin` absent), so the 256³ run is `reion256_f0.2`; the 512³
+  checkpoint without `recomb_rad` is the case B run `reion512_40mpc_f0.23`.
+- `radhydro` now reports the peak RSS of every rank (min/max in
+  `timing.txt`); `amrex_scaling.slurm` runs on several nodes and compares
+  the fields (`tools/hyak/amrex_scaling_compare.py`).
 
 ## Done 2026-10-12: Stage E1, the unsplit hydro on AMReX (branch `claude/clever-fermi-aa4km4`)
 
