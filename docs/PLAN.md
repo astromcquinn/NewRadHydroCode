@@ -615,9 +615,11 @@ policy on klone, and deleting the merged branches.
   kept (the RT level is unchanged). The multi-node hydro slowdown
   measured (`docs/stage_e_hydro.md` §5): it is the UCX rendezvous path
   of the klone OpenMPI, not the ghost volume. Choices made without the
-  user: `tools/hyak/env.sh` exports `UCX_RNDV_THRESH=inf
+  user: `tools/hyak/env.sh` exports `UCX_RNDV_THRESH=8m
   UCX_ZCOPY_THRESH=inf` for every AMReX job (`radray_ucx_eager`,
-  `RADRAY_UCX_EAGER=0` to turn off); the production box size stays 32³;
+  `RADRAY_UCX_RNDV_THRESH` to change it, `RADRAY_UCX_EAGER=0` to turn
+  off: eager for everything fixed the hydro but slowed the 512³ RT by
+  8 %, eager below 8 MB fixes the hydro and speeds the RT up by 10–15 %); the production box size stays 32³;
   the ob1/TCP path (as fast, but a bus error at exit) was not pursued;
   512³ on one node with 8 fat ranks was not tried.
 

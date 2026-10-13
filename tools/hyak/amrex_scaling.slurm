@@ -26,8 +26,9 @@
 #   EXE        build with the backend (default build-amrex/radhydro)
 #   SERIAL     1: also run the serial code on all cores (default on one node)
 #   HYAK_MODULES  modules (default "ompi/4.1.6-2")
-#   RADRAY_UCX_EAGER  1 (default): UCX eager across nodes (env.sh,
-#              docs/stage_e_hydro.md section 5); 0: the module's defaults
+#   RADRAY_UCX_EAGER  1 (default): UCX eager below 8 MB across nodes (env.sh,
+#              RADRAY_UCX_RNDV_THRESH; docs/stage_e_hydro.md section 5,
+#              docs/stage_d.md section 4.4); 0: the module's defaults
 #
 # Memory: every rank holds the full serial state (Stage D: about 15 GB at
 # 256^3 and 40-50 GB at 512^3) and rank 0 reads the whole checkpoint, so at
@@ -54,7 +55,7 @@ set -u
 cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
 radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
-radray_ucx_eager  # UCX eager across nodes (env.sh; RADRAY_UCX_EAGER=0 for the module defaults)
+radray_ucx_eager  # UCX eager below 8 MB across nodes (env.sh; RADRAY_UCX_EAGER=0 for the module defaults)
 PROB="${PROB:?set PROB to the problem directory}"
 CK="${CK:?set CK to the checkpoint}"
 OUT="${OUT:-$PROB/amrex_scaling}"

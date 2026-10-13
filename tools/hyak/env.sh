@@ -60,12 +60,17 @@ radray_module_load() {
 # UCX across nodes: the rendezvous (zero-copy) path of the ompi module's
 # UCX 1.16 makes AMReX's FillBoundary about 10x slower on 2 and 4 nodes
 # than on one (the hydro step did not speed up at all beyond one node,
-# docs/stage_e_hydro.md section 5). Sending everything eagerly through
-# UCX's bounce buffers removes it. The AMReX job scripts call this after
-# loading the modules; RADRAY_UCX_EAGER=0 keeps the module's defaults.
+# docs/stage_e_hydro.md section 5). Sending messages below a threshold
+# eagerly through UCX's bounce buffers removes it; the RT's large
+# transfers (the field broadcast, the ray gather) stay on the rendezvous
+# path, which suits them (eager for everything made the 512^3 RT 8 %
+# slower, 8 MB makes it 15 % faster, docs/stage_d.md section 4.4). The
+# AMReX job scripts call this after loading the modules;
+# RADRAY_UCX_RNDV_THRESH overrides the threshold (inf: eager for
+# everything), RADRAY_UCX_EAGER=0 keeps the module's defaults.
 radray_ucx_eager() {
   if [ "${RADRAY_UCX_EAGER:-1}" != 0 ]; then
-    export UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf
+    export UCX_RNDV_THRESH="${RADRAY_UCX_RNDV_THRESH:-8m}" UCX_ZCOPY_THRESH=inf
   fi
 }
 

@@ -15,7 +15,7 @@ parts of Stage E.*
 | One implementation of the face and update arithmetic (`rrh::face_all`, `face_neighbour_max`, `update_from_faces` in `include/radray/kernels/hydro_mh.hpp`), called by the serial driver and the level | done; the serial unsplit outputs are bitwise unchanged |
 | **Bitwise identical to `hydro_backend = serial`** for 1–8 ranks × 1–2 threads × box sizes 32/16/8 on three hydro problems, and in the full loop (with `rt_backend = amrex` and `serial`) | done, `ctest -L amrex_hydro` (27 tests) |
 | Timing on the 4-core VM at 128³ and 256³ against the serial OpenMP code; klone, 256³ on 1, 2 and 4 `cpu-g2` nodes | §4, §4.1 |
-| The multi-node hydro slowdown of the spike (`docs/framework_decision.md` §3.3) | measured on klone (2026-10-12): it is the UCX rendezvous (zero-copy) path of the klone OpenMPI, not the ghost volume; `UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf` removes it, §5 |
+| The multi-node hydro slowdown of the spike (`docs/framework_decision.md` §3.3) | measured on klone (2026-10-12): it is the UCX rendezvous (zero-copy) path of the klone OpenMPI, not the ghost volume; `UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` (eager below 8 MB) removes it, §5 |
 | The legacy split scheme (`hydro_scheme = legacy`) | stays on the serial code, by design (its pencil FFT and transposes do not decompose) |
 
 Ground rules kept: the serial code is untouched in behaviour (the kernel
@@ -207,7 +207,9 @@ module): the 256³ random3d problem of `tools/hyak/make_hydro_problem.py`,
 2 steps (4 unsplit calls, 22 substeps, 3.7×10⁸ cell-updates), 24 ranks ×
 8 threads per node, `--cpu-bind=cores`, against the serial OpenMP code on
 192 threads of one node (jobs 41812553–41812555 with the module's
-default MPI settings, 41813037–41813039 with the UCX eager setting of §5).
+default MPI settings, 41813037–41813039 with `UCX_RNDV_THRESH=inf
+UCX_ZCOPY_THRESH=inf`, "UCX eager" below; the production setting of §5
+is the 8 MB threshold, whose hydro `fill` lies between the two).
 Every layout, box size and transport setting below is byte-identical to
 the serial run (`diff -r` of every step's fields and stats).
 
@@ -319,14 +321,33 @@ box size). The measurement (§4.1, jobs of 2026-10-12) says otherwise:
    CPU. The RT did not show the slowdown in the spike because its
    `FillBoundary` traffic is small against its compute and its ray
    migration is a few large messages.
-4. **What production uses.** `tools/hyak/env.sh` now exports
-   `UCX_RNDV_THRESH=inf UCX_ZCOPY_THRESH=inf` (`radray_ucx_eager`,
-   called by the AMReX job scripts; `RADRAY_UCX_EAGER=0` turns it off)
-   and the box size stays 32³ (§4.1). With it the hydro step on 2 and 4
-   nodes is 5.3 s against 7.0 s on one node, the remaining cost being the
-   Stage E1 gather and the redundant host work, both of which E2–E4
-   remove. The RT on the same setting: `docs/stage_d.md` §4.4 (the 256³
-   2-node step, job 41813041).
+4. **What production uses.** Eager for everything is wrong for the RT:
+   its large transfers (the 25 GB field broadcast and the ray gather of
+   `post_rt` at 512³, the deposit `SumBoundary`) slow down by 2× on the
+   bounce-buffer path and the 512³ RT on 4 nodes is 8 % slower overall
+   (`docs/stage_d.md` §4.4). A finite threshold keeps those on the
+   rendezvous path and sends the many medium-sized messages eagerly:
+
+   | `UCX_RNDV_THRESH` (`UCX_ZCOPY_THRESH=inf`) | hydro 2 nodes, 32³: `fill` [s], two runs | RT 256³, 2 nodes [s] | RT 512³, 4 nodes [s] |
+   |---|---|---|---|
+   | module defaults | 3.92, 4.89 | 100.2 | 782.1 |
+   | `8m` | 1.47, 0.60 | **89.7** | **667.1** |
+   | `16m` | 2.14 | | |
+   | `32m` | 2.05, 1.82 | | RNDV32M_512 |
+   | `inf` | 0.47, 0.76, 0.514 | 95.1 | 844.5 |
+
+   (The hydro `fill` varies by up to 2× between node pairs, so single
+   runs separate only the factors of 3–10; `16m` and `32m` being slower
+   than `8m` twice over is reproducible but not understood.) So
+   `tools/hyak/env.sh` exports **`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf`**
+   (`radray_ucx_eager`, called by the AMReX job scripts;
+   `RADRAY_UCX_RNDV_THRESH` changes the threshold, `RADRAY_UCX_EAGER=0`
+   keeps the module's defaults) and the box size stays 32³ (§4.1). With
+   it the hydro step on 2 nodes is 6.8–7.8 s (the gather and the
+   redundant host work of Stage E1 are the rest, and E2–E4 remove them),
+   the 256³ RT on 2 nodes is 10 % faster than with the module's defaults
+   and the 512³ RT on 4 nodes 15 % faster, all outputs bitwise identical
+   to the module-default runs.
 
 ## 6. What this stage does not do (yet)
 

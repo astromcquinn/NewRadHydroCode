@@ -436,10 +436,30 @@ RT 95.1 s against 100.2 s with the module's defaults, the fields and
 not the transport), while the large broadcasts get slower, `sync` 3.9 →
 8.9 s (the fields to every rank) and `post_rt` 5.5 → 10.5 s (the ray
 gather and the field broadcast), which eager copying through bounce
-buffers does not suit. A net gain of 5 % at 256³; at 512³, where the
-field broadcast is 25 GB and the ray gather larger, the balance is to
-be checked (job 41813111, 4 nodes, results below when it has run) and
-the Stage E removal of the gather and broadcast settles it anyway.
+buffers does not suit. A net gain of 5 % at 256³, but **a net loss of
+8 % at 512³ on 4 nodes** (job 41813111: RT 844.5 s against 782.1 s,
+step 930.1 against 876.2, fields bitwise identical): `FillBoundary`
+16.3 → 11.0 s, `sort` 77.3 → 62.7 and `migrate` 29.6 → 27.6 improve,
+but `sync` 34.9 → 99.4 s (the 25 GB field broadcast), `post_rt` 41.6 →
+106.0 s (the ray gather to rank 0 and the broadcast back) and the
+deposit `SumBoundary` 50.4 → 100.3 s double. So "eager for everything"
+is right for the hydro's many medium-sized messages and wrong for the
+RT's large transfers; a finite threshold (eager below a few MB,
+rendezvous above) is the compromise. With `UCX_RNDV_THRESH=8m
+UCX_ZCOPY_THRESH=inf` (job 41815516) the 512³ step on 4 nodes is the
+fastest of the three: **RT 667.1 s** (15 % under the module defaults'
+782.1 s), step 746.6 s, fields bitwise identical; `cast1` 243.4 →
+178.3 s with `SumBoundary` 50.4 → 56.5, `sort` 77.3 → 57.5, `step1`
+136.4 → 128.2, `sync` 34.9 → 25.2 and `post_rt` 41.6 → 31.8 s (the
+field broadcast's 8 MB slabs and the ray gather's chunks stay on the
+rendezvous path, the many smaller messages go eager). At 256³ on 2
+nodes the same setting gives RT 89.7 s (job 41815515; 100.2 with the
+module's defaults, 95.1 with eager for everything): `FillBoundary`
+0.5 s, `sync` 3.9, `post_rt` 5.4, `migrate` 5.7, `step1` 14.3 s, the
+fields bitwise identical. So `tools/hyak/env.sh` exports
+`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` for every AMReX job
+(`radray_ucx_eager`, `docs/stage_e_hydro.md` §5), and the Stage E
+removal of the gather and the broadcast changes the balance again.
 
 Fields of the last step, backend against serial (rms relative difference
 over the grid, the fraction of cells beyond 1e-3, and the largest
