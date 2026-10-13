@@ -333,12 +333,13 @@ box size). The measurement (§4.1, jobs of 2026-10-12) says otherwise:
    | module defaults | 3.92, 4.89 | 100.2 | 782.1 |
    | `8m` | 1.47, 0.60 | **89.7** | **667.1** |
    | `16m` | 2.14 | | |
-   | `32m` | 2.05, 1.82 | | RNDV32M_512 |
+   | `32m` | 2.05, 1.82 | | 667.8 |
    | `inf` | 0.47, 0.76, 0.514 | 95.1 | 844.5 |
 
    (The hydro `fill` varies by up to 2× between node pairs, so single
    runs separate only the factors of 3–10; `16m` and `32m` being slower
-   than `8m` twice over is reproducible but not understood.) So
+   than `8m` twice over is reproducible but not understood; for the RT at
+   512³ `8m` and `32m` are the same, 667.1 and 667.8 s.) So
    `tools/hyak/env.sh` exports **`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf`**
    (`radray_ucx_eager`, called by the AMReX job scripts;
    `RADRAY_UCX_RNDV_THRESH` changes the threshold, `RADRAY_UCX_EAGER=0`
