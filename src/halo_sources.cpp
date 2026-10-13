@@ -3,6 +3,7 @@
 #include "radray/halo_sources.hpp"
 
 #include "radray/amrex_state.hpp"
+#include "radray/rt_backend.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -534,7 +535,7 @@ SourceCatalog cached_catalog(Simulation& s, const float* xv_dm, std::int64_t npa
   return cat;
 }
 
-SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npart,
+SourceCatalog source_catalog(Simulation& s, const float* xv_dm, std::int64_t npart,
                              const HaloSourceParams& p, std::ostream* log) {
   SourceCatalog cat;
   if (p.mode == HaloSourceParams::Mode::Legacy) {
@@ -552,9 +553,36 @@ SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npa
     cat = onthefly_catalog(s.cfg, s.clk, s.units, xv_dm, npart, p);
     if (log) *log << " Halos " << cat.halo.size() << " " << cat.Nsource << "\n";
   }
+  return cat;
+}
+
+void apply_sources(Simulation& s, const SourceCatalog& cat, const HaloSourceParams& p) {
   s.Nsource = cat.Nsource;
   if (cat.Nsource > 0) calc_halo_records(s, cat.halo, cat.Nsource, p.add_metals);
+}
+
+SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npart,
+                             const HaloSourceParams& p, std::ostream* log) {
+  SourceCatalog cat = source_catalog(s, xv_dm, npart, p, log);
+  apply_sources(s, cat, p);
   return cat;
+}
+
+void bcast_catalog(SourceCatalog& cat) {
+  if (backend_nranks() == 1) return;
+  // the sizes and scalars, then the records and the tag
+  double hdr[4] = {static_cast<double>(cat.halo.size()), static_cast<double>(cat.Nsource), cat.redshift,
+                   cat.sfr_scale};
+  double ntag = static_cast<double>(cat.tag.size());
+  backend_bcast(hdr, 4);
+  backend_bcast(&ntag, 1);
+  cat.halo.resize(static_cast<std::size_t>(hdr[0]));
+  cat.Nsource = static_cast<std::int64_t>(hdr[1]);
+  cat.redshift = hdr[2];
+  cat.sfr_scale = hdr[3];
+  cat.tag.resize(static_cast<std::size_t>(ntag));
+  if (!cat.halo.empty()) backend_bcast_bytes(cat.halo.data(), cat.halo.size() * sizeof(SourceRecord));
+  if (!cat.tag.empty()) backend_bcast_bytes(&cat.tag[0], cat.tag.size());
 }
 
 }  // namespace radray

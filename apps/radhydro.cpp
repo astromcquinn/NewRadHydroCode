@@ -613,12 +613,22 @@ int main(int argc, char** argv) {
         }
       }
     }
-    // the level's gas into rank 0's host arrays and all RT fields into
-    // rank 0's RT grid (collective), before an output or a checkpoint
+    // the particles' mirror on rank 0 (pm.xv): current after the load and
+    // after a gather, stale after a PM step
+    bool xv_fresh = true;
+    auto sync_xv = [&]() {
+      if (!on_level || xv_fresh) return;
+      amrex_pm_gather_particles(pm);
+      xv_fresh = true;
+    };
+    // the level's gas into rank 0's host arrays, all RT fields into rank 0's
+    // RT grid and the particles into rank 0's xv (collective), before an
+    // output or a checkpoint
     auto sync_mirror = [&]() {
       if (!on_level) return;
       amrex_state_gather_rt(s, false);
       amrex_state_gather_gas(s);
+      sync_xv();
     };
     ray_dump_enable(s, P.ray_dump);                    // (study only; off by default)
     s.ray_quant = P.ray_quant;                         // (research only; off by default)
@@ -637,6 +647,18 @@ int main(int argc, char** argv) {
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
     fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
+    if (on_level && !io) {
+      // amrex_state = 1: the particles live on the level; rank 0 keeps the
+      // host PM arrays as the mirror (the halo finder, P(k), the outputs)
+      for (auto* v : {&pm.ll, &pm.hoc, &pm.hoc_cpu}) {
+        v->clear();
+        v->shrink_to_fit();
+      }
+      for (auto* v : {&pm.xv, &pm.density, &pm.fmesh}) {
+        v->clear();
+        v->shrink_to_fit();
+      }
+    }
     calc_sim_var(cfg, s.clk, s.units);
 
     if (restart_from.empty()) pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
@@ -672,7 +694,12 @@ int main(int argc, char** argv) {
     std::int64_t& Nhalo = dst.Nhalo;
     auto summaries = [&]() {
       const auto ts = Clock::now();
-      pm::summarize_dm(pm, s.units, out);
+      if (on_level) {
+        sync_xv();
+        if (io) pm::summarize_dm(pm, s.units, out);
+      } else {
+        pm::summarize_dm(pm, s.units, out);
+      }
       if (on_level) {
         // the clamps on the level, the sums on rank 0's mirror in the serial
         // order; the maxima of the timestep onto every rank
@@ -974,15 +1001,19 @@ int main(int argc, char** argv) {
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
-      if (on_level) {  // rank 0's grids onto the levels
+      if (on_level) {  // rank 0's grids and particles onto the levels
         amrex_state_scatter_gas(s);
         amrex_state_scatter_rt(s);
+        amrex_pm_load_particles(pm);
       }
     } else {
       // Summarize the initial state
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // hydro_scheme = unsplit: gas.e
-      if (on_level) amrex_state_scatter_gas(s);  // the initial conditions onto the level
+      if (on_level) {  // the initial conditions onto the levels
+        amrex_state_scatter_gas(s);
+        amrex_pm_load_particles(pm);
+      }
       summaries();
       const std::string d = step_dir();
       write_stats(d);
@@ -1033,6 +1064,7 @@ int main(int argc, char** argv) {
       else
         pm::particle_mesh(pm, s.gas.u.data(), hs.v.data(), s.clk, s.units);
       T.pm += std::chrono::duration<double>(Clock::now() - th).count();
+      xv_fresh = false;
 
       // Reverse hydro step with transposes in between (legacy), or the
       // second unsplit step over dt_sim/2
@@ -1048,7 +1080,17 @@ int main(int argc, char** argv) {
       // Ray tracing radiative transfer (after the first zdata1 output)
       if (idata1 > 1) {
         th = Clock::now();
-        const SourceCatalog cat = update_sources(s, pm.xv.data(), pm.pc.Npart, P.halo, out);
+        SourceCatalog cat;
+        if (on_level) {
+          // the halo finder on rank 0's particle mirror, the catalogue onto
+          // every rank, the sources applied everywhere (halo_sources.hpp)
+          sync_xv();
+          if (io) cat = source_catalog(s, pm.xv.data(), pm.pc.Npart, P.halo, out);
+          bcast_catalog(cat);
+          apply_sources(s, cat, P.halo);
+        } else {
+          cat = update_sources(s, pm.xv.data(), pm.pc.Npart, P.halo, out);
+        }
         Nhalo = static_cast<std::int64_t>(cat.halo.size());
         T.halos += std::chrono::duration<double>(Clock::now() - th).count();
         if (cat.Nsource > 0) {

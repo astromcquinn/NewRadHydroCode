@@ -587,6 +587,14 @@ void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1
 
 void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1,
                            SimClock& clk, const Units& u) {
+  if (s.pc.amrex_state) {
+    // amrex_state = 1: the particles and the gas live on the level
+    // (pm_backend.hpp); the drifts there too
+    amrex_pm_drift(s, clk.dt_sim);
+    amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);
+    amrex_pm_drift(s, clk.dt_sim);
+    return;
+  }
   calc_drift(s, clk.dt_sim);
   if (s.pc.backend == PMBackend::AMReX) {
     amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);

@@ -347,7 +347,10 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.pod(s.rt_stat);
   in.pod(s.rt_save);
   in.pod(s.Nsource);
-  in.vec(pm.xv, static_cast<std::int64_t>(pm.xv.size()));
+  if (skip_grids)
+    in.skip_vec<float>();  // the particles are rank 0's mirror too
+  else
+    in.vec(pm.xv, static_cast<std::int64_t>(pm.xv.size()));
   in.pod(pm.dm_cpu);
   in.pod(d);
   std::int32_t method = 0;

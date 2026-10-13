@@ -1405,6 +1405,15 @@ void backend_bcast(double* v, int n) {
   if (!g_initialized || amrex::ParallelDescriptor::NProcs() == 1) return;
   amrex::ParallelDescriptor::Bcast(v, n, amrex::ParallelDescriptor::IOProcessorNumber());
 }
+void backend_bcast_bytes(void* p, std::size_t n) {
+  if (!g_initialized || amrex::ParallelDescriptor::NProcs() == 1) return;
+  const std::size_t chunk = std::size_t(1) << 30;
+  for (std::size_t off = 0; off < n; off += chunk) {
+    const int cnt = static_cast<int>(std::min(chunk, n - off));
+    MPI_Bcast(static_cast<char*>(p) + off, cnt, MPI_BYTE, amrex::ParallelDescriptor::IOProcessorNumber(),
+              amrex::ParallelDescriptor::Communicator());
+  }
+}
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
 
