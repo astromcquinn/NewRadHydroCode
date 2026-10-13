@@ -254,8 +254,20 @@ bitwise identical to the phase-1 run, and **bitwise identical to the
 2-node run with the same three backends and the host state on every
 rank** (`amrex_state = 0`, 12 ranks × 16 threads, job 41823172: RT
 1123.1 s, step 1164.6 s, the ranks other than 0 at 64.7 GB): every
-field and `stats.txt`. The 2- and 4-node runs with the state on the
-levels (jobs 41824738–9) follow when they have run.
+field and `stats.txt`.
+
+| 512³, step 53, the state on the levels (phase 2), 24 × 8 per node | RT [s] | step [s] | RT speed-up | peak RSS rank 0 / min over ranks [GB] |
+|---|---|---|---|---|
+| serial, 192 threads (1 node) | 2593.4 | 2878.7 | | 203.8 |
+| Stage D, 2 nodes (12 × 16; one node does not fit) | 1460.7 | 1540.9 | | 292.9 / 103.0 |
+| 1 node (job 41824737) | 1783.2 | 1837.5 | 1 | 293.0 / 23.8 |
+| 2 nodes (job 41824738) | 974.4 | 1034.5 | 1.83 | 293.0 / 13.1 |
+| 4 nodes (job 41824739) | N4STATE | | | |
+
+The fields of every node count are bitwise identical. Phases, 1 → 2
+nodes: `step1` 275.6 → 165.5, `cast1` 532.1 → 268.2 (`SumBoundary` 99.9
+→ 80.5), `phys` 277.3 → 140.1, `cast3` 390.2 → 221.9, `sort` 163.9 →
+84.4, `migrate` 71.0 → 43.6 s. The 4-node run follows when it has run.
 
 Reading: the ranks other than 0 hold 3.1 GB with the particles on the
 level (4.5 GB in phase 1: the level's share of the cells and rays,
