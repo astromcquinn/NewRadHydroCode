@@ -299,6 +299,13 @@ void otvet_update_tensor(Simulation& s) {
     }
     in.col = col.data();
   }
+  std::vector<float> xion;
+  if (p.closure == 2) {
+    xion.assign(nc, 0.0f);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+    for (std::int64_t c = 0; c < nc; ++c) xion[c] = 1.0f - G.fHI[c];
+    in.xion = xion.data();
+  }
   OtvetClosureOut out;
   otvet_closure_tensor(p, s.cfg.otvet_tensor, in, out);
   M.h = std::move(out.h);

@@ -18,8 +18,11 @@
 //           group-1 tau capped at otvet_cone_taucap) out to otvet_cone_smax
 //           boxes, with the Gamma-weighted transmission of the source
 //           spectrum, and an extra e^(-s/lambda_x) with lambda_x from the
-//           photon budget (otvet_cone_budget = 1). The cone part is kept per
-//           half-octave distance bin, so lambda_x needs no second march.
+//           photon budget (otvet_cone_budget = 1): the direct light in the
+//           ionised cells equals the photons the solution holds there (no
+//           cutoff if the near field alone exceeds it). The cone part is
+//           kept per half-octave distance bin, so lambda_x needs no second
+//           march.
 //
 // h = P / tr P. Two corrections from the solution's own photons N:
 //
@@ -87,6 +90,9 @@ struct OtvetClosureIn {
   // and cone, and N of the blend's split); null: no budget (lambda and
   // lambda_x then need fixed values or are infinite) and h_s = h_thin.
   const double* nw = nullptr;
+  // ionised fraction x_HII per cell (cone budget: only cells with x_HII > 0.5
+  // count); null: every cell
+  const float* xion = nullptr;
 };
 
 struct OtvetClosureOut {
@@ -94,7 +100,8 @@ struct OtvetClosureOut {
   std::vector<float> ndir;  // split: tr P / (4 pi) per cell (L units); else empty
   double lambda = 0;        // screen: lambda used (cells)
   double lam_x = 0;         // cone: lambda_x (cells; 0 = none)
-  double ratio = 0;         // sum N_dir / sum N, Gamma-weighted (0 if no budget)
+  double ratio = 0;         // sum N_dir / sum N, Gamma-weighted (0 if no budget;
+                            // cone: over the ionised cells)
   double seconds = 0;       // wall time
 };
 

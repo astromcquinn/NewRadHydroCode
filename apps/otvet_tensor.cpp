@@ -129,6 +129,9 @@ int main(int argc, char** argv) {
       col[c] = static_cast<float>(nH * static_cast<double>(fHI[c]) * u.len_rt * 1e-18);
     }
     in.col = col.data();
+    std::vector<float> xion(nc);
+    for (std::size_t c = 0; c < nc; ++c) xion[c] = 1.0f - fHI[c];
+    in.xion = xion.data();
 
     OtvetClosureOut out;
     otvet_closure_tensor(p, method, in, out);

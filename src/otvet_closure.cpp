@@ -648,23 +648,48 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
     for (int q = 0; q < nb * 6; ++q) o[q] = static_cast<float>(acc[q]);
   }
 
-  // budget: lambda_x such that the direct light equals the photons held
+  // budget: lambda_x such that the direct light equals the photons held, both
+  // summed over the ionised cells (x_HII > 0.5; all cells without xion):
+  // before overlap the unattenuated near field puts light into the neutral
+  // gas around small H II regions, which the solution never holds there
   std::vector<double> fac(nb, 1.0);
-  if (target > 0 && qw > 0) {
+  auto ion = [&](std::int64_t c) { return !in.xion || in.xion[c] > 0.5f; };
+  const double target_ion = in.nw ? plane_sum(N, [&](int k) {
+    double t = 0;
+    for (std::int64_t c = k * static_cast<std::int64_t>(N) * N;
+         c < (k + 1) * static_cast<std::int64_t>(N) * N; ++c)
+      if (ion(c)) t += in.nw[c];
+    return t;
+  }) : 0.0;
+  if (target_ion > 0 && qw > 0) {
     const double unit = qw * Lmax / (4 * M_PI);  // photons per (L/Lmax) unit of tr P
     const double near_tr = plane_sum(N, [&](int k) {
       double t = 0;
       for (std::int64_t c = k * static_cast<std::int64_t>(N) * N;
            c < (k + 1) * static_cast<std::int64_t>(N) * N; ++c)
-        t += (Pn[0][c] + Pn[1][c]) + Pn[2][c];
+        if (ion(c)) t += (Pn[0][c] + Pn[1][c]) + Pn[2][c];
       return t;
     });
+    // ionised fraction of each receiver's block of coarse^3 cells
+    std::vector<double> wr(nrec, 1.0);
+    if (in.xion) {
+#pragma omp parallel for schedule(static) if (nrec >= 4096)
+      for (std::int64_t r = 0; r < nrec; ++r) {
+        const int ix = static_cast<int>(r % ncr), iy = static_cast<int>((r / ncr) % ncr),
+                  iz = static_cast<int>(r / (static_cast<std::int64_t>(ncr) * ncr));
+        int n = 0;
+        for (int dz = 0; dz < co; ++dz)
+          for (int dy = 0; dy < co; ++dy)
+            for (int dx = 0; dx < co; ++dx) n += ion(idx(ix * co + dx, iy * co + dy, iz * co + dz, N));
+        wr[r] = static_cast<double>(n) / (static_cast<double>(co) * co * co);
+      }
+    }
     std::vector<double> tb(nb, 0.0), sb(nb);
     for (int b = 0; b < nb; ++b) sb[b] = std::sqrt(edges[b] * edges[b + 1]);
     for (std::int64_t r = 0; r < nrec; ++r)
       for (int b = 0; b < nb; ++b) {
         const float* o = &Pb[(static_cast<std::size_t>(r) * nb + b) * 6];
-        tb[b] += (static_cast<double>(o[0]) + o[1]) + o[2];
+        tb[b] += wr[r] * ((static_cast<double>(o[0]) + o[1]) + o[2]);
       }
     const double cvol = static_cast<double>(co) * co * co;
     auto light = [&](double lx) {
@@ -672,10 +697,11 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
       for (int b = 0; b < nb; ++b) t += cvol * tb[b] * (lx > 0 ? std::exp(-sb[b] / lx) : 1.0);
       return t * unit;
     };
+    const double target = target_ion;
     double lx = 0;
     if (p.cone_budget && light(0) > target) {
       if (near_tr * unit >= target) {
-        lx = 1.0;
+        lx = 0;  // the near field alone exceeds the budget: no cutoff
       } else {
         double lo = 0, hi = 12;  // log10 lambda_x (cells)
         for (int it = 0; it < 60; ++it) {
@@ -687,7 +713,8 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
         }
         lx = std::pow(10.0, 0.5 * (lo + hi));
       }
-      for (int b = 0; b < nb; ++b) fac[b] = std::exp(-sb[b] / lx);
+      if (lx > 0)
+        for (int b = 0; b < nb; ++b) fac[b] = std::exp(-sb[b] / lx);
     }
     out.lam_x = lx;
     out.ratio = light(lx) / target;
