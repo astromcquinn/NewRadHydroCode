@@ -52,7 +52,7 @@ distance |h − h_true| and the anisotropy A = |h − I/3|/√(2/3) (0 isotropic
 cells, distance to the nearest source) and on 8³ blocks (the large-scale
 tensor behind P_Γ at low k, nearly free of ray noise).
 
-*Results: to come (§3).*
+Results in §3.
 
 ## 2. Literature
 
@@ -103,6 +103,145 @@ allowed. Items marked *(memory)* were not verified.
   et al. 2021), LEBRON (Hopkins et al. 2020: thin tree sum with extinction at
   source and absorber). None was found used as a reionization Eddington
   tensor. Voxel cone tracing (Crassin et al. 2011, graphics) *(memory)*.
+
+## 3. Where each closure goes wrong (a priori, 256³)
+
+The rays' snapshots from z = 9.6 (x_V = 0.05) to 5.0, each compared with
+the tensors the closures give for the rays' own sources and HI field
+(`tensor_compare.py`; tables across z from `tensor_summary.py`, in
+[`figures/otvet_closure_apriori.txt`](figures/otvet_closure_apriori.txt)).
+Closures tested:
+- `otvet`: the code's thin minimum-image tensor.
+- `m1`: Levermore's D(f) on the rays' true flux, an oracle M1 that is
+  better than M1 in practice, since the real M1's flux is its own.
+- `split`: candidate 2 on the thin tensor.
+- `atten`: candidate 1 at λ_eff, ½λ_eff and 2λ_eff, with λ_eff the
+  Γ-weighted photon budget path ΣS0/(4πΣρ).
+- `cone`: candidate 3 in numpy (`cone_tensor.py`). nside 2 (48 cones) or
+  nside 4 (192 cones); receivers on a grid C = 2 times coarser; near field
+  r < r_c = 4 cells; per-cell group-1 τ capped at 1 (`t1`).
+- `post_otvet`, `post_m1`: the moment runs' own tensors at the nearest
+  snapshot (another radiation field, so for orientation only).
+
+The rays' sampling noise, from the odd and even substeps, is
+0.005–0.02 on cells, far below every closure's error.
+
+![a priori errors](figures/otvet_closure_apriori.png)
+
+*Errors against z. Top: the S0-weighted Frobenius error |h − h_true| on
+ionised cells, on ionised cells with Γ < ½⟨Γ⟩, and on 8³ blocks (the
+tensors behind P_Γ at k ≲ 3 h/Mpc). Bottom: block anisotropy (black: the
+truth), and the error power of the radiation force div(S0 h) relative to
+the true force, at k = 0.47 and 3.8 h/Mpc.*
+
+**Before overlap (z = 9.6–8.1, x_V ≤ 0.17).**
+- OTVET is good in the bulk: cell error 0.06–0.08 at Γ > ⟨Γ⟩/2, block
+  error 0.06–0.09, and force error power ≤ 4 % at k ≤ 1 h/Mpc.
+- Its errors are concentrated in the 10–20 % of ionised cells where
+  Γ < ⟨Γ⟩/2 or the cell is shadowed. There the cell error is 0.27–0.40,
+  and the truth is more beamed than OTVET (A = 0.75 against 0.54): the
+  light comes only from the region's own sources, while OTVET also adds
+  sources in other regions, behind neutral gas.
+- Attenuation halves those errors: the cone gives 0.15–0.18 and the
+  screened kernel 0.15–0.24.
+- The oracle M1 is best in those cells (0.08–0.10; a single beam is its
+  exact case) and worst everywhere else.
+- The split equals OTVET here (N ≈ N_dir), except at the sources, where
+  the recombination radiation makes the truth isotropic (A_true = 0.44
+  against OTVET's 0.55 within 1.5 cells). The split lowers the force error
+  at k ≥ 7.5 h/Mpc by a third to a half.
+
+**During overlap (z = 7.7–6.4, x_V = 0.25–0.86).** OTVET's large-scale
+tensor is **too isotropic**, not too anisotropic.
+- Block anisotropy: 0.32 against the truth's 0.42 at z = 7.4.
+- Far from sources it is worse: at 24–48 cells from the nearest source,
+  A = 0.41 against 0.72 at z = 7.4, and 0.33 against 0.53 at z = 6.6.
+- A cell at the edge of an ionised region is lit from the inside of its
+  region. OTVET also adds the regions behind the neutral gas, from every
+  side.
+- The cone tensor follows the truth in every distance bin (0.54/0.72
+  against 0.54/0.72 at z = 7.4) and in the block anisotropy (0.415 against
+  0.418). Its block error is 0.052–0.062 against OTVET's 0.068–0.100.
+- Its force error at k = 0.47 h/Mpc is 0.002–0.013 against OTVET's
+  0.004–0.05, and at 0.94 h/Mpc 0.02–0.25 against 0.09–0.40.
+- Its low-Γ and shadowed cell errors are 0.11–0.16 against OTVET's
+  0.21–0.41.
+- One global λ cannot do this. The screened kernel is worse than OTVET on
+  blocks and in the force at every k ≥ 1 h/Mpc, because which directions
+  should be cut is a property of the geometry, not of the distance.
+- **The cone's weakness is small scales.** Its force error at
+  k ≥ 3.8 h/Mpc is 2–5× OTVET's at nside 2. Finer angles help: at z = 9.6,
+  nside 4 has 0.22 against 0.46 for nside 2 at k = 3.8 (OTVET 0.18). The
+  coarse receivers and the near-field hand-over are being tested in
+  `cmp_conevar2` (r_c = 8).
+
+**After overlap (z ≤ 6.2): Wu+21's normalisation error, measured.** The
+minimum-image thin sum per unit emissivity is
+∫_cube d³r/(4πr²) = 0.610 L. Wu+21's L_O is 4π × 0.610 L = 7.66 L, which
+confirms the literature subagent's inference. So OTVET's anisotropy is
+right only while the photons' path λ_eff ≈ 0.61 L. Beyond that, the
+anisotropy is too large by λ_eff/0.61 L:
+
+| z | x_V | λ_eff [cells] | λ_eff/0.61 L | A_OTVET/A_true (8³ blocks) | median N/N_loc |
+|---|---|---|---|---|---|
+| 6.19 | 0.94 | 155 | 1.01 | 1.07 | 1.06 |
+| 5.85 | 0.9997 | 297 | 1.93 | 1.78 | 2.04 |
+| 5.67 | 1.0000 | 366 | 2.38 | 2.37 | 2.56 |
+| 5.34 | 1.0000 | 504 | 3.23 | 2.86 | 3.61 |
+| 4.92 | 1.0000 | 687 | 4.40 | 3.76 | 4.99 |
+
+(At z ≤ 5.34 the ratio falls 10–15 % short of λ_eff/0.61 L: the truth
+keeps some anisotropy from local structure. OTVET's block anisotropy stays
+at 0.25 while the truth's falls to 0.066. Its block error grows to 0.158;
+the split's falls to 0.026, the screened kernel's to 0.023.)
+
+- With the 512³ run's box twice as large and λ_mfp of 100–200 cMpc/h at
+  z = 5.4–5.0, the factor is several. That is the 2–9× in P_Γ, growing in
+  time.
+- The direction is also wrong. On large scales OTVET's radiation force is
+  *anti-correlated* with the true force at z ≤ 5.85 (r = −0.6 to −0.9 at
+  k ≤ 4 h/Mpc). Its error power is 25–300× the true force's, which is
+  small after overlap (κ is small).
+- **The split fixes the normalisation with no λ.** Block anisotropy is
+  0.138/0.110 against the truth's 0.147/0.108. Block error is 0.051/0.036
+  against OTVET's 0.116/0.133. Force error at k ≤ 4 h/Mpc is 5–30×
+  smaller, though r(k) stays weak (−0.5 to 0.6): the direction of the
+  remaining anisotropy is still the thin one.
+- The screened kernel at λ_eff is as good here as the split (0.049/0.033 on
+  blocks), but it is worse than OTVET during overlap.
+- The cone tensor with periodic images out to 8 boxes counts 3× the true
+  light (ΣN_dir/ΣS0 = 2.7–3.1) and is too isotropic (A = 0.03 against
+  0.11). The HI column does not stop that light; the light horizon
+  (ĉ t since overlap ≈ 2 boxes at ĉ = 0.2c) and redshifting do.
+- **An extra screening exp(−s/λ_x) on the cones** (`cmp_lamx`; cone with
+  t1, nside 2):
+
+  | z | λ_x | ΣN_dir/ΣS0 | cell err | block err | block A (truth) | force err, k = 0.47 / 0.94 / 3.8 |
+  |---|---|---|---|---|---|---|
+  | 7.40 | ∞ | 1.01 | 0.095 | 0.062 | 0.415 (0.418) | 0.002 / 0.063 / 1.46 |
+  | 7.40 | λ_eff | 0.55 | 0.136 | 0.099 | 0.397 | 0.017 / 0.30 / 1.89 |
+  | 7.40 | 4λ_eff | 0.84 | 0.101 | 0.067 | 0.409 | 0.003 / 0.094 / 1.42 |
+  | 6.19 | ∞ | 0.87 | 0.077 | 0.053 | 0.255 (0.258) | 0.039 / 0.53 / 4.98 |
+  | 6.19 | λ_eff | 0.52 | 0.090 | 0.064 | 0.268 | 0.077 / 0.79 / 7.18 |
+  | 5.85 | ∞ | 2.67 | 0.097 | 0.086 | 0.048 (0.147) | 57 / 27 / 56 |
+  | 5.85 | λ_eff | 0.73 | 0.064 | 0.046 | 0.120 | 10 / 5.0 / 24 |
+  | 5.85 | 2λ_eff | 1.16 | 0.072 | 0.058 | 0.088 | 22 / 9.7 / 25 |
+  | 5.85 (OTVET) | | | 0.126 | 0.116 | 0.261 | 185 / 25 / 31 |
+  | 5.85 (split) | | | 0.066 | 0.051 | 0.138 | 20 / 4.2 / 5.8 |
+
+  - The cut that helps after overlap hurts during it, where the HI already
+    gives the right total light (ΣN_dir/ΣS0 ≈ 1).
+  - The self-consistent rule is to choose λ_x so that the cone's direct
+    light does not exceed the photons the solution holds (ΣN_dir = ΣN):
+    λ_x = ∞ at z ≥ 6.2 and ≈ 1.5–2 λ_eff at z = 5.85.
+  - With λ_x ≈ λ_eff the cone matches or beats the split at k ≤ 1 h/Mpc
+    and on cells and blocks. It is still 4× worse at k ≥ 3.8 h/Mpc.
+  - Combining it with the split makes it worse (force 23 against 10 at
+    k = 0.47). Once normalised, the cone's own h = P/tr P is better than
+    adding an isotropic remainder.
+- The oracle M1 is too isotropic (A = 0.015–0.03 against 0.11): the net
+  flux of a nearly isotropic field says little about its anisotropy. Its
+  force error is as large as OTVET's.
 
 ## 4. Candidate closures
 
@@ -185,4 +324,93 @@ generalisations are unstable.
 11. **The ray tracer itself at low resolution** (steady state, coarse
     grid, every hydro step): the most faithful, at roughly the cost of 4.
 
-*Ranking: after the ground truth (§3).*
+**Ranking** (from §3; for the user's decision before anything goes into
+the solver):
+
+1. **Split (2) on the thin tensor.**
+   - It is the only candidate that is never worse than OTVET, from
+     z = 9.6 to 5.7.
+   - After overlap it removes Wu+21's normalisation error with the
+     solution's own N and no λ: block error 2–4× lower, force error 5–30×
+     lower.
+   - Near sources it handles the recombination radiation (force error at
+     k ≥ 7.5 h/Mpc ⅓–½ lower).
+   - Cost: one float per cell and no extra FFT.
+   - It does nothing for the overlap-era geometry.
+2. **Cone-traced attenuated direct light (3), with a budget-matched
+   cutoff.**
+   - It gets the overlap-era geometry right where nothing else does:
+     anisotropy against distance and on blocks, beaming far from sources
+     and in shadow. Large-scale force error is 5–20× lower than OTVET's,
+     and block error a third to a half lower.
+   - After overlap the light the HI does not stop must be limited by an
+     extra exp(−s/λ_x). λ_x is chosen so that ΣN_dir = ΣN of the solution:
+     ∞ during overlap, ≈ λ_eff after it. This is the solution's own photon
+     budget, adjusted each hydro step from the last one.
+   - With that cutoff it matches the split after overlap at k ≤ 1 h/Mpc.
+     Not combined with the split, which makes it worse.
+   - Cost: a C++ cone marcher. At 512³, 128³–256³ receivers and 48–192
+     cones take roughly 10–75 s per hydro step, against the present 28 s.
+     Memory ≲ 1.5 GB.
+   - Weakness: small scales (k ≥ 4 h/Mpc), at present worse than OTVET.
+     Finer cones help; the near-field radius is being tested.
+3. **Screened periodic kernel (1), the baseline.**
+   - After overlap it matches the split.
+   - During overlap it is worse than OTVET at every k ≥ 1 h/Mpc.
+   - Implemented for the comparison, with λ from the solution's own budget.
+
+**Proposed implementation (step 3, after the user's go-ahead).**
+
+One new flag, `otvet_closure`, whose default `thin` is today's tensor,
+byte-identical. All options are deterministic and independent of the
+thread count.
+
+- **`split`**
+  - The FFT path of `compute_otvet_tensor` already forms P. Keep tr P in
+    absolute units: N_dir,g = q_g tr P / (4π), with q_g the moment
+    injection per unit Luv of group g. That is one more float per cell; the
+    per-group factor is a scalar.
+  - `transport_group` then forms
+    P_g = N_g I/3 + min(N_g, N_dir,g)(h − I/3) in place of N_g h.
+  - With `min(N, N_dir) ≤ N`, the eigenvalues of P stay in [0, N], so the
+    GLF fluxes keep their wave speed ĉ.
+- **`screen`** (the baseline)
+  - The kernel is e^(−r/λ) d dᵀ/r⁴ summed over the 27 images, plus the
+    isotropic continuum beyond them.
+  - λ = ĉ ΣN / ΣṄ_inj, from the moment solution's own budget at the
+    previous hydro step.
+  - The kernel is rebuilt when λ changes (6 more FFTs).
+- **`cone`**
+  - A new `src/otvet_cone.cpp`, reusing `healpix` from the ray tracer.
+  - Mip-maps of the source emissivity and of the HI column. Receivers on a
+    grid `otvet_cone_coarse` = 2 times coarser, `otvet_cone_nside` = 2 or
+    4, near field r < r_c from the FFT with the thin kernel.
+  - Per-cell group-1 τ capped at `otvet_cone_taucap` = 1.
+  - λ_x chosen so that ΣN_dir = ΣN of the moment solution. It is updated
+    from the previous hydro step: the cone records its direct light in a
+    few distance bins, so the matching λ_x is found without a second march.
+  - OpenMP over receivers, each receiver independent.
+  - If the blend test (§3) holds up, the cone's large scales and the
+    split's small scales are combined (`cone_blend`).
+
+**Checks.**
+- Each C++ tensor is computed on the rays' z = 7.4, 6.2 and 5.67 snapshots
+  and compared with the numpy prototypes and with h_true (`tensor_compare`
+  reads them through `--moment`).
+- Then full 256³ runs of each option with `tensor_dump`, about 45 min each
+  for the moment methods, against `otvcl256` (rays). They are validated
+  with `gamma_power.py` (P_Γ, r(k), PDF, spread), `reion_power.py` and
+  `rt_methods_runs.py` (history, morphology, T).
+- Then the winner at 512³ against the existing 512³ rays.
+
+Not recommended, on the evidence of §3:
+- **8, mixing with M1:** the oracle M1 is the best closure only in shadowed
+  pre-overlap cells, which the cone also fixes, and it is the worst on
+  large scales in every regime.
+- **7, receiver λ(x):** the cone gives a spatially varying attenuation
+  directly, along each direction.
+- **4 and 11, long characteristics and a low-resolution ray tracer:** the
+  same physics as the cone at 10–100× the cost.
+- **6, per group:** second order for Γ_HI; revisit for He II.
+- **9, retarded sources:** small.
+- **10, fitted closure:** a diagnostic, not a closure.
