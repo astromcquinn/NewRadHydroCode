@@ -31,6 +31,7 @@ add_library(radray
   src/rt_moments.cpp
   src/rt_tensor_diag.cpp
   src/rt_moments_fft.cpp
+  src/otvet_closure.cpp
   src/recomb_rad.cpp
   src/rt_backend.cpp
   src/io.cpp)
@@ -145,6 +146,10 @@ target_link_libraries(find_halos PRIVATE radray_halos)
 
 add_executable(rt_driver apps/rt_driver.cpp)
 target_link_libraries(rt_driver PRIVATE ${RADRAY_RT_BACKEND_LIB})
+
+# The alternative OTVET tensors on a tensor-dump snapshot (docs/otvet_closure.md)
+add_executable(otvet_tensor apps/otvet_tensor.cpp)
+target_link_libraries(otvet_tensor PRIVATE radray)
 
 # Ray-compression study prototype (docs/ray_compression.md); reads ray dumps
 add_executable(ray_codec tools/ray_compression/ray_codec.cpp)

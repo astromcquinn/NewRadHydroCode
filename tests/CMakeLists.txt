@@ -637,6 +637,23 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(thread_rt_${m}_lognormal_16src PROPERTIES TIMEOUT 1800
                          LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   endforeach()
+  # the alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md)
+  foreach(cl split screen_split cone)
+    if(cl STREQUAL "split")
+      set(clargs --set otvet_split=1)
+    elseif(cl STREQUAL "screen_split")
+      set(clargs --set otvet_closure=screen --set otvet_split=1)
+    else()
+      set(clargs --set otvet_closure=cone --set otvet_cone_nside=2)
+    endif()
+    add_test(NAME thread_rt_otvet_${cl}_lognormal_16src
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_otvet_${cl} $<TARGET_FILE:rt_driver>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=3
+                     --set rt_method=otvet --set legacy_physics=0 ${clargs})
+    set_tests_properties(thread_rt_otvet_${cl}_lognormal_16src PROPERTIES TIMEOUT 1800
+                         LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  endforeach()
   # recombination radiation (docs/recomb_radiation.md): emission, block
   # rotation, pool budget and on-the-spot deposits, vs threads
   add_test(NAME thread_rt_recomb_lognormal_16src
@@ -800,6 +817,21 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject 13 --set rt_method=m1
                      --set recomb_case=A --set recomb_rad=1 --set moment_inject=1)
     set_tests_properties(restart_smoke_m1_inject PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+    # the alternative OTVET tensors (otvet_closure.hpp): the split and the
+    # cone's photon budget read the checkpointed N
+    add_test(NAME restart_smoke_otvet_split
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_split 13 --set rt_method=otvet
+                     --set otvet_split=1)
+    add_test(NAME restart_smoke_otvet_cone
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_cone 13 --set rt_method=otvet
+                     --set otvet_closure=cone --set otvet_cone_nside=2 --set recomb_case=A
+                     --set recomb_rad=1)
+    set_tests_properties(restart_smoke_otvet_split restart_smoke_otvet_cone PROPERTIES TIMEOUT 900
+                         LABELS "restart;moments")
     # tensor_dump (docs/otvet_closure.md section 1) is a pure diagnostic: the
     # other outputs byte-identical with and without it, for rays (with
     # recombination rays) and OTVET; and independent of the thread count
@@ -815,7 +847,21 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
                      --set legacy_physics=0 --set deterministic_parallel=1 --set "zdata1=30 25 20"
                      --set rt_method=otvet)
-    set_tests_properties(tensor_dump_rays tensor_dump_otvet PROPERTIES TIMEOUT 900 LABELS moments)
+    # ... and the diagnostic's D N with the alternative tensors
+    add_test(NAME tensor_dump_otvet_cone
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensor_dump_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/tensor_dump/otvet_cone $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set "zdata1=30 25 20"
+                     --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2)
+    add_test(NAME tensor_dump_otvet_split
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensor_dump_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/tensor_dump/otvet_split $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1 --set "zdata1=30 25 20"
+                     --set rt_method=otvet --set otvet_closure=screen --set otvet_split=1)
+    set_tests_properties(tensor_dump_rays tensor_dump_otvet tensor_dump_otvet_cone
+                         tensor_dump_otvet_split PROPERTIES TIMEOUT 900 LABELS moments)
     add_test(NAME thread_full_tensor_dump
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
                      ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/tensor_dump $<TARGET_FILE:radhydro>

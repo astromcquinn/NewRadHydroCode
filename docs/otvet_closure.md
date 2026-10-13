@@ -559,3 +559,86 @@ Not recommended, on the evidence of §3:
 - **6, per group:** second order for Γ_HI; revisit for He II.
 - **9, retarded sources:** small.
 - **10, fitted closure:** a diagnostic, not a closure.
+
+## 5. Implementation (step 3)
+
+The user approved all three closures on 2026-10-12, to be run at 512³
+like the existing rays, OTVET and M1 runs.
+
+**Flags** (`include/radray/otvet_closure.hpp`, `src/otvet_closure.cpp`;
+`params.txt` or `--set`, with `rt_method = otvet` only):
+
+| key | values | default |
+|---|---|---|
+| `otvet_closure` | `thin` (the original), `screen`, `cone` | `thin` |
+| `otvet_split` | 1 = direct + diffuse split (thin or screen) | 0 |
+| `otvet_screen_lambda` | screening length in RT cells; 0 = from the photon budget | 0 |
+| `otvet_cone_nside` | HEALPix nside of the cones | 4 |
+| `otvet_cone_coarse` | receivers every C cells | 4 |
+| `otvet_cone_rc` | near-field radius (cells), hand-over to 2 r_c | 8 |
+| `otvet_cone_taucap` | per-cell group-1 τ cap | 1 |
+| `otvet_cone_smax` | reach of the cones in boxes | 8 |
+| `otvet_cone_budget` | 1 = cutoff e^(−s/λ_x) from the photon budget | 1 |
+| `otvet_cone_blend` | Gaussian σ (cells) of the blend with the split thin tensor; 0 = the cone alone | 4 |
+
+With the defaults the code runs the original path:
+`compute_otvet_tensor` and P = N h in `transport_group`. The thin tensor's
+FFT kernel is now filled in parallel; the values are the same.
+
+**Where it acts.**
+- `moment_prep`, once per hydro step: `otvet_update_tensor` computes h,
+  and for the split the direct light per cell, `ndir` = tr P/(4π) in
+  luminosity units. It uses the step's sources, the solution's Γ-weighted
+  photons Σ_g σ_g N_g (for the budget and the blend's split) and the HI
+  column of `calc_rt_1`.
+- `transport_group`, each GLF subcycle:
+  P_g = N_g I/3 + min(N_g, q_g ndir)(h − I/3), with q_g the photons per
+  unit L_uv injected per substep in group g.
+- `moment_tensor_diag` uses the same P, so `tensor_dump` records the
+  closure that was actually used.
+- `ray.log` has a line `OTVET : …` per hydro step: λ, λ_x, ΣN_dir/ΣN, the
+  number of sources and the wall time.
+
+**Checks so far.**
+- `apps/otvet_tensor` computes a closure's tensor on a tensor-dump
+  snapshot. On the smoke run's dump, the C++ and the numpy prototypes agree
+  to ≤ 2·10⁻⁶ in every lit cell for thin, split, screen, screen + split and
+  the cone with and without the budget.
+- The blend differs by ≤ 0.016, from the eigenvalue clamp, which the
+  prototype does not have.
+- The h_s of the blend uses β = 1 (the thin tensor) where N = 0; the
+  prototype used the isotropic tensor there.
+- Unit tests (`test_moments`):
+  - the HEALPix directions and the eigenvalue solver;
+  - thin + split gives the original h bit for bit, and N_dir = Σ L/(4πr²);
+  - the screened kernel matches the lattice sum over 27 images to 10⁻⁴;
+  - the budget gives λ and makes ΣN_dir = ΣN to 10⁻⁶;
+  - an HI block in front of one of two sources turns the receiver's
+    h_xx = h_yy = 0.354 into 0.278 / 0.425;
+  - screen and cone are identical on 1 and 3 threads;
+  - the split solver is identical on 1 and 3 threads and stays realizable.
+- ctest:
+  - `thread_rt_otvet_{split,screen_split,cone}_lognormal_16src`;
+  - `restart_smoke_otvet_{split,cone}`;
+  - `tensor_dump_otvet_{cone,split}`.
+
+  The fast suite passes. With the defaults, radhydro (smoke, direct and FFT
+  tensor, with recombination radiation) and rt_driver (lognormal_16src)
+  are byte-identical to the code before the closures (commit e55def7).
+- **256³, on the rays' snapshots** (`apps/otvet_tensor` against the numpy
+  prototypes, nside 4, coarse 4, r_c 8, σ = 4). The S0-weighted mean of
+  |h_C++ − h_numpy| over lit cells is ≤ 2.5·10⁻⁷ for thin, split and screen
+  and ≤ 2.5·10⁻⁵ for the cones (blend 1.8·10⁻⁴ at z = 7.4). The errors
+  against the truth agree to 3–4 digits, and the budget's λ_x agrees to
+  0.05 %:
+
+  | z | thin | split | screen | screen + split | cone, budget | blend | λ_x | C++ s (32 threads): thin / screen / cone / blend |
+  |---|---|---|---|---|---|---|---|---|
+  | 7.40 | 0.1335 | 0.1329 | 0.1217 | 0.1874 | 0.0724 | 0.0712 | 167 | 3.5 / 4.7 / 8.0 / 12.2 |
+  | 6.19 | 0.0924 | 0.0874 | 0.0976 | 0.1071 | 0.0749 | 0.0745 | 1129 | 3.7 / 5.6 / 12.7 / 17.9 |
+  | 5.67 | 0.1414 | 0.0524 | 0.0497 | 0.0501 | 0.0515 | 0.0518 | 489 | 3.5 / 4.6 / 11.2 / 15.5 |
+
+  (Each value is the S0-weighted cell error against the rays' tensor over
+  all cells.) A few cells where P is near the noise floor differ by up to
+  0.8. The C++ stops each cone where its own transmission falls below
+  10⁻⁴; the prototype stopped only when every receiver's had.

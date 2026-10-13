@@ -637,3 +637,27 @@ policy on klone, and deleting the merged branches.
   - status: the ranking (1 cone + budget + blend, 2 split, 3 screened kernel)
     and the implementation order (split → screen → cone) were presented to
     the user on 2026-10-12. No solver change before their go-ahead.
+* **User decision (2026-10-12):** implement all three closures (split,
+  screened kernel, cone with the budget cutoff and the blend), then run them
+  at 512³ like the existing rays, OTVET and M1 runs. The user's remark that
+  the split alone does not capture the mean free path after overlap led to
+  making the split a modifier on any direct tensor (thin or screened), with
+  the cone's blend carrying it for the cone.
+* **Implementation choices (this thread):**
+  - flags `otvet_closure = thin | screen | cone`, `otvet_split`,
+    `otvet_screen_lambda`, `otvet_cone_{nside,coarse,rc,taucap,smax,budget,blend}`
+    (`otvet_closure.hpp`); the defaults run the original code path
+    unchanged;
+  - the split is applied per group and per GLF subcycle with the cell's
+    current N_g. The blend's split uses the Γ-weighted N at the start of
+    the hydro step, since the Gaussian cannot be redone every subcycle;
+  - the split with the cone is refused; the blend replaces it;
+  - λ (screen) and λ_x (cone) come from the solution's own Γ-weighted
+    photons at the start of each hydro step. The cone keeps its light per
+    half-octave distance bin, so the budget needs no second march and no
+    state across steps (restart-safe);
+  - the screened and cone tensors are isotropic below a noise floor
+    (10⁻⁶ of the summed luminosity, normalised, the single-precision FFT's
+    floor), and their eigenvalues are clamped to ≥ 0;
+  - 512³ runs without `tensor_dump` (14 GB per snapshot); the 256³ runs
+    keep it for the a posteriori tensor comparison.
