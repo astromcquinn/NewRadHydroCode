@@ -15,8 +15,8 @@ Needs the three backends, `hydro_scheme = unsplit`, `rt_method = rays`.
 - **Byte-identical** to the same three backends with the host state on
   every rank (`amrex_state = 0`): the smoke problem at 1/2/3 ranks and 2
   threads, every file (fields, stats, frames, checkpoints), and a
-  bit-identical restart (`ctest -L amrex_state`, 5 tests); the existing
-  `amrex` label unchanged (154/154 on klone).
+  bit-identical restart (`ctest -L amrex_state`, 5 tests); the whole
+  `amrex` label 159/159 on klone with the phase-2 build.
 - **klone, 256³ on one node:** bitwise identical to the host-state
   three-backend run; the ranks other than 0 hold 4.5 GB (8 GB with the
   host state, 12.8 GB in Stage D); RT 151 s. **512³ on one node runs**
