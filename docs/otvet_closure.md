@@ -710,7 +710,7 @@ hydro-step means:
 
 - **Thin OTVET is too broad on both sides** against the hydro-step means:
   a floor at 0.5–0.55 ⟨Γ⟩, and a 99.9 % quantile of 8 ⟨Γ⟩ against the
-  rays' 2.7–4.2. With the noisy single-substep Γ of the snapshots (§3 of
+  rays' 2.7–4.2. With the noisy single-substep Γ of the snapshots (§5 of
   `docs/rt_methods_512.md`), its peaks looked low and its floor high.
 - **The split and the cone match the rays' upper half to ≤ 5 %** at both
   redshifts (the proximity zones of the sources).
@@ -737,8 +737,8 @@ hydro-step means:
 **Verdict (256³).** The split removes OTVET's after-overlap excess almost
 exactly, at no cost. The cone does as well after overlap, and it also
 improves the overlap era (morphology, the end of reionization, Γ
-quantiles), at 2.3× the tensor cost (8.7 against 3.6 s per step at 256³;
-about 7 % of the run's time). The screened kernel is the worst of the
+quantiles), at 2.3× the tensor cost (8.7 against 3.6 s per step at 256³: 188 s
+of the 47 min run, 7 %). The screened kernel is the worst of the
 three. Both the split and the cone leave the one-point Γ too narrow on the
 low side late (no shadows behind self-shielded gas), and the small-scale
 power (k ≳ 10 h/Mpc) too low.
