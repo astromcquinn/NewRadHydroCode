@@ -27,7 +27,7 @@
 set -u
 cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
-if [ -n "${HYAK_MODULES:-}" ]; then module load $HYAK_MODULES; fi
+if [ -n "${HYAK_MODULES:-}" ]; then radray_module_load $HYAK_MODULES; fi
 export OMP_PLACES=cores OMP_PROC_BIND=close
 PROB="${PROB:?set PROB to the problem directory}"
 CK="${CK:?set CK to the checkpoint}"

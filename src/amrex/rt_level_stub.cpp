@@ -19,6 +19,7 @@ bool io_rank() { return true; }
 int backend_rank() { return 0; }
 int backend_nranks() { return 1; }
 void backend_barrier() {}
+void backend_reduce_minmax(double&, double&) {}
 void amrex_rt_prep(Simulation&) { no_amrex(); }
 void amrex_rt_substep(Simulation&) { no_amrex(); }
 void amrex_rt_post(Simulation&) { no_amrex(); }

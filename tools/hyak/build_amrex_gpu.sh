@@ -15,7 +15,7 @@
 set -euo pipefail
 src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$src/tools/hyak/env.sh"
-module load ${HYAK_MODULES:-ompi/4.1.6-2 cuda/12.4.1}
+radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2 cuda/12.4.1}
 CUDA_ARCH=${CUDA_ARCH:-80}
 J=${J:-$(nproc)}
 AMREX_DIR="${AMREX_DIR:-$RADRAY_SW/amrex-26.10-cuda}"

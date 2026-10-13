@@ -27,7 +27,7 @@
 set -u
 cd "${SLURM_SUBMIT_DIR:-.}"
 source tools/hyak/env.sh
-if [ -n "${HYAK_MODULES:-}" ]; then module load $HYAK_MODULES; fi
+if [ -n "${HYAK_MODULES:-}" ]; then radray_module_load $HYAK_MODULES; fi
 RUN="${RUN:?set RUN to the run directory}"
 JOBS="${JOBS:-${SLURM_CPUS_PER_TASK:-8}}"
 # one thread per process: the renderers are separate processes, and the

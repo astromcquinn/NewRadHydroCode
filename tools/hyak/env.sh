@@ -43,5 +43,36 @@ export CMAKE_PREFIX_PATH="$RADRAY_FFTW${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 export FFTW_INC="$RADRAY_FFTW/include"
 export FFTW_LIB="-L$RADRAY_FFTW/lib -lfftw3f"
 
+# Load modules from a script that runs under `set -u` (Lmod's init reads
+# unset variables such as LD_PRELOAD and the load would fail). klone's
+# ompi/4.1.6-2 module also sets CC=mpiCC, the C++ wrapper, which breaks
+# CMake's C compiler check when AMReX is built.
+radray_module_load() {
+  case $- in *u*) _rml_u=1; set +u ;; *) _rml_u=0 ;; esac
+  module load "$@"
+  _rml_rc=$?
+  [ "${CC:-}" = mpiCC ] && export CC=mpicc
+  [ "$_rml_u" = 1 ] && set -u
+  unset _rml_u
+  return $_rml_rc
+}
+
+# UCX across nodes: the rendezvous (zero-copy) path of the ompi module's
+# UCX 1.16 makes AMReX's FillBoundary about 10x slower on 2 and 4 nodes
+# than on one (the hydro step did not speed up at all beyond one node,
+# docs/stage_e_hydro.md section 5). Sending messages below a threshold
+# eagerly through UCX's bounce buffers removes it; the RT's large
+# transfers (the field broadcast, the ray gather) stay on the rendezvous
+# path, which suits them (eager for everything made the 512^3 RT 8 %
+# slower, 8 MB makes it 15 % faster, docs/stage_d.md section 4.4). The
+# AMReX job scripts call this after loading the modules;
+# RADRAY_UCX_RNDV_THRESH overrides the threshold (inf: eager for
+# everything), RADRAY_UCX_EAGER=0 keeps the module's defaults.
+radray_ucx_eager() {
+  if [ "${RADRAY_UCX_EAGER:-1}" != 0 ]; then
+    export UCX_RNDV_THRESH="${RADRAY_UCX_RNDV_THRESH:-8m}" UCX_ZCOPY_THRESH=inf
+  fi
+}
+
 [ "$_radray_u" = 1 ] && set -u
 unset _radray_u
