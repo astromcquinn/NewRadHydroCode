@@ -32,8 +32,11 @@ Needs the three backends, `hydro_scheme = unsplit`, `rt_method = rays`.
   rank 0's restart transient (the serial ray pool and list of the
   checkpoint), the host P(k) and FoF on rank 0, and `Luv`/`sfr` on every
   rank.
-- Also: the checkpoint's ray gather is chunked (the 2 GB `MPI_Gatherv`
-  limit is gone); `build_amrex.sh` builds AMReX with the FFT module on
+- Also: the checkpoint's backend rays are streamed in chunks (written
+  while gathered, scattered while read: rank 0 holds one chunk, and the
+  2 GB `MPI_Gatherv` limit is gone); the live-Fortran full-loop tests
+  link again in an AMReX build (`radray_backend_stubs`, which they
+  could not since Stage D); `build_amrex.sh` builds AMReX with the FFT module on
   klone (`AMReX_FFTW_IGNORE_OMP`); `amrex_hydro_max_grid_size = 0` means
   `amrex_max_grid_size`.
 
