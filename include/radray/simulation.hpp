@@ -13,6 +13,7 @@
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/grid.hpp"
+#include "radray/halos.hpp"
 #include "radray/ray_quant.hpp"
 #include "radray/rays.hpp"
 #include "radray/rt_rates.hpp"
@@ -104,6 +105,8 @@ struct Simulation {
   // Eddington-tensor diagnostic (rt_tensor_diag.hpp); null (off) by default.
   // Never read by the RT.
   std::shared_ptr<TensorDiag> tdiag;
+  // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
+  FofCache fof;
 };
 
 }  // namespace radray

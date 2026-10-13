@@ -292,9 +292,20 @@ if(RADRAY_HAVE_PM)
   target_link_libraries(test_pm PRIVATE radray_pm)
   add_test(NAME pm_unit COMMAND test_pm)
   set_tests_properties(pm_unit PROPERTIES LABELS pm)
+  # pm_refine > 1 (docs/pm_refine.md): forces against Ewald, momentum
+  add_executable(test_pm_refine test_pm_refine.cpp)
+  target_link_libraries(test_pm_refine PRIVATE radray_pm)
+  add_test(NAME pm_refine_unit COMMAND test_pm_refine)
+  set_tests_properties(pm_refine_unit PROPERTIES LABELS pm)
+  # threaded FFTW: byte-identical for any thread count
+  add_executable(test_fft_threads test_fft_threads.cpp)
+  target_link_libraries(test_fft_threads PRIVATE radray_fft)
+  add_test(NAME fft_threads COMMAND test_fft_threads 64 1 2 3 4 8 16)
+  set_tests_properties(fft_threads PROPERTIES LABELS "pm;threads")
 
   if(Python3_Interpreter_FOUND)
-    set(PM_PROBLEMS zeldovich_3d growth_3d pancake_x pancake_z_nomf)
+    set(PM_PROBLEMS zeldovich_3d growth_3d pancake_x pancake_z_nomf
+                    zeldovich_3d_r2 pancake_x_r2 pancake_z_nomf_r2 pancake_x_n32)
     foreach(p ${PM_PROBLEMS})
       set(run ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/${p})
       # 1. run pm_driver (fixture shared by the checks below)
@@ -332,6 +343,35 @@ if(RADRAY_HAVE_PM)
                      ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/pancake_z_nomf
                      --tol-mode-x 0.025 --tol-mode-v 0.025)
     set_tests_properties(pm_pancake_z_nomf PROPERTIES FIXTURES_REQUIRED pm_pancake_z_nomf
+                         LABELS pm)
+    # pm_refine = 2 (docs/pm_refine.md): the same analytic pancakes with
+    # Ndm = 2 Ngas on the 2 Ngas mesh. One particle per mesh cell (pancake_x
+    # has one per 2): the per-particle error near the caustic is 4.0e-2,
+    # exactly that of the original with Ngas = Ndm = 32 (the twin below).
+    add_test(NAME pm_pancake_x_r2
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     pancake ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_x_r2
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/pancake_x_r2 --tol-x 0.045)
+    set_tests_properties(pm_pancake_x_r2 PROPERTIES FIXTURES_REQUIRED pm_pancake_x_r2 LABELS pm)
+    # with uniform frozen gas the refined mesh moves the DM bit for bit as
+    # the original on a gas grid as fine as the mesh
+    add_test(NAME pm_r2_twin_pancake_x
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     same-dm ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_x_r2
+                     ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_x_n32)
+    set_tests_properties(pm_r2_twin_pancake_x PROPERTIES
+                         FIXTURES_REQUIRED "pm_pancake_x_r2;pm_pancake_x_n32" LABELS pm)
+    add_test(NAME pm_pancake_x_n32
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     pancake ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_x_n32
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/pancake_x_n32 --tol-x 0.045)
+    set_tests_properties(pm_pancake_x_n32 PROPERTIES FIXTURES_REQUIRED pm_pancake_x_n32 LABELS pm)
+    add_test(NAME pm_pancake_z_nomf_r2
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     pancake ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/pancake_z_nomf_r2
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/pancake_z_nomf_r2
+                     --tol-x 0.045 --tol-mode-x 0.025 --tol-mode-v 0.025)
+    set_tests_properties(pm_pancake_z_nomf_r2 PROPERTIES FIXTURES_REQUIRED pm_pancake_z_nomf_r2
                          LABELS pm)
     add_test(NAME pm_growth_3d
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
@@ -634,6 +674,25 @@ if(Python3_Interpreter_FOUND)
                      --set zdata1=12 --set fields_every=1 --set hydro_scheme=unsplit)
     set_tests_properties(thread_full_unsplit_hydro_pm PROPERTIES TIMEOUT 1800 LABELS threads
                          ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # pm_refine = 2 with Ndm = 2 N (docs/pm_refine.md): the threaded FFTW,
+    # the refined mesh, FoF on the finer particles
+    add_test(NAME thread_full_pm_refine
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_pm_refine $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2 --quiet
+                     --set fields_every=1 --set hydro_scheme=unsplit)
+    set_tests_properties(thread_full_pm_refine PROPERTIES TIMEOUT 1800 LABELS "threads;pm"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    # fof_dt_myr (FoF cadence, docs/pm_refine.md): 14 source updates from
+    # z = 12, of which 9 reuse the cached halos (drifted) with fof_dt_myr = 60
+    add_test(NAME thread_full_fof_cadence
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/full_fof_cadence $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2 --quiet
+                     --set "zdata1=12 7.5" --set ra_max=0.03 --set fof_dt_myr=60
+                     --set fields_every=4)
+    set_tests_properties(thread_full_fof_cadence PROPERTIES TIMEOUT 1800 LABELS "threads;pm"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     # ASan/UBSan builds with OpenMP, thread-count independence (parallel
     # paths: N = 32)
     if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
@@ -688,6 +747,20 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/rotate 14 --set legacy_rt=0
                      --set legacy_physics=0 --set ray_rotate=3)
+    # Ndm > N through the checkpoint (pm_refine = 2, docs/pm_refine.md)
+    add_test(NAME restart_smoke_pm_refine
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/pm_refine 22 --set hydro_scheme=unsplit)
+    set_tests_properties(restart_smoke_pm_refine PROPERTIES TIMEOUT 900 LABELS "restart;pm")
+    # the FoF cache through the checkpoint (fof_dt_myr; checkpoint version 7):
+    # restart at step 77, between FoF calls with cached halos
+    add_test(NAME restart_smoke_fof_cadence
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/fof_cadence 77
+                     --set "zdata1=12 7.5" --set ra_max=0.03 --set fof_dt_myr=60)
+    set_tests_properties(restart_smoke_fof_cadence PROPERTIES TIMEOUT 900 LABELS "restart;pm")
     # the moment RT state through the checkpoint (docs/rt_moments.md)
     foreach(m m1 otvet)
       add_test(NAME restart_smoke_${m}
@@ -719,6 +792,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_otvet 13 --set rt_method=otvet
                      --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
     set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+    # moment_inject = 1: sources and recombination photons injected after the
+    # transport (docs/rt_moments.md section 5a)
+    add_test(NAME restart_smoke_m1_inject
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject 13 --set rt_method=m1
+                     --set recomb_case=A --set recomb_rad=1 --set moment_inject=1)
+    set_tests_properties(restart_smoke_m1_inject PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          restart_smoke_rotate PROPERTIES TIMEOUT 600 LABELS restart)
     # slab-only movie frames (movie_slab, docs/movies.md): the slabs against

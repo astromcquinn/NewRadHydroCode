@@ -12,7 +12,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ics="$here/../../tools/ics/make_ics.py"
-all="zeldovich_3d growth_3d pancake_x pancake_z_nomf"
+all="zeldovich_3d growth_3d pancake_x pancake_z_nomf zeldovich_3d_r2 pancake_x_r2 pancake_z_nomf_r2 pancake_x_n32"
 problems="${*:-$all}"
 
 params() {  # params <dir> <key=value>...
@@ -55,6 +55,34 @@ for p in $problems; do
         python3 "$ics" "$d" --kind pancake --axis z --a-cross 0.06 --Ngas 32 \
             --Ndm 16 --z-init 300 --gas uniform --growth frozen-gas
         params "$d" Ngas=32 Ndm=16 mf=0 z_init=300 nsteps=20 da_sim=0.002 pk_every=0
+        ;;
+    zeldovich_3d_r2)
+        # pm_refine = 2 (docs/pm_refine.md): 32^3 PM mesh and 32^3 particles
+        # under a 16^3 gas grid; the zeldovich_3d large scales (seed 1).
+        python3 "$ics" "$d" --kind zeldovich --Ngas 16 --Ndm 32 --z-init 300 \
+            --seed 1 --gas zeldovich --growth full --phases-from-ndm 16
+        params "$d" Ngas=16 Ndm=32 pm_refine=2 mf=1 z_init=300 nsteps=30 da_sim=0 pk_every=5
+        ;;
+    pancake_x_r2)
+        # pancake_x on a pm_refine = 2 mesh with Ndm = 2 Ngas
+        python3 "$ics" "$d" --kind pancake --axis x --a-cross 0.05 --Ngas 16 \
+            --Ndm 32 --z-init 300 --gas uniform --growth frozen-gas
+        params "$d" Ngas=16 Ndm=32 pm_refine=2 mf=1 z_init=300 nsteps=25 da_sim=0 pk_every=0
+        ;;
+    pancake_z_nomf_r2)
+        # pancake_z_nomf (gravity kicks u_gas) on a pm_refine = 2 mesh
+        python3 "$ics" "$d" --kind pancake --axis z --a-cross 0.06 --Ngas 16 \
+            --Ndm 32 --z-init 300 --gas uniform --growth frozen-gas
+        params "$d" Ngas=16 Ndm=32 pm_refine=2 mf=0 z_init=300 nsteps=20 da_sim=0.002 pk_every=0
+        ;;
+    pancake_x_n32)
+        # The pm_refine = 1 twin of pancake_x_r2: the same particles
+        # (identical xv_dm.init) and the same 32^3 mesh, the gas grid at 32^3.
+        # With uniform frozen gas the DM must evolve bit for bit as in
+        # pancake_x_r2 (test pm_r2_twin_pancake_x).
+        python3 "$ics" "$d" --kind pancake --axis x --a-cross 0.05 --Ngas 32 \
+            --Ndm 32 --z-init 300 --gas uniform --growth frozen-gas
+        params "$d" Ngas=32 Ndm=32 mf=1 z_init=300 nsteps=25 da_sim=0 pk_every=0
         ;;
     *) echo "unknown problem $p" >&2; exit 2 ;;
     esac

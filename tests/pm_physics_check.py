@@ -5,6 +5,7 @@ usage:
   pm_physics_check.py pancake  RUN PROBLEM [--tol-x T] [--tol-v T]
   pm_physics_check.py growth   RUN PROBLEM [--tol T] [--kbins 2] [--a-max A]
   pm_physics_check.py momentum RUN PROBLEM [--tol T]
+  pm_physics_check.py same-dm  RUN RUN2
 
 RUN is an output directory (step_NNNN/, Pk/), PROBLEM the problem directory
 (params.txt, ics_info.txt). Exit status 0 = pass, 1 = fail.
@@ -172,7 +173,7 @@ def check_growth(a):
 
 def check_momentum(a):
     p, info, ngas, ndm = problem(a.problem)
-    ndg = ngas // ndm
+    ndg = ngas / ndm                     # < 1 with pm_refine and Ndm > Ngas
     mp = (1 - pc.FB) * ndg ** 3          # DM particle mass (gas cell units)
     P0 = None
     worst = 0.0
@@ -191,6 +192,21 @@ def check_momentum(a):
               + "  " + " ".join(f"{x:11.3e}" for x in pgas.sum(axis=1)) + f"  {err:9.2e}")
     ok = worst <= a.tol
     print(f"max |P - P0| / sum|p| = {worst:.3e} (tol {a.tol})")
+    print("RESULT:", "PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
+def check_same_dm(a):
+    """The DM of two runs is bit-identical at every step (a pm_refine > 1
+    run and its pm_refine = 1 twin with the same mesh and particles)."""
+    s1, s2 = steps(a.run), steps(a.run2)
+    ok = len(s1) == len(s2)
+    for d1, d2 in zip(s1, s2):
+        b1 = open(os.path.join(d1, "xv_dm.bin"), "rb").read()
+        b2 = open(os.path.join(d2, "xv_dm.bin"), "rb").read()
+        same = b1 == b2
+        ok = ok and same
+        print(f" {os.path.basename(d1)}: xv_dm {'identical' if same else 'DIFFERENT'}")
     print("RESULT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -217,9 +233,12 @@ def main():
     s.add_argument("run")
     s.add_argument("problem")
     s.add_argument("--tol", type=float, default=1e-5)
+    s = sub.add_parser("same-dm")
+    s.add_argument("run")
+    s.add_argument("run2")
     a = ap.parse_args()
     return {"pancake": check_pancake, "growth": check_growth,
-            "momentum": check_momentum}[a.cmd](a)
+            "momentum": check_momentum, "same-dm": check_same_dm}[a.cmd](a)
 
 
 if __name__ == "__main__":

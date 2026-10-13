@@ -52,7 +52,14 @@ class Fft1d {
 };
 
 // fft_tools.f90: fft_3d(c,n1,n2,n3,a). c = 'f' (forward) or 'b' (backward).
-void fft_3d(char c, int n1, int n2, int n3, float* a);
+// nthreads > 1 (the pm_refine > 1 PM mesh, docs/pm_refine.md): the plan is
+// made with FFTW's OpenMP threads (libfftw3f_omp; the serial plan when the
+// build has no threaded FFTW, see fft_threaded()). nthreads = 1 never
+// initialises FFTW's threads: the original serial plans.
+void fft_3d(char c, int n1, int n2, int n3, float* a, int nthreads = 1);
+
+// true when the build links libfftw3f_omp (CMake RADRAY_FFTW_OMP)
+bool fft_threaded();
 
 // fft_tools.f90: fft_1d(c,n,a). Unused by the original (the hydro calls are
 // commented out); one Fft1d descriptor per call, as the original creates

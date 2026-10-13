@@ -1,0 +1,20 @@
+# written by tools/ics/make_ics.py
+command = make_ics.py zeldovich_3d_r2 --kind zeldovich --Ngas 16 --Ndm 32 --z-init 300 --seed 1 --gas zeldovich --growth full --phases-from-ndm 16
+outdir = zeldovich_3d_r2
+kind = zeldovich
+Ngas = 16
+Ndm = 32
+phases_from_ndm = 16
+z_init = 300.0
+seed = 1
+gas = zeldovich
+growth = full
+axis = x
+a_cross = 0.05
+Ndm = 32
+a_init = 0.0033222591362126247
+sigma_delta_dm_cell = 0.022418654135327596
+D_init = 0.004646248628012462
+f_init = 0.9404499526364535
+vfac = 0.03781503612244585
+max_disp_dm_cells = 0.09777683038074922

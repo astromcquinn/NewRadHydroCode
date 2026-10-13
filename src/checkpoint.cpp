@@ -33,7 +33,9 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // Version 6 (docs/rt_multicell.md): rt_cells_per_substep before the
 // trailer (versions <= 5: 1). The substep carry rt_carry of the clock is in
 // substeps of that many cells; a restart with another value converts it.
-constexpr std::int32_t kVersion = 6;
+// Version 7 (fof_dt_myr, docs/pm_refine.md): the on-the-fly FoF cache
+// before the trailer (empty when off). Versions <= 6 are read as "no cache".
+constexpr std::int32_t kVersion = 7;
 
 // The ray layout of versions <= 4
 struct RayV4 {
@@ -215,6 +217,15 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     // rt_cells_per_substep (version 6)
     const std::int32_t cells = s.cfg.rt_cells_per_substep;
     o.pod(cells);
+    // FoF cache (version 7)
+    const FofCache& fc = s.fof;
+    const std::int32_t fvalid = fc.valid ? 1 : 0;
+    o.pod(fvalid);
+    const double fd[3] = {fc.year, fc.vel_unit, fc.dtau};
+    o.pod(fd);
+    const std::int64_t fn[2] = {fc.nfof, fc.nreuse};
+    o.pod(fn);
+    o.vec(fc.halos);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -424,6 +435,22 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
                    " read_checkpoint: rt_cells_per_substep changes from %d to %d at this restart "
                    "(substep carry converted)\n",
                    static_cast<int>(cells), s.cfg.rt_cells_per_substep);
+  }
+  s.fof = FofCache{};
+  if (ver >= 7) {
+    std::int32_t fvalid = 0;
+    double fd[3];
+    std::int64_t fn[2];
+    in.pod(fvalid);
+    in.pod(fd);
+    in.pod(fn);
+    in.vec(s.fof.halos);
+    s.fof.valid = fvalid != 0;
+    s.fof.year = fd[0];
+    s.fof.vel_unit = fd[1];
+    s.fof.dtau = fd[2];
+    s.fof.nfof = fn[0];
+    s.fof.nreuse = fn[1];
   }
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)

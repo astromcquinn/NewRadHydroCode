@@ -42,6 +42,11 @@ bool set_rt_method_param(Config& c, const std::string& key, const std::string& v
     if (c.moment_nsub < 3) throw std::runtime_error("moment_nsub must be >= 3 (3-D Courant limit)");
     return true;
   }
+  if (key == "moment_inject") {
+    c.moment_inject = std::stoi(val);
+    if (c.moment_inject != 0 && c.moment_inject != 1) throw std::runtime_error("moment_inject must be 0 or 1");
+    return true;
+  }
   if (key == "otvet_tensor") {
     if (val == "auto" || val == "0")
       c.otvet_tensor = 0;
@@ -60,6 +65,7 @@ void copy_rt_method(const Config& from, Config& to) {
   to.rt_method = from.rt_method;
   to.moment_nsub = from.moment_nsub;
   to.otvet_tensor = from.otvet_tensor;
+  to.moment_inject = from.moment_inject;
   copy_recomb_param(from, to);
 }
 
@@ -79,6 +85,7 @@ std::string rt_method_summary(const Config& c) {
     if (c.rt_method == RTMethod::OTVET)
       s += std::string(", otvet_tensor = ") +
            (c.otvet_tensor == 0 ? "auto" : c.otvet_tensor == 1 ? "direct" : "fft");
+    if (c.moment_inject) s += ", moment_inject = 1";
     s += ")";
   }
   // recomb_rad.hpp; printed only when not the original's case B
@@ -515,48 +522,54 @@ void moment_step_1(Simulation& s) {
   }
   lap(s.timers.calc_rt1);
 
-  // Sources: the photons ray_source emits, into the source cell, isotropic
-  double inj = 0;
-  for (std::int64_t c = 0; c < nc; ++c) {
-    if (!(static_cast<double>(G.sfr[c]) > u.sfr_min)) continue;
-    const double Ldt = static_cast<double>(G.Luv[c]) * s.clk.dtsec_rt;
-    for (int g = 0; g < kNfreq; ++g) {
-      double ngam = fResc * pop2_init[g] * Ldt;
-      ngam = ngam / u.vol_rt / u.nH_avg;
-      const std::int64_t i = g * nc + c;
-      const float n0 = M.n[i];
-      M.n[i] = static_cast<float>(static_cast<double>(n0) + ngam);
-      M.e[i] = static_cast<float>(static_cast<double>(M.e[i]) + ngam * freq_init[g]);
-      inj += static_cast<double>(M.n[i]) - static_cast<double>(n0);
+  // Sources and recombination photons (moment_inject = 0: before the
+  // transport, the original order; 1: after it, so that photo_cell absorbs
+  // them in the cell that emitted them before they move on)
+  auto inject = [&]() {
+    // Sources: the photons ray_source emits, into the source cell, isotropic
+    double inj = 0;
+    for (std::int64_t c = 0; c < nc; ++c) {
+      if (!(static_cast<double>(G.sfr[c]) > u.sfr_min)) continue;
+      const double Ldt = static_cast<double>(G.Luv[c]) * s.clk.dtsec_rt;
+      for (int g = 0; g < kNfreq; ++g) {
+        double ngam = fResc * pop2_init[g] * Ldt;
+        ngam = ngam / u.vol_rt / u.nH_avg;
+        const std::int64_t i = g * nc + c;
+        const float n0 = M.n[i];
+        M.n[i] = static_cast<float>(static_cast<double>(n0) + ngam);
+        M.e[i] = static_cast<float>(static_cast<double>(M.e[i]) + ngam * freq_init[g]);
+        inj += static_cast<double>(M.n[i]) - static_cast<double>(n0);
+      }
     }
-  }
-  M.injected += inj / s.cfg.nrtcr;
+    M.injected += inj / s.cfg.nrtcr;
 
-  // recomb_rad = 1 (recomb_rad.hpp): the ground-state recombination photons
-  // photo_cell counted in the last substep, emitted isotropically where they
-  // were made (every cell is in launch mode, i.e. case A; no blocks, no pool)
-  if (s.recomb && s.recomb->active()) {
-    RecombState& Rc = *s.recomb;
-    const double rec = plane_sum(Nrt, [&](int k) {
-      double t = 0;
-      const std::int64_t c0 = static_cast<std::int64_t>(k) * Nrt * Nrt;
-      for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(Nrt) * Nrt; ++c)
-        for (int g = 0; g < kNfreq; ++g) {
-          const std::size_t kb = static_cast<std::size_t>(c) * kNfreq + g;
-          if (!(Rc.ngam[kb] > 0)) continue;
-          const std::int64_t i = g * nc + c;
-          const float n0 = M.n[i];
-          M.n[i] = static_cast<float>(static_cast<double>(n0) + static_cast<double>(Rc.ngam[kb]));
-          M.e[i] = static_cast<float>(static_cast<double>(M.e[i]) + static_cast<double>(Rc.egam[kb]));
-          t += static_cast<double>(M.n[i]) - static_cast<double>(n0);
-          Rc.ngam[kb] = 0;
-          Rc.egam[kb] = 0;
-        }
-      return t;
-    });
-    M.injected += rec / s.cfg.nrtcr;
-    Rc.launched += rec / s.cfg.nrtcr;
-  }
+    // recomb_rad = 1 (recomb_rad.hpp): the ground-state recombination photons
+    // photo_cell counted in the last substep, emitted isotropically where they
+    // were made (every cell is in launch mode, i.e. case A; no blocks, no pool)
+    if (s.recomb && s.recomb->active()) {
+      RecombState& Rc = *s.recomb;
+      const double rec = plane_sum(Nrt, [&](int k) {
+        double t = 0;
+        const std::int64_t c0 = static_cast<std::int64_t>(k) * Nrt * Nrt;
+        for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(Nrt) * Nrt; ++c)
+          for (int g = 0; g < kNfreq; ++g) {
+            const std::size_t kb = static_cast<std::size_t>(c) * kNfreq + g;
+            if (!(Rc.ngam[kb] > 0)) continue;
+            const std::int64_t i = g * nc + c;
+            const float n0 = M.n[i];
+            M.n[i] = static_cast<float>(static_cast<double>(n0) + static_cast<double>(Rc.ngam[kb]));
+            M.e[i] = static_cast<float>(static_cast<double>(M.e[i]) + static_cast<double>(Rc.egam[kb]));
+            t += static_cast<double>(M.n[i]) - static_cast<double>(n0);
+            Rc.ngam[kb] = 0;
+            Rc.egam[kb] = 0;
+          }
+        return t;
+      });
+      M.injected += rec / s.cfg.nrtcr;
+      Rc.launched += rec / s.cfg.nrtcr;
+    }
+  };
+  if (s.cfg.moment_inject == 0) inject();
 
   // Transport: moment_nsub GLF subcycles of Courant number 1/moment_nsub
   // (one cell of light travel per RT substep)
@@ -576,6 +589,7 @@ void moment_step_1(Simulation& s) {
     if (!any) continue;
     for (int it = 0; it < nsub; ++it) transport_group(M, g, otvet, C);
   }
+  if (s.cfg.moment_inject == 1) inject();
   lap(s.timers.trace1);
   if (s.tdiag && s.tdiag->acc) moment_tensor_diag(M, *s.tdiag, otvet);  // diagnostic
 
