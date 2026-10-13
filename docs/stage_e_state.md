@@ -16,11 +16,11 @@ every rank holds about 100 GB of redundant state at 512³,
 | Item | State |
 |---|---|
 | The map of every producer and consumer of the host state (the survey of 2026-10-13, §1) | done |
-| `amrex_state = 1`: one gas BoxArray and DistributionMapping shared by the RT, hydro and PM levels; the gas state as a persistent MultiFab; the hydro and RT levels read and write it locally; the per-rank host gas arrays dropped | planned, phase 1 |
-| The DM particles persistent in the PM container (drift and `Redistribute` on the level, no rebuild from the host); the halo finder on a gather of the particle positions to rank 0; `Luv`/`sfr` and the halo metals as sparse per-source scatters | planned, phase 2 |
-| Rank-0 I/O through slab gathers: fields, movie frames and slabs, data files, checkpoints in the existing formats; chunked ray gather (the 2 GB `MPI_Gatherv` limit); restart by scatter | planned, phase 3 |
-| Statistics: maxima by exact reduction (the timestep uses only `cmax_gas` and `amax_dm`), the order-dependent serial sums of `write_stats` and `write_frame` computed on rank 0 from the gathered fields (bitwise the serial order), the per-step `summarize_gas` sums as 128-bit fixed point (diagnostic only) | planned, phase 1 and 3 |
-| Validation: the full loop with `amrex_state = 1` byte-identical to the same run with `amrex_state = 0` (the three backends with the host state), for 1/2/3 ranks and 1/2 threads; bit-identical restarts; the existing round-off comparison against the serial code carries over | planned |
+| `amrex_state = 1`: one gas BoxArray and DistributionMapping shared by the RT, hydro and PM levels; the gas state as a persistent MultiFab; the hydro and RT levels read and write it locally; the per-rank host gas arrays dropped | **done (phase 1, 2026-10-13)**, §4 |
+| The DM particles persistent in the PM container (drift and `Redistribute` on the level, no rebuild from the host); the halo finder on a gather of the particles to rank 0 with the catalogue broadcast; the host PM arrays only on rank 0 | **done (phase 2)**, §4 |
+| Rank-0 I/O through slab gathers: fields, movie frames and slabs, data files, checkpoints in the existing formats; chunked ray gather (the 2 GB `MPI_Gatherv` limit); restart by scatter | **done** (the mirror on rank 0 is refreshed before every output and checkpoint; a restart scatters rank 0's grids and particles onto the levels) |
+| Statistics: maxima by exact reduction (the timestep uses only `cmax_gas` and `amax_dm`), the order-dependent serial sums of `summarize_gas`, `write_stats` and `write_frame` computed on rank 0 from the gathered fields (bitwise the serial order) | **done**: every sum stays the serial one on rank 0's mirror, so every file is bitwise that of the host-state run; the per-step cost is the gathers of §4 |
+| Validation: the full loop with `amrex_state = 1` byte-identical to the same run with `amrex_state = 0` (the three backends with the host state), for 1/2/3 ranks and 1/2 threads; bit-identical restarts | **done**: `ctest -L amrex_state` (5 tests), §3 |
 | klone: 512³ on one node, 1–4 nodes scaling | phase 4 |
 
 Ground rules kept: nothing changes without `amrex_state = 1` (default 0);
@@ -148,6 +148,67 @@ grid at any time; rank 0's transient is one slab or chunk. A legacy
 
 The small things: the clock, the units, the halo catalogue and the
 source list, the FoF cache, the rate tables, the per-step scalars.
+
+## 2.6 What was built (phases 1 and 2, 2026-10-13)
+
+`include/radray/amrex_state.hpp` (AMReX-free: the parameter, the checks
+and the collective calls), `src/amrex/gas_state.{hpp,cpp}` (the gas
+MultiFab, the slab transfers `gather_slabs`/`scatter_slabs`, the clamps
+and the sparse metals), and the three levels:
+
+- **Decomposition.** `amrex_state_init` builds the gas `BoxArray`
+  (`amrex_max_grid_size`) and its `DistributionMapping` once, before any
+  level. The RT level takes them as they are, the hydro level too
+  (`amrex_hydro_max_grid_size = 0` means that box size; the check refuses
+  another), the PM level refines the boxes by `pm_refine` for the mesh
+  and keeps the gas boxes for its gas FabArray. All three index the gas
+  MultiFab through their own `MFIter`, which is valid because the
+  FabArrays share the BoxArray and the mapping.
+- **Gas.** 10 floats per cell (u, e, w: the hydro level's component
+  order). The hydro level copies its boxes in (float → double) and out
+  (rounded once, as the serial step) locally. The RT level's `prep` reads
+  u, w, e from it and the sources from the host `Luv`/`sfr` arrays (every
+  rank computes them from the catalogue), and keeps the radiation fields
+  of the previous step in its own cells, which now persist (zeroed at
+  construction, like the host arrays); its `post` writes u, w, e back
+  locally instead of the all-rank `sync_fields`. The PM level fills its
+  gas boxes from it and writes the kicked momenta and energy back
+  locally; the velocity all-reduce is gone.
+- **Particles.** `amrex_pm_load_particles` broadcasts rank 0's `xv` in
+  chunks of 4 M particles and every rank keeps those whose home cell lies
+  in its boxes (id = the host index `ip`, as before). `amrex_pm_drift`
+  is `calc_drift` on the tiles (the host arithmetic), then the home cells
+  and a `Redistribute`; `particle_mesh_unsplit` calls it around the level
+  step. `amrex_pm_gather_particles` sends (id, x, v) records to rank 0 in
+  chunks, which writes them into its `xv` by id: the mirror, refreshed
+  when stale (after a PM step) and needed (the halo finder, the
+  summaries, an output, a checkpoint).
+- **Halos and sources.** `update_sources` is split: `source_catalog`
+  (the FoF, the SO spheres, the source model and the FoF cache) runs on
+  rank 0 on its particle mirror, `bcast_catalog` sends the records, and
+  `apply_sources` (`Luv`/`sfr` per cell, the metals) runs on every rank;
+  the metals go onto the gas MultiFab as a sparse scatter in the serial
+  order (`amrex_state_add_metals`).
+- **Mirror and outputs.** Rank 0 keeps the host `GasGrid`, `RTGrid`,
+  `hs.v` and the PM arrays; the other ranks free them at start-up
+  (`GasGrid::has_e()` reports the dual-energy field present without an
+  array; `RTGrid::allocate_sources_only`). The driver refreshes the
+  mirror collectively: `summaries` clamps the gas on the level, gathers
+  it and runs `summarize_gas` on rank 0 (then broadcasts `cmax_gas`,
+  `vmax_gas`, `vrms_gas`, which every rank's timestep and `c_limit`
+  need); `write_stats` gathers the five statistics fields of the RT
+  cells; `write_frame`, `write_fields`, the data files, P(k) and the
+  checkpoint gather everything (`sync_mirror`). The checkpoint reader
+  skips the grid and particle blocks on the other ranks; the driver then
+  scatters rank 0's grids and particles onto the levels. The ray gather
+  of the checkpoint is now chunked (8 M rays per message).
+- **What every rank still holds:** `Luv` and `sfr` (8 B per cell) and the
+  transient `per_cell` lists of `calc_halo` (24 B per cell) during the
+  source assignment; the levels' own arrays (RT cells 184 B per local
+  cell plus the deposits and the rays, hydro 330 B, PM about 30 B plus
+  the particles); the catalogue and the small state. Rank 0 adds the
+  mirror (about 230 B per cell plus 24 B per particle) and, at a restart,
+  the serial ray pool and ray list of the checkpoint.
 
 ## 3. Phases and validation
 
