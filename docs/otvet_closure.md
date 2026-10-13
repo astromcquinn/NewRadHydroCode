@@ -382,7 +382,9 @@ there. After overlap it is 1.5, 1.3 and 1.2 λ_eff at z = 5.85, 5.67 and
 ## 4. Candidate closures
 
 Costs are for the 512³ run, where the present tensor (13 single-precision
-FFTs of 512³ per hydro step) costs ≈ 28 s per hydro step (0.43 h of 4.8 h)
+FFTs of 512³ per hydro step) costs ≈ 44 s per hydro step with sources
+(0.43 h of 4.8 h over 35 steps; an earlier version of this note divided by
+all 56 steps)
 and 6 floats per cell (3.2 GB of 146 GB). All are first-order closures
 (a tensor h, or P(N) = D N): Gnedin & Katz 2026 show that second-order
 generalisations are unstable.
@@ -477,7 +479,8 @@ the solver). By expected quality:
    - Cost at 512³: 128³ receivers × 192 cones × ≈ 46 log-spaced steps
      (r_c = 8 cells to 8 boxes) × 2 mip-map samples ≈ 4·10¹⁰ trilinear
      samples per hydro step. That is an estimate of 5–20 s on 192 cores,
-     against the present 28 s, to be measured.
+     against the present 44 s. Measured (§7): the march takes a few
+     seconds, but the cone needs a second set of FFTs (85 s in all).
    - Memory: the two pyramids (1.2 GB) and the coarse tensor per distance
      bin (0.5–0.9 GB), ≈ 2 GB of 146 GB.
    - Risks: e^(−⟨τ⟩) in a cone is not ⟨e^(−τ)⟩ (hence the τ cap);
@@ -810,5 +813,135 @@ three. Both the split and the cone leave the one-point Γ too narrow on the
 low side late (no shadows behind self-shielded gas), and the small-scale
 power (k ≳ 10 h/Mpc) too low.
 
-**512³** (`reion512_rays_otvet_{split,cone,screen}`, against
-`reion512_rays`, `_m1`, `_otvet`): running; results in §7.
+**512³:** §7.
+
+## 7. The closures at 512³ (40 Mpc/h)
+
+`reion512_rays_otvet_{split,cone,screen}`: the box, ICs and parameters of
+`reion512_rays`, plus snapshots at z = 6.25, 5.75 and 5.25, without
+`tensor_dump`. The cone ran with the ionised-cell budget (`c53a503`); the
+split and screen use `18a1470`, the same code for them. Analysis in
+`$RUNS/otvet_closure_512` (`gamma_power.py`, `reion_power.py`,
+`rt_methods_runs.py`); the IGM statistics and the comparison movie run
+after the October 13 maintenance.
+
+**Cost** (one node, 192 threads):
+
+| run | wall | RT | tensor: per hydro step with sources (35), total | peak RSS |
+|---|---|---|---|---|
+| OTVET (thin) | 4.80 h | 4.30 h | ≈ 44 s, 0.43 h | 146 GB |
+| split | 4.90 h | 4.36 h | 38 s, 0.37 h | 146 GB |
+| screen | 4.77 h | 4.27 h | 39 s, 0.39 h | 145 GB |
+| cone | 5.22 h | 4.69 h | 85 s, 0.83 h | 146 GB |
+
+The tensors are dominated by the single-threaded FFTs: 13 for thin and
+split, 26 for the cone, which needs both the thin and the near-field
+convolutions. The thin kernel's fill is now parallel (38 s against 44 s);
+the cone's march itself is a few seconds. Caching the kernels' transforms
+across hydro steps (they depend only on N, λ and r_c) and running the six
+components' FFTs in parallel would cut this several-fold, with
+byte-identical results.
+
+**Reionization history** (z at which x_V reaches 10 / 50 / 75 / 90 / 99 %):
+
+| run | z_10 | z_50 | z_75 | z_90 | z_99 | τ_es |
+|---|---|---|---|---|---|---|
+| rays | 8.575 | 6.961 | 6.471 | 6.171 | 5.816 | 0.0532 |
+| M1 | 8.550 | 6.964 | 6.495 | 6.210 | 5.914 | 0.0532 |
+| OTVET | 8.536 | 6.957 | 6.493 | 6.205 | 5.868 | 0.0533 |
+| split | 8.536 | 6.957 | 6.493 | 6.205 | 5.868 | 0.0533 |
+| **cone** | 8.549 | 6.958 | **6.478** | **6.186** | **5.838** | 0.0532 |
+| screen | 8.542 | 6.968 | 6.504 | 6.223 | 5.895 | 0.0534 |
+
+The cone ends reionization closest to the rays (Δz = 0.022 at x_V = 0.99,
+against 0.052 for OTVET and the split). Its temperature field also
+correlates best with the rays' (corr(log T) = 0.957 at z = 6.41 and 0.924
+at 5.91, against OTVET's 0.919 and 0.841). The split is OTVET until overlap,
+as at 256³.
+
+**Morphology and temperature during overlap:**
+
+| z | run | fraction of cells with \|Δx_HII\| > 0.1 | x_HII power ratio at k = 2 / 4 / 8 / 16 | median T (K) |
+|---|---|---|---|---|
+| 6.41 | rays | | 1 / 1 / 1 / 1 | 14831 |
+| | OTVET, split | 0.059 | 0.98 / 0.96 / 0.92 / 0.89 | 15167 |
+| | **cone** | **0.045** | **0.98 / 0.99 / 1.01 / 1.01** | **14775** |
+| | screen | 0.059 | 0.95 / 0.94 / 0.93 / 0.90 | 15067 |
+| | M1 | 0.111 | 0.96 / 0.88 / 0.95 / 1.02 | 14883 |
+| 5.91 | rays | | 1 / 1 / 1 / 1 | 13900 |
+| | OTVET, split | 0.012 | 0.79 / 0.84 / 0.66 / 0.62 | 14098 |
+| | **cone** | **0.008** | **0.89 / 0.93 / 0.87 / 0.85** | **13769** |
+| | screen | 0.014 | 0.60 / 0.76 / 0.53 / 0.51 | 13991 |
+| | M1 | 0.019 | 0.44 / 0.66 / 0.57 / 0.58 | 13915 |
+
+At z = 4.98 the cone's median temperature equals the rays' (10332 K);
+OTVET's is 10486 K.
+
+![P_Gamma 512^3](figures/otvet_closure_512_gamma_pk.png)
+
+*Γ_HI power spectra at 512³, z = 6.41, 5.91, 5.44 and 5.01. Top: Δ²;
+middle: the ratio to the rays; bottom: r(k). The rays' rise at
+k ≳ 10 h/Mpc is their sampling noise. Tables:
+[`figures/otvet_closure_512_gamma_pk.txt`](figures/otvet_closure_512_gamma_pk.txt),
+[`figures/otvet_closure_512_compare.txt`](figures/otvet_closure_512_compare.txt).*
+
+**P_Γ** (snapshot Γ, ratio to the rays and r(k); the 512³ rays run has no
+tensor dump, so the rays carry their single-substep noise and only
+k ≲ 6 h/Mpc is meaningful, `docs/rt_methods_512.md` §6):
+
+| z | k [h/Mpc] | M1 | OTVET | split | cone | screen |
+|---|---|---|---|---|---|---|
+| 6.41 | 0.29 | 0.83 (0.88) | 0.71 (0.96) | 0.71 (0.96) | 1.05 (1.00) | 0.70 (0.94) |
+| | 1.07 | 0.75 (0.49) | 0.64 (0.92) | 0.64 (0.92) | 1.00 (0.98) | 1.21 (0.95) |
+| | 3.82 | 0.61 (0.90) | 0.73 (0.97) | 0.73 (0.97) | 1.07 (0.99) | 1.64 (0.97) |
+| 5.91 | 0.29 | 0.84 (0.23) | 1.16 (0.80) | 1.16 (0.80) | 0.90 (0.99) | 0.78 (0.73) |
+| | 1.07 | 0.68 (0.28) | 1.07 (0.91) | 0.95 (0.90) | 0.93 (0.94) | 1.03 (0.90) |
+| | 3.82 | 0.52 (0.87) | 1.24 (0.97) | 1.03 (0.97) | 1.10 (0.98) | 1.33 (0.97) |
+| 5.44 | 0.29 | 0.32 (0.47) | 4.27 (0.95) | 1.84 (0.96) | 1.05 (0.98) | 1.28 (0.93) |
+| | 1.07 | 0.25 (0.26) | 2.35 (0.97) | 0.88 (0.97) | 0.75 (0.96) | 0.98 (0.97) |
+| | 3.82 | 0.34 (0.88) | 2.67 (0.97) | 1.02 (0.97) | 1.13 (0.97) | 1.33 (0.97) |
+| 4.98 | 0.29 | 0.27 (0.31) | 8.98 (0.98) | 1.84 (0.98) | 1.06 (0.98) | 1.48 (0.98) |
+| | 1.07 | 0.07 (0.44) | 4.35 (0.97) | 0.99 (0.97) | 0.69 (0.96) | 0.99 (0.97) |
+| | 3.82 | 0.21 (0.86) | 4.57 (0.96) | 0.99 (0.95) | 0.94 (0.96) | 1.18 (0.95) |
+
+- **OTVET's excess of 2.3–9× after overlap is gone with every closure.**
+  The split is within 0.79–1.04× at 0.65 ≤ k ≤ 6 h/Mpc, the cone within
+  0.66–1.17×, the screen within 0.77–1.4×. All have OTVET's high r(k).
+- **On the box scale** (the lowest bin, k = 0.29 h/Mpc, wavelength
+  ≈ 20 Mpc/h), the split keeps a 1.8–1.9× excess after overlap (also in
+  the clipped spectra, so it is not the proximity zones). The cone has
+  1.05–1.08×. The split leaves the thin directions in place, while the
+  cone's HI-attenuated cones and periodic images set the large-scale
+  pattern. This is the mean free path the split does not capture.
+- **The cone is a little low at k ≈ 0.6–2 h/Mpc at z = 5.0** (0.66–0.70).
+- **During overlap the cone is the only closure with the rays' amplitude
+  and pattern on all scales** (z = 6.41: 1.00–1.07 with r = 0.98–1.00;
+  OTVET and the split 0.64–0.73 with r = 0.92–0.97; z = 5.91: r = 0.99 at
+  k = 0.29 against OTVET's 0.80).
+- **One-point Γ:** the rays' snapshot Γ at 512³ is dominated by sampling
+  noise (the grain in the maps), so only the upper quantiles compare.
+  99.9 % quantile at z = 4.98: rays 2.77, split 2.61, cone 2.49, screen
+  2.69, OTVET 4.45, M1 1.49. OTVET's peaks are too high, not too low, once
+  its large-scale excess is gone. At z = 5.91 the cone has the longest low
+  tail of the moment methods, the closest to the rays (the shadowed
+  edges of the last islands).
+
+**Verdict.**
+1. **The cone (`otvet_closure = cone`, defaults)** is the best closure at
+   both resolutions. It has:
+   - the rays' reionization history to Δz ≤ 0.022 at x_V ≥ 0.75;
+   - the best morphology and temperatures during overlap;
+   - the rays' P_Γ during overlap;
+   - no excess after overlap, including on the box scale.
+
+   Its remaining errors are a 0.7× deficit at k ≈ 1 h/Mpc late (512³),
+   too little low-Γ tail late (256³, no shadows of self-shielded gas), and
+   too little power at k ≳ 10 h/Mpc. It costs 9 % more wall time than thin
+   OTVET at 512³.
+2. **The split (`otvet_split = 1`)** fixes the after-overlap amplitude at
+   no cost, but is OTVET until overlap and keeps a 1.8× excess on the box
+   scale.
+3. **The screened kernel** is the worst of the three. One λ over-smooths
+   the overlap era (the latest end of reionization of all runs) and leaves
+   a 1.3–1.5× excess.
+

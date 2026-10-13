@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-12: OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³: the split and the cone remove OTVET's after-overlap P_Γ excess; 512³ runs in progress (branch `otvet-closure`, below, `docs/otvet_closure.md`). Also 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-13: OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, below, `docs/otvet_closure.md`). Also 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## In progress 2026-10-12: a better Eddington tensor for OTVET (branch `otvet-closure`)
 
@@ -60,12 +60,28 @@ Report: `docs/otvet_closure.md`. Decisions and choices: `docs/PLAN.md`,
   - `gamma_power.py --s0` uses the tensor dump's step-averaged Γ. The rays'
     snapshot Γ is dominated by single-substep sampling noise on cell
     scales.
-* **512³ runs: in progress** (`reion512_rays_otvet_{split,cone,screen}`,
-  started 2026-10-12 22:37–23:00, about 5 h each, binary
-  `scratch/otvet-closure/bin/radhydro_18a1470`). The analysis (job 41821412,
-  `$RUNS/otvet_closure_512`) runs after them. Klone maintenance:
-  Oct 13 09:00 – Oct 14 09:00. The runs restart from their checkpoints if
-  cut.
+* **The cone's photon budget counts the ionised cells only** (`c53a503`).
+  Before overlap the unattenuated near field had driven λ_x to 1 cell, and
+  the first 256³ cone run's own tensor at z = 9.6 was worse than OTVET's.
+  The rerun (`otvcl256_otvet_cone2`) fixes that; nothing changes after
+  overlap.
+* **512³ runs: done** (`reion512_rays_otvet_{split,cone,screen}`;
+  `docs/otvet_closure.md` §7; analysis in `$RUNS/otvet_closure_512`).
+  - **Wall time:** split 4.90 h, screen 4.77 h, cone 5.22 h; thin OTVET
+    4.80 h.
+  - **After overlap:** OTVET's 2.3–9× P_Γ excess is gone with every
+    closure. The split keeps a 1.8× excess on the box scale; the cone does
+    not.
+  - **The cone is the best overall.** End of reionization at z = 5.838
+    against the rays' 5.816 (OTVET and split 5.868). It has the best
+    overlap-era morphology, x_HII power and temperatures, and the rays' P_Γ
+    during overlap (r = 0.98–1.00).
+  - **Still pending:** the IGM statistics and the comparison movie
+    (job 41825950) run after the Oct 13–14 maintenance.
+* **Open questions for the user:**
+  - make the cone the recommended OTVET setting?
+  - speed up the tensor FFTs (cached kernel transforms, parallel
+    components; byte-identical)?
 * **Open:** the user referred to a "previous message" with numbered
   instructions that never reached the session. Only its point 1, the
   merge of `main`, is done.
