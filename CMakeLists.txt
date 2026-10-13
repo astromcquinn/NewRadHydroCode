@@ -191,6 +191,12 @@ if(RADRAY_WITH_PM)
     if(FFTW3F_OMP_LIBRARY AND OpenMP_CXX_FOUND)
       target_link_libraries(radray_fft PUBLIC ${FFTW3F_OMP_LIBRARY} ${FFTW3F_LIBRARY})
       target_compile_definitions(radray_fft PRIVATE RADRAY_FFTW_OMP)
+      # the PM level's pencil FFT (pm_level.cpp) calls the threaded API; the
+      # level is reached from the AMReX library's own objects (the state's
+      # load balancing), so every consumer of radray_amrex needs it too
+      if(TARGET radray_amrex)
+        target_link_libraries(radray_amrex PRIVATE ${FFTW3F_OMP_LIBRARY} ${FFTW3F_LIBRARY})
+      endif()
       message(STATUS "Threaded FFTW (pm_refine > 1): ${FFTW3F_OMP_LIBRARY}")
     else()
       message(STATUS "Threaded FFTW: not found (pm_refine > 1 uses serial FFTs)")
