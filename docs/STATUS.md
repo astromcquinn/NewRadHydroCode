@@ -89,7 +89,9 @@ backend built, tested and timed on `cpu-g2`, 1 to 4 nodes.
   round-off as at 256³, bitwise identical between 2 and 4 nodes. These
   512³ runs are from the earlier build (`d927abd`); the RT level is
   unchanged since. Stage D needs ≥ 2 nodes at 512³ until Stage E removes
-  the redundant state; 8 ranks × 24 threads on one node was not tried.
+  the redundant state; 8 ranks × 24 threads on one node (2026-10-13) fits
+  (rank 0 293 GB, the others 171–196 GB) but takes 3258 s for the RT,
+  1.26× the serial code, fields bitwise identical.
 - **The multi-node hydro slowdown is the UCX transport, not the ghost
   volume** (`docs/stage_e_hydro.md` §5; 256³ random3d, 2 steps, 24 × 8
   per node, every layout byte-identical to the serial run). With the
