@@ -42,7 +42,7 @@ else
 fi
 bld="${1:-$src/build}"
 source "$src/tools/hyak/env.sh"
-if [ -n "${HYAK_MODULES:-}" ]; then module load $HYAK_MODULES; fi
+if [ -n "${HYAK_MODULES:-}" ]; then radray_module_load $HYAK_MODULES; fi
 ncpu="${SLURM_CPUS_PER_TASK:-8}"
 # The RT harness and the live Fortran comparisons need a large stack.
 ulimit -s unlimited

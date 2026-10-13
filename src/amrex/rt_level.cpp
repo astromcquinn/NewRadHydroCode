@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -60,6 +61,9 @@
 #include <omp.h>
 #endif
 
+#include "gas_state.hpp"
+#include "radray/amrex_state.hpp"
+#include "radray/hydro_backend.hpp"
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
 #include "radray/ray_tracing.hpp"
@@ -214,10 +218,15 @@ struct LevelBase {
   virtual void substep(Simulation& s) = 0;
   virtual void post(Simulation& s) = 0;
   virtual void sync_fields(Simulation& s) = 0;
+  // amrex_state = 1: the cells into rank 0's mirror (all fields, or the
+  // five of write_stats), and rank 0's RT grid onto the cells (a restart)
+  virtual void gather_fields(Simulation& s, bool stats_only) = 0;
+  virtual void scatter_fields(Simulation& s) = 0;
   virtual std::int64_t nrays() const = 0;
   virtual int bytes_per_ray() const = 0;
   virtual void gather_rays(std::vector<RayP>& out) const = 0;
-  virtual void scatter_rays(const std::vector<RayP>& in) = 0;
+  virtual void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const = 0;
+  virtual void scatter_rays(const std::vector<RayP>& in, bool first) = 0;
   virtual std::string timers() const = 0;
 };
 
@@ -228,6 +237,7 @@ struct Level : LevelBase {
 
   int N = 0, ng = 2, redist_local = 3;
   bool has_e = false;
+  gs::GasState* state = nullptr;  // amrex_state = 1 (gas_state.hpp)
   std::int64_t substep_count = 0;  // global RT substep counter (dithering keys)
   ax::Box domain;
   ax::Geometry geom;
@@ -288,7 +298,23 @@ struct Level : LevelBase {
     ba = ax::BoxArray(domain);
     ba.maxSize(cfg.amrex_max_grid_size);
     dm = ax::DistributionMapping(ba);
+    if (cfg.amrex_state) {
+      // the gas state's decomposition (gas_state.hpp): the gas is read and
+      // written locally
+      state = gs::active();
+      if (!state) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
+      if (state->N != N) throw std::runtime_error("rt_backend = amrex: the gas state has another N");
+      ba = state->ba;
+      dm = state->dm;
+    }
     C.define(ba, dm, 1, 0);
+    if (state) {
+      // the cells persist between steps (the host arrays start from zero)
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        auto c = C.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) { c(i, j, k) = RTCell{}; });
+      }
+    }
     TF.define(ba, dm, 10, ng);
     A.define(ba, dm, rrk::kNdep, ng);
     pc = std::make_unique<RayPC>(geom, dm, ba);
@@ -333,12 +359,36 @@ struct Level : LevelBase {
 
   void prep(Simulation& s) override {
     const double t0 = now();
-    if (has_e != !s.gas.e.empty()) throw std::runtime_error("rt_backend = amrex: the dual-energy field appeared after the level was built");
+    if (has_e != s.gas.has_e()) throw std::runtime_error("rt_backend = amrex: the dual-energy field appeared after the level was built");
     const RTGrid& G = s.rt;
     const GasGrid& g = s.gas;
     const Units u = s.units;
     const bool he = has_e;
     const int NN = N;
+    if (state) {
+      // the gas from the level's state, the sources from the host (computed
+      // on every rank), the radiation fields of the previous step from the
+      // cells themselves
+      const float *gLuv = G.Luv.data(), *gsfr = G.sfr.data();
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        auto c = C.array(mfi);
+        auto ga = state->G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          const std::int64_t gc = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
+          RTCell d = c(i, j, k);
+          for (int m = 0; m < 5; ++m) d.u[m] = ga(i, j, k, gs::kU + m);
+          for (int m = 0; m < 4; ++m) d.w[m] = ga(i, j, k, gs::kW + m);
+          d.e = he ? ga(i, j, k, gs::kE) : 0.0f;
+          d.Luv = gLuv[gc];
+          d.sfr = gsfr[gc];
+          rrk::prep_cell(d, u, he);
+          c(i, j, k) = d;
+        });
+      }
+      T.prep += now() - t0;
+      s.timers.prep += now() - t0;
+      return;
+    }
     // (host pointers: the gas grid is a host array)
     const float *gu = g.u.data(), *gw = g.w.data(), *ge = he ? g.e.data() : nullptr;
     const float *gLuv = G.Luv.data(), *gsfr = G.sfr.data(), *gdx = G.dx.data(), *ggam = G.gamma.data(),
@@ -378,9 +428,18 @@ struct Level : LevelBase {
     s.timers.prep += now() - t0;
   }
 
-  // The level's cells into s.rt and s.gas on every rank: gather on rank 0
-  // (ParallelCopy to a one-box FabArray), then broadcast the flat array.
+  // The level's cells into s.rt and s.gas on every rank: gathered on rank 0
+  // and broadcast slab by slab (kSyncPlanes k-planes at a time: a one-box
+  // FabArray of the slab on rank 0 by ParallelCopy, flattened, Bcast), so no
+  // rank holds a second copy of the whole grid (46 x N^3 floats, 25 GB at
+  // 512^3, which with the redundant serial state of every rank overflowed
+  // a 1.5 TB node at 24 ranks).
+  static constexpr int kSyncPlanes = 8;
   void sync_fields(Simulation& s) override {
+    if (state) {  // amrex_state = 1: rank 0's mirror only
+      gather_fields(s, false);
+      return;
+    }
     const double t0 = now();
     FFab Cf(ba, dm, NC, 0);
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -390,48 +449,53 @@ struct Level : LevelBase {
         f(i, j, k, m) = cf(c, i, j, k, m);
       });
     }
-    ax::BoxArray ba0(domain);
-    ax::DistributionMapping dm0(ax::Vector<int>{0});
-    FFab C0(ba0, dm0, NC, 0);
-    C0.ParallelCopy(Cf, 0, 0, NC);
-    const std::size_t ncell = static_cast<std::size_t>(N) * N * N;
-    std::vector<float> flat(ncell * NC);
-    if (ax::ParallelDescriptor::IOProcessor()) {
-      const auto a = C0.const_array(0);
-      for (int k = 0; k < N; ++k)
-        for (int j = 0; j < N; ++j)
-          for (int i = 0; i < N; ++i) {
-            float* b = &flat[(i + static_cast<std::size_t>(N) * (j + static_cast<std::size_t>(N) * k)) * NC];
-            for (int m = 0; m < NC; ++m) b[m] = a(i, j, k, m);
-          }
-    }
-    if (ax::ParallelDescriptor::NProcs() > 1)
-      ax::ParallelDescriptor::Bcast(flat.data(), flat.size(), ax::ParallelDescriptor::IOProcessorNumber());
     RTGrid& G = s.rt;
     GasGrid& g = s.gas;
+    const ax::DistributionMapping dm0(ax::Vector<int>{0});
+    const std::size_t nplane = static_cast<std::size_t>(N) * N;
+    std::vector<float> flat(nplane * kSyncPlanes * NC);
+    for (int k0 = 0; k0 < N; k0 += kSyncPlanes) {
+      const int nk = std::min(kSyncPlanes, N - k0);
+      const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
+      FFab C0(ax::BoxArray(slab), dm0, NC, 0);
+      C0.ParallelCopy(Cf, 0, 0, NC);
+      if (ax::ParallelDescriptor::IOProcessor()) {
+        const auto a = C0.const_array(0);
+        for (int k = 0; k < nk; ++k)
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i) {
+              float* b = &flat[(i + static_cast<std::size_t>(N) * (j + static_cast<std::size_t>(N) * k)) * NC];
+              for (int m = 0; m < NC; ++m) b[m] = a(i, j, k0 + k, m);
+            }
+      }
+      if (ax::ParallelDescriptor::NProcs() > 1)
+        ax::ParallelDescriptor::Bcast(flat.data(), nplane * nk * NC, ax::ParallelDescriptor::IOProcessorNumber());
+      const std::int64_t c0 = static_cast<std::int64_t>(k0) * nplane;
+      const std::int64_t c1 = c0 + static_cast<std::int64_t>(nk) * nplane;
 #pragma omp parallel for schedule(static)
-    for (std::int64_t c = 0; c < static_cast<std::int64_t>(ncell); ++c) {
-      RTCell d;
-      std::memcpy(&d, &flat[static_cast<std::size_t>(c) * NC], sizeof d);
-      G.rhog[c] = d.rhog;
-      G.fHI[c] = d.fHI;
-      G.fHeI[c] = d.fHeI;
-      G.fHeII[c] = d.fHeII;
-      G.temp[c] = d.temp;
-      for (int m = 0; m < 3; ++m) {
-        G.dx[c * 3 + m] = d.dx[m];
-        G.gamma[c * 3 + m] = d.gamma[m];
-        G.lambda[c * 3 + m] = d.lambda[m];
+      for (std::int64_t c = c0; c < c1; ++c) {
+        RTCell d;
+        std::memcpy(&d, &flat[static_cast<std::size_t>(c - c0) * NC], sizeof d);
+        G.rhog[c] = d.rhog;
+        G.fHI[c] = d.fHI;
+        G.fHeI[c] = d.fHeI;
+        G.fHeII[c] = d.fHeII;
+        G.temp[c] = d.temp;
+        for (int m = 0; m < 3; ++m) {
+          G.dx[c * 3 + m] = d.dx[m];
+          G.gamma[c * 3 + m] = d.gamma[m];
+          G.lambda[c * 3 + m] = d.lambda[m];
+        }
+        for (int m = 0; m < 5; ++m) {
+          G.nu[c * 5 + m] = d.nu[m];
+          G.ngam[c * 5 + m] = d.ngam[m];
+          G.fgam[c * 5 + m] = d.fgam[m];
+          G.tau[c * 5 + m] = d.tau[m];
+        }
+        for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
+        for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
+        if (has_e) g.e[c] = d.e;
       }
-      for (int m = 0; m < 5; ++m) {
-        G.nu[c * 5 + m] = d.nu[m];
-        G.ngam[c * 5 + m] = d.ngam[m];
-        G.fgam[c * 5 + m] = d.fgam[m];
-        G.tau[c * 5 + m] = d.tau[m];
-      }
-      for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
-      for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
-      if (has_e) g.e[c] = d.e;
     }
     T.sync += now() - t0;
   }
@@ -1065,7 +1129,131 @@ struct Level : LevelBase {
     s.rays.save.nfree = 0;
     T.post += now() - t0;
     s.timers.post += now() - t0;
+    if (state) {
+      // the gas the RT changed (w, u(5), e) back into the level's state,
+      // locally; the host mirror is refreshed on demand (gather_fields)
+      const double t1 = now();
+      const bool he2 = has_e;
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        auto c = C.const_array(mfi);
+        auto ga = state->G.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          const RTCell& d = c(i, j, k);
+          for (int m = 0; m < 5; ++m) ga(i, j, k, gs::kU + m) = d.u[m];
+          for (int m = 0; m < 4; ++m) ga(i, j, k, gs::kW + m) = d.w[m];
+          if (he2) ga(i, j, k, gs::kE) = d.e;
+        });
+      }
+      T.sync += now() - t1;
+      s.timers.sync += now() - t1;
+      return;
+    }
     sync_fields(s);
+  }
+
+  // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
+
+  // The first nc components of every cell (the rt_grid fields, then u, w,
+  // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)
+  void gather_fields(Simulation& s, bool stats_only) override {
+    const double t0 = now();
+    const int nc = stats_only ? 5 : NC;
+    FFab Cf(ba, dm, nc, 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      auto f = Cf.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        f(i, j, k, m) = cf(c, i, j, k, m);
+      });
+    }
+    RTGrid& G = s.rt;
+    GasGrid& g = s.gas;
+    const bool he = has_e;
+    const int NN = N;
+    gs::gather_slabs(Cf, N, nc, [&](int k0, int nk, ax::Array4<float const> const& a) {
+      if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
+        throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
+#pragma omp parallel for schedule(static) collapse(2)
+      for (int k = k0; k < k0 + nk; ++k)
+        for (int j = 0; j < NN; ++j)
+          for (int i = 0; i < NN; ++i) {
+            const std::int64_t c = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
+            G.rhog[c] = a(i, j, k, 0);
+            G.fHI[c] = a(i, j, k, 1);
+            G.fHeI[c] = a(i, j, k, 2);
+            G.fHeII[c] = a(i, j, k, 3);
+            G.temp[c] = a(i, j, k, 4);
+            if (stats_only) continue;
+            RTCell d;
+            float* dp = reinterpret_cast<float*>(&d);
+            for (int m = 0; m < NC; ++m) dp[m] = a(i, j, k, m);
+            for (int m = 0; m < 3; ++m) {
+              G.dx[c * 3 + m] = d.dx[m];
+              G.gamma[c * 3 + m] = d.gamma[m];
+              G.lambda[c * 3 + m] = d.lambda[m];
+            }
+            for (int m = 0; m < 5; ++m) {
+              G.nu[c * 5 + m] = d.nu[m];
+              G.ngam[c * 5 + m] = d.ngam[m];
+              G.fgam[c * 5 + m] = d.fgam[m];
+              G.tau[c * 5 + m] = d.tau[m];
+            }
+            for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
+            for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
+            if (he) g.e[c] = d.e;
+          }
+    });
+    T.sync += now() - t0;
+    s.timers.sync += now() - t0;
+  }
+
+  // Rank 0's rt_grid fields (the first 36 floats of a cell) onto the cells
+  // (a restart); u, w, e come from the gas state at the next prep
+  void scatter_fields(Simulation& s) override {
+    constexpr int nf = kTau + 5;  // rhog .. tau: the rt_grid fields
+    static_assert(nf == 36, "rt_grid fields");
+    FFab Cf(ba, dm, nf, 0);
+    const RTGrid& G = s.rt;
+    const int NN = N;
+    gs::scatter_slabs(Cf, N, nf, [&](int k0, int nk, ax::Array4<float> const& a) {
+      if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
+        throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
+#pragma omp parallel for schedule(static) collapse(2)
+      for (int k = k0; k < k0 + nk; ++k)
+        for (int j = 0; j < NN; ++j)
+          for (int i = 0; i < NN; ++i) {
+            const std::int64_t c = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
+            RTCell d{};
+            d.rhog = G.rhog[c];
+            d.fHI = G.fHI[c];
+            d.fHeI = G.fHeI[c];
+            d.fHeII = G.fHeII[c];
+            d.temp = G.temp[c];
+            d.Luv = G.Luv[c];
+            d.sfr = G.sfr[c];
+            for (int m = 0; m < 3; ++m) {
+              d.dx[m] = G.dx[c * 3 + m];
+              d.gamma[m] = G.gamma[c * 3 + m];
+              d.lambda[m] = G.lambda[c * 3 + m];
+            }
+            for (int m = 0; m < 5; ++m) {
+              d.nu[m] = G.nu[c * 5 + m];
+              d.ngam[m] = G.ngam[c * 5 + m];
+              d.fgam[m] = G.fgam[c * 5 + m];
+              d.tau[m] = G.tau[c * 5 + m];
+            }
+            const float* dp = reinterpret_cast<const float*>(&d);
+            for (int m = 0; m < nf; ++m) a(i, j, k, m) = dp[m];
+          }
+    });
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.array(mfi);
+      auto f = Cf.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+        float* dp = reinterpret_cast<float*>(&c(i, j, k));
+        for (int m = 0; m < nf; ++m) dp[m] = f(i, j, k, m);
+      });
+    }
   }
 
   std::int64_t nrays() const override {
@@ -1077,8 +1265,18 @@ struct Level : LevelBase {
   }
   int bytes_per_ray() const override { return Enc::kBytes; }
 
-  // All rays in the float layout, gathered on rank 0 (MPI_Gatherv)
+  // All rays in the float layout, gathered on rank 0: every rank sends its
+  // list to rank 0 in chunks of kGatherChunk rays (an MPI_Gatherv would be
+  // limited to 2 GB, 25 M rays; a 512^3 production run holds 1.1 G)
+  static constexpr std::size_t kGatherChunk = std::size_t(1) << 23;  // 8 M rays, 640 MB
   void gather_rays(std::vector<RayP>& out) const override {
+    out.clear();
+    gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
+  }
+
+  // The streaming gather: rank 0's own rays first, then every rank's in rank
+  // order, each handed to sink on rank 0 in chunks of kGatherChunk
+  void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     std::vector<RayP> mine;
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1088,50 +1286,81 @@ struct Level : LevelBase {
       for (int n = 0; n < np; ++n) mine.push_back(Enc::load(p, n, ectx));
     }
     const int nranks = ax::ParallelDescriptor::NProcs();
-    out.clear();
-    if (nranks == 1) {
-      out.swap(mine);
-      return;
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    std::vector<RayP> chunk;
+    if (io) {
+      for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
+        const std::size_t n = std::min(kGatherChunk, mine.size() - off);
+        chunk.assign(mine.begin() + off, mine.begin() + off + n);
+        sink(chunk);
+      }
     }
+    if (nranks == 1) return;
 #ifdef AMREX_USE_MPI
     const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
     const int root = ax::ParallelDescriptor::IOProcessorNumber();
-    const int nb = static_cast<int>(mine.size() * sizeof(RayP));
-    std::vector<int> counts(nranks), displs(nranks);
-    MPI_Gather(&nb, 1, MPI_INT, counts.data(), 1, MPI_INT, root, comm);
-    long long total = 0;
-    if (ax::ParallelDescriptor::IOProcessor()) {
-      for (int r = 0; r < nranks; ++r) {
-        displs[r] = static_cast<int>(total);
-        total += counts[r];
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    long long count = static_cast<long long>(mine.size());
+    std::vector<long long> counts(nranks);
+    MPI_Gather(&count, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
+    for (int r = 0; r < nranks; ++r) {
+      if (r == root) continue;
+      if (myproc == r) {
+        for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
+          const int n = static_cast<int>(std::min(kGatherChunk, mine.size() - off));
+          MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 11, comm);
+        }
+      } else if (io) {
+        const std::size_t total = static_cast<std::size_t>(counts[r]);
+        for (std::size_t off = 0; off < total; off += kGatherChunk) {
+          const int n = static_cast<int>(std::min(kGatherChunk, total - off));
+          chunk.resize(static_cast<std::size_t>(n));
+          MPI_Recv(chunk.data(), n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 11, comm, MPI_STATUS_IGNORE);
+          sink(chunk);
+        }
       }
-      if (total > 2000000000LL) throw std::runtime_error("checkpoint: more than 2 GB of rays to gather");
-      out.resize(static_cast<std::size_t>(total / sizeof(RayP)));
     }
-    MPI_Gatherv(mine.data(), nb, MPI_BYTE, out.data(), counts.data(), displs.data(), MPI_BYTE, root, comm);
 #endif
   }
 
   // Rank 0 adds the rays (home-cell centres as positions), a global
   // Redistribute moves them to their owners
-  void scatter_rays(const std::vector<RayP>& in) override {
+  // Rank 0 holds the whole list (a checkpoint): the rays go to their owners
+  // in chunks of kScatterChunk, each written into rank 0's first tile and
+  // redistributed, so rank 0's peak holds one chunk of particles and its
+  // migration buffers, not the whole pool (1.1 G rays = 110 GB of
+  // particles plus their send buffers at 512^3). Every rank calls
+  // Redistribute the same number of times (collective).
+  static constexpr std::size_t kScatterChunk = std::size_t(1) << 25;
+  void scatter_rays(const std::vector<RayP>& in, bool first) override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
-      pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
-    if (ax::ParallelDescriptor::IOProcessor() && !in.empty()) {
-      ax::MFIter mfi(C);
-      if (!mfi.isValid()) throw std::runtime_error("checkpoint: rank 0 owns no box");
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
-      pt.resize(in.size());
-      const PTD p = pt.getParticleTileData();
-      const int myproc = ax::ParallelDescriptor::MyProc();
-      const int NN = N;
-      for (std::size_t n = 0; n < in.size(); ++n) {
-        const int h[3] = {rrk::cell_of(in[n].x[0], NN), rrk::cell_of(in[n].x[1], NN), rrk::cell_of(in[n].x[2], NN)};
-        store_ray(p, static_cast<int>(n), in[n], NN, myproc, h, ectx);
+    if (first)
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
+        pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
+    const bool root = ax::ParallelDescriptor::IOProcessor();
+    ax::Long nchunk = root ? static_cast<ax::Long>((in.size() + kScatterChunk - 1) / kScatterChunk) : 0;
+    ax::ParallelDescriptor::ReduceLongMax(nchunk);
+    if (nchunk == 0) nchunk = 1;
+    for (ax::Long ic = 0; ic < nchunk; ++ic) {
+      if (root && !in.empty()) {
+        ax::MFIter mfi(C);
+        if (!mfi.isValid()) throw std::runtime_error("checkpoint: rank 0 owns no box");
+        auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+        const std::size_t n0 = static_cast<std::size_t>(ic) * kScatterChunk;
+        const std::size_t n1 = std::min(in.size(), n0 + kScatterChunk);
+        const int old = pt.numParticles();
+        pt.resize(old + (n1 - n0));
+        const PTD p = pt.getParticleTileData();
+        const int myproc = ax::ParallelDescriptor::MyProc();
+        const int NN = N;
+        for (std::size_t n = n0; n < n1; ++n) {
+          const int h[3] = {rrk::cell_of(in[n].x[0], NN), rrk::cell_of(in[n].x[1], NN),
+                            rrk::cell_of(in[n].x[2], NN)};
+          store_ray(p, old + static_cast<int>(n - n0), in[n], NN, myproc, h, ectx);
+        }
       }
+      pc->Redistribute();
     }
-    pc->Redistribute();
   }
 
   std::string timers() const override {
@@ -1161,7 +1390,7 @@ LevelBase& level_of(Simulation& s) {
   if (!s.amrex) {
     check_rt_backend_param(s.cfg);
     s.amrex = std::make_shared<AmrexRT>();
-    const bool with_e = !s.gas.e.empty();
+    const bool with_e = s.gas.has_e();
     if (s.cfg.ray_encoding == RayEncoding::RStruct)
       s.amrex->level = std::make_unique<Level<amrex_enc::RStructEnc>>(s.cfg, with_e);
     else
@@ -1184,6 +1413,8 @@ void backend_init(int& argc, char**& argv) {
 }
 void backend_finalize() {
   if (!g_initialized) return;
+  amrex_hydro_release();  // the hydro level's FabArrays before the arenas go
+  amrex_state_release();
   amrex::Finalize();
   g_initialized = false;
 }
@@ -1193,6 +1424,26 @@ int backend_nranks() { return g_initialized ? amrex::ParallelDescriptor::NProcs(
 void backend_barrier() {
   if (g_initialized) amrex::ParallelDescriptor::Barrier();
 }
+void backend_reduce_minmax(double& lo, double& hi) {
+  if (!g_initialized) return;
+  amrex::ParallelDescriptor::ReduceRealMin(lo);
+  amrex::ParallelDescriptor::ReduceRealMax(hi);
+}
+void backend_bcast(double* v, int n) {
+  if (!g_initialized || amrex::ParallelDescriptor::NProcs() == 1) return;
+  amrex::ParallelDescriptor::Bcast(v, n, amrex::ParallelDescriptor::IOProcessorNumber());
+}
+void backend_bcast_bytes(void* p, std::size_t n) {
+  if (!g_initialized || amrex::ParallelDescriptor::NProcs() == 1) return;
+  const std::size_t chunk = std::size_t(1) << 30;
+  for (std::size_t off = 0; off < n; off += chunk) {
+    const int cnt = static_cast<int>(std::min(chunk, n - off));
+    MPI_Bcast(static_cast<char*>(p) + off, cnt, MPI_BYTE, amrex::ParallelDescriptor::IOProcessorNumber(),
+              amrex::ParallelDescriptor::Communicator());
+  }
+}
+void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
+void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }
 void amrex_rt_substep(Simulation& s) { level_of(s).substep(s); }
@@ -1204,7 +1455,14 @@ void amrex_rt_gather_rays(const Simulation& s, std::vector<rrk::RayP>& out) {
   out.clear();
   if (s.amrex) s.amrex->level->gather_rays(out);
 }
-void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in) { level_of(s).scatter_rays(in); }
+void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in) { level_of(s).scatter_rays(in, true); }
+void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in, bool first) {
+  level_of(s).scatter_rays(in, first);
+}
+void amrex_rt_gather_rays_chunks(const Simulation& s,
+                                 const std::function<void(const std::vector<rrk::RayP>&)>& sink) {
+  if (s.amrex) s.amrex->level->gather_rays_chunks(sink);
+}
 std::string amrex_rt_timers(const Simulation& s) { return s.amrex ? s.amrex->level->timers() : ""; }
 
 }  // namespace radray

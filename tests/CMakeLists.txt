@@ -431,7 +431,10 @@ if(Python3_Interpreter_FOUND)
   # problems for a few steps; the output must still match the reference.
   if(NOT RADRAY_SANITIZE)
     file(GLOB RADRAY_ALL_SRC ${PROJECT_SOURCE_DIR}/src/*.cpp)
-    list(APPEND RADRAY_ALL_SRC ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp)
+    list(APPEND RADRAY_ALL_SRC ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp
+                            ${PROJECT_SOURCE_DIR}/src/amrex/pm_level_stub.cpp)
+    list(APPEND RADRAY_ALL_SRC ${PROJECT_SOURCE_DIR}/src/amrex/hydro_level_stub.cpp
+                            ${PROJECT_SOURCE_DIR}/src/amrex/gas_state_stub.cpp)
     add_executable(hydro_driver_asan ${PROJECT_SOURCE_DIR}/apps/hydro_driver.cpp ${RADRAY_ALL_SRC})
     target_include_directories(hydro_driver_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
                                ${FFTW3F_INCLUDE_DIR})
@@ -557,7 +560,10 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
   # it must still match the reference bit for bit.
   if(NOT RADRAY_SANITIZE)
     file(GLOB RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/*.cpp)
-    list(APPEND RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp)
+    list(APPEND RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp
+                            ${PROJECT_SOURCE_DIR}/src/amrex/pm_level_stub.cpp)
+    list(APPEND RADRAY_ALL_SRC_FULL ${PROJECT_SOURCE_DIR}/src/amrex/hydro_level_stub.cpp
+                            ${PROJECT_SOURCE_DIR}/src/amrex/gas_state_stub.cpp)
     add_executable(radhydro_asan ${PROJECT_SOURCE_DIR}/apps/radhydro.cpp ${RADRAY_ALL_SRC_FULL})
     target_include_directories(radhydro_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
                                ${FFTW3F_INCLUDE_DIR})
@@ -714,7 +720,10 @@ if(Python3_Interpreter_FOUND)
     # paths: N = 32)
     if(NOT RADRAY_SANITIZE AND TARGET radhydro_asan)
       file(GLOB RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/*.cpp)
-      list(APPEND RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp)
+      list(APPEND RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/amrex/rt_level_stub.cpp
+                            ${PROJECT_SOURCE_DIR}/src/amrex/pm_level_stub.cpp)
+    list(APPEND RADRAY_ALL_SRC_RT ${PROJECT_SOURCE_DIR}/src/amrex/hydro_level_stub.cpp
+                            ${PROJECT_SOURCE_DIR}/src/amrex/gas_state_stub.cpp)
       add_executable(rt_driver_asan ${PROJECT_SOURCE_DIR}/apps/rt_driver.cpp ${RADRAY_ALL_SRC_RT})
       target_include_directories(rt_driver_asan PRIVATE ${PROJECT_SOURCE_DIR}/include
                                  ${FFTW3F_INCLUDE_DIR})
@@ -1073,6 +1082,94 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      ${amrex_runs}/restart_unsplit 13 --set legacy_rt=0 --set legacy_physics=0
                      --set rt_backend=amrex --set hydro_scheme=unsplit)
     set_tests_properties(amrex_restart_smoke_unsplit PROPERTIES TIMEOUT 1800 LABELS "amrex;restart")
+    # Stage E1 (docs/stage_e_hydro.md): hydro_backend = amrex, the unsplit
+    # hydro step on AMReX MultiFabs, must be BITWISE identical to the serial
+    # unsplit step for any rank count, box size and thread count (label
+    # amrex_hydro, inside amrex)
+    foreach(p sod_x random3d sound_x)
+      add_test(NAME amrex_hydro_ref_${p}
+               COMMAND hydro_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p} ${amrex_runs}/hydro_ref_${p}
+                       --quiet --set hydro_scheme=unsplit)
+      set_tests_properties(amrex_hydro_ref_${p} PROPERTIES FIXTURES_SETUP amrex_hydro_ref_${p}
+                           LABELS "amrex;amrex_hydro" ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 600)
+      foreach(cfg "1;1;32" "1;2;16" "2;1;16" "2;2;8" "4;1;16" "4;2;8" "8;1;8")
+        list(GET cfg 0 np)
+        list(GET cfg 1 nt)
+        list(GET cfg 2 mgs)
+        set(tname amrex_hydro_bitwise_${p}_r${np}t${nt}_mgs${mgs})
+        add_test(NAME ${tname}
+                 COMMAND ${CMAKE_COMMAND}
+                   -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                   -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                   -DDRIVER=$<TARGET_FILE:hydro_driver>
+                   -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p}
+                   -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/hydro_ref_${p}
+                   "-DSET=hydro_scheme=unsplit,hydro_backend=amrex,amrex_hydro_max_grid_size=${mgs}"
+                   -DEXTRA=--quiet
+                   -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                   -DSTRICT=1
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+        set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_hydro_ref_${p}
+                             LABELS "amrex;amrex_hydro" ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 600
+                             PROCESSORS ${np})
+      endforeach()
+    endforeach()
+    # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
+    # each other (rank_check) and to the run with the serial hydro
+    add_test(NAME amrex_hydro_full_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/hydro_full_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP}
+                     "1 2 3" $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet
+                     --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                     --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=8
+                     --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_hydro_full_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_hydro_full_vs_serial_hydro
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                     ${amrex_runs}/hydro_full_pair $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     "hydro_backend=serial" "hydro_backend=amrex,amrex_hydro_max_grid_size=8"
+                     --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                     --set hydro_scheme=unsplit --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1
+                     --set restart_keep_latest=0)
+    set_tests_properties(amrex_hydro_full_vs_serial_hydro PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=2)
+    # amrex_state = 1 (docs/stage_e_state.md): the gas on the levels, byte-
+    # identical to the three backends with the host state on every rank
+    # (fields, stats, movie frames, checkpoints), for 1/2/3 ranks x 1/2
+    # threads, and a bit-identical restart (label amrex_state, inside amrex)
+    foreach(rt "1 1" "2 1" "3 1" "2 2")
+      separate_arguments(rt)
+      list(GET rt 0 np)
+      list(GET rt 1 nt)
+      add_test(NAME amrex_state_full_pair_r${np}t${nt}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       ${amrex_runs}/state_pair_r${np}t${nt} $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "amrex_state=0" "amrex_state=1"
+                       --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set movie_dz=0.5
+                       --set movie_z0=25 --set restart_every=1 --set restart_keep_latest=0)
+      set_tests_properties(amrex_state_full_pair_r${np}t${nt} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_state;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
+                           PROCESSORS ${np})
+    endforeach()
+    add_test(NAME amrex_state_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/state_restart 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                     --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                     --set movie_dz=0.5 --set movie_z0=25)
+    set_tests_properties(amrex_state_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_state;restart")
+    # a bit-identical restart through the hydro backend
+    add_test(NAME amrex_hydro_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/hydro_restart 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex)
+    set_tests_properties(amrex_hydro_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;restart")
     # nightly: the 64^3 production configuration, backend vs serial
     # (history, tau_es, per-cell fields; docs/stage_d.md section 4)
     add_test(NAME amrex_full64_vs_serial
@@ -1080,6 +1177,142 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${amrex_runs}/full64 ${PROJECT_SOURCE_DIR}/tools)
     set_tests_properties(amrex_full64_vs_serial PROPERTIES TIMEOUT 14400 LABELS "amrex;full;nightly"
                          ENVIRONMENT OMP_NUM_THREADS=4 RUN_SERIAL TRUE DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+
+    # ---- the PM backend (pm_backend = amrex, docs/stage_e_pm.md; label amrex_pm) ----
+    # The dark matter, the CIC deposit, the Poisson solve and the kicks on
+    # an AMReX level of the PM mesh. Bitwise identical for any rank count,
+    # thread count and box size (int64 deposits, fixed-point statistics,
+    # per-line FFTs); round-off against pm_driver's serial PM.
+    set(PMC ${CMAKE_CURRENT_SOURCE_DIR}/amrex_pm_check.py)
+    set(amrex_pm_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_pm_runs)
+    # unit tests on the level: the single-particle force against Ewald, no
+    # self-force, the gas kick, the mesh force against the serial code,
+    # momentum conservation of every kick variant (1, 2 and 4 ranks, both FFTs)
+    add_executable(test_amrex_pm test_amrex_pm.cpp)
+    target_link_libraries(test_amrex_pm PRIVATE radray_pm ${RADRAY_RT_BACKEND_LIB})
+    foreach(cfg "1;pencil;16" "2;pencil;8" "4;pencil;16" "1;amrex;16" "2;amrex;16")
+      list(GET cfg 0 np)
+      list(GET cfg 1 fft)
+      list(GET cfg 2 mgs)
+      add_test(NAME amrex_pm_unit_r${np}_${fft}
+               COMMAND ${RADRAY_MPIEXEC} ${RADRAY_MPIEXEC_FLAGS} ${RADRAY_MPIEXEC_NP} ${np}
+                       $<TARGET_FILE:test_amrex_pm> --fft ${fft} --mgs ${mgs})
+      set_tests_properties(amrex_pm_unit_r${np}_${fft} PROPERTIES LABELS "amrex_pm;pm"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS ${np})
+    endforeach()
+    # round-off against the serial pm_driver on the PM problems (fixtures of
+    # the pm label), 2 ranks x 2 threads: every value within 1e-4 relative or
+    # 1e-5 of the field's maximum (the serial float CIC sum and 3-D FFTW plan
+    # against the exact deposit and the per-line transforms: 1e-7 per cell,
+    # amplified by the gradient where the force is small and over 30 steps,
+    # growth_3d: 5e-6 of the maximum), the stats within 1e-4 (cmax_gas of the
+    # non-MF kick: 1e-5); the backend's run is the fixture of the physics
+    # checks below
+    foreach(p ${PM_PROBLEMS})
+      add_test(NAME amrex_pm_roundoff_${p}
+               COMMAND ${Python3_EXECUTABLE} ${PMC} runcmp roundoff ${CMAKE_CURRENT_BINARY_DIR}/pm_runs/${p}
+                       ${amrex_pm_runs}/${p} ${RADRAY_MPIEXEC} "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2 2 $<TARGET_FILE:pm_driver>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p}
+                       --rtol 1e-4 --atol-frac 1e-5 --stats-rtol 1e-4
+                       -- --set pm_backend=amrex --set amrex_pm_max_grid_size=8)
+      set_tests_properties(amrex_pm_roundoff_${p} PROPERTIES FIXTURES_REQUIRED pm_${p}
+                           FIXTURES_SETUP amrex_pm_${p} LABELS "amrex_pm;pm" TIMEOUT 1800 PROCESSORS 2)
+      add_test(NAME amrex_pm_momentum_${p}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                       momentum ${amrex_pm_runs}/${p} ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p})
+      set_tests_properties(amrex_pm_momentum_${p} PROPERTIES FIXTURES_REQUIRED amrex_pm_${p}
+                           LABELS "amrex_pm;pm")
+    endforeach()
+    # the analytic pancakes, the growth test and the r = 2 twin on the backend's runs
+    foreach(case "pancake_x;" "pancake_x_r2;--tol-x;0.045" "pancake_x_n32;--tol-x;0.045"
+                 "pancake_z_nomf;--tol-mode-x;0.025;--tol-mode-v;0.025"
+                 "pancake_z_nomf_r2;--tol-x;0.045;--tol-mode-x;0.025;--tol-mode-v;0.025")
+      list(GET case 0 p)
+      list(REMOVE_AT case 0)
+      add_test(NAME amrex_pm_pancake_${p}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                       pancake ${amrex_pm_runs}/${p} ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p} ${case})
+      set_tests_properties(amrex_pm_pancake_${p} PROPERTIES FIXTURES_REQUIRED amrex_pm_${p}
+                           LABELS "amrex_pm;pm")
+    endforeach()
+    add_test(NAME amrex_pm_growth_3d
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     growth ${amrex_pm_runs}/growth_3d ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/growth_3d)
+    set_tests_properties(amrex_pm_growth_3d PROPERTIES FIXTURES_REQUIRED amrex_pm_growth_3d LABELS "amrex_pm;pm")
+    add_test(NAME amrex_pm_r2_twin_pancake_x
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_physics_check.py
+                     same-dm ${amrex_pm_runs}/pancake_x_r2 ${amrex_pm_runs}/pancake_x_n32)
+    set_tests_properties(amrex_pm_r2_twin_pancake_x PROPERTIES
+                         FIXTURES_REQUIRED "amrex_pm_pancake_x_r2;amrex_pm_pancake_x_n32" LABELS "amrex_pm;pm")
+    # bitwise matrix: two problems (pm_refine 1 and 2) x both FFTs x (ranks,
+    # threads, box size); the reference is the 1 x 1 run with one box
+    foreach(p zeldovich_3d zeldovich_3d_r2)
+      foreach(fft pencil amrex)
+        set(ref ${amrex_pm_runs}/bit_${p}_${fft}_ref)
+        add_test(NAME amrex_pm_bitref_${p}_${fft}
+                 COMMAND ${Python3_EXECUTABLE} ${PMC} run ${ref} ${RADRAY_MPIEXEC} "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 1 1 $<TARGET_FILE:pm_driver>
+                         ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p} --nsteps 6
+                         --set pm_backend=amrex --set amrex_pm_fft=${fft} --set amrex_pm_max_grid_size=32)
+        set_tests_properties(amrex_pm_bitref_${p}_${fft} PROPERTIES FIXTURES_SETUP amrex_pm_bit_${p}_${fft}
+                             LABELS "amrex_pm;pm" TIMEOUT 1800)
+        foreach(cfg "1;2;16" "2;1;16" "2;2;8" "4;1;16" "4;2;8" "8;1;8" "8;2;16")
+          list(GET cfg 0 np)
+          list(GET cfg 1 nt)
+          list(GET cfg 2 mgs)
+          set(tname amrex_pm_bitwise_${p}_${fft}_r${np}t${nt}_mgs${mgs})
+          add_test(NAME ${tname}
+                   COMMAND ${Python3_EXECUTABLE} ${PMC} runcmp bitwise ${ref} ${amrex_pm_runs}/${tname}
+                           ${RADRAY_MPIEXEC} "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np} ${nt} $<TARGET_FILE:pm_driver>
+                           ${CMAKE_CURRENT_SOURCE_DIR}/problems_pm/${p}
+                           -- --nsteps 6 --set pm_backend=amrex --set amrex_pm_fft=${fft}
+                           --set amrex_pm_max_grid_size=${mgs})
+          set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_pm_bit_${p}_${fft}
+                               LABELS "amrex_pm;pm" TIMEOUT 1800 PROCESSORS ${np})
+        endforeach()
+      endforeach()
+    endforeach()
+    # the full loop with rt_backend = amrex and pm_backend = amrex: 1, 2 and
+    # 4 ranks byte-identical (fields, movie frames, checkpoints), 1/2/4
+    # threads byte-identical, bit-identical restarts (legacy and unsplit
+    # hydro)
+    add_test(NAME amrex_pm_full_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_pm_runs}/full_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP}
+                     "1 2 4" $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet
+                     --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                     --set pm_backend=amrex --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1
+                     --set restart_keep_latest=0)
+    set_tests_properties(amrex_pm_full_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex_pm;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_pm_thread_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${amrex_pm_runs}/thread_smoke $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet --set legacy_rt=0
+                     --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex --set pm_backend=amrex
+                     --set hydro_scheme=unsplit)
+    set_tests_properties(amrex_pm_thread_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex_pm;threads"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_pm_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_pm_runs}/restart 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set pm_backend=amrex --set movie_dz=0.5 --set movie_z0=25)
+    set_tests_properties(amrex_pm_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex_pm;restart")
+    add_test(NAME amrex_pm_restart_smoke_unsplit
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_pm_runs}/restart_unsplit 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set pm_backend=amrex --set hydro_scheme=unsplit)
+    set_tests_properties(amrex_pm_restart_smoke_unsplit PROPERTIES TIMEOUT 1800 LABELS "amrex_pm;restart")
+    # the pm_refine = 2 full loop (Ndm = 2N, on-the-fly sources) through the
+    # backend and its checkpoint
+    add_test(NAME amrex_pm_restart_smoke_pm_refine
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly_r2
+                     ${amrex_pm_runs}/restart_pm_refine 22 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set pm_backend=amrex --set hydro_scheme=unsplit
+                     --set deterministic_parallel=0)
+    set_tests_properties(amrex_pm_restart_smoke_pm_refine PROPERTIES TIMEOUT 1800 LABELS "amrex_pm;restart")
   endif()
 endif()
 

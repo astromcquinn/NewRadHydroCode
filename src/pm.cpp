@@ -4,6 +4,7 @@
 // precision; see docs/port_notes_pm.md.
 #include "radray/pm.hpp"
 #include "radray/kernels/hydro_mh.hpp"
+#include "radray/kernels/pm_kernels.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -19,6 +20,7 @@
 #include "radray/fft.hpp"
 #include "radray/fortran.hpp"
 #include "radray/parallel.hpp"
+#include "radray/pm_backend.hpp"
 
 namespace radray {
 namespace pm {
@@ -33,64 +35,20 @@ namespace {
 // (N_dm_gas_c = (Nm/Ndm)^3: the PM mesh is the gas grid in the original)
 inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.N_dm_m_c; }
 
-// CIC weights shared by cic_mass_assignment and accelerate_dm:
-//   x = mod(xv_dm(1,ip)*x_dm_gas - 0.5 + ngasr, ngasr), i1 = 1+int(x), ...
-// on the PM mesh (x_dm_m, nmr; x_dm_gas, ngasr with pm_refine = 1)
-struct Cic {
-  int i1, i2, j1, j2, k1, k2;
-  double dx1, dx2, dy1, dy2, dz1, dz2;
-};
-inline Cic cic_weights(const PMConfig& pc, const float* xv) {
-  const int N = pc.Nm;
-  Cic c;
-  const double x = f::mod(static_cast<double>(xv[0]) * pc.x_dm_m - 0.5 + pc.nmr, pc.nmr);
-  const double y = f::mod(static_cast<double>(xv[1]) * pc.x_dm_m - 0.5 + pc.nmr, pc.nmr);
-  const double z = f::mod(static_cast<double>(xv[2]) * pc.x_dm_m - 0.5 + pc.nmr, pc.nmr);
-  c.i1 = 1 + f::int4(x);
-  c.i2 = 1 + f::mod(c.i1, N);
-  c.dx1 = c.i1 - x;
-  c.dx2 = 1 - c.dx1;
-  c.j1 = 1 + f::int4(y);
-  c.j2 = 1 + f::mod(c.j1, N);
-  c.dy1 = c.j1 - y;
-  c.dy2 = 1 - c.dy1;
-  c.k1 = 1 + f::int4(z);
-  c.k2 = 1 + f::mod(c.k1, N);
-  c.dz1 = c.k1 - z;
-  c.dz2 = 1 - c.dz1;
-  return c;
-}
+// CIC weights shared by cic_mass_assignment and accelerate_dm
+// (rpk::cic_weights, kernels/pm_kernels.hpp: the same arithmetic as the
+// Fortran, shared with the AMReX backend)
+using rpk::Cic;
+inline rpk::MeshGeom mesh_geom(const PMConfig& pc) { return rpk::MeshGeom{pc.Nm, pc.nmr, pc.x_dm_m}; }
+inline Cic cic_weights(const PMConfig& pc, const float* xv) { return rpk::cic_weights(mesh_geom(pc), xv); }
 
-// calc_kick: function force(i,j,k). The whole finite difference is a real(4)
-// expression (2./3 and 1./12 are real(4) literals, density is real(4));
-// only the result is stored into the real(8) function value. (i,j,k) is a
-// mesh cell.
+// calc_kick: function force(i,j,k) (rpk::force_stencil: the whole finite
+// difference is a real(4) expression; only the result is stored into the
+// real(8) function value). (i,j,k) is a mesh cell.
 inline void force(const PMState& s, int i, int j, int k, double F[3]) {
-  const int N = s.pc.Nm;
-  const int im2 = 1 + f::mod(i - 3 + N, N);
-  const int im1 = 1 + f::mod(i - 2 + N, N);
-  const int ip1 = 1 + f::mod(i, N);
-  const int ip2 = 1 + f::mod(i + 1 + N, N);
-  const int jm2 = 1 + f::mod(j - 3 + N, N);
-  const int jm1 = 1 + f::mod(j - 2 + N, N);
-  const int jp1 = 1 + f::mod(j, N);
-  const int jp2 = 1 + f::mod(j + 1 + N, N);
-  const int km2 = 1 + f::mod(k - 3 + N, N);
-  const int km1 = 1 + f::mod(k - 2 + N, N);
-  const int kp1 = 1 + f::mod(k, N);
-  const int kp2 = 1 + f::mod(k + 1 + N, N);
-  const float c23 = 2.0f / 3.0f;
-  const float c112 = 1.0f / 12.0f;
   const float* d = s.density.data();
-  const float fx = -(c23 * (d[s.dcell(ip1, j, k)] - d[s.dcell(im1, j, k)])) +
-                   c112 * (d[s.dcell(ip2, j, k)] - d[s.dcell(im2, j, k)]);
-  const float fy = -(c23 * (d[s.dcell(i, jp1, k)] - d[s.dcell(i, jm1, k)])) +
-                   c112 * (d[s.dcell(i, jp2, k)] - d[s.dcell(i, jm2, k)]);
-  const float fz = -(c23 * (d[s.dcell(i, j, kp1)] - d[s.dcell(i, j, km1)])) +
-                   c112 * (d[s.dcell(i, j, kp2)] - d[s.dcell(i, j, km2)]);
-  F[0] = fx;
-  F[1] = fy;
-  F[2] = fz;
+  rpk::force_stencil(s.pc.Nm, i, j, k,
+                     [&](int ii, int jj, int kk) -> float { return d[s.dcell(ii, jj, kk)]; }, F);
 }
 
 // force(i,j,k), from the stored mesh force when it is valid (pm_refine > 1,
@@ -129,22 +87,11 @@ inline void gas_force(const PMState& s, int i, int j, int k, double F[3]) {
   for (int m = 0; m < 3; ++m) F[m] = sum[m] / norm;
 }
 
-// CIC interpolation of the mesh force to a particle (accelerate_dm)
+// CIC interpolation of the mesh force to a particle (accelerate_dm;
+// rpk::particle_force)
 inline void particle_force(const PMState& s, const Cic& c, double fv[3]) {
-  double F[3];
-  fv[0] = fv[1] = fv[2] = 0;
-  auto acc = [&](int ii, int jj, int kk, double wx, double wy, double wz) {
-    mesh_force(s, ii, jj, kk, F);
-    for (int m = 0; m < 3; ++m) fv[m] = fv[m] + F[m] * wx * wy * wz;
-  };
-  acc(c.i1, c.j1, c.k1, c.dx1, c.dy1, c.dz1);
-  acc(c.i2, c.j1, c.k1, c.dx2, c.dy1, c.dz1);
-  acc(c.i1, c.j2, c.k1, c.dx1, c.dy2, c.dz1);
-  acc(c.i2, c.j2, c.k1, c.dx2, c.dy2, c.dz1);
-  acc(c.i1, c.j1, c.k2, c.dx1, c.dy1, c.dz2);
-  acc(c.i2, c.j1, c.k2, c.dx2, c.dy1, c.dz2);
-  acc(c.i1, c.j2, c.k2, c.dx1, c.dy2, c.dz2);
-  acc(c.i2, c.j2, c.k2, c.dx2, c.dy2, c.dz2);
+  rpk::particle_force(
+      c, [&](int ii, int jj, int kk, double F[3]) { mesh_force(s, ii, jj, kk, F); }, fv);
 }
 
 // FFT threads for the pm_refine > 1 mesh. FFTW's OpenMP plans of 1024^3
@@ -408,7 +355,6 @@ void calc_density_field(PMState& s, const float* u_gas) {
 // pm_tools.f90: calc_gravity_field
 void calc_gravity_field(PMState& s, double scalefactor) {
   const int N = s.pc.Nm;
-  const int H = s.pc.Hm;
   const double Ak = 2 * pi / s.pc.nmr;
   // pm_refine > 1: threaded FFTW (fft.hpp); 1: the original serial plans
   const int fft_threads = pm_fft_threads(s.pc);
@@ -420,20 +366,10 @@ void calc_gravity_field(PMState& s, double scalefactor) {
 
 #pragma omp parallel for schedule(static) if (par::worth(s.pc.Nmcell))
   for (int k = 1; k <= N; ++k) {
-    const double kz = (k <= H + 1) ? Ak * (k - 1) : Ak * (k - 1 - N);
-    const double kc = 2 * std::sin(kz / 2);
     for (int j = 1; j <= N; ++j) {
-      const double ky = (j <= H + 1) ? Ak * (j - 1) : Ak * (j - 1 - N);
-      const double kb = 2 * std::sin(ky / 2);
       for (int i = 1; i <= N + 2; i += 2) {
-        const double kx = Ak * ((i - 1) / 2);
-        const double ka = 2 * std::sin(kx / 2);
-        const double ksq = f::pow2(kx) + f::pow2(ky) + f::pow2(kz);
-        double wphi;
-        if (ksq > 0)
-          wphi = Aphi / (f::pow2(ka) + f::pow2(kb) + f::pow2(kc));
-        else
-          wphi = 0;
+        // rpk::green_wphi: kx = Ak*ix, ky/kz folded above the Nyquist mode
+        const double wphi = rpk::green_wphi(N, (i - 1) / 2, j - 1, k - 1, Ak, Aphi);
         float* d = &s.density[s.dcell(i, j, k)];
         d[0] = static_cast<float>(static_cast<double>(d[0]) * wphi);
         d[1] = static_cast<float>(static_cast<double>(d[1]) * wphi);
@@ -600,13 +536,18 @@ void calc_kick(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Unit
   set_kick_globals(s, clk, amax, arms, vmax, vrms);
 }
 
-// pm_tools.f90: particle_mesh
+// pm_tools.f90: particle_mesh (pm_backend = amrex: link, density, gravity
+// and kick on the AMReX level, docs/stage_e_pm.md)
 void particle_mesh(PMState& s, float* u_gas, float* v_gas, SimClock& clk, const Units& u) {
   calc_drift(s, clk.dt_sim);
-  link_dm(s);
-  calc_density_field(s, u_gas);
-  calc_gravity_field(s, clk.scalefactor);
-  calc_kick(s, u_gas, v_gas, clk, u);
+  if (s.pc.backend == PMBackend::AMReX) {
+    amrex_pm_step(s, u_gas, v_gas, clk, u);
+  } else {
+    link_dm(s);
+    calc_density_field(s, u_gas);
+    calc_gravity_field(s, clk.scalefactor);
+    calc_kick(s, u_gas, v_gas, clk, u);
+  }
   calc_drift(s, clk.dt_sim);
 }
 
@@ -646,11 +587,23 @@ void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1
 
 void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1,
                            SimClock& clk, const Units& u) {
+  if (s.pc.amrex_state) {
+    // amrex_state = 1: the particles and the gas live on the level
+    // (pm_backend.hpp); the drifts there too
+    amrex_pm_drift(s, clk.dt_sim);
+    amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);
+    amrex_pm_drift(s, clk.dt_sim);
+    return;
+  }
   calc_drift(s, clk.dt_sim);
-  link_dm(s);
-  calc_density_field(s, u_gas);
-  calc_gravity_field(s, clk.scalefactor);
-  calc_kick_unsplit(s, u_gas, e_gas, eta1, clk, u);
+  if (s.pc.backend == PMBackend::AMReX) {
+    amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);
+  } else {
+    link_dm(s);
+    calc_density_field(s, u_gas);
+    calc_gravity_field(s, clk.scalefactor);
+    calc_kick_unsplit(s, u_gas, e_gas, eta1, clk, u);
+  }
   calc_drift(s, clk.dt_sim);
 }
 
@@ -867,6 +820,7 @@ void read_f32(const std::string& path, float* dst, std::size_t n) {
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
                           std::vector<float>& w_gas, const Units& u) {
   read_f32(dir + "/xv_dm.init", s.xv.data(), s.xv.size());
+  if (u_gas.empty()) return;  // amrex_state = 1 on a rank other than 0: no host gas grid
   read_f32(dir + "/u_gas.init", u_gas.data(), u_gas.size());
   const std::int64_t ncell = s.pc.Ncell;
   for (std::int64_t c = 0; c < ncell; ++c) {

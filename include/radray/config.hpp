@@ -11,6 +11,7 @@ namespace radray {
 // Unsplit = the unsplit MUSCL-Hancock + HLLC scheme with the dual-energy
 // formulation (src/hydro_unsplit.cpp, kernels/hydro_mh.hpp).
 enum class HydroScheme { Legacy, Unsplit };
+enum class HydroBackend { Serial, AMReX };
 
 // Radiative transfer method (docs/rt_moments.md): Rays = the original's
 // adaptive ray tracing (default, bit-identical to the Fortran); M1 and OTVET
@@ -27,6 +28,13 @@ enum class RTMethod { Rays, M1, OTVET };
 // the compact R-struct of docs/ray_compression.md (dithered, lossy).
 enum class RTBackend { Serial, AMReX };
 enum class RayEncoding { Float, RStruct };
+
+// Where the PM gravity runs (docs/stage_e_pm.md): Serial = the original's
+// linked lists, float CIC and FFTW on the host (default, bit-identical to
+// the Fortran); AMReX = the dark matter in an AMReX ParticleContainer, int64
+// fixed-point CIC deposits and the amrex::FFT Poisson solve on an AMReX
+// level of the PM mesh (MPI + OpenMP, rank- and thread-independent).
+enum class PMBackend { Serial, AMReX };
 
 struct Config {
   // radhydro_global.f90: Ncpu. The reference is run with ONE thread, and the
@@ -251,6 +259,30 @@ struct Config {
   int amrex_max_grid_size = 16;
   int amrex_ghosts = 2;
   int amrex_redist_local = 3;
+
+  // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
+  // in pm_backend.hpp; docs/stage_e_pm.md):
+  //   amrex_pm_max_grid_size: box size of the PM mesh's decomposition
+  //                (0 = amrex_max_grid_size; a multiple of pm_refine);
+  //   amrex_pm_fft: fft of the Poisson solve: pencil (default; 1-D FFTW
+  //                transforms per pencil, bitwise rank- and thread-
+  //                independent) | amrex (the amrex::FFT::R2C solver).
+  PMBackend pm_backend = PMBackend::Serial;
+  int amrex_pm_max_grid_size = 0;
+  int amrex_pm_fft = 0;
+  // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
+  // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
+  // step; hydro_scheme = unsplit only; set_hydro_backend_param in
+  // hydro_backend.hpp, docs/stage_e_hydro.md) and
+  //   amrex_hydro_max_grid_size: box size of the hydro level's decomposition.
+  HydroBackend hydro_backend = HydroBackend::Serial;
+  int amrex_hydro_max_grid_size = 32;
+  // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
+  // AMReX levels between steps on one shared decomposition
+  // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for
+  // the outputs (amrex_state.hpp, docs/stage_e_state.md). Needs the three
+  // backends, hydro_scheme = unsplit, rt_method = rays.
+  bool amrex_state = false;
 
   // Recombinations and recombination radiation (docs/recomb_radiation.md;
   // set_recomb_param in recomb_rad.hpp). New options, not in the original:

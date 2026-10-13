@@ -322,6 +322,40 @@ policy on klone, and deleting the merged branches.
   the user runs it), `ray_rotate` (its branch is not on the remote).
 
 
+## Stage E2 thread (2026-10-12): the PM gravity on AMReX
+
+* **Request (user):** Stage E2 on branch `stage-e-pm`: the PM gravity on
+  AMReX behind `pm_backend = amrex` (default `serial`, bit-for-bit): the
+  dark matter in an AMReX `ParticleContainer` (single-precision build,
+  AMReX 26.10 as Stage D), the CIC deposit onto a MultiFab of the PM mesh
+  (`pm_refine`: a BoxArray of its own), the gas density from the host
+  grid, the Poisson solve with `amrex::FFT`, the force interpolation, the
+  DM kick and the gas kick returned to the host (`calc_kick` and
+  `calc_kick_unsplit`); the level copies the host state in at the start of
+  the PM step and gathers the results back (the hydro and the RT still
+  hold the full state on every rank); `src/amrex/pm_level.cpp` with a stub;
+  minimal, additive edits to the shared files; the hydro files untouched
+  (the E1 thread's). Validation under the label `amrex_pm`; timings at
+  128³ and 256³; `docs/stage_e_pm.md`.
+* **Choices made in this thread** (open to revision; `docs/stage_e_pm.md`):
+  - the two drifts of `particle_mesh` stay on the host (per-particle
+    arithmetic, identical on every rank), so the particles never move while
+    on the level and no `Redistribute` is needed; the level holds no state
+    between steps, so checkpoints and restarts are unchanged;
+  - the gather back is a bitwise-OR MPI all-reduce of disjoint pieces
+    (exact; a sum would turn −0.0 into +0.0);
+  - the CIC deposit is int64 fixed point at 2⁻³⁸ (range 3.4e7 per mesh
+    cell), the kick statistics 128-bit at 2⁻⁵⁶;
+  - **`amrex_pm_fft = pencil` is the default**: per-line 1-D FFTW
+    transforms on slab layouts, rank- and thread-independent by
+    construction; `amrex_pm_fft = amrex` (`amrex::FFT::R2C`) is available
+    and was bitwise rank/thread-independent in every test here, but its
+    determinism rests on FFTW's planner choices for `plan_many` transforms,
+    which is not guaranteed;
+  - the PM kernels (CIC, force stencil, Green's function) moved into
+    `include/radray/kernels/pm_kernels.hpp`, called by the serial code
+    (byte-identical) and the level, as Stage D did for the RT.
+
 ## B16 fix thread (2026-10-10): `ray_rotate`
 
 * **The user asked for the per-substep random rotation** of the source
@@ -579,6 +613,97 @@ policy on klone, and deleting the merged branches.
   A = 0.3458, a = 0.6164, p = 0.3, `data/uv_lf/am_params_st_fof.txt`
   (`docs/pm_refine.md` §6). f_esc has to be recalibrated with it.
 
+## Stage E prerequisites on klone (2026-10-12)
+
+* **What's next (assessment for the user):** Stage E of `docs/ROADMAP.md`
+  §7, MPI for hydro, PM, halos/sources and I/O on AMReX (the RT is
+  already distributed by Stage D), then Stage F, AMR. Prerequisites: the
+  klone 256³ timing of the Stage D backend (`tools/hyak/amrex_scaling.slurm`,
+  never run), the multi-node hydro slowdown of `docs/framework_decision.md`
+  §3.3, and a production configuration the backend accepts.
+* **User decision: case B is the production default again**
+  (`make_production.py --recomb-case B --recomb-rad 0` are the defaults),
+  so that the production configuration runs on `rt_backend = amrex` and
+  Stage E does not wait for `recomb_rad` on the backend. Case A with
+  transported recombination radiation stays available with
+  `--recomb-case A --recomb-rad 1` (its `recomb_rad_block` and
+  `recomb_rad_cell_onspot` defaults are unchanged).
+* The Hyak scripts' module loading was broken under `set -u` (Lmod reads
+  unset variables); `radray_module_load` in `tools/hyak/env.sh` fixes it.
+* Done on klone the same day (`docs/stage_d.md` §4.4, `docs/STATUS.md`):
+  the backend built and `ctest -L amrex` green; 256³ on one node and
+  512³ on 2 and 4 nodes timed against the serial code, fields to
+  round-off. Choices made without the user: `reion256_c01` has no
+  checkpoint, so the 256³ timing uses `reion256_f0.2`; the 512³ run is
+  the case B checkpoint `reion512_40mpc_f0.23`; 512³ at 24 ranks × 8
+  threads per node runs out of memory (the redundant serial state is
+  about 100 GB per rank), so the field broadcast and the restart scatter
+  were made piecewise (bitwise identical results) and the 512³ layout is
+  12 ranks × 16 threads per node, on 2 nodes or more. The next backend
+  optimisation target is the deposit `SumBoundary` (25 % of the RT at
+  512³); Stage E removes the redundant state.
+* Later the same day (klone, after the Stage E1 merge): the build of
+  `5c0c974` passes `ctest -L amrex` 81/81 and the fast suite 125/125;
+  256³ re-timed on 1, 2 and 4 nodes (RT 156.8 / 100.2 / 76.8 s against
+  the serial 144.4 s), the 512³ 2- and 4-node results of the morning
+  kept (the RT level is unchanged). The multi-node hydro slowdown
+  measured (`docs/stage_e_hydro.md` §5): it is the UCX rendezvous path
+  of the klone OpenMPI, not the ghost volume. Choices made without the
+  user: `tools/hyak/env.sh` exports `UCX_RNDV_THRESH=8m
+  UCX_ZCOPY_THRESH=inf` for every AMReX job (`radray_ucx_eager`,
+  `RADRAY_UCX_RNDV_THRESH` to change it, `RADRAY_UCX_EAGER=0` to turn
+  off: eager for everything fixed the hydro but slowed the 512³ RT by
+  8 %, eager below 8 MB fixes the hydro and speeds the RT up by 10–15 %); the production box size stays 32³;
+  the ob1/TCP path (as fast, but a bus error at exit) was not pursued;
+  512³ on one node with 8 fat ranks was not tried.
+
+## Stage E3 (2026-10-13): the state on the levels
+
+* **Request (user):** merge the branches, understand the hydro threshold
+  oddity, try the 8 × 24 layout, then continue through the E stages.
+* Done: PR #32 (Stage E1 and the klone runs) and PR #33 (Stage E2,
+  opened from this thread since E3 needs both) merged into `main`; the
+  threshold oddity is the gather's 16–32 MB broadcast blocks going eager
+  above 16 MB (`docs/stage_e_hydro.md` §5), 8 MB stays; 8 × 24 fits one
+  node at 512³ but is 1.26× slower than the serial code.
+* **Choices made in this thread** (open to revision; `docs/stage_e_state.md`):
+  - `amrex_state = 1` is a switch on top of the three backends (default
+    0); the host grids become rank 0's mirror rather than disappearing,
+    so that every file format and every statistic stays bitwise the
+    host-state run's, which is the test (`ctest -L amrex_state`).
+  - The halo finder stays serial on rank 0's particle mirror (gathered
+    by id in chunks); a distributed FoF is left for later.
+  - The per-step statistics gather the gas (40 B per cell) and five RT
+    fields (20 B per cell) to rank 0 every step; the on-level 128-bit
+    alternative is deferred until round-off there is accepted.
+  - P(k) stays the host code on rank 0's mirror.
+  - The checkpoint format is unchanged (version 7); the ray gather is
+    chunked.
+  - One decomposition: `amrex_hydro_max_grid_size` 0 (= `amrex_max_grid_size`),
+    `amrex_pm_max_grid_size` 0 (= `pm_refine` × that).
+
+## Stage E1 (2026-10-12): the unsplit hydro on AMReX
+
+* **Request (user):** start Stage E with the hydro (E1) in this thread;
+  E2 (PM on AMReX) in a parallel thread with the brief given in the
+  session; the Hyak thread builds the backend and runs the Stage D
+  scaling job.
+* **Choices made in this thread** (open to revision; `docs/stage_e_hydro.md`):
+  - `hydro_backend = serial | amrex` is a switch independent of
+    `rt_backend`; `amrex` needs `hydro_scheme = unsplit` (the legacy
+    split scheme never goes on the backend).
+  - The level is bitwise identical to the serial unsplit step, not merely
+    round-off close: the serial step is stencil-local with exact
+    reductions, so the test is `compare.py --rtol 0 --atol-frac 0`.
+  - The face and update code moved into the kernel header
+    (`hydro_mh.hpp`) rather than being duplicated.
+  - Stage E1 keeps the full host state on every rank (copy in per box,
+    `MPI_Allgatherv` out), like Stage D's RT; the state moves onto the
+    level for good when E2–E4 are in.
+  - Flux temporaries are per box (never communicated); `Q` is computed on
+    the grown box rather than exchanged.
+  - `amrex_hydro_max_grid_size` defaults to 32 (the spike's 16³ boxes are
+    the suspect of the multi-node slowdown; §5 of the doc).
 ## M1 neutral source cells (2026-10-12, branch `m1-clumps`)
 
 * **User asked** whether M1's many neutral absorbers after overlap are

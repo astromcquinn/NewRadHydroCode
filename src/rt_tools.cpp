@@ -19,6 +19,7 @@
 #include "radray/ray_quant.hpp"
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
+#include "radray/amrex_state.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/rt_tensor_diag.hpp"
@@ -222,9 +223,19 @@ void RTGrid::allocate(int n) {
   htoc.assign(4 * ncell, 0);
 }
 
+void RTGrid::allocate_sources_only(int n) {
+  N = n;
+  ncell = static_cast<std::int64_t>(n) * n * n;
+  Luv.assign(ncell, 0.0f);
+  sfr.assign(ncell, 0.0f);
+}
+
 // rt_tools.f90: init_rt
 void init_rt(Simulation& s) {
-  s.rt.allocate(s.cfg.Nrt);
+  if (use_amrex_state(s.cfg) && !io_rank())
+    s.rt.allocate_sources_only(s.cfg.Nrt);  // the mirror is rank 0's (amrex_state.hpp)
+  else
+    s.rt.allocate(s.cfg.Nrt);
   s.rt_save = RTStat{};
   s.rt_stat = s.rt_save;
   calc_atomic_rates(s.rates, s.cfg.legacy_physics);
@@ -397,7 +408,7 @@ using GasState = rrk::GasStateP;
 double average_gas(const Simulation& s, int irt, int jrt, int krt, double us[5],
                    double ws[4]) {
   const int Nr = s.cfg.N_rt_gas;
-  const bool has_e = !s.gas.e.empty();
+  const bool has_e = s.gas.has_e();
   double es = 0;
   for (int m = 0; m < 5; ++m) us[m] = 0;
   for (int m = 0; m < 4; ++m) ws[m] = 0;
@@ -436,8 +447,10 @@ void prep_rt(Simulation& s) {
 
   RTGrid& G = s.rt;
   const int Nrt = s.cfg.Nrt;
-#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
-  for (int krt = 1; krt <= Nrt; ++krt)
+  // amrex_state = 1: the gas is on the level, which computes this itself
+  const bool host_gas = !use_amrex_state(s.cfg);
+#pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc) && host_gas)
+  for (int krt = 1; krt <= (host_gas ? Nrt : 0); ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
       for (int irt = 1; irt <= Nrt; ++irt) {
         double us[5], ws[4];

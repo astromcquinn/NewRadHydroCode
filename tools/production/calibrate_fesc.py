@@ -3,7 +3,7 @@
 
     calibrate_fesc.py OUTDIR --N 64 --am-params runs/am/am_params.txt
                       --fesc 0.05 0.1 0.2 [--threads 4] [--target 0.054]
-                      [--movie-fields fHI] [--extra key=value ...]
+                      [--movie-fields fHI] [--c-reduced 0.01] [--extra key=value ...]
 
 For each f_esc: writes OUTDIR/fesc_<f>/params.txt with
 tools/production/make_production.py (the production configuration at N,
@@ -40,6 +40,8 @@ def main():
     ap.add_argument("--fesc", type=float, nargs="+", required=True)
     ap.add_argument("--xi-ion", type=float, default=25.38)
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--c-reduced", type=float, default=0.01,
+                    help="reduced speed of light (make_production.py --c-reduced)")
     ap.add_argument("--target", type=float, default=reion.PLANCK_TAU)
     ap.add_argument("--movie-dz", type=float, default=0.05)
     ap.add_argument("--movie-fields", default="fHI")
@@ -61,7 +63,8 @@ def main():
             subprocess.run([sys.executable, os.path.join(here, "make_production.py"), d, "--N",
                             str(a.N), "--no-ics", "--am-params", a.am_params, "--xi-ion",
                             str(a.xi_ion), "--f-esc", str(f), "--movie-dz", str(a.movie_dz),
-                            "--movie-fields", a.movie_fields, "--restart-every", "0"], check=True)
+                            "--movie-fields", a.movie_fields, "--restart-every", "0",
+                            "--c-reduced", str(a.c_reduced)], check=True)
             with open(os.path.join(d, "params.txt"), "a") as p:
                 for kv in a.extra:
                     p.write(kv.replace("=", " = ", 1) + "\n")

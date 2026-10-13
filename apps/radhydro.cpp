@@ -52,9 +52,12 @@
 #include "radray/io.hpp"
 #include "radray/parallel.hpp"
 #include "radray/pm.hpp"
+#include "radray/pm_backend.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
+#include "radray/amrex_state.hpp"
+#include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
@@ -266,8 +269,14 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     // moment RT (docs/rt_moments.md)
   } else if (set_rt_backend_param(P.rtm, key, val)) {
     // rt_backend = serial | amrex (docs/stage_d.md)
+  } else if (set_pm_backend_param(P.rtm, key, val)) {
+  } else if (set_amrex_state_param(P.rtm, key, val)) {
+    // amrex_state = 0 | 1 (docs/stage_e_state.md)
+    // pm_backend = serial | amrex (docs/stage_e_pm.md)
   } else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
+  } else if (set_hydro_backend_param(P.hydro, key, val)) {
+    // hydro_backend = serial | amrex (docs/stage_e_hydro.md)
   } else if (key == "ray_dump_dir")
     P.ray_dump.dir = val;
   else if (key == "ray_dump_every")
@@ -561,8 +570,14 @@ int main(int argc, char** argv) {
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
+    copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
+    copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
+    copy_amrex_state_param(P.rtm, s.cfg);  // amrex_state = 0 | 1
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
+    check_pm_backend_param(s.cfg);
+    check_hydro_backend_param(s.cfg);
+    check_amrex_state_param(s.cfg);
     check_rt_cells_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
@@ -592,6 +607,35 @@ int main(int argc, char** argv) {
     pm::init_pm(pm, pm::PMConfig::make(cfg), gdom);    // init_pm
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
+    // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
+    // before any level; the host grids stay as rank 0's mirror only
+    const bool on_level = use_amrex_state(cfg);
+    if (on_level) {
+      amrex_state_init(s);
+      if (!io) {
+        for (auto* v : {&s.gas.u, &s.gas.w, &hs.v}) {
+          v->clear();
+          v->shrink_to_fit();
+        }
+      }
+    }
+    // the particles' mirror on rank 0 (pm.xv): current after the load and
+    // after a gather, stale after a PM step
+    bool xv_fresh = true;
+    auto sync_xv = [&]() {
+      if (!on_level || xv_fresh) return;
+      amrex_pm_gather_particles(pm);
+      xv_fresh = true;
+    };
+    // the level's gas into rank 0's host arrays, all RT fields into rank 0's
+    // RT grid and the particles into rank 0's xv (collective), before an
+    // output or a checkpoint
+    auto sync_mirror = [&]() {
+      if (!on_level) return;
+      amrex_state_gather_rt(s, false);
+      amrex_state_gather_gas(s);
+      sync_xv();
+    };
     ray_dump_enable(s, P.ray_dump);                    // (study only; off by default)
     s.ray_quant = P.ray_quant;                         // (research only; off by default)
     // init_io: output redshifts
@@ -609,6 +653,18 @@ int main(int argc, char** argv) {
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
     fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
+    if (on_level && !io) {
+      // amrex_state = 1: the particles live on the level; rank 0 keeps the
+      // host PM arrays as the mirror (the halo finder, P(k), the outputs)
+      for (auto* v : {&pm.ll, &pm.hoc, &pm.hoc_cpu}) {
+        v->clear();
+        v->shrink_to_fit();
+      }
+      for (auto* v : {&pm.xv, &pm.density, &pm.fmesh}) {
+        v->clear();
+        v->shrink_to_fit();
+      }
+    }
     calc_sim_var(cfg, s.clk, s.units);
     if (P.tensor_dump && use_amrex(cfg))
       throw std::runtime_error("tensor_dump is implemented for the serial RT backend only");
@@ -632,7 +688,9 @@ int main(int argc, char** argv) {
            << (P.photon_conserve ? ", photon_conserve = 1" : "")
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
-           << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
+           << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
+           << ", " << pm_backend_summary(cfg) << (on_level ? ", " + amrex_state_summary(cfg) : std::string())
+           << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
@@ -644,14 +702,40 @@ int main(int argc, char** argv) {
     std::int64_t& Nhalo = dst.Nhalo;
     auto summaries = [&]() {
       const auto ts = Clock::now();
-      pm::summarize_dm(pm, s.units, out);
-      const GasSummary gsum = summarize_gas(cfg, s.units, s.clk, s.gas, hs, out);
-      hydrolog << format_gas_record(gsum.record) << "\n";
+      if (on_level) {
+        sync_xv();
+        if (io) pm::summarize_dm(pm, s.units, out);
+      } else {
+        pm::summarize_dm(pm, s.units, out);
+      }
+      if (on_level) {
+        // the clamps on the level, the sums on rank 0's mirror in the serial
+        // order; the maxima of the timestep onto every rank
+        amrex_state_clamp_gas(s);
+        amrex_state_gather_gas(s);
+        double v[3] = {0, 0, 0};
+        if (io) {
+          const GasSummary gsum = summarize_gas(cfg, s.units, s.clk, s.gas, hs, out);
+          hydrolog << format_gas_record(gsum.record) << "\n";
+          v[0] = s.clk.cmax_gas;
+          v[1] = s.clk.vmax_gas;
+          v[2] = s.clk.vrms_gas;
+        }
+        backend_bcast(v, 3);
+        s.clk.cmax_gas = v[0];
+        s.clk.vmax_gas = v[1];
+        s.clk.vrms_gas = v[2];
+      } else {
+        const GasSummary gsum = summarize_gas(cfg, s.units, s.clk, s.gas, hs, out);
+        hydrolog << format_gas_record(gsum.record) << "\n";
+      }
       summarize_rt(s);
       T.summaries += std::chrono::duration<double>(Clock::now() - ts).count();
     };
 
     auto write_stats = [&](const std::string& d) {
+      if (on_level) amrex_state_gather_rt(s, true);  // rhog, fHI, fHeI, fHeII, temp onto rank 0
+      if (!io) return;
       // global diagnostics over the RT grid, k,j,i order, real(8) sums
       double xv = 0, xm = 0, mass = 0, tv = 0, tm = 0, xhe3 = 0;
       const RTGrid& G = s.rt;
@@ -665,7 +749,6 @@ int main(int argc, char** argv) {
         xhe3 = xhe3 + (1 - static_cast<double>(G.fHeI[c]) - static_cast<double>(G.fHeII[c]));
       }
       const double nc = cfg.nrtcr;
-      if (!io) return;
       std::FILE* fp = std::fopen((d + "/stats.txt").c_str(), "w");
       if (!fp) throw std::runtime_error("cannot write stats.txt in " + d);
       auto i1 = [&](const char* k, long long x) { std::fprintf(fp, "%s = %lld\n", k, x); };
@@ -801,6 +884,14 @@ int main(int argc, char** argv) {
       return gammahi_buf;
     };
     auto write_frame = [&](const Simulation& ss) {
+      // amrex_state = 1: the cells onto rank 0's mirror (collective); the
+      // other ranks only advance the frame counters
+      if (on_level) amrex_state_gather_rt(s, false);
+      if (!io) {
+        dst.movie_frame += 1;
+        dst.movie_next -= P.movie_dz;
+        return;
+      }
       const RTGrid& G = ss.rt;
       char name[64];
       for (const std::string& fld : mfields) {
@@ -906,7 +997,8 @@ int main(int argc, char** argv) {
       s.substep_hook = [&](Simulation& ss) {
         if (!(ss.clk.redshift <= dst.movie_next)) return;
         // rt_backend = amrex: the fields live on the level inside a hydro step
-        if (use_amrex(cfg)) amrex_rt_sync_fields(ss);
+        // (amrex_state = 1: write_frame gathers them onto rank 0 itself)
+        if (use_amrex(cfg) && !on_level) amrex_rt_sync_fields(ss);
         while (ss.clk.redshift <= dst.movie_next) write_frame(ss);
       };
     }
@@ -917,10 +1009,19 @@ int main(int argc, char** argv) {
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
+      if (on_level) {  // rank 0's grids and particles onto the levels
+        amrex_state_scatter_gas(s);
+        amrex_state_scatter_rt(s);
+        amrex_pm_load_particles(pm);
+      }
     } else {
       // Summarize the initial state
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // hydro_scheme = unsplit: gas.e
+      if (on_level) {  // the initial conditions onto the levels
+        amrex_state_scatter_gas(s);
+        amrex_pm_load_particles(pm);
+      }
       summaries();
       const std::string d = step_dir();
       write_stats(d);
@@ -971,6 +1072,7 @@ int main(int argc, char** argv) {
       else
         pm::particle_mesh(pm, s.gas.u.data(), hs.v.data(), s.clk, s.units);
       T.pm += std::chrono::duration<double>(Clock::now() - th).count();
+      xv_fresh = false;
 
       // Reverse hydro step with transposes in between (legacy), or the
       // second unsplit step over dt_sim/2
@@ -986,7 +1088,17 @@ int main(int argc, char** argv) {
       // Ray tracing radiative transfer (after the first zdata1 output)
       if (idata1 > 1) {
         th = Clock::now();
-        const SourceCatalog cat = update_sources(s, pm.xv.data(), pm.pc.Npart, P.halo, out);
+        SourceCatalog cat;
+        if (on_level) {
+          // the halo finder on rank 0's particle mirror, the catalogue onto
+          // every rank, the sources applied everywhere (halo_sources.hpp)
+          sync_xv();
+          if (io) cat = source_catalog(s, pm.xv.data(), pm.pc.Npart, P.halo, out);
+          bcast_catalog(cat);
+          apply_sources(s, cat, P.halo);
+        } else {
+          cat = update_sources(s, pm.xv.data(), pm.pc.Npart, P.halo, out);
+        }
         Nhalo = static_cast<std::int64_t>(cat.halo.size());
         T.halos += std::chrono::duration<double>(Clock::now() - th).count();
         if (cat.Nsource > 0) {
@@ -1005,13 +1117,18 @@ int main(int argc, char** argv) {
       const std::string d = step_dir();
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
       if (data2_out) {  // write_data_2 (F1 fix: all files)
+        sync_mirror();
         if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
         idata2 = idata2 + 1;
         data2_out = false;
       }
       if (data1_out) {
         const auto tp = Clock::now();
-        pm::calc_power_spectrum(pm, s.gas.u.data(), cfg.box, pk_dm, pk_gas);
+        sync_mirror();
+        // (amrex_state = 1: the host P(k) on rank 0's mirror; its FFT and
+        // the DM linking are the host's, redundant until Stage E's P(k) on
+        // the level)
+        if (!on_level || io) pm::calc_power_spectrum(pm, s.gas.u.data(), cfg.box, pk_dm, pk_gas);
         if (io)
           pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
                                    pk_gas);
@@ -1028,7 +1145,10 @@ int main(int argc, char** argv) {
       }
       const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
       write_stats(d);
-      if (fields || last) write_fields(d);
+      if (fields || last) {
+        sync_mirror();
+        write_fields(d);
+      }
       T.io += std::chrono::duration<double>(Clock::now() - th).count();
 
       const double tstep = std::chrono::duration<double>(Clock::now() - ts0).count();
@@ -1058,6 +1178,7 @@ int main(int argc, char** argv) {
       if (P.restart_every > 0 && (s.clk.istep % P.restart_every == 0 || last)) {
         if (io) std::filesystem::create_directories(odir + "/restart");
         backend_barrier();
+        sync_mirror();
         char name[64];
         if (P.restart_keep_latest && P.restart_keep == 0)
           std::snprintf(name, sizeof name, "/restart/checkpoint.bin");
@@ -1085,16 +1206,24 @@ int main(int argc, char** argv) {
 
     backend_barrier();
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
+    // Peak RSS of this rank, and its range over the ranks of an MPI run
+    const double rss = peak_rss_mb();
+    double rss_lo = rss, rss_hi = rss;
+    backend_reduce_minmax(rss_lo, rss_hi);
     if (io) {
       std::printf(
           " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
           "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
-          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
-          peak_rss_mb());
+          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io, rss);
+      if (backend_nranks() > 1)
+        std::printf(" peak RSS over %d ranks: min %.1f MB, max %.1f MB\n", backend_nranks(), rss_lo,
+                    rss_hi);
       std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
                   format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
                   static_cast<long long>(s.rays.npool_forced));
       if (use_amrex(cfg)) std::printf(" %s\n", amrex_rt_timers(s).c_str());
+      if (use_amrex_pm(cfg)) std::printf(" %s\n", amrex_pm_timers(pm).c_str());
+      if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
     }
     if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {
       const UnsplitCounters& U = hs.ucounters;
@@ -1112,9 +1241,14 @@ int main(int argc, char** argv) {
              << " floor_rho " << U.floor_rho << "\n";
     }
     timing << "# " << format_rt_timers(s.timers) << "\n";
+    if (use_amrex_hydro(cfg)) timing << "# " << amrex_hydro_timers() << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
-           << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
+           << T.io << " peak_rss_MB " << rss;
+    if (backend_nranks() > 1)
+      timing << " ranks " << backend_nranks() << " peak_rss_min_MB " << rss_lo << " peak_rss_max_MB "
+             << rss_hi;
+    timing << "\n";
     if (P.halo.fof_dt_myr > 0)
       timing << "# fof_dt_myr " << P.halo.fof_dt_myr << " fof_calls " << s.fof.nfof
              << " reused " << s.fof.nreuse << "\n";

@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <iosfwd>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,9 @@
 #include "radray/simulation.hpp"
 
 namespace radray {
+
+struct AmrexPM;  // src/amrex/pm_level.cpp (pm_backend = amrex)
+
 namespace pm {
 
 // radhydro_global.f90 sizes used by the PM code.
@@ -50,10 +54,27 @@ struct PMConfig {
   double x_dm_gas = 1;
   // -DMF: gravity kicks the grid velocity v_gas; otherwise u_gas(2:5)
   bool mf = true;
+  // pm_backend = amrex (pm_backend.hpp, docs/stage_e_pm.md): particle_mesh
+  // and particle_mesh_unsplit run on the AMReX level instead of the host
+  // code below (the drifts stay on the host). Serial by default.
+  PMBackend backend = PMBackend::Serial;
+  int amrex_max_grid_size = 16;  // the mesh's box size (amrex_pm_max_grid_size)
+  int amrex_fft = 0;             // amrex_pm_fft: 0 pencil, 1 amrex::FFT
+  // amrex_state = 1 (amrex_state.hpp): the gas on the shared decomposition,
+  // the mesh boxes pm_refine times the gas boxes
+  bool amrex_state = false;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
-    return make(cfg.Ngas, cfg.Ndm, mf, cfg.pm_refine);
+    PMConfig c = make(cfg.Ngas, cfg.Ndm, mf, cfg.pm_refine);
+    c.backend = cfg.pm_backend;
+    c.amrex_max_grid_size = cfg.amrex_pm_max_grid_size > 0 ? cfg.amrex_pm_max_grid_size
+                                                           : cfg.amrex_max_grid_size;
+    c.amrex_fft = cfg.amrex_pm_fft;
+    c.amrex_state = cfg.amrex_state;
+    if (cfg.amrex_state && cfg.amrex_pm_max_grid_size == 0)
+      c.amrex_max_grid_size = cfg.pm_refine * cfg.amrex_max_grid_size;
+    return c;
   }
 };
 
@@ -77,6 +98,13 @@ struct PMState {
   // and gas cell. Identical values; empty and unused with pm_refine = 1.
   std::vector<float> fmesh;
   bool fmesh_valid = false;
+  // The AMReX level of pm_backend = amrex (src/amrex/pm_level.cpp), built on
+  // the first particle_mesh; null otherwise. It holds no state between
+  // steps: xv above is the state on every rank.
+  std::shared_ptr<AmrexPM> amrex;
+  // pm_backend = amrex: gather the potential into density after the step
+  // (pm_driver writes it); off by default, the host code always has it.
+  bool gather_potential = false;
 
   float* xv_p(std::int64_t ip) { return &xv[(ip - 1) * 6]; }
   const float* xv_p(std::int64_t ip) const { return &xv[(ip - 1) * 6]; }

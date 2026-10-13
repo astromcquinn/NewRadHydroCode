@@ -78,11 +78,13 @@ def main():
                          "(tools/analysis/emissivity.py); 0: constant f_esc")
     ap.add_argument("--f-esc-z0", type=float, default=6.0)
     ap.add_argument("--restart-every", type=int, default=1)
-    ap.add_argument("--recomb-case", default="A", choices=("A", "B"),
-                    help="recombination case (docs/recomb_radiation.md); production default "
-                         "since 2026-10-11: A with the recombination radiation transported "
-                         "(--recomb-rad 1); B: on the spot, the original")
-    ap.add_argument("--recomb-rad", type=int, default=1, choices=(0, 1),
+    ap.add_argument("--recomb-case", default="B", choices=("A", "B"),
+                    help="recombination case (docs/recomb_radiation.md). Default B: on the spot, "
+                         "the original (user decision 2026-10-12, so that the production "
+                         "configuration runs on rt_backend = amrex, which has no recomb_rad yet); "
+                         "A with --recomb-rad 1 transports the recombination radiation (the "
+                         "default from 2026-10-11 to 2026-10-12, docs/rt_methods_512.md)")
+    ap.add_argument("--recomb-rad", type=int, default=0, choices=(0, 1),
                     help="transport the ground-state recombination photons (case A only)")
     ap.add_argument("--recomb-rad-block", type=int, default=4,
                     help="rays: recombination emission gathered over b^3 RT cells (4: 79%% "
