@@ -132,7 +132,10 @@ The rays' sampling noise, from the odd and even substeps, is
 ionised cells, on ionised cells with Γ < ½⟨Γ⟩, and on 8³ blocks (the
 tensors behind P_Γ at k ≲ 3 h/Mpc). Bottom: block anisotropy (black: the
 truth), and the error power of the radiation force div(S0 h) relative to
-the true force, at k = 0.47 and 3.8 h/Mpc.*
+the true force, at k = 0.47 and 3.8 h/Mpc. `cone2c2t1` is the first
+nside-2 cone without a cutoff. The final configuration (nside-4 cone with
+the budget cutoff, alone and blended with the split, σ = 4) was run at six
+redshifts only (isolated points).*
 
 **Before overlap (z = 9.6–8.1, x_V ≤ 0.17).**
 - OTVET is good in the bulk: cell error 0.06–0.08 at Γ > ⟨Γ⟩/2, block
@@ -196,9 +199,8 @@ tensor is **too isotropic**, not too anisotropic.
   scales and the split's small scales. At z = 6.19, σ = 8 gives cell error
   0.071 and force 0.44 / 0.69 / 1.37 / 2.60. At z = 7.40, σ = 4 gives cell
   error 0.083 and force 0.06 / 0.27 / 0.83 / 1.23. That is close to the
-  nside-4 cone on its own. The blend of the nside-4 cone with the split and
-  the budget cutoff below is the configuration being run as the final
-  check (`cmp_final`).
+  nside-4 cone on its own. The final configuration below is the nside-4
+  cone with the budget cutoff, blended with the split.
 
 **After overlap (z ≤ 6.2): Wu+21's normalisation error, measured.** The
 minimum-image thin sum per unit emissivity is
@@ -284,6 +286,66 @@ the split's falls to 0.026, the screened kernel's to 0.023.)
   flux of a nearly isotropic field says little about its anisotropy. Its
   force error is as large as OTVET's.
 
+**The final configuration, all regimes** (`cmp_final`).
+- The cone: nside 4 (192 cones), receivers 4× coarser, near field
+  r < r_c = 8 cells from the thin FFT, τ cap 1.
+- The cutoff, from the photon budget: the cone records its light in
+  half-octave distance bins. λ_x is then solved so that ΣN_dir = ΣS0,
+  bin by bin, without a second march (`--cone-lamx budget`). The solver
+  will use its own ΣN.
+- The blend with the split: h_split + G_σ * (h_cone − h_split), σ = 4
+  cells.
+
+The cutoff comes out at λ_x = 2.7, 4.1 and 7.3 λ_eff at z = 9.6, 7.4 and
+6.2, a mild trim: the unscreened nside-4 cone has ΣN_dir/ΣS0 = 1.1–1.25
+there. After overlap it is 1.5, 1.3 and 1.2 λ_eff at z = 5.85, 5.67 and
+4.92.
+
+| z | x_V | closure | cell err ionised / Γ < ½⟨Γ⟩ / shadowed | block err | block A (truth) | force err k = 0.47 / 0.94 / 3.8 / 7.5 | r(k) at 0.94 / 3.8 |
+|---|---|---|---|---|---|---|---|
+| 9.63 | 0.05 | OTVET | 0.107 / 0.273 / 0.275 | 0.064 | 0.394 (0.411) | 0.00 / 0.01 / 0.18 / 0.43 | 1.00 / 0.92 |
+| | | split | 0.105 / 0.273 / 0.275 | 0.064 | 0.392 | 0.00 / 0.01 / 0.17 / 0.30 | 1.00 / 0.93 |
+| | | cone, budget | 0.123 / 0.143 / 0.158 | 0.079 | 0.475 | 0.00 / 0.01 / 0.53 / 1.19 | 1.00 / 0.73 |
+| | | **blend** | 0.096 / 0.132 / 0.153 | 0.067 | 0.454 | 0.00 / 0.01 / 0.24 / 0.57 | 1.00 / 0.87 |
+| 7.40 | 0.36 | OTVET | 0.132 / 0.398 / 0.291 | 0.100 | 0.319 (0.418) | 0.01 / 0.19 / 1.11 / 1.32 | 0.93 / 0.73 |
+| | | split | 0.132 / 0.398 / 0.291 | 0.100 | 0.319 | 0.01 / 0.19 / 1.12 / 1.28 | 0.93 / 0.73 |
+| | | cone, budget | 0.072 / 0.124 / 0.109 | 0.042 | 0.415 | 0.00 / 0.03 / 0.43 / 1.60 | 0.98 / 0.79 |
+| | | **blend** | 0.070 / 0.165 / 0.133 | 0.042 | 0.400 | 0.00 / 0.03 / 0.35 / 1.12 | 0.99 / 0.87 |
+| 6.19 | 0.94 | OTVET | 0.092 / 0.151 / 0.270 | 0.075 | 0.275 (0.258) | 0.42 / 1.07 / 1.56 / 3.43 | 0.67 / 0.45 |
+| | | split | 0.087 / 0.153 / 0.270 | 0.068 | 0.246 | 0.22 / 0.62 / 1.28 / 2.13 | 0.78 / 0.57 |
+| | | cone, budget | 0.075 / 0.121 / 0.193 | 0.054 | 0.233 | 0.11 / 0.32 / 1.43 / 4.33 | 0.85 / 0.54 |
+| | | **blend** | 0.074 / 0.121 / 0.198 | 0.053 | 0.233 | 0.11 / 0.31 / 1.19 / 2.43 | 0.85 / 0.62 |
+| 5.85 | 1.00 | OTVET | 0.126 / 0.136 / 0.213 | 0.116 | 0.261 (0.147) | 185 / 25 / 31 / 31 | −0.03 / −0.35 |
+| | | split | 0.066 / 0.073 / 0.213 | 0.051 | 0.138 | 20 / 4.2 / 5.8 / 6.9 | 0.56 / 0.30 |
+| | | screened, λ_eff | 0.064 / 0.070 / 0.206 | 0.049 | 0.112 | 14 / 4.0 / 5.4 / 8.3 | 0.66 / 0.27 |
+| | | **blend** | 0.065 / 0.068 / 0.190 | 0.050 | 0.101 | 15 / 4.4 / 5.9 / 7.5 | 0.68 / 0.37 |
+| 5.67 | 1.00 | OTVET | 0.141 / 0.149 / – | 0.133 | 0.256 (0.108) | 307 / 112 / 123 / 75 | −0.62 / −0.61 |
+| | | split | 0.052 / 0.052 / – | 0.036 | 0.110 | 10 / 7.1 / 12 / 11 | 0.15 / 0.20 |
+| | | screened, λ_eff | 0.050 / 0.049 / – | 0.033 | 0.093 | 3.3 / 6.9 / 11 / 12 | 0.46 / 0.17 |
+| | | **blend** | 0.052 / 0.050 / – | 0.035 | 0.081 | 6.2 / 10 / 13 / 11 | 0.65 / 0.32 |
+| 4.92 | 1.00 | OTVET | 0.166 / 0.164 / – | 0.158 | 0.248 (0.066) | 5587 / 2505 / 1813 / 741 | −0.64 / −0.47 |
+| | | split | 0.042 / 0.041 / – | 0.026 | 0.057 | 68 / 55 / 55 / 41 | 0.06 / 0.07 |
+| | | screened, λ_eff | 0.040 / 0.039 / – | 0.023 | 0.053 | 33 / 50 / 53 / 41 | 0.16 / 0.05 |
+| | | **blend** | 0.041 / 0.040 / – | 0.024 | 0.048 | 36 / 54 / 57 / 42 | 0.34 / 0.14 |
+
+("–": no shadowed cells, N < N_loc/2, after z = 5.85.)
+- **The blend is the best or close to the best at every z.**
+  - *During overlap* (z = 7.4, 6.2): cell errors 0.07, against OTVET's
+    0.13 and 0.09; low-Γ cells 0.12–0.17 against 0.15–0.40; blocks 0.04–0.05
+    against 0.075–0.10; large-scale force 3–6× lower.
+  - *After overlap*: it equals the split and the screened kernel at
+    λ_eff, with a better-correlated force (r = 0.3–0.7 at k ≤ 1 h/Mpc,
+    against the split's 0.06–0.56).
+  - *Before overlap*: it halves OTVET's errors in low-Γ and shadowed cells
+    and keeps the bulk. At k = 7.5 h/Mpc its force error is 0.57 against
+    0.43.
+- The split alone gets the after-overlap anisotropy most nearly right
+  (block A 0.138 / 0.110 / 0.057 against the truth's 0.147 / 0.108 /
+  0.066). The budget cone is slightly too isotropic (0.101 / 0.081 /
+  0.048).
+- Applying the split cell by cell to the budget cone (`split_cone…xbud`)
+  is worse than the scale blend at z ≥ 7.4.
+
 **The 256³ runs, a posteriori (the baseline the new closures must beat).**
 `gamma_power.py` and `rt_methods_runs.py` on `otvcl256` (rays),
 `otvcl256_m1` and `otvcl256_otvet`, 20 Mpc/h (outputs in
@@ -307,6 +369,15 @@ the split's falls to 0.026, the screened kernel's to 0.023.)
 - The reionization histories agree to Δz ≤ 0.035 at x_V = 0.1–0.9. Only
   the end differs: x_V = 0.99 at z = 6.00 (rays), 6.07 (OTVET) and 6.10
   (M1).
+- Morphology (`reion_power.py`, 21-cm-like ρ_HI and x_HII): at z ≥ 6.4
+  both moment methods are within 10–30 % of the rays at k ≤ 2 h/Mpc. At
+  k = 8 h/Mpc both are 20–45 % low throughout (OTVET 0.80 → 0.55 from
+  z = 9.6 to 6.2, M1 0.82 → 0.65). Their fronts are thicker: 5.4 % (OTVET)
+  and 6.1 % (M1) of the cells are partly ionised at z = 7.4, against the
+  rays' 4.1 %. After overlap the residual HI
+  differs from the rays' by factors of 10–10⁴ in power, in both directions
+  and for both methods. Its power is then set by the self-shielded clumps
+  and the last neutral islands, so it is not a clean test of the closure.
 
 ## 4. Candidate closures
 
@@ -390,39 +461,45 @@ generalisations are unstable.
     grid, every hydro step): the most faithful, at roughly the cost of 4.
 
 **Ranking** (from §3; for the user's decision before anything goes into
-the solver):
+the solver). By expected quality:
 
-1. **Split (2) on the thin tensor.**
-   - It is the only candidate that is never worse than OTVET, from
-     z = 9.6 to 5.7.
+1. **Cone-traced, HI-attenuated direct light (3), with a cutoff from the
+   photon budget, blended with the split's small scales** (`cmp_final`).
+   - It is the only candidate that fixes all three regimes. From z = 9.6 to
+     4.9 it is the best or within 10 % of the best on cells and blocks, and
+     the best or second best on the large-scale force.
+   - During overlap it gets the geometry that nothing else gets: cell error
+     0.07 against OTVET's 0.13 (z = 7.4), errors in shadowed and low-Γ cells
+     0.4–0.8× OTVET's, large-scale force 3–6× lower.
+   - After overlap the budget cutoff (λ_x set by ΣN_dir = ΣN, the
+     solution's own photon count) brings it to the split's level, with a
+     better-correlated force.
+   - Cost at 512³: 128³ receivers × 192 cones × ≈ 46 log-spaced steps
+     (r_c = 8 cells to 8 boxes) × 2 mip-map samples ≈ 4·10¹⁰ trilinear
+     samples per hydro step. That is an estimate of 5–20 s on 192 cores,
+     against the present 28 s, to be measured.
+   - Memory: the two pyramids (1.2 GB) and the coarse tensor per distance
+     bin (0.5–0.9 GB), ≈ 2 GB of 146 GB.
+   - Risks: e^(−⟨τ⟩) in a cone is not ⟨e^(−τ)⟩ (hence the τ cap);
+     realizability of a blended tensor (clamp the eigenvalues); and the cone
+     uses the solution's own HI, which lags by one hydro step.
+2. **Split (2) on the thin tensor.**
+   - Never worse than OTVET from z = 9.6 to 4.9.
    - After overlap it removes Wu+21's normalisation error with the
-     solution's own N and no λ: block error 2–4× lower, force error 5–30×
-     lower.
-   - Near sources it handles the recombination radiation (force error at
-     k ≥ 7.5 h/Mpc ⅓–½ lower).
-   - Cost: one float per cell and no extra FFT.
-   - It does nothing for the overlap-era geometry.
-2. **Cone-traced attenuated direct light (3), with a budget-matched
-   cutoff.**
-   - It gets the overlap-era geometry right where nothing else does:
-     anisotropy against distance and on blocks, beaming far from sources
-     and in shadow. Large-scale force error is 5–20× lower than OTVET's,
-     and block error a third to a half lower.
-   - After overlap the light the HI does not stop must be limited by an
-     extra exp(−s/λ_x). λ_x is chosen so that ΣN_dir = ΣN of the solution:
-     ∞ during overlap, ≈ λ_eff after it. This is the solution's own photon
-     budget, adjusted each hydro step from the last one.
-   - With that cutoff it matches the split after overlap at k ≤ 1 h/Mpc.
-     Not combined with the split, which makes it worse.
-   - Cost: a C++ cone marcher. At 512³, 128³–256³ receivers and 48–192
-     cones take roughly 10–75 s per hydro step, against the present 28 s.
-     Memory ≲ 1.5 GB.
-   - Weakness: small scales (k ≥ 4 h/Mpc), at present worse than OTVET.
-     Finer cones help; the near-field radius is being tested.
+     solution's own N and no λ: block error 2–6× lower, block anisotropy
+     the closest to the truth of any closure, force error 5–80× lower.
+   - It does nothing for the overlap-era geometry (identical to OTVET at
+     z ≥ 6.4) or for shadows.
+   - Cost: one float per cell and no extra FFT. It is also a component of 1.
 3. **Screened periodic kernel (1), the baseline.**
-   - After overlap it matches the split.
-   - During overlap it is worse than OTVET at every k ≥ 1 h/Mpc.
-   - Implemented for the comparison, with λ from the solution's own budget.
+   - After overlap it is as good as the split.
+   - During overlap it is worse than OTVET on blocks and at every
+     k ≥ 1 h/Mpc: one global λ cannot follow the geometry.
+
+**Order of implementation**: split → screen → cone (+ blend), since the
+blend needs the split and the screen is the reference to beat. The split
+alone should already remove most of the after-overlap P_Γ excess, which
+is the 512³ run's main symptom.
 
 **Proposed implementation (step 3, after the user's go-ahead).**
 
@@ -447,16 +524,19 @@ thread count.
   - The kernel is rebuilt when λ changes (6 more FFTs).
 - **`cone`**
   - A new `src/otvet_cone.cpp`, reusing `healpix` from the ray tracer.
-  - Mip-maps of the source emissivity and of the HI column. Receivers on a
-    grid `otvet_cone_coarse` = 2 times coarser, `otvet_cone_nside` = 2 or
-    4, near field r < r_c from the FFT with the thin kernel.
+  - Mip-maps of the source emissivity and of the solution's HI column.
+    Receivers on a grid `otvet_cone_coarse` = 4 times coarser,
+    `otvet_cone_nside` = 4, near field r < `otvet_cone_rc` = 8 cells from
+    the FFT with the thin kernel (smooth hand-over to 2 r_c).
   - Per-cell group-1 τ capped at `otvet_cone_taucap` = 1.
-  - λ_x chosen so that ΣN_dir = ΣN of the moment solution. It is updated
-    from the previous hydro step: the cone records its direct light in a
-    few distance bins, so the matching λ_x is found without a second march.
-  - OpenMP over receivers, each receiver independent.
-  - If the blend test (§3) holds up, the cone's large scales and the
-    split's small scales are combined (`cone_blend`).
+  - The cone part kept per half-octave distance bin. λ_x is solved each
+    hydro step so that ΣN_dir = ΣN of the moment solution, and applied bin
+    by bin, with no second march.
+  - Blend: h = h_split + G_σ * (h_cone − h_split) with
+    `otvet_cone_blend` = 4 cells (0: the cone alone). A separable
+    real-space Gaussian, with eigenvalues clamped to [0, 1].
+  - OpenMP over receivers, each receiver independent, fixed summation
+    order.
 
 **Checks.**
 - Each C++ tensor is computed on the rays' z = 7.4, 6.2 and 5.67 snapshots

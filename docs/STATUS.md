@@ -1,6 +1,47 @@
 # Project status
 
-*Last updated: 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-12: OTVET closure, steps 1–2 done (ground truth and ranked candidates; branch `otvet-closure`, below, `docs/otvet_closure.md`), awaiting the user's go-ahead before any solver change. Also 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## In progress 2026-10-12: a better Eddington tensor for OTVET (branch `otvet-closure`)
+
+Report: `docs/otvet_closure.md`. Decisions and choices: `docs/PLAN.md`,
+"OTVET-closure thread". `main` merged in after PR #31.
+
+* **Step 1, ground truth: done.**
+  - `tensor_dump = 1` (radhydro): the rays' Γ-weighted S0, S1, S2 per
+    cell at the zdata1 snapshots, with odd substeps for the noise, the
+    thin OTVET tensor and the sources. The moment methods dump the same
+    moments of their own N, F, D N.
+  - Off by default and byte-identical. Tests `tensor_dump_rays`,
+    `tensor_dump_otvet` and `thread_full_tensor_dump`; fast suite 127/127
+    after the merge.
+  - 256³, 20 Mpc/h runs: `otvcl256` (rays), `_m1`, `_otvet`.
+  - Analysis tools: `tensor_compare.py`, `cone_tensor.py` (numpy
+    prototypes) and `tensor_summary.py`.
+* **Findings.**
+  - Before overlap, OTVET is good in the bulk but too isotropic in shadowed
+    and low-Γ cells.
+  - During overlap it is too isotropic on large scales: it adds sources
+    behind neutral gas.
+  - After overlap it is too anisotropic by λ_eff/0.61 L, Wu+21's
+    normalisation, which is measured here. Its large-scale force is
+    anti-correlated with the truth.
+  - The 256³ runs reproduce the 512³ symptom: OTVET's P_Γ excess grows from
+    1.1–1.4× at z = 6.4 to 15–19× at z = 4.9, with r ≥ 0.9.
+* **Step 2, candidates: done, ranking presented.**
+  1. Cone-traced HI-attenuated direct light, with a photon-budget cutoff,
+     blended with the split.
+  2. The direct + diffuse split from the solution's own N.
+  3. The screened kernel, the baseline.
+
+  The implementation plan is a flag `otvet_closure = thin | split | screen
+  | cone`.
+* **Next:** after the user's go-ahead, implement split → screen → cone,
+  check each against h_true, then 256³ full runs validated with
+  `gamma_power.py`, `reion_power.py` and `rt_methods_runs.py`, then 512³.
+* **Open:** the user referred to a "previous message" with numbered
+  instructions that never reached the session. Only its point 1, the
+  merge of `main`, is done.
 
 ## Done 2026-10-12: M1's neutral source cells, `moment_inject` (branch `m1-clumps`)
 

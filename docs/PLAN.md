@@ -626,3 +626,14 @@ policy on klone, and deleting the merged branches.
   - fixed on the way (no flag: it only enables a restart that used to
     throw): a checkpoint written before the RT starts holds empty
     recombination buffers, and restarting it with `recomb_rad = 1` failed.
+  - a priori choices for the cone (numpy prototypes against the rays'
+    tensor, `docs/otvet_closure.md` §3):
+    - nside 4 rather than 2: it fixes the cone's small-scale force;
+    - receivers 4× coarser: as good as 2×, at ⅛ of the cost;
+    - near field r_c = 8 cells and τ cap 1 per cell;
+    - an extra cutoff exp(−s/λ_x), with λ_x from the photon budget
+      (ΣN_dir = ΣN, applied per distance bin);
+    - blended with the split's small scales at σ = 4 cells;
+  - status: the ranking (1 cone + budget + blend, 2 split, 3 screened kernel)
+    and the implementation order (split → screen → cone) were presented to
+    the user on 2026-10-12. No solver change before their go-ahead.
