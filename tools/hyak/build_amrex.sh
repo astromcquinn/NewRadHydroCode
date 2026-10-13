@@ -17,7 +17,13 @@
 #   AMREX_DIR      an existing AMReX install (lib/cmake/AMReX inside)
 #   CMAKE_EXTRA    extra cmake arguments
 #   CTEST_LABELS   amrex (default), none, or a label regex
-#   RADRAY_MPIEXEC launcher for the tests (default: mpirun; srun on a job)
+#   RADRAY_MPIEXEC launcher for the tests (default: mpirun, with
+#                  --oversubscribe because an salloc/sbatch allocation with
+#                  --ntasks=1 gives OpenMPI a single slot; or srun, which the
+#                  test runners give --cpus-per-task per test)
+#   RADRAY_MPIEXEC_FLAGS  launcher flags (default "--bind-to;none;--oversubscribe"
+#                  for mpirun, "--overlap" for srun: the salloc shell is itself a
+#                  job step holding every cpu of the allocation)
 #
 #SBATCH --job-name=radray-amrex-build
 #SBATCH --account=astro
@@ -36,7 +42,7 @@ else
 fi
 bld="${1:-$src/build-amrex}"
 source "$src/tools/hyak/env.sh"
-module load ${HYAK_MODULES:-ompi/4.1.6-2}
+radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
 ncpu="${SLURM_CPUS_PER_TASK:-8}"
 ulimit -s unlimited
 echo "host $(hostname), $ncpu cpus, $(date)"
@@ -55,9 +61,14 @@ if [ ! -f "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" ]; then
   cmake --install "$RADRAY_SW/src/build-amrex"
 fi
 
+launcher="${RADRAY_MPIEXEC:-mpirun}"
+case "$launcher" in
+  *srun) default_flags="--overlap" ;;
+  *)     default_flags="--bind-to;none;--oversubscribe" ;;
+esac
 cmake -S "$src" -B "$bld" -DCMAKE_BUILD_TYPE=Release -DRADRAY_AMREX=ON \
   -DAMReX_DIR="$AMREX_DIR/lib/cmake/AMReX" \
-  -DRADRAY_MPIEXEC="${RADRAY_MPIEXEC:-mpirun}" -DRADRAY_MPIEXEC_FLAGS="${RADRAY_MPIEXEC_FLAGS:---bind-to;none}" \
+  -DRADRAY_MPIEXEC="$launcher" -DRADRAY_MPIEXEC_FLAGS="${RADRAY_MPIEXEC_FLAGS:-$default_flags}" \
   ${CMAKE_EXTRA:-}
 cmake --build "$bld" -j "$ncpu"
 

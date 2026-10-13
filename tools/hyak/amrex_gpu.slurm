@@ -23,7 +23,8 @@
 set -u
 cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
-module load ${HYAK_MODULES:-ompi/4.1.6-2 cuda/12.4.1}
+radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2 cuda/12.4.1}
+radray_ucx_eager  # UCX eager below 8 MB across nodes (env.sh; RADRAY_UCX_EAGER=0 for the module defaults)
 PROB="${PROB:?}"; CK="${CK:?}"
 OUT="${OUT:-$PROB/amrex_gpu}"; STEPS="${STEPS:-1}"
 EXE="${EXE:-$PWD/build-amrex-cuda/radhydro}"

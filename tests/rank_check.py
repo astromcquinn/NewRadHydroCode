@@ -19,6 +19,9 @@ def main():
     drv, prob = sys.argv[6], sys.argv[7]
     args = sys.argv[8:]
     flags = [f for f in flags.replace(";", " ").split() if f]
+    # srun inherits the allocation's --cpus-per-task; give it the test's threads
+    if launch.endswith("srun") and not any("cpus-per-task" in f for f in flags):
+        flags.append("--cpus-per-task=" + os.environ.get("OMP_NUM_THREADS", "1"))
     outs = {}
     for npr in [int(x) for x in nps.split()]:
         o = os.path.join(work, f"np{npr}")

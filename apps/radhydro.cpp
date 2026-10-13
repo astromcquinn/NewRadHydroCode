@@ -55,6 +55,7 @@
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
+#include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_moments.hpp"
@@ -262,6 +263,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     // rt_backend = serial | amrex (docs/stage_d.md)
   } else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
+  } else if (set_hydro_backend_param(P.hydro, key, val)) {
+    // hydro_backend = serial | amrex (docs/stage_e_hydro.md)
   } else if (key == "ray_dump_dir")
     P.ray_dump.dir = val;
   else if (key == "ray_dump_every")
@@ -555,8 +558,10 @@ int main(int argc, char** argv) {
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
+    copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
+    check_hydro_backend_param(s.cfg);
     check_rt_cells_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
@@ -624,7 +629,8 @@ int main(int argc, char** argv) {
            << (P.photon_conserve ? ", photon_conserve = 1" : "")
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
-           << ", " << rt_backend_summary(cfg) << ", ranks = " << backend_nranks()
+           << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
+           << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
@@ -1072,16 +1078,23 @@ int main(int argc, char** argv) {
 
     backend_barrier();
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
+    // Peak RSS of this rank, and its range over the ranks of an MPI run
+    const double rss = peak_rss_mb();
+    double rss_lo = rss, rss_hi = rss;
+    backend_reduce_minmax(rss_lo, rss_hi);
     if (io) {
       std::printf(
           " radhydro: %d steps, total %.2f s: hydro %.2f, pm %.2f (+ P(k) %.2f), halos %.2f, "
           "rt %.2f, summaries %.2f, io %.2f; peak RSS %.1f MB\n",
-          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io,
-          peak_rss_mb());
+          s.clk.istep, total, T.hydro, T.pm, T.pk, T.halos, T.rt, T.summaries, T.io, rss);
+      if (backend_nranks() > 1)
+        std::printf(" peak RSS over %d ranks: min %.1f MB, max %.1f MB\n", backend_nranks(), rss_lo,
+                    rss_hi);
       std::printf(" %s\n ray pool guard: split limited in %lld substeps, merging forced in %lld\n",
                   format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
                   static_cast<long long>(s.rays.npool_forced));
       if (use_amrex(cfg)) std::printf(" %s\n", amrex_rt_timers(s).c_str());
+      if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
     }
     if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {
       const UnsplitCounters& U = hs.ucounters;
@@ -1099,9 +1112,14 @@ int main(int argc, char** argv) {
              << " floor_rho " << U.floor_rho << "\n";
     }
     timing << "# " << format_rt_timers(s.timers) << "\n";
+    if (use_amrex_hydro(cfg)) timing << "# " << amrex_hydro_timers() << "\n";
     timing << "# total " << total << " hydro " << T.hydro << " pm " << T.pm << " pk " << T.pk
            << " halos " << T.halos << " rt " << T.rt << " summaries " << T.summaries << " io "
-           << T.io << " peak_rss_MB " << peak_rss_mb() << "\n";
+           << T.io << " peak_rss_MB " << rss;
+    if (backend_nranks() > 1)
+      timing << " ranks " << backend_nranks() << " peak_rss_min_MB " << rss_lo << " peak_rss_max_MB "
+             << rss_hi;
+    timing << "\n";
     if (P.halo.fof_dt_myr > 0)
       timing << "# fof_dt_myr " << P.halo.fof_dt_myr << " fof_calls " << s.fof.nfof
              << " reused " << s.fof.nreuse << "\n";

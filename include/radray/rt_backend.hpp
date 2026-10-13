@@ -38,6 +38,8 @@ bool io_rank();
 int backend_rank();
 int backend_nranks();
 void backend_barrier();
+// Min and max over the ranks of a double (identity without MPI)
+void backend_reduce_minmax(double& lo, double& hi);
 
 // The RT of one hydro step on the level (called by rt_tools.cpp in place of
 // prep_rt / rt_step_1-3 / post_rt when use_amrex(cfg)):
