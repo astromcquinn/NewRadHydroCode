@@ -812,6 +812,7 @@ void read_f32(const std::string& path, float* dst, std::size_t n) {
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
                           std::vector<float>& w_gas, const Units& u) {
   read_f32(dir + "/xv_dm.init", s.xv.data(), s.xv.size());
+  if (u_gas.empty()) return;  // amrex_state = 1 on a rank other than 0: no host gas grid
   read_f32(dir + "/u_gas.init", u_gas.data(), u_gas.size());
   const std::int64_t ncell = s.pc.Ncell;
   for (std::int64_t c = 0; c < ncell; ++c) {

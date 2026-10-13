@@ -56,6 +56,7 @@
 #include <omp.h>
 #endif
 
+#include "gas_state.hpp"
 #include "radray/hydro_backend.hpp"
 #include "radray/kernels/hydro_mh.hpp"
 
@@ -104,21 +105,30 @@ AMREX_FORCE_INLINE void get_face(ax::Array4<double const> const& f, int i, int j
 
 class HydroLevel {
  public:
-  HydroLevel(int N_, int max_grid_size)
-      : N(N_), domain(ax::IntVect(0), ax::IntVect(N_ - 1)) {
+  // state: amrex_state = 1, the gas state on the level (gas_state.hpp): the
+  // level takes its decomposition and copies its boxes in and out locally
+  HydroLevel(int N_, int max_grid_size, const gs::GasState* state_)
+      : N(N_), domain(ax::IntVect(0), ax::IntVect(N_ - 1)), state(state_) {
     const ax::RealBox rb({0., 0., 0.}, {1., 1., 1.});
     const ax::Array<int, 3> per{1, 1, 1};
     geom.define(domain, rb, ax::CoordSys::cartesian, per);
     period = geom.periodicity();
-    ba.define(domain);
-    ba.maxSize(max_grid_size);
-    dm.define(ba);
+    if (state) {
+      if (state->N != N) throw std::runtime_error("hydro_backend = amrex: the gas state has another N");
+      ba = state->ba;
+      dm = state->dm;
+    } else {
+      ba.define(domain);
+      ba.maxSize(max_grid_size);
+      dm.define(ba);
+    }
     U.define(ba, dm, NC, NG);
     Es.define(ba, dm, 1, NG);
     En.define(ba, dm, 1, NG);
     Q.define(ba, dm, 1, 1);
     const int nloc = static_cast<int>(U.local_size());
     for (int d = 0; d < 3; ++d) faces[d].resize(nloc);
+    if (state) return;  // no host gather
     // the gather plan: every box in global order, owner and size
     const int nranks = ax::ParallelDescriptor::NProcs();
     counts.assign(nranks, 0);
@@ -157,7 +167,33 @@ class HydroLevel {
   std::vector<Long> box_offset;
   Long total = 0;
   std::vector<float> sendbuf, recvbuf;
+  const gs::GasState* state = nullptr;
   Timers T;
+
+  // ---- the gas state on the level (amrex_state = 1): local copies -----------
+
+  void copy_in(const gs::GasState& st) {
+    const double t0 = now();
+    for (ax::MFIter mfi(U); mfi.isValid(); ++mfi) {
+      auto u = U.array(mfi);
+      auto g = st.G.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        u(i, j, k, m) = g(i, j, k, m);  // the same component order: u(5), e, w(4)
+      });
+    }
+    T.copyin += now() - t0;
+  }
+  void copy_out(gs::GasState& st) {
+    const double t0 = now();
+    for (ax::MFIter mfi(U); mfi.isValid(); ++mfi) {
+      auto u = U.const_array(mfi);
+      auto g = st.G.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        g(i, j, k, m) = static_cast<float>(u(i, j, k, m));  // rounded once, as the serial step
+      });
+    }
+    T.copyout += now() - t0;
+  }
 
   // ---- host <-> level ------------------------------------------------------
 
@@ -406,7 +442,10 @@ class HydroLevel {
   }
 
   void step(const Config& cfg, const Units& un, double dt, GasGrid& gas, HydroState& hs) {
-    copy_in(gas);
+    if (state)
+      copy_in(*state);
+    else
+      copy_in(gas);
     const rrh::DualEnergy de{cfg.dual_energy ? cfg.dual_eta1 : 0.0, cfg.dual_eta2, cfg.dual_eta1_local,
                              cfg.dual_nb_radius, cfg.dual_reset_rule, cfg.dual_eta2_local};
     const double rho_min = un.Dgas_min;
@@ -447,7 +486,10 @@ class HydroLevel {
     C.max_substeps = std::max(C.max_substeps, static_cast<std::int64_t>(nsub_call));
     T.substeps += nsub_call;
     T.calls += 1;
-    copy_out(gas);
+    if (state)
+      copy_out(*const_cast<gs::GasState*>(state));
+    else
+      copy_out(gas);
   }
 
   std::string timers() const {
@@ -470,9 +512,12 @@ HydroLevel& level_of(const Config& cfg, int N) {
     throw std::runtime_error("hydro_backend = amrex: backend_init was not called (AMReX is not initialised)");
   if (!g_level || g_level->N != N) {
     check_hydro_backend_param(cfg);
-    if (N % 2 != 0 && cfg.amrex_hydro_max_grid_size < N)
+    const int mgs = cfg.amrex_hydro_max_grid_size ? cfg.amrex_hydro_max_grid_size : cfg.amrex_max_grid_size;
+    if (N % 2 != 0 && mgs < N)
       throw std::runtime_error("hydro_backend = amrex: N must be even or amrex_hydro_max_grid_size >= N");
-    g_level = std::make_unique<HydroLevel>(N, cfg.amrex_hydro_max_grid_size);
+    const gs::GasState* st = cfg.amrex_state ? gs::active() : nullptr;
+    if (cfg.amrex_state && !st) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
+    g_level = std::make_unique<HydroLevel>(N, mgs, st);
   }
   return *g_level;
 }
@@ -480,7 +525,7 @@ HydroLevel& level_of(const Config& cfg, int N) {
 }  // namespace
 
 void amrex_hydro_step(const Config& cfg, const Units& un, double dt, GasGrid& gas, HydroState& hs) {
-  if (gas.e.empty()) throw std::runtime_error("amrex_hydro_step: call init_unsplit_state first");
+  if (!gas.has_e()) throw std::runtime_error("amrex_hydro_step: call init_unsplit_state first");
   level_of(cfg, gas.N).step(cfg, un, dt, gas, hs);
 }
 

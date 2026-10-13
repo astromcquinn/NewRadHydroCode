@@ -23,7 +23,8 @@ namespace radray {
 struct RayDump;  // radray/ray_dump.hpp
 struct MomentState;  // radray/rt_moments.hpp
 struct RecombState;  // radray/recomb_rad.hpp
-struct AmrexRT;      // src/amrex/rt_level.cpp (rt_backend = amrex)
+struct AmrexRT;
+struct AmrexState;      // src/amrex/rt_level.cpp (rt_backend = amrex)
 
 // radhydro_global.f90: rt_stat_type
 struct RTStat {
@@ -101,6 +102,9 @@ struct Simulation {
   // post_rt (ngam_rays_total).
   std::shared_ptr<AmrexRT> amrex;
   double ngam_total_backend = 0;
+  // amrex_state = 1 (amrex_state.hpp): the gas state on the levels; the
+  // rt and gas grids above are then rank 0's mirror only.
+  std::shared_ptr<AmrexState> state;
   // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
   FofCache fof;
 };

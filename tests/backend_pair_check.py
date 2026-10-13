@@ -3,11 +3,12 @@
 must give byte-identical outputs (e.g. hydro_backend = serial against
 amrex: the unsplit step on the AMReX level is the same arithmetic).
 
-usage: backend_pair_check.py WORKDIR DRIVER PROBLEM "k=v,k=v" "k=v,k=v" [common args ...]
+usage: backend_pair_check.py [--launch LAUNCHER FLAGS NPFLAG NP] WORKDIR DRIVER PROBLEM
+                             "k=v,k=v" "k=v,k=v" [common args ...]
 
-Each run is `DRIVER PROBLEM <WORKDIR>/<n> [common args] --set k=v ...`.
-Timing files and logs with wall-clock times are skipped. Exit 0 if
-identical.
+Each run is `[LAUNCHER FLAGS NPFLAG NP] DRIVER PROBLEM <WORKDIR>/<n> [common args]
+--set k=v ...` (FLAGS: a ;-separated list, as CMake passes it). Timing
+files and logs with wall-clock times are skipped. Exit 0 if identical.
 """
 import glob
 import os
@@ -19,15 +20,21 @@ SKIP = ("timing.txt", "ray.log", "rt.log", "stdout.log")
 
 
 def main():
-    work, drv, prob, seta, setb = sys.argv[1:6]
-    common = sys.argv[6:]
+    args = sys.argv[1:]
+    launch = []
+    if args and args[0] == "--launch":
+        launcher, flags, npflag, np = args[1:5]
+        launch = [launcher] + [f for f in flags.split(";") if f] + [npflag, np]
+        args = args[5:]
+    work, drv, prob, seta, setb = args[:5]
+    common = args[5:]
     outs = []
     for n, sets in enumerate((seta, setb)):
         o = os.path.join(work, f"run{n}")
         if os.path.isdir(o):
             shutil.rmtree(o)
         os.makedirs(o)
-        cmd = [drv, prob, o] + common
+        cmd = launch + [drv, prob, o] + common
         for kv in sets.split(","):
             if kv:
                 cmd += ["--set", kv]

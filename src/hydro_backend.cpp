@@ -19,7 +19,8 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
   }
   if (key == "amrex_hydro_max_grid_size") {
     c.amrex_hydro_max_grid_size = std::stoi(val);
-    if (c.amrex_hydro_max_grid_size < 4) throw std::runtime_error("amrex_hydro_max_grid_size must be >= 4");
+    if (c.amrex_hydro_max_grid_size != 0 && c.amrex_hydro_max_grid_size < 4)
+      throw std::runtime_error("amrex_hydro_max_grid_size must be >= 4 (or 0: amrex_max_grid_size)");
     return true;
   }
   return false;
@@ -32,7 +33,8 @@ void copy_hydro_backend_param(const Config& from, Config& to) {
 
 std::string hydro_backend_summary(const Config& c) {
   if (!use_amrex_hydro(c)) return "hydro_backend = serial";
-  return "hydro_backend = amrex (max_grid_size = " + std::to_string(c.amrex_hydro_max_grid_size) + ")";
+  return "hydro_backend = amrex (max_grid_size = " +
+         std::to_string(c.amrex_hydro_max_grid_size ? c.amrex_hydro_max_grid_size : c.amrex_max_grid_size) + ")";
 }
 
 void check_hydro_backend_param(const Config& c) {

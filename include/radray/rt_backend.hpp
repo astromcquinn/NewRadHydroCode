@@ -40,6 +40,8 @@ int backend_nranks();
 void backend_barrier();
 // Min and max over the ranks of a double (identity without MPI)
 void backend_reduce_minmax(double& lo, double& hi);
+// io_rank()'s values of n doubles onto every rank (identity without MPI)
+void backend_bcast(double* v, int n);
 
 // The RT of one hydro step on the level (called by rt_tools.cpp in place of
 // prep_rt / rt_step_1-3 / post_rt when use_amrex(cfg)):

@@ -1,6 +1,7 @@
 // Complete binary checkpoint (see checkpoint.hpp).
 #include "radray/checkpoint.hpp"
 
+#include "radray/amrex_state.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_backend.hpp"
@@ -255,22 +256,41 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
                              std::to_string(Ndm) + ", Nray_max = " + std::to_string(nrmax) +
                              "; this run has different sizes");
   in.pod(s.clk);
+  // amrex_state = 1: the grids are rank 0's mirror (scattered onto the
+  // levels by the driver afterwards); the other ranks skip their blocks
+  const bool skip_grids = use_amrex_state(s.cfg) && !io_rank();
   RTGrid& G = s.rt;
   for (auto* v : {&G.rhog, &G.fHI, &G.fHeI, &G.fHeII, &G.temp, &G.Luv, &G.sfr, &G.dx, &G.gamma,
-                  &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau})
-    in.vec(*v, static_cast<std::int64_t>(v->size()));
-  in.vec(G.htoc, static_cast<std::int64_t>(G.htoc.size()));
-  in.vec(s.gas.u, static_cast<std::int64_t>(s.gas.u.size()));
-  in.vec(s.gas.w, static_cast<std::int64_t>(s.gas.w.size()));
-  in.vec(hs.v, static_cast<std::int64_t>(hs.v.size()));
+                  &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau}) {
+    if (skip_grids && v != &G.Luv && v != &G.sfr)
+      in.skip_vec<float>();
+    else
+      in.vec(*v, static_cast<std::int64_t>(v->size()));
+  }
+  if (skip_grids) {
+    in.skip_vec<std::int64_t>();
+    in.skip_vec<float>();
+    in.skip_vec<float>();
+    in.skip_vec<float>();
+  } else {
+    in.vec(G.htoc, static_cast<std::int64_t>(G.htoc.size()));
+    in.vec(s.gas.u, static_cast<std::int64_t>(s.gas.u.size()));
+    in.vec(s.gas.w, static_cast<std::int64_t>(s.gas.w.size()));
+    in.vec(hs.v, static_cast<std::int64_t>(hs.v.size()));
+  }
   in.pod(hs.c_limit);
   in.pod(hs.dt_hy);
   in.pod(hs.vmax_last);
   in.pod(hs.counters);
   if (ver >= 2) {
-    in.vec(s.gas.e);
-    if (!s.gas.e.empty() && static_cast<std::int64_t>(s.gas.e.size()) != s.gas.ncell)
-      throw std::runtime_error("checkpoint: internal-energy field of the wrong size: " + path);
+    if (skip_grids) {
+      in.skip_vec<float>();
+      s.gas.e_on = true;
+    } else {
+      in.vec(s.gas.e);
+      if (!s.gas.e.empty() && static_cast<std::int64_t>(s.gas.e.size()) != s.gas.ncell)
+        throw std::runtime_error("checkpoint: internal-energy field of the wrong size: " + path);
+    }
     in.pod(hs.ucounters);
   } else {
     s.gas.e.clear();

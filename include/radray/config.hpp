@@ -253,6 +253,12 @@ struct Config {
   //   amrex_hydro_max_grid_size: box size of the hydro level's decomposition.
   HydroBackend hydro_backend = HydroBackend::Serial;
   int amrex_hydro_max_grid_size = 32;
+  // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
+  // AMReX levels between steps on one shared decomposition
+  // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for
+  // the outputs (amrex_state.hpp, docs/stage_e_state.md). Needs the three
+  // backends, hydro_scheme = unsplit, rt_method = rays.
+  bool amrex_state = false;
 
   // Recombinations and recombination radiation (docs/recomb_radiation.md;
   // set_recomb_param in recomb_rad.hpp). New options, not in the original:

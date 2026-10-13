@@ -2,6 +2,7 @@
 // process functions are no-ops and the level functions throw.
 #include <stdexcept>
 
+#include "radray/amrex_state.hpp"
 #include "radray/rt_backend.hpp"
 
 namespace radray {
@@ -15,6 +16,9 @@ namespace {
 bool amrex_available() { return false; }
 void backend_init(int&, char**&) {}
 void backend_finalize() {}
+void backend_bcast(double*, int) {}
+void amrex_state_gather_rt(Simulation&, bool) { no_amrex(); }
+void amrex_state_scatter_rt(Simulation&) { no_amrex(); }
 bool io_rank() { return true; }
 int backend_rank() { return 0; }
 int backend_nranks() { return 1; }

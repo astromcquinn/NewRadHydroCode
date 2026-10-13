@@ -57,6 +57,7 @@
 #include <omp.h>
 #endif
 
+#include "gas_state.hpp"
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/kernels/hydro_mh.hpp"
@@ -320,6 +321,7 @@ struct PMLevel {
   ax::ParticleLocator<ax::DenseBins<ax::Box>> locator;
   std::unique_ptr<PencilFFT> pfft;
   std::unique_ptr<ax::FFT::R2C<float>> afft;
+  gs::GasState* state = nullptr;  // amrex_state = 1: the gas on the level (gas_state.hpp)
   Timers T;
 
   explicit PMLevel(const pm::PMConfig& pc_) {
@@ -344,6 +346,17 @@ struct PMLevel {
     dm = ax::DistributionMapping(ba);
     bag = ba;
     bag.coarsen(r);  // the gas grid: each gas cell's r^3 mesh cells lie in its box
+    if (pc_.amrex_state) {
+      // the gas state's decomposition, refined by pm_refine for the mesh
+      // (gas_state.hpp): the gas is read and written locally
+      state = gs::active();
+      if (!state) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
+      if (state->N != Ng) throw std::runtime_error("pm_backend = amrex: the gas state has another N");
+      bag = state->ba;
+      ba = state->ba;
+      ba.refine(r);
+      dm = state->dm;
+    }
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
     acc.define(ba, dm, 1, 1);
@@ -426,6 +439,21 @@ struct PMLevel {
     ax::ParallelDescriptor::ReduceLongSum(nmine);
     if (nmine != Npart) throw std::runtime_error("pm_backend = amrex: the particle count does not add up");
     T.p_fill += now() - t1;
+    if (state) {
+      // amrex_state = 1: the gas from the level's state (locally)
+      if (kind != 2) throw std::runtime_error("amrex_state = 1 needs hydro_scheme = unsplit");
+      for (ax::MFIter mfi(gas); mfi.isValid(); ++mfi) {
+        auto g = gas.array(mfi);
+        auto ga = state->G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          for (int m = 0; m < 5; ++m) g(i, j, k, m) = ga(i, j, k, gs::kU + m);
+          g(i, j, k, 5) = ga(i, j, k, gs::kE);
+          g(i, j, k, 6) = g(i, j, k, 7) = 0.0f;
+        });
+      }
+      T.prep += now() - t0;
+      return;
+    }
     // the gas (every rank holds the full host grid)
     const int NG = Ng;
     const bool mf_ = mf;
@@ -752,6 +780,19 @@ struct PMLevel {
     const double t3 = now();
     T.g_vcopy += t3 - t2;
     // the gas: the changed components (MF: v; non-MF: u; unsplit: u(2:5))
+    if (state) {
+      // amrex_state = 1: the kicked u(2:5) into the level's state (locally)
+      for (ax::MFIter mfi(gas); mfi.isValid(); ++mfi) {
+        auto g = gas.const_array(mfi);
+        auto ga = state->G.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          for (int m = 1; m < 5; ++m) ga(i, j, k, gs::kU + m) = g(i, j, k, m);
+        });
+      }
+      T.g_gas += now() - t3;
+      T.gather += now() - t0;
+      return;
+    }
     const std::int64_t ncell = static_cast<std::int64_t>(Ng) * Ng * Ng;
     const int NG = Ng;
     float* arr = kind == 0 ? v_gas : u_gas;

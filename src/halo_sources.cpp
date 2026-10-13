@@ -2,6 +2,8 @@
 // (see include/radray/halo_sources.hpp and docs/halos_and_sources.md).
 #include "radray/halo_sources.hpp"
 
+#include "radray/amrex_state.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -439,6 +441,11 @@ void add_halo_metals(Simulation& s, const std::vector<SourceRecord>& src, std::i
   };
   std::stable_sort(order.begin(), order.end(),
                    [&](std::int64_t a, std::int64_t b) { return key(a) < key(b); });
+  // amrex_state = 1: the gas is on the level; the same additions, in the
+  // same order, applied there by the owning rank (amrex_state.hpp)
+  const bool on_level = use_amrex_state(cfg);
+  std::vector<std::int64_t> lcell;
+  std::vector<double> ldz;
   for (std::int64_t n : order) {
     const SourceRecord& r = src[n];
     const int i = grid_index(r.x[0], cfg.x_gas_box, cfg.Ngas);
@@ -446,15 +453,22 @@ void add_halo_metals(Simulation& s, const std::vector<SourceRecord>& src, std::i
     const int k = grid_index(r.x[2], cfg.x_gas_box, cfg.Ngas);
     const double dmstar = static_cast<double>(r.sfr) * s.clk.dt_yr * Msun_cgs;
     const double rhoZ = fZesc2 * Zyield2 * dmstar / s.units.vol_gas;
-    float* w = s.gas.w_p(s.gas.cell(i, j, k));
+    const std::int64_t c = s.gas.cell(i, j, k);
+    if (on_level) {
+      lcell.push_back(c);
+      ldz.push_back(rhoZ / s.units.rho_unit);
+      continue;
+    }
+    float* w = s.gas.w_p(c);
     w[3] = static_cast<float>(static_cast<double>(w[3]) + rhoZ / s.units.rho_unit);
   }
+  if (on_level) amrex_state_add_metals(s, lcell, ldz);
 }
 
 void calc_halo_records(Simulation& s, const std::vector<SourceRecord>& src,
                        std::int64_t Nsource, bool add_metals) {
   calc_halo(s, link_halo(src, Nsource, s.cfg));
-  if (add_metals && !s.gas.w.empty()) add_halo_metals(s, src, Nsource);
+  if (add_metals && (!s.gas.w.empty() || use_amrex_state(s.cfg))) add_halo_metals(s, src, Nsource);
 }
 
 // ---------------------------------------------------------------------------
