@@ -108,8 +108,10 @@ backend built, tested and timed on `cpu-g2`, 1 to 4 nodes.
   844.5 against 782.1. **`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf`**
   (eager below 8 MB) is the compromise and the best of all for the RT:
   256³ 2 nodes 89.7 s (−10 %), 512³ 4 nodes 667.1 s (−15 %), hydro
-  `fill` 0.6–1.5 s on 2 nodes; every run bitwise identical to the
-  module-default one. `tools/hyak/env.sh` exports it for every AMReX
+  `fill` 0.34–0.38 s on 2 nodes in a fixed-node-pair sweep (the module
+  defaults 4.0–4.4 s, 16 MB and above 0.5–1.5 s: the gather's 16–32 MB
+  broadcast blocks then go eager too, `amrex_hydro_ucx_sweep.slurm`);
+  every run bitwise identical to the module-default one. `tools/hyak/env.sh` exports it for every AMReX
   job (`radray_ucx_eager`; `RADRAY_UCX_RNDV_THRESH`, `RADRAY_UCX_EAGER=0`).
   Box size for production: **32³** (16³ costs 5–10 % more, 64³ leaves
   ranks idle at 4 nodes). The backend on one node is 4.7× faster than

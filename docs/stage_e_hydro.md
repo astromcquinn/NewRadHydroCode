@@ -334,12 +334,30 @@ box size). The measurement (§4.1, jobs of 2026-10-12) says otherwise:
    | `8m` | 1.47, 0.60 | **89.7** | **667.1** |
    | `16m` | 2.14 | | |
    | `32m` | 2.05, 1.82 | | 667.8 |
-   | `inf` | 0.47, 0.76, 0.514 | 95.1 | 844.5 |
+   | `inf` | 0.47, 0.76, 0.51 | 95.1 | 844.5 |
 
-   (The hydro `fill` varies by up to 2× between node pairs, so single
-   runs separate only the factors of 3–10; `16m` and `32m` being slower
-   than `8m` twice over is reproducible but not understood; for the RT at
-   512³ `8m` and `32m` are the same, 667.1 and 667.8 s.) So
+   The single jobs above ran on different node pairs and scatter by up
+   to 2×; `tools/hyak/amrex_hydro_ucx_sweep.slurm` (job 41820425) runs
+   the settings interleaved three times on one fixed pair, with every
+   run byte-identical:
+
+   | fixed node pair, 48 × 8, 32³ boxes: `fill` [s], three runs | `copyout` [s] | hydro [s] |
+   |---|---|---|
+   | module defaults: 4.37, 3.94, 4.00 | 1.2 | 7.8–8.3 |
+   | `8m`: **0.38, 0.34, 0.37** | 1.1–1.2 | **4.0–4.1** |
+   | `16m`: 1.32, 0.47, 0.57 | 2.4 | 5.3–6.2 |
+   | `32m`: 1.31, 1.49, 1.33 | 2.4 | 6.1–6.3 |
+   | `inf`: 1.29, 0.53, 0.47 | 2.4 | 5.4–6.1 |
+
+   OpenMPI's `pml_monitoring` histogram of the same run explains the
+   order: the exchange's messages are 64 KB to 4 MB (66 per neighbour
+   pair per run, i.e. one per `FillBoundary`), while the Stage E1
+   gather's per-rank broadcast blocks are 16–32 MB. With the 8 MB
+   threshold the former go eager and the latter stay on the rendezvous
+   path; from 16 MB up the broadcast blocks go eager too, which doubles
+   `copyout` (1.2 → 2.4 s) and, by occupying UCX's eager queues, slows
+   the exchange that follows. For the RT at 512³ `8m` and `32m` are the
+   same (667.1 and 667.8 s), so 8 MB is the setting.
    `tools/hyak/env.sh` exports **`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf`**
    (`radray_ucx_eager`, called by the AMReX job scripts;
    `RADRAY_UCX_RNDV_THRESH` changes the threshold, `RADRAY_UCX_EAGER=0`
