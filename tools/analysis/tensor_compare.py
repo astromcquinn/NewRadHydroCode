@@ -30,7 +30,9 @@ and S1 for M1):
             periodic images out to 8 boxes, plus the thin near field
             (r < rc, default 2C cells, handed over to the cones by 2 rc;
             cone_tensor.py); cap limits each cell's group-1 tau (clumps
-            saturate: a crude covering-fraction correction of the mip average)
+            saturate: a crude covering-fraction correction of the mip average);
+            suffix x<lam>: also screened by exp(-s/lam) (--cone-lamx), the
+            attenuation the HI does not give (light horizon, redshifting)
   split_cone  split with the cone-traced direct light
 
 Metrics, S0-weighted over the cells of each regime:
@@ -217,6 +219,9 @@ def main():
     ap.add_argument("--no-plot", action="store_true")
     ap.add_argument("--cone", nargs="*", default=[],
                     help="cone-traced attenuated tensors nside[:coarse[:tau_cap[:r_c]]] (cone_tensor.py)")
+    ap.add_argument("--cone-lamx", nargs="*", default=["inf"],
+                    help="extra screening lengths for the cones, exp(-s/lam): inf (none), cells, "
+                         "auto or auto*f (lambda_eff times f); one tensor each, label suffix x<lam>")
     ap.add_argument("--box", type=float, default=None, help="Mpc/h (default: the run's params.txt)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -301,15 +306,20 @@ def main():
             Kn = thin_kernel(N) * (1 - smoothstep(rr, rc, 2 * rc))[None]
             Pn = np.moveaxis(convolve(rho, Kn, a.workers), 0, -1)
             del Kn
-            Pk, _ = cone_tensor(rho, colc, s18, Wg, nside=ns, coarse=co, rc=rc, workers=a.workers)
-            Pd = Pn + Pk
-            del Pn, Pk
-            Nd = Pd[..., 0] + Pd[..., 1] + Pd[..., 2]
-            lab = f"cone{ns}c{co}" + ("" if not np.isfinite(cap) else f"t{cap:g}") + ("" if len(t) < 4 else f"r{rc:g}")
-            cl[lab] = normalise(Pd)
-            cl["split_" + lab] = split(Nd, cl[lab])
-            out(f"# {lab}: sum N_dir / sum S0 = {Nd.sum() / S0.sum():.3f}")
-            del Pd
+            lamx = [None if l == "inf" else lam_eff * (float(l[5:]) if l.startswith("auto*") else 1.0)
+                    if l.startswith("auto") else float(l) for l in a.cone_lamx]
+            Pks, _ = cone_tensor(rho, colc, s18, Wg, nside=ns, coarse=co, rc=rc, workers=a.workers,
+                                 lam_extra=lamx)
+            for lx, Pk in zip(lamx, Pks):
+                Pd = Pn + Pk
+                Nd = Pd[..., 0] + Pd[..., 1] + Pd[..., 2]
+                lab = (f"cone{ns}c{co}" + ("" if not np.isfinite(cap) else f"t{cap:g}")
+                       + ("" if len(t) < 4 else f"r{rc:g}") + ("" if lx is None else f"x{lx:.0f}"))
+                cl[lab] = normalise(Pd)
+                cl["split_" + lab] = split(Nd, cl[lab])
+                out(f"# {lab}: sum N_dir / sum S0 = {Nd.sum() / S0.sum():.3f}")
+                del Pd
+            del Pn, Pks
         for spec in a.moment:
             path, lab = spec.rsplit(":", 1)
             cl["post_" + lab] = normalise(load(path, N, "tensor.bin", 10)[..., 4:10])

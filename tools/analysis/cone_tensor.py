@@ -70,12 +70,14 @@ def smoothstep(r, r0, r1):
 
 
 def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0,
-                step=0.5, tmin=1e-4, near_kernel=None, workers=8, lam_extra=None):
+                step=0.5, tmin=1e-4, near_kernel=None, workers=8, lam_extra=(None,)):
     """rho: (N,N,N) Q/(4 pi) per cell; col: (N,N,N) HI column per cell in
-    1e-18 cm^-2 (tau_g = sigma18_g * col); W: group weights. Returns P on
-    the RT grid, shape (N,N,N,6), and the cone part alone on the coarse
-    grid. near_kernel(N, rc) -> the 6 kernel components with the hand-over
-    weight already applied (see tensor_compare.py)."""
+    1e-18 cm^-2 (tau_g = sigma18_g * col); W: group weights. lam_extra: a
+    list of extra screening lengths in cells (None: none), each multiplying
+    the transmission by exp(-s / lam): the attenuation the HI column does not
+    give (light horizon, redshifting out of the band). Returns, per
+    lam_extra, the cone part on the RT grid, shape (N,N,N,6), and on the
+    coarse grid."""
     N = rho.shape[0]
     W = np.asarray(W, float) / np.sum(W)
     s18 = np.asarray(sigma18, float)
@@ -90,7 +92,8 @@ def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0
     g = (np.arange(nc) + 0.5) * coarse  # receiver centres, fine-cell units
     zz, yy, xx = np.meshgrid(g, g, g, indexing="ij")
     X = np.stack([xx.ravel(), yy.ravel(), zz.ravel()], 1)
-    Pc = np.zeros((X.shape[0], 6))
+    lam_extra = list(lam_extra)
+    Pc = np.zeros((len(lam_extra), X.shape[0], 6))
     smax = smax_boxes * N
 
     def sample(levels, l, pos):
@@ -108,7 +111,7 @@ def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0
         nn = [n[0] * n[0], n[1] * n[1], n[2] * n[2], n[0] * n[1], n[0] * n[2], n[1] * n[2]]
         s = rc
         colacc = np.zeros(X.shape[0])
-        I = np.zeros(X.shape[0])
+        I = np.zeros((len(lam_extra), X.shape[0]))
         alive = np.ones(X.shape[0], bool)
         while s < smax:
             d = max(2 * s * np.tan(theta), 1.0)
@@ -120,22 +123,24 @@ def cone_tensor(rho, col, sigma18, W, nside=2, coarse=4, rc=12.0, smax_boxes=8.0
             c = sample(C, l, pos)
             w = smoothstep(np.array([sm]), rc, 2 * rc)[0]  # hand-over from the near field
             T = trans(colacc + c * ds / 2)
-            if lam_extra:
-                T = T * np.exp(-sm / lam_extra)
-            I += w * r * omega * ds * T
+            for j, lx in enumerate(lam_extra):
+                I[j] += w * r * omega * ds * T * (np.exp(-sm / lx) if lx else 1.0)
             colacc += c * ds
             s += ds
             if T.max() < tmin:
                 break
         for m in range(6):
-            Pc[:, m] += I * nn[m]
-    Pc = Pc.reshape(nc, nc, nc, 6)
+            Pc[:, :, m] += I * nn[m]
+    Pc = Pc.reshape(len(lam_extra), nc, nc, nc, 6)
     # prolong to the RT grid (trilinear, periodic)
-    P = np.empty((N, N, N, 6))
     f = np.arange(N)
     cz = (f + 0.5) / coarse - 0.5
     Z, Y, Xg = np.meshgrid(cz, cz, cz, indexing="ij")
     coords = np.stack([Z.ravel(), Y.ravel(), Xg.ravel()])
-    for m in range(6):
-        P[..., m] = ndimage.map_coordinates(Pc[..., m], coords, order=1, mode="grid-wrap").reshape(N, N, N)
-    return P, Pc
+    Ps = []
+    for j in range(len(lam_extra)):
+        P = np.empty((N, N, N, 6))
+        for m in range(6):
+            P[..., m] = ndimage.map_coordinates(Pc[j, ..., m], coords, order=1, mode="grid-wrap").reshape(N, N, N)
+        Ps.append(P)
+    return Ps, Pc
