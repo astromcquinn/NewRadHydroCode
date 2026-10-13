@@ -1171,6 +1171,7 @@ struct Level : LevelBase {
     gs::gather_slabs(Cf, N, nc, [&](int k0, int nk, ax::Array4<float const> const& a) {
       if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
         throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
+#pragma omp parallel for schedule(static) collapse(2)
       for (int k = k0; k < k0 + nk; ++k)
         for (int j = 0; j < NN; ++j)
           for (int i = 0; i < NN; ++i) {
@@ -1215,6 +1216,7 @@ struct Level : LevelBase {
     gs::scatter_slabs(Cf, N, nf, [&](int k0, int nk, ax::Array4<float> const& a) {
       if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
         throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
+#pragma omp parallel for schedule(static) collapse(2)
       for (int k = k0; k < k0 + nk; ++k)
         for (int j = 0; j < NN; ++j)
           for (int i = 0; i < NN; ++i) {
@@ -1261,7 +1263,10 @@ struct Level : LevelBase {
   }
   int bytes_per_ray() const override { return Enc::kBytes; }
 
-  // All rays in the float layout, gathered on rank 0 (MPI_Gatherv)
+  // All rays in the float layout, gathered on rank 0: every rank sends its
+  // list to rank 0 in chunks of kGatherChunk rays (an MPI_Gatherv would be
+  // limited to 2 GB, 25 M rays; a 512^3 production run holds 1.1 G)
+  static constexpr std::size_t kGatherChunk = std::size_t(1) << 23;  // 8 M rays, 640 MB
   void gather_rays(std::vector<RayP>& out) const override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     std::vector<RayP> mine;
@@ -1280,19 +1285,34 @@ struct Level : LevelBase {
 #ifdef AMREX_USE_MPI
     const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
     const int root = ax::ParallelDescriptor::IOProcessorNumber();
-    const int nb = static_cast<int>(mine.size() * sizeof(RayP));
-    std::vector<int> counts(nranks), displs(nranks);
-    MPI_Gather(&nb, 1, MPI_INT, counts.data(), 1, MPI_INT, root, comm);
-    long long total = 0;
-    if (ax::ParallelDescriptor::IOProcessor()) {
-      for (int r = 0; r < nranks; ++r) {
-        displs[r] = static_cast<int>(total);
-        total += counts[r];
-      }
-      if (total > 2000000000LL) throw std::runtime_error("checkpoint: more than 2 GB of rays to gather");
-      out.resize(static_cast<std::size_t>(total / sizeof(RayP)));
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    long long count = static_cast<long long>(mine.size());
+    std::vector<long long> counts(nranks);
+    MPI_Gather(&count, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
+    if (io) {
+      std::size_t total = 0;
+      for (long long c : counts) total += static_cast<std::size_t>(c);
+      out.reserve(total);
+      out.insert(out.end(), mine.begin(), mine.end());  // rank 0's own first
     }
-    MPI_Gatherv(mine.data(), nb, MPI_BYTE, out.data(), counts.data(), displs.data(), MPI_BYTE, root, comm);
+    for (int r = 0; r < nranks; ++r) {
+      if (r == root) continue;
+      if (myproc == r) {
+        for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
+          const int n = static_cast<int>(std::min(kGatherChunk, mine.size() - off));
+          MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 11, comm);
+        }
+      } else if (io) {
+        const std::size_t total = static_cast<std::size_t>(counts[r]);
+        for (std::size_t off = 0; off < total; off += kGatherChunk) {
+          const int n = static_cast<int>(std::min(kGatherChunk, total - off));
+          const std::size_t n0 = out.size();
+          out.resize(n0 + static_cast<std::size_t>(n));
+          MPI_Recv(out.data() + n0, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 11, comm, MPI_STATUS_IGNORE);
+        }
+      }
+    }
 #endif
   }
 

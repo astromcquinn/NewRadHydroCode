@@ -73,6 +73,7 @@ void amrex_state_scatter_gas(Simulation& s) {
   const int N = g.N;
   const float *u = s.gas.u.data(), *w = s.gas.w.data(), *e = s.gas.e.data();
   gs::scatter_slabs(g.G, N, gs::kNC, [&](int k0, int nk, amrex::Array4<float> const& a) {
+#pragma omp parallel for schedule(static) collapse(2)
     for (int k = k0; k < k0 + nk; ++k)
       for (int j = 0; j < N; ++j)
         for (int i = 0; i < N; ++i) {
@@ -90,6 +91,7 @@ void amrex_state_gather_gas(Simulation& s) {
   const int N = g.N;
   float *u = s.gas.u.data(), *w = s.gas.w.data(), *e = s.gas.e.data();
   gs::gather_slabs(g.G, N, gs::kNC, [&](int k0, int nk, amrex::Array4<float const> const& a) {
+#pragma omp parallel for schedule(static) collapse(2)
     for (int k = k0; k < k0 + nk; ++k)
       for (int j = 0; j < N; ++j)
         for (int i = 0; i < N; ++i) {
