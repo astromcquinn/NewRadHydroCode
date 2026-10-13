@@ -23,6 +23,10 @@
 #   RANKS      MPI ranks (default: the job's --ntasks, 24 per node), THREADS
 #              threads per rank (default 8)
 #   MGS        amrex_max_grid_size (default 32)
+#   EXTRA      more --set options for the backend run, e.g. the state on the
+#              levels (docs/stage_e_state.md): "--set hydro_backend=amrex
+#              --set pm_backend=amrex --set amrex_hydro_max_grid_size=0
+#              --set amrex_state=1" (the serial run gets none of them)
 #   EXE        build with the backend (default build-amrex/radhydro)
 #   SERIAL     1: also run the serial code on all cores (default on one node)
 #   HYAK_MODULES  modules (default "ompi/4.1.6-2")
@@ -72,7 +76,7 @@ AMREX_OUT="$OUT/amrex_n$NODES"
 mkdir -p "$OUT"
 {
   echo "host $(hostname), nodes ${SLURM_JOB_NODELIST:-}, job ${SLURM_JOB_ID:-}, $(date)"
-  echo "EXE $EXE, $NODES nodes, ranks $RANKS x threads $THREADS, max_grid_size $MGS, checkpoint $CK, steps $STEPS"
+  echo "EXE $EXE, $NODES nodes, ranks $RANKS x threads $THREADS, max_grid_size $MGS, checkpoint $CK, steps $STEPS${EXTRA:+, extra: $EXTRA}"
   lscpu | grep -E "Model name|^CPU\(s\)|Thread|Core|Socket|NUMA|L3"
 } | tee "$OUT/node_n$NODES.txt"
 common=(--quiet --restart "$CK" --set run_steps="$STEPS" --set restart_every=0 --set movie_dz=0 --set fields_every=0)
@@ -82,7 +86,7 @@ export OMP_NUM_THREADS=$THREADS OMP_PLACES=cores OMP_PROC_BIND=close
 rm -rf "$AMREX_OUT"
 srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
   "$EXE" "$PROB" "$AMREX_OUT" "${common[@]}" --set rt_backend=amrex --set deterministic_parallel=0 \
-  --set amrex_max_grid_size="$MGS" > "$AMREX_OUT.log" 2>&1
+  --set amrex_max_grid_size="$MGS" ${EXTRA:-} > "$AMREX_OUT.log" 2>&1
 echo "amrex rc=$?"; tail -3 "$AMREX_OUT.log"
 
 # the serial OpenMP code on the whole node (deterministic_parallel)
