@@ -91,6 +91,12 @@ def main():
                     help="rays: cells with optical depth > tau at the HI edge keep their "
                          "recombination photons on the spot (recomb_rad_cell_onspot; default 1, "
                          "docs/rt_methods_512.md); 0: off")
+    ap.add_argument("--moment-inject", type=int, default=1, choices=(0, 1),
+                    help="M1/OTVET (rt_method set by tools/hyak/rt_methods_runs.sh; ignored by "
+                         "the rays): 1 = source and recombination photons enter the moments "
+                         "after the transport, so they are absorbed in their own cell first "
+                         "(moment_inject; default 1, docs/rt_moments.md); 0: before, the original "
+                         "order, which leaves dense source cells neutral")
     ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
                     help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
                          "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
@@ -187,6 +193,8 @@ def main():
             lines.append(f"recomb_rad_cell_onspot = {a.recomb_rad_cell_onspot:g}")
     elif a.recomb_rad and a.recomb_case == "B":
         sys.exit("--recomb-rad 1 needs --recomb-case A (case B already absorbs them on the spot)")
+    if a.moment_inject:
+        lines.append("moment_inject = 1")
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")

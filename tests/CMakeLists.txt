@@ -784,6 +784,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_otvet 13 --set rt_method=otvet
                      --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
     set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+    # moment_inject = 1: sources and recombination photons injected after the
+    # transport (docs/rt_moments.md section 5a)
+    add_test(NAME restart_smoke_m1_inject
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject 13 --set rt_method=m1
+                     --set recomb_case=A --set recomb_rad=1 --set moment_inject=1)
+    set_tests_properties(restart_smoke_m1_inject PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     set_tests_properties(restart_smoke_legacy restart_smoke_det_movie restart_smoke_unsplit
                          restart_smoke_rotate PROPERTIES TIMEOUT 600 LABELS restart)
     # slab-only movie frames (movie_slab, docs/movies.md): the slabs against
