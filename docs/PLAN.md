@@ -657,6 +657,23 @@ policy on klone, and deleting the merged branches.
   the ob1/TCP path (as fast, but a bus error at exit) was not pursued;
   512³ on one node with 8 fat ranks was not tried.
 
+## Stage E4 (2026-10-13): load balancing
+
+* Done after PR #34 (Stage E3) was merged; branch `stage-e-balance`.
+* **Choices made in this thread** (open to revision; `docs/stage_e_state.md` §5):
+  - The cost is cells + 10 × live rays per box (the measured ratio of a
+    ray-substep to a cell-substep at 512³); `amrex_balance_ray_weight`.
+  - The space-filling curve mapping by default (locality for the
+    exchanges), knapsack as an option; a remap only when the efficiency
+    gains 0.05 (`amrex_balance_min_gain`; negative remaps every step,
+    which the tests use).
+  - The mapping is rebuilt once per RT step before the step, on the ray
+    counts at that moment; not inside the step, and the hydro and PM
+    work is not weighed.
+  - The checkpoint's ray order became canonical (box order, cell, bytes)
+    so that a rebalanced run's checkpoints equal the fixed mapping's; the
+    on-disk format is unchanged.
+
 ## Stage E3 (2026-10-13): the state on the levels
 
 * **Request (user):** merge the branches, understand the hydro threshold
