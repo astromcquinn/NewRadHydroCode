@@ -397,9 +397,12 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     in.vec(mode);
     double rbud[3];
     in.pod(rbud);
-    if (s.cfg.recomb_rad != !ng.empty())
+    if (!s.cfg.recomb_rad && !ng.empty())
       throw std::runtime_error("checkpoint and run differ in recomb_rad: " + path);
-    if (s.cfg.recomb_rad) {
+    // recomb_rad = 1 with empty buffers: written before the RT started
+    // (prep_rt allocates them), so the state is left unallocated as in a
+    // fresh run
+    if (s.cfg.recomb_rad && !ng.empty()) {
       recomb_init(s);
       RecombState& Rc = *s.recomb;
       if (ng.size() != Rc.ngam.size() || eg.size() != Rc.egam.size() ||

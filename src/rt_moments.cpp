@@ -1,6 +1,9 @@
 // Moment-based radiative transfer (rt_moments.hpp, docs/rt_moments.md).
 #include "radray/rt_moments.hpp"
+#include "radray/otvet_closure.hpp"
 #include "radray/recomb_rad.hpp"
+#include "radray/rt_tensor_diag.hpp"
+#include "radray/kernels/rt_cell.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -23,7 +26,8 @@ using namespace cp;
 // ---------------------------------------------------------------------------
 
 bool set_rt_method_param(Config& c, const std::string& key, const std::string& val) {
-  if (set_recomb_param(c, key, val)) return true;  // recomb_rad.hpp
+  if (set_recomb_param(c, key, val)) return true;         // recomb_rad.hpp
+  if (set_otvet_closure_param(c, key, val)) return true;  // otvet_closure.hpp
   if (key == "rt_method") {
     if (val == "rays")
       c.rt_method = RTMethod::Rays;
@@ -64,7 +68,18 @@ void copy_rt_method(const Config& from, Config& to) {
   to.moment_nsub = from.moment_nsub;
   to.otvet_tensor = from.otvet_tensor;
   to.moment_inject = from.moment_inject;
+  to.otvet_closure = from.otvet_closure;
+  to.otvet_split = from.otvet_split;
+  to.otvet_screen_lambda = from.otvet_screen_lambda;
+  to.otvet_cone_nside = from.otvet_cone_nside;
+  to.otvet_cone_coarse = from.otvet_cone_coarse;
+  to.otvet_cone_rc = from.otvet_cone_rc;
+  to.otvet_cone_taucap = from.otvet_cone_taucap;
+  to.otvet_cone_smax = from.otvet_cone_smax;
+  to.otvet_cone_budget = from.otvet_cone_budget;
+  to.otvet_cone_blend = from.otvet_cone_blend;
   copy_recomb_param(from, to);
+  check_otvet_closure_param(to);
 }
 
 const char* rt_method_name(RTMethod m) {
@@ -84,6 +99,8 @@ std::string rt_method_summary(const Config& c) {
       s += std::string(", otvet_tensor = ") +
            (c.otvet_tensor == 0 ? "auto" : c.otvet_tensor == 1 ? "direct" : "fft");
     if (c.moment_inject) s += ", moment_inject = 1";
+    const std::string cl = otvet_closure_summary(c);  // otvet_closure.hpp
+    if (!cl.empty()) s += ", " + cl;
     s += ")";
   }
   // recomb_rad.hpp; printed only when not the original's case B
@@ -227,11 +244,90 @@ void moment_init(Simulation& s) {
   s.moments = m;
 }
 
+namespace {
+// Photons injected into group g per unit Luv per substep, in the units of N
+// (the injection of moment_step_1)
+inline double inject_per_L(const Simulation& s, int g) {
+  return fResc * pop2_init[g] * s.clk.dtsec_rt / s.units.vol_rt / s.units.nH_avg;
+}
+
+// The OTVET tensor of the hydro step: the original thin tensor, or an
+// alternative closure (otvet_closure.hpp)
+void otvet_update_tensor(Simulation& s) {
+  MomentState& M = *s.moments;
+  const OtvetClosureParams p = otvet_closure_params(s.cfg);
+  if (!p.active()) {
+    M.tensor_method = compute_otvet_tensor(s.rt, s.units, s.cfg.otvet_tensor, M.h, &M.nsrc);
+    M.ndir.clear();
+    return;
+  }
+  const RTGrid& G = s.rt;
+  const Units& u = s.units;
+  const std::int64_t nc = G.ncell;
+  OtvetClosureIn in;
+  in.N = G.N;
+  for (int k = 0; k < G.N; ++k)
+    for (int j = 0; j < G.N; ++j)
+      for (int i = 0; i < G.N; ++i) {
+        const std::int64_t c = G.cell(i + 1, j + 1, k + 1);
+        if (static_cast<double>(G.sfr[c]) > u.sfr_min && G.Luv[c] > 0)
+          in.src.push_back({i, j, k, static_cast<double>(G.Luv[c])});
+      }
+  M.nsrc = static_cast<std::int64_t>(in.src.size());
+  const SigmaTable sig = photoion_sigma(freq_init);
+  for (int g = 0; g < kNfreq; ++g) {
+    in.q[g] = inject_per_L(s, g);
+    in.sigma18[g] = sig[0][g] * 1e18;
+  }
+  // the solution's Gamma-weighted photons per cell
+  std::vector<double> nw(nc, 0.0);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) {
+    double t = 0;
+    for (int g = 0; g < kNfreq; ++g) t += in.sigma18[g] * static_cast<double>(M.n[g * nc + c]);
+    nw[c] = t;
+  }
+  in.nw = nw.data();
+  // HI column per cell (1e-18 cm^-2), as calc_rt_1's tau
+  std::vector<float> col;
+  if (p.closure == 2) {
+    col.assign(nc, 0.0f);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+    for (std::int64_t c = 0; c < nc; ++c) {
+      const double nH = static_cast<double>(G.rhog[c]) * u.rhob_avg * XHy / mH_cgs;
+      col[c] = static_cast<float>(nH * static_cast<double>(G.fHI[c]) * u.len_rt * 1e-18);
+    }
+    in.col = col.data();
+  }
+  std::vector<float> xion;
+  if (p.closure == 2) {
+    xion.assign(nc, 0.0f);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+    for (std::int64_t c = 0; c < nc; ++c) xion[c] = 1.0f - G.fHI[c];
+    in.xion = xion.data();
+  }
+  OtvetClosureOut out;
+  otvet_closure_tensor(p, s.cfg.otvet_tensor, in, out);
+  M.h = std::move(out.h);
+  M.ndir = std::move(out.ndir);
+  M.tensor_method = p.closure == 0 ? 0 : 2;
+  M.closure_lambda = out.lambda;
+  M.closure_lam_x = out.lam_x;
+  M.closure_ratio = out.ratio;
+  M.closure_seconds = out.seconds;
+  if (s.raylog)
+    *s.raylog << " OTVET      : " << otvet_closure_summary(s.cfg) << "; lambda "
+              << static_cast<float>(out.lambda) << " lambda_x " << static_cast<float>(out.lam_x)
+              << " N_dir/N " << static_cast<float>(out.ratio) << " sources " << M.nsrc << " "
+              << static_cast<float>(out.seconds) << " s\n";
+}
+}  // namespace
+
 void moment_prep(Simulation& s) {
   moment_init(s);
   MomentState& M = *s.moments;
   if (s.cfg.rt_method == RTMethod::OTVET) {
-    M.tensor_method = compute_otvet_tensor(s.rt, s.units, s.cfg.otvet_tensor, M.h, &M.nsrc);
+    otvet_update_tensor(s);
   } else {
     M.h.clear();
   }
@@ -290,7 +386,15 @@ inline void m1_pressure(double N, double fx, double fy, double fz, double P[6]) 
 // nu F_d), P = D N. Written as the sum of the right- and left-going parts
 // (N +- F_d)/2 >= 0 of each cell, the update is a positive combination for
 // C <= 1/3 (N stays >= 0 and E/N stays within the neighbours' range).
-void transport_group(MomentState& M, int g, bool otvet, double C) {
+// otvet_split = 1 (otvet_closure.hpp): P = N I/3 + min(N, N_dir)(h - I/3)
+inline void otvet_split_pressure(double Nc, double Nd, const float* hc, double Q[6]) {
+  const double m = std::min(Nc, Nd);
+  const double a = (Nc - m) / 3;
+  for (int k = 0; k < 3; ++k) Q[k] = a + m * static_cast<double>(hc[k]);
+  for (int k = 3; k < 6; ++k) Q[k] = m * static_cast<double>(hc[k]);
+}
+
+void transport_group(MomentState& M, int g, bool otvet, double C, const float* ndir, double qg) {
   const int N = M.N;
   const std::int64_t nc = M.ncell;
   float* n = &M.n[g * nc];
@@ -310,7 +414,9 @@ void transport_group(MomentState& M, int g, bool otvet, double C) {
       continue;
     }
     double Q[6];
-    if (otvet) {
+    if (otvet && ndir) {
+      otvet_split_pressure(Nc, qg * static_cast<double>(ndir[c]), &M.h[6 * c], Q);
+    } else if (otvet) {
       const float* hc = &M.h[6 * c];
       for (int m = 0; m < 6; ++m) Q[m] = Nc * static_cast<double>(hc[m]);
     } else {
@@ -403,6 +509,45 @@ void transport_group(MomentState& M, int g, bool otvet, double C) {
     std::copy(nfy + a, nfy + b, fy + a);
     std::copy(nfz + a, nfz + b, fz + a);
     std::copy(ne + a, ne + b, e + a);
+  }
+}
+
+// rt_tensor_diag.hpp: the Gamma_HI-weighted moments N, F and D N of the
+// state after the transport, D = the closure used (OTVET h or M1)
+void moment_tensor_diag(const MomentState& M, TensorDiag& T, bool otvet, const float* ndir,
+                        const double* qg) {
+  const std::int64_t nc = M.ncell;
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) {
+    double nu[kNfreq], sig[3][kNfreq];
+    bool any = false;
+    for (int g = 0; g < kNfreq; ++g) {
+      const std::int64_t i = g * nc + c;
+      nu[g] = M.n[i] > 0 ? static_cast<double>(M.e[i]) / M.n[i] : 0.0;
+      any = any || M.n[i] > 0;
+    }
+    if (!any) continue;
+    rrk::photoion_sigma(nu, sig);
+    double* S = &T.acc[10 * c];
+    for (int g = 0; g < kNfreq; ++g) {
+      const std::int64_t i = g * nc + c;
+      const double Ng = M.n[i];
+      if (!(Ng > 0)) continue;
+      const double w = sig[0][g] * 1e18;
+      double Q[6];
+      if (otvet && ndir) {
+        otvet_split_pressure(Ng, qg[g] * static_cast<double>(ndir[c]), &M.h[6 * c], Q);
+      } else if (otvet) {
+        for (int m = 0; m < 6; ++m) Q[m] = Ng * static_cast<double>(M.h[6 * c + m]);
+      } else {
+        m1_pressure(Ng, M.fx[i], M.fy[i], M.fz[i], Q);
+      }
+      S[0] += w * Ng;
+      S[1] += w * M.fx[i];
+      S[2] += w * M.fy[i];
+      S[3] += w * M.fz[i];
+      for (int m = 0; m < 6; ++m) S[4 + m] += w * Q[m];
+    }
   }
 }
 
@@ -540,8 +685,11 @@ void moment_step_1(Simulation& s) {
     for (auto* v : {&M.nn, &M.nfx, &M.nfy, &M.nfz, &M.ne}) v->assign(nc, 0.0f);
   }
   const bool otvet = s.cfg.rt_method == RTMethod::OTVET;
-  if (otvet && M.h.size() != static_cast<std::size_t>(6 * nc))
-    M.tensor_method = compute_otvet_tensor(G, u, s.cfg.otvet_tensor, M.h, &M.nsrc);
+  if (otvet && M.h.size() != static_cast<std::size_t>(6 * nc)) otvet_update_tensor(s);
+  // otvet_split = 1: N_dir,g = q_g ndir (otvet_closure.hpp)
+  const float* ndir = (otvet && !M.ndir.empty()) ? M.ndir.data() : nullptr;
+  std::array<double, kNfreq> qg{};
+  for (int g = 0; g < kNfreq; ++g) qg[g] = ndir ? inject_per_L(s, g) : 0.0;
   const int nsub = s.cfg.moment_nsub;
   const double C = 1.0 / nsub;
   for (int g = 0; g < kNfreq; ++g) {
@@ -549,10 +697,11 @@ void moment_step_1(Simulation& s) {
     bool any = false;
     for (std::int64_t c = 0; c < nc && !any; ++c) any = ng[c] > 0;
     if (!any) continue;
-    for (int it = 0; it < nsub; ++it) transport_group(M, g, otvet, C);
+    for (int it = 0; it < nsub; ++it) transport_group(M, g, otvet, C, ndir, qg[g]);
   }
   if (s.cfg.moment_inject == 1) inject();
   lap(s.timers.trace1);
+  if (s.tdiag && s.tdiag->acc) moment_tensor_diag(M, *s.tdiag, otvet, ndir, qg.data());  // diagnostic
 
   // Deposit for radiative_physics: ngam = N, nu = E (= nu*ngam, divided by
   // ngam in radiative_physics), dx = sum over groups of F

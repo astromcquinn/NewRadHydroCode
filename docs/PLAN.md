@@ -721,3 +721,68 @@ policy on klone, and deleting the merged branches.
   luminosity per cell (only when listed). The 512³ M1 and OTVET runs are
   not rerun; `docs/rt_methods_512.md` flags the affected results.
 
+## OTVET-closure thread (2026-10-12): a better Eddington tensor for `rt_method = otvet`
+
+* **Request (user):** branch `otvet-closure`; improve OTVET's Eddington tensor,
+  whose post-overlap P_Γ is 2–9× the rays' at k ≲ 6 h/Mpc (r ≥ 0.95), with a Γ
+  floor at 0.62⟨Γ⟩ and low peaks (`docs/rt_methods_512.md`), while keeping its
+  good pre-overlap morphology. An attenuated kernel exp(−r/λ_mfp) is **the
+  baseline to beat**, not the answer. Steps: (1) ground truth — a ray-tracer
+  diagnostic of the true second-moment tensor per cell, compared on 256³ runs
+  with OTVET's h and M1; (2) brainstorm candidate closures with reasoning,
+  cost and memory, **show the list and ranking to the user before
+  implementing**; (3) implement the best two or three behind flags, measure
+  against the rays' tensor, then full runs (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`). Report: `docs/otvet_closure.md`.
+* **Choices made in this thread** (open to revision):
+  - the diagnostic is `tensor_dump = 1` (radhydro only, serial RT backend):
+    on the zdata1 snapshot steps the Γ_HI-weighted moments S0, S1, S2 of the
+    radiation, summed over the substeps (also over the odd substeps alone, for
+    the ray noise), with the thin OTVET tensor of the step's sources and the
+    source list. For the moment methods the same moments of their own N, F
+    and closure D N. Off by default (byte-identical, a null pointer);
+  - the ground-truth runs are new 256³ runs (`$RUNS/otvcl256{,_m1,_otvet}`)
+    at **20 Mpc/h**, the 512³ run's cell size (78 kpc/h), mass resolution and
+    configuration (case A + RR with `recomb_rad_cell_onspot = 1`, ĉ = 0.2,
+    f_esc = 0.23, `redshift_per_distance`, unsplit), snapshots and tensor
+    dumps at z = 15, 10, 9, 8.5, …, 5. The existing 256³ runs (10 Mpc/h,
+    0.1c) kept only their final checkpoints, so any 256³ ground truth needed
+    reruns;
+  - fixed on the way (no flag: it only enables a restart that used to
+    throw): a checkpoint written before the RT starts holds empty
+    recombination buffers, and restarting it with `recomb_rad = 1` failed.
+  - a priori choices for the cone (numpy prototypes against the rays'
+    tensor, `docs/otvet_closure.md` §3):
+    - nside 4 rather than 2: it fixes the cone's small-scale force;
+    - receivers 4× coarser: as good as 2×, at ⅛ of the cost;
+    - near field r_c = 8 cells and τ cap 1 per cell;
+    - an extra cutoff exp(−s/λ_x), with λ_x from the photon budget
+      (ΣN_dir = ΣN, applied per distance bin);
+    - blended with the split's small scales at σ = 4 cells;
+  - status: the ranking (1 cone + budget + blend, 2 split, 3 screened kernel)
+    and the implementation order (split → screen → cone) were presented to
+    the user on 2026-10-12. No solver change before their go-ahead.
+* **User decision (2026-10-12):** implement all three closures (split,
+  screened kernel, cone with the budget cutoff and the blend), then run them
+  at 512³ like the existing rays, OTVET and M1 runs. The user's remark that
+  the split alone does not capture the mean free path after overlap led to
+  making the split a modifier on any direct tensor (thin or screened), with
+  the cone's blend carrying it for the cone.
+* **Implementation choices (this thread):**
+  - flags `otvet_closure = thin | screen | cone`, `otvet_split`,
+    `otvet_screen_lambda`, `otvet_cone_{nside,coarse,rc,taucap,smax,budget,blend}`
+    (`otvet_closure.hpp`); the defaults run the original code path
+    unchanged;
+  - the split is applied per group and per GLF subcycle with the cell's
+    current N_g. The blend's split uses the Γ-weighted N at the start of
+    the hydro step, since the Gaussian cannot be redone every subcycle;
+  - the split with the cone is refused; the blend replaces it;
+  - λ (screen) and λ_x (cone) come from the solution's own Γ-weighted
+    photons at the start of each hydro step. The cone keeps its light per
+    half-octave distance bin, so the budget needs no second march and no
+    state across steps (restart-safe);
+  - the screened and cone tensors are isotropic below a noise floor
+    (10⁻⁶ of the summed luminosity, normalised, the single-precision FFT's
+    floor), and their eigenvalues are clamped to ≥ 0;
+  - 512³ runs without `tensor_dump` (14 GB per snapshot); the 256³ runs
+    keep it for the a posteriori tensor comparison.

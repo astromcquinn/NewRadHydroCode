@@ -3,7 +3,7 @@
 the RT method (docs/rt_methods_512.md).
 
 usage: gamma_power.py RUN[+RUN2...]:label [...] --outdir DIR [--zmin 4.8] [--zmax 5.6]
-                      [--box 40] [--tol 0.03] [--nbins 24] [--workers 8] [--clip C]
+                      [--box 40] [--tol 0.03] [--nbins 24] [--workers 8] [--clip C] [--s0]
 
 RUN is a run directory (<problem>/run); several directories of one run can
 be joined with '+' (e.g. the run and its extra field cubes,
@@ -34,6 +34,13 @@ at k is P(k_max)/P(k).
 Note: Gamma_HI is the value of the last RT substep. With the rays it carries
 the sampling noise of the discrete rays (roughly white at high k); the
 moment methods have none, so the high-k ratio rays/moments contains it.
+
+--s0 uses instead S0 of the tensor dump (radhydro tensor_dump = 1,
+docs/otvet_closure.md), the Gamma_HI-weighted radiation averaged over the
+hydro step's RT substeps (files gamma_pk_s0.*): for the rays it averages the
+sampling noise down (to ~2 % per cell at 256^3, from the odd and even
+substeps) and so compares the fields the moment methods have. The txt also
+gives the quantiles of Gamma/<Gamma>_V in ionised cells (x_HII > 0.5).
 """
 import argparse
 import glob
@@ -58,8 +65,11 @@ def snapshots(spec, zmin, zmax):
         for d in sorted(glob.glob(os.path.join(run, "step_[0-9][0-9][0-9][0-9]"))):
             if not os.path.exists(os.path.join(d, "fHI.bin")):
                 continue
-            if not (os.path.exists(os.path.join(d, "gammaHI.bin"))
-                    or os.path.exists(os.path.join(d, "gamma.bin"))):
+            if S0_MODE:
+                if not os.path.exists(os.path.join(d, "tensor.bin")):
+                    continue
+            elif not (os.path.exists(os.path.join(d, "gammaHI.bin"))
+                      or os.path.exists(os.path.join(d, "gamma.bin"))):
                 continue
             z = read_z(d)
             if z is not None and zmin <= z <= zmax:
@@ -78,7 +88,16 @@ def box_of(spec):
     return None
 
 
+S0_MODE = False
+QS = (0.001, 0.01, 0.16, 0.5, 0.84, 0.99, 0.999)
+
+
 def load_gamma(d):
+    if S0_MODE:
+        m = np.memmap(os.path.join(d, "tensor.bin"), dtype=np.float32, mode="r").reshape(-1, 10)
+        g = np.ascontiguousarray(m[:, 0])
+        N = round(g.size ** (1 / 3))
+        return g.reshape(N, N, N)
     p = os.path.join(d, "gammaHI.bin")
     if os.path.exists(p):
         g = np.fromfile(p, dtype=np.float32)
@@ -135,7 +154,11 @@ def main():
     ap.add_argument("--clip", type=float, default=0.0)
     ap.add_argument("--zlist", default="", help="comma list: only the reference snapshots nearest "
                     "these redshifts")
+    ap.add_argument("--s0", action="store_true",
+                    help="use the step-averaged S0 of the tensor dump instead of gammaHI.bin")
     a = ap.parse_args()
+    global S0_MODE
+    S0_MODE = a.s0
     os.makedirs(a.outdir, exist_ok=True)
     specs, labels = [], []
     for r in a.runs:
@@ -159,7 +182,8 @@ def main():
             zn = min(sn, key=lambda z: abs(z - z0)) if sn else None
             pick.append((zn, sn[zn]) if zn is not None and abs(zn - z0) <= a.tol else None)
         sets.append((z0, pick))
-    tag = "gamma_pk" + ("_clip%g" % a.clip if a.clip > 0 else "") + ("_sel" if a.zlist else "")
+    tag = ("gamma_pk" + ("_s0" if a.s0 else "") + ("_clip%g" % a.clip if a.clip > 0 else "")
+           + ("_sel" if a.zlist else ""))
     rep = [("# Gamma_HI capped at %g <Gamma_HI>_V\n" % a.clip if a.clip > 0 else "") +
            "# Gamma_HI power spectra: delta = Gamma/<Gamma>_V - 1; k [h/Mpc], P [(Mpc/h)^3], "
            "Delta2 = k^3 P/2pi^2; ratio and r(k) relative to the first run (%s); box %g Mpc/h"
@@ -182,7 +206,9 @@ def main():
             x = 1 - np.fromfile(os.path.join(d, "fHI.bin"), dtype=np.float32)
             gm = g.mean(dtype=np.float64)
             xv = x.mean(dtype=np.float64)
-            del x
+            gi = g.ravel()[x > 0.5]
+            q = np.quantile(gi / gm, QS) if gi.size else np.full(len(QS), np.nan)
+            del x, gi
             delta = (g / np.float32(gm) - np.float32(1)).astype(np.float32)
             del g
             d2 = np.square(delta, dtype=np.float64).ravel()
@@ -198,7 +224,7 @@ def main():
                 r = np.ones_like(P)
             else:
                 r = binner.power(f, ref_f) / np.sqrt(P * Pref) if ref_f is not None else np.full_like(P, np.nan)
-            row.append(dict(z=zr, dir=d, gmean=gm, xV=xv, P=P, r=r, sd=sd, top=top))
+            row.append(dict(z=zr, dir=d, gmean=gm, xV=xv, P=P, r=r, sd=sd, top=top, q=q))
             if j > 0:
                 del f
         if row[0] is None:
@@ -211,6 +237,10 @@ def main():
                 rep.append("#   %-10s z = %.4f  x_HII,V = %.6f  <Gamma_HI>_V = %.4e  sigma_delta = %.3f  "
                            "var in top 0.01%% cells = %.2f  P(k_max) = %.3e  %s"
                            % (lab, e["z"], e["xV"], e["gmean"], e["sd"], e["top"], e["P"][-1], e["dir"]))
+        rep.append("#   quantiles %s of Gamma/<Gamma>_V in ionised cells:" % " ".join("%g" % t for t in QS))
+        for lab, e in zip(labels, row):
+            if e:
+                rep.append("#   %-10s q " % lab + " ".join("%.4f" % v for v in e["q"]))
         hdr = "# %10s" % "k" + "".join(" %11s %11s %7s %7s" % ("P_" + l, "D2_" + l, "rat_" + l[:3], "r_" + l[:3])
                                         for l, e in zip(labels, row) if e)
         rep.append(hdr)
@@ -229,7 +259,7 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    colors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6"]
+    colors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6", "#d6336c", "#6b7280", "#0e9aa7"]
     nz = len(results)
     fig, ax = plt.subplots(3, nz, figsize=(3.6 * nz + 0.6, 9.0), squeeze=False, sharex=True)
     k = binner.k
