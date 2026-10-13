@@ -1329,57 +1329,77 @@ struct Level : LevelBase {
     gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
   }
 
-  // The streaming gather: rank 0's own rays first, then every rank's in rank
-  // order, each handed to sink on rank 0 in chunks of kGatherChunk
+  // The streaming gather, in a canonical order: box by box in the global
+  // box order, each box's rays sorted by home cell and then by their bytes
+  // (a total order; identical rays are interchangeable), so the checkpoint
+  // does not depend on the mapping or the rank count (the tiles' order
+  // after a step depends on the arrival order of the migration). The
+  // owner of a box sends it to rank 0 in chunks of kGatherChunk; rank 0
+  // hands every chunk to sink.
   void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
-    std::vector<RayP> mine;
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
-      const int np = static_cast<int>(pt.numParticles());
-      const PTD p = pt.getParticleTileData();
-      for (int n = 0; n < np; ++n) mine.push_back(Enc::load(p, n, ectx));
-    }
     const int nranks = ax::ParallelDescriptor::NProcs();
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const int root = ax::ParallelDescriptor::IOProcessorNumber();
     const bool io = ax::ParallelDescriptor::IOProcessor();
-    std::vector<RayP> chunk;
-    if (io) {
-      for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
-        const std::size_t n = std::min(kGatherChunk, mine.size() - off);
-        chunk.assign(mine.begin() + off, mine.begin() + off + n);
-        sink(chunk);
-      }
-    }
-    if (nranks == 1) return;
+    const int NN = N;
+    auto key_less = [NN](const RayP& a, const RayP& b) {
+      const std::int64_t ca = rrk::cell_of(a.x[0], NN) +
+                              static_cast<std::int64_t>(NN) * (rrk::cell_of(a.x[1], NN) +
+                                                               static_cast<std::int64_t>(NN) * rrk::cell_of(a.x[2], NN));
+      const std::int64_t cb = rrk::cell_of(b.x[0], NN) +
+                              static_cast<std::int64_t>(NN) * (rrk::cell_of(b.x[1], NN) +
+                                                               static_cast<std::int64_t>(NN) * rrk::cell_of(b.x[2], NN));
+      if (ca != cb) return ca < cb;
+      return std::memcmp(&a, &b, sizeof(RayP)) < 0;
+    };
+    std::vector<RayP> box_rays, chunk;
 #ifdef AMREX_USE_MPI
     const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
-    const int root = ax::ParallelDescriptor::IOProcessorNumber();
-    const int myproc = ax::ParallelDescriptor::MyProc();
-    long long count = static_cast<long long>(mine.size());
-    std::vector<long long> counts(nranks);
-    MPI_Gather(&count, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
-    for (int r = 0; r < nranks; ++r) {
-      if (r == root) continue;
-      if (myproc == r) {
-        for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
-          const int n = static_cast<int>(std::min(kGatherChunk, mine.size() - off));
-          MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 11, comm);
+#endif
+    for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
+      const int owner = dm[b];
+      if (myproc == owner) {
+        auto& pt = pc->DefineAndReturnParticleTile(0, b, 0);
+        const int np = static_cast<int>(pt.numParticles());
+        const PTD p = pt.getParticleTileData();
+        box_rays.resize(static_cast<std::size_t>(np));
+        for (int n = 0; n < np; ++n) box_rays[static_cast<std::size_t>(n)] = Enc::load(p, n, ectx);
+        std::sort(box_rays.begin(), box_rays.end(), key_less);
+      }
+      if (owner == root) {
+        if (io)
+          for (std::size_t off = 0; off < box_rays.size(); off += kGatherChunk) {
+            const std::size_t n = std::min(kGatherChunk, box_rays.size() - off);
+            chunk.assign(box_rays.begin() + off, box_rays.begin() + off + n);
+            sink(chunk);
+          }
+        continue;
+      }
+      if (nranks == 1) continue;
+#ifdef AMREX_USE_MPI
+      if (myproc == owner) {
+        long long count = static_cast<long long>(box_rays.size());
+        MPI_Send(&count, 1, MPI_LONG_LONG, root, 12, comm);
+        for (std::size_t off = 0; off < box_rays.size(); off += kGatherChunk) {
+          const int n = static_cast<int>(std::min(kGatherChunk, box_rays.size() - off));
+          MPI_Send(box_rays.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 11, comm);
         }
       } else if (io) {
-        const std::size_t total = static_cast<std::size_t>(counts[r]);
+        long long count = 0;
+        MPI_Recv(&count, 1, MPI_LONG_LONG, owner, 12, comm, MPI_STATUS_IGNORE);
+        const std::size_t total = static_cast<std::size_t>(count);
         for (std::size_t off = 0; off < total; off += kGatherChunk) {
           const int n = static_cast<int>(std::min(kGatherChunk, total - off));
           chunk.resize(static_cast<std::size_t>(n));
-          MPI_Recv(chunk.data(), n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 11, comm, MPI_STATUS_IGNORE);
+          MPI_Recv(chunk.data(), n * static_cast<int>(sizeof(RayP)), MPI_BYTE, owner, 11, comm, MPI_STATUS_IGNORE);
           sink(chunk);
         }
       }
-    }
 #endif
+    }
   }
 
-  // Rank 0 adds the rays (home-cell centres as positions), a global
-  // Redistribute moves them to their owners
   // Rank 0 holds the whole list (a checkpoint): the rays go to their owners
   // in chunks of kScatterChunk, each written into rank 0's first tile and
   // redistributed, so rank 0's peak holds one chunk of particles and its
