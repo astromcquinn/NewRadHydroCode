@@ -648,3 +648,100 @@ FFT kernel is now filled in parallel; the values are the same.
   all cells.) A few cells where P is near the noise floor differ by up to
   0.8. The C++ stops each cone where its own transmission falls below
   10⁻⁴; the prototype stopped only when every receiver's had.
+
+## 6. The closures in full runs, 256³ (a posteriori)
+
+`otvcl256_otvet_{split,screen,screensplit,cone}`: the box, ICs and
+parameters of `otvcl256` (rays) and `otvcl256_otvet` (thin OTVET), with
+`tools/hyak/otvet_closure_runs.sh`. All four ran to z = 4.9 in 45–47 min on
+a node, the same as thin OTVET (47 min). The cone's tensor costs 8–9 s per
+hydro step at 256³; the others 3.6 s. Validated with `gamma_power.py`,
+`rt_methods_runs.py` and `reion_power.py` against the rays, M1 and thin
+OTVET (`scratch/otvet-closure/post256cl`).
+
+**The rays' Γ in the snapshots is mostly sampling noise on cell scales.**
+`gammaHI.bin` is the Γ of the last RT substep. The tensor dump's S0 is the
+same Γ-weighted radiation averaged over the hydro step's ~140 substeps.
+
+| | rays' Γ quantiles in ionised cells, z = 4.92: 0.1 % / 16 % / 84 % / 99.9 % |
+|---|---|
+| single substep (`gammaHI.bin`) | 0.20 / 0.67 / 1.33 / 2.72 |
+| hydro-step mean (S0) | 0.72 / 0.89 / 1.09 / 2.69 |
+
+The odd and even substeps of the dump give 2 % noise per cell in S0. So
+most of the rays' ±35 % spread, and of their long low tail, at 256³ is
+single-substep sampling noise. The moment methods' Γ has none.
+`gamma_power.py --s0` therefore compares the hydro-step means. The noise
+in the rays' Δ² at k ≳ 10 h/Mpc (`docs/rt_methods_512.md` §6) is then gone:
+r(k) with the rays stays ≥ 0.9 up to k ≈ 16 h/Mpc.
+
+**P_Γ after overlap: the excess is gone.** P_Γ ratio to the rays (r(k)),
+hydro-step means:
+
+| z | k [h/Mpc] | M1 | OTVET | split | screen | screen + split | cone |
+|---|---|---|---|---|---|---|---|
+| 5.85 | 0.9 | 0.41 (0.75) | 2.86 (0.92) | 0.94 (0.92) | 0.87 (0.92) | 0.66 (0.93) | 0.80 (0.97) |
+| | 2.2 | 0.49 (0.81) | 3.07 (0.98) | 1.02 (0.98) | 1.15 (0.98) | 0.87 (0.98) | 1.01 (0.98) |
+| | 6.7 | 0.41 (0.96) | 3.17 (0.98) | 1.03 (0.99) | 1.36 (0.98) | 0.99 (0.99) | 1.15 (0.99) |
+| 5.67 | 0.9 | 0.15 (0.74) | 4.88 (0.96) | 0.96 (0.96) | 1.06 (0.97) | 0.73 (0.97) | 0.73 (0.97) |
+| | 2.2 | 0.44 (0.81) | 4.97 (0.99) | 1.01 (0.99) | 1.29 (0.99) | 0.89 (0.99) | 0.95 (0.98) |
+| | 6.7 | 0.38 (0.96) | 4.83 (0.98) | 1.02 (0.99) | 1.47 (0.98) | 0.98 (0.98) | 1.17 (0.98) |
+| 4.92 | 0.9 | 0.09 (0.72) | 14.8 (0.91) | 0.85 (0.92) | 0.87 (0.92) | 0.74 (0.92) | 0.69 (0.92) |
+| | 2.2 | 0.20 (0.78) | 16.8 (0.98) | 0.98 (0.98) | 1.15 (0.98) | 0.95 (0.98) | 0.96 (0.98) |
+| | 6.7 | 0.31 (0.92) | 15.5 (0.97) | 1.03 (0.97) | 1.33 (0.97) | 1.02 (0.97) | 1.20 (0.97) |
+
+- **The split is within 15 % of the rays at k ≤ 7 h/Mpc** from z = 5.85 to
+  4.92, where thin OTVET is 3–17× too high. Its pattern is OTVET's
+  (r unchanged: OTVET's directions were right, its amplitude was not).
+- **The cone** is within 0.7–1.3×. It is a little low at k ≈ 1 and a
+  little high at k ≈ 4–7.
+- **The screened kernel** is 1.15–1.5× at k ≥ 2, and the screen + split
+  0.66–1.0×.
+- At k = 10–16 h/Mpc all closures fall to 0.4–0.9× (M1 0.1–0.3×), since
+  the moment methods' proximity zones are smoother than the rays'.
+
+**One-point Γ (hydro-step means, ionised cells, Γ/⟨Γ⟩ quantiles 0.1 % /
+1 % / 16 % / 50 % / 84 % / 99 % / 99.9 %):**
+
+| z | rays | M1 | OTVET | split | cone |
+|---|---|---|---|---|---|
+| 5.67 | 0.66 / 0.73 / 0.84 / 0.94 / 1.11 / 1.95 / 4.24 | 0.76 / 0.86 / 0.93 / 0.98 / 1.05 / 1.43 / 2.81 | 0.48 / 0.53 / 0.65 / 0.85 / 1.25 / 3.24 / 8.38 | 0.72 / 0.75 / 0.83 / 0.93 / 1.12 / 2.05 / 4.40 | 0.79 / 0.82 / 0.87 / 0.94 / 1.08 / 1.91 / 4.25 |
+| 4.92 | 0.72 / 0.79 / 0.89 / 0.97 / 1.09 / 1.52 / 2.69 | 0.88 / 0.94 / 0.98 / 1.00 / 1.02 / 1.09 / 1.55 | 0.55 / 0.57 / 0.67 / 0.85 / 1.24 / 3.13 / 7.97 | 0.89 / 0.90 / 0.93 / 0.97 / 1.05 / 1.51 / 2.70 | 0.91 / 0.91 / 0.93 / 0.97 / 1.04 / 1.47 / 2.68 |
+
+- **Thin OTVET is too broad on both sides** against the hydro-step means:
+  a floor at 0.5–0.55 ⟨Γ⟩, and a 99.9 % quantile of 8 ⟨Γ⟩ against the
+  rays' 2.7–4.2. With the noisy single-substep Γ of the snapshots (§3 of
+  `docs/rt_methods_512.md`), its peaks looked low and its floor high.
+- **The split and the cone match the rays' upper half to ≤ 5 %** at both
+  redshifts (the proximity zones of the sources).
+- **Their lower half is too narrow by z = 4.92:** 16 % quantile 0.93
+  against 0.89, 0.1 % 0.89–0.91 against 0.72. At z = 5.67 the split's is
+  right (0.72 / 0.83 against 0.66 / 0.84). The missing low tail is
+  shadowing by self-shielded gas, which the direct + isotropic-diffuse
+  description fills in.
+
+**Reionization history and morphology:**
+- Within Δz ≤ 0.03 of the rays for every closure at x_V = 0.1–0.9.
+- The end of reionization (x_V = 0.99): rays 6.00, cone 6.05, OTVET 6.07,
+  split 6.07, M1 6.10, screen 6.10, screen + split 6.11.
+- **The cone's ionised regions are the closest to the rays'.** It has the
+  smallest fraction of cells off by > 0.1 in x_HII at z ≤ 6.6 (0.027–0.067,
+  against OTVET's 0.030–0.071). Its x_HII power at k = 16 h/Mpc is
+  0.84–0.93 of the rays' (OTVET 0.62–0.85). Its Γ quantiles during overlap
+  follow the rays' (z = 6.83: 16 % quantile 0.29 against the rays' 0.31,
+  OTVET's 0.37).
+- The split is identical to OTVET until overlap (N ≤ N_dir: it only acts
+  once the light outgrows the thin sum). The screen variants end late:
+  one λ screens the overlap-era geometry wrongly (§3).
+
+**Verdict (256³).** The split removes OTVET's after-overlap excess almost
+exactly, at no cost. The cone does as well after overlap, and it also
+improves the overlap era (morphology, the end of reionization, Γ
+quantiles), at 2.3× the tensor cost (8.7 against 3.6 s per step at 256³;
+about 7 % of the run's time). The screened kernel is the worst of the
+three. Both the split and the cone leave the one-point Γ too narrow on the
+low side late (no shadows behind self-shielded gas), and the small-scale
+power (k ≳ 10 h/Mpc) too low.
+
+**512³** (`reion512_rays_otvet_{split,cone,screen}`, against
+`reion512_rays`, `_m1`, `_otvet`): running; results in §7.
