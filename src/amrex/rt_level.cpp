@@ -379,8 +379,13 @@ struct Level : LevelBase {
     s.timers.prep += now() - t0;
   }
 
-  // The level's cells into s.rt and s.gas on every rank: gather on rank 0
-  // (ParallelCopy to a one-box FabArray), then broadcast the flat array.
+  // The level's cells into s.rt and s.gas on every rank: gathered on rank 0
+  // and broadcast slab by slab (kSyncPlanes k-planes at a time: a one-box
+  // FabArray of the slab on rank 0 by ParallelCopy, flattened, Bcast), so no
+  // rank holds a second copy of the whole grid (46 x N^3 floats, 25 GB at
+  // 512^3, which with the redundant serial state of every rank overflowed
+  // a 1.5 TB node at 24 ranks).
+  static constexpr int kSyncPlanes = 8;
   void sync_fields(Simulation& s) override {
     const double t0 = now();
     FFab Cf(ba, dm, NC, 0);
@@ -391,48 +396,53 @@ struct Level : LevelBase {
         f(i, j, k, m) = cf(c, i, j, k, m);
       });
     }
-    ax::BoxArray ba0(domain);
-    ax::DistributionMapping dm0(ax::Vector<int>{0});
-    FFab C0(ba0, dm0, NC, 0);
-    C0.ParallelCopy(Cf, 0, 0, NC);
-    const std::size_t ncell = static_cast<std::size_t>(N) * N * N;
-    std::vector<float> flat(ncell * NC);
-    if (ax::ParallelDescriptor::IOProcessor()) {
-      const auto a = C0.const_array(0);
-      for (int k = 0; k < N; ++k)
-        for (int j = 0; j < N; ++j)
-          for (int i = 0; i < N; ++i) {
-            float* b = &flat[(i + static_cast<std::size_t>(N) * (j + static_cast<std::size_t>(N) * k)) * NC];
-            for (int m = 0; m < NC; ++m) b[m] = a(i, j, k, m);
-          }
-    }
-    if (ax::ParallelDescriptor::NProcs() > 1)
-      ax::ParallelDescriptor::Bcast(flat.data(), flat.size(), ax::ParallelDescriptor::IOProcessorNumber());
     RTGrid& G = s.rt;
     GasGrid& g = s.gas;
+    const ax::DistributionMapping dm0(ax::Vector<int>{0});
+    const std::size_t nplane = static_cast<std::size_t>(N) * N;
+    std::vector<float> flat(nplane * kSyncPlanes * NC);
+    for (int k0 = 0; k0 < N; k0 += kSyncPlanes) {
+      const int nk = std::min(kSyncPlanes, N - k0);
+      const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
+      FFab C0(ax::BoxArray(slab), dm0, NC, 0);
+      C0.ParallelCopy(Cf, 0, 0, NC);
+      if (ax::ParallelDescriptor::IOProcessor()) {
+        const auto a = C0.const_array(0);
+        for (int k = 0; k < nk; ++k)
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i) {
+              float* b = &flat[(i + static_cast<std::size_t>(N) * (j + static_cast<std::size_t>(N) * k)) * NC];
+              for (int m = 0; m < NC; ++m) b[m] = a(i, j, k0 + k, m);
+            }
+      }
+      if (ax::ParallelDescriptor::NProcs() > 1)
+        ax::ParallelDescriptor::Bcast(flat.data(), nplane * nk * NC, ax::ParallelDescriptor::IOProcessorNumber());
+      const std::int64_t c0 = static_cast<std::int64_t>(k0) * nplane;
+      const std::int64_t c1 = c0 + static_cast<std::int64_t>(nk) * nplane;
 #pragma omp parallel for schedule(static)
-    for (std::int64_t c = 0; c < static_cast<std::int64_t>(ncell); ++c) {
-      RTCell d;
-      std::memcpy(&d, &flat[static_cast<std::size_t>(c) * NC], sizeof d);
-      G.rhog[c] = d.rhog;
-      G.fHI[c] = d.fHI;
-      G.fHeI[c] = d.fHeI;
-      G.fHeII[c] = d.fHeII;
-      G.temp[c] = d.temp;
-      for (int m = 0; m < 3; ++m) {
-        G.dx[c * 3 + m] = d.dx[m];
-        G.gamma[c * 3 + m] = d.gamma[m];
-        G.lambda[c * 3 + m] = d.lambda[m];
+      for (std::int64_t c = c0; c < c1; ++c) {
+        RTCell d;
+        std::memcpy(&d, &flat[static_cast<std::size_t>(c - c0) * NC], sizeof d);
+        G.rhog[c] = d.rhog;
+        G.fHI[c] = d.fHI;
+        G.fHeI[c] = d.fHeI;
+        G.fHeII[c] = d.fHeII;
+        G.temp[c] = d.temp;
+        for (int m = 0; m < 3; ++m) {
+          G.dx[c * 3 + m] = d.dx[m];
+          G.gamma[c * 3 + m] = d.gamma[m];
+          G.lambda[c * 3 + m] = d.lambda[m];
+        }
+        for (int m = 0; m < 5; ++m) {
+          G.nu[c * 5 + m] = d.nu[m];
+          G.ngam[c * 5 + m] = d.ngam[m];
+          G.fgam[c * 5 + m] = d.fgam[m];
+          G.tau[c * 5 + m] = d.tau[m];
+        }
+        for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
+        for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
+        if (has_e) g.e[c] = d.e;
       }
-      for (int m = 0; m < 5; ++m) {
-        G.nu[c * 5 + m] = d.nu[m];
-        G.ngam[c * 5 + m] = d.ngam[m];
-        G.fgam[c * 5 + m] = d.fgam[m];
-        G.tau[c * 5 + m] = d.tau[m];
-      }
-      for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
-      for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
-      if (has_e) g.e[c] = d.e;
     }
     T.sync += now() - t0;
   }
@@ -1115,24 +1125,41 @@ struct Level : LevelBase {
 
   // Rank 0 adds the rays (home-cell centres as positions), a global
   // Redistribute moves them to their owners
+  // Rank 0 holds the whole list (a checkpoint): the rays go to their owners
+  // in chunks of kScatterChunk, each written into rank 0's first tile and
+  // redistributed, so rank 0's peak holds one chunk of particles and its
+  // migration buffers, not the whole pool (1.1 G rays = 110 GB of
+  // particles plus their send buffers at 512^3). Every rank calls
+  // Redistribute the same number of times (collective).
+  static constexpr std::size_t kScatterChunk = std::size_t(1) << 25;
   void scatter_rays(const std::vector<RayP>& in) override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
       pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
-    if (ax::ParallelDescriptor::IOProcessor() && !in.empty()) {
-      ax::MFIter mfi(C);
-      if (!mfi.isValid()) throw std::runtime_error("checkpoint: rank 0 owns no box");
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
-      pt.resize(in.size());
-      const PTD p = pt.getParticleTileData();
-      const int myproc = ax::ParallelDescriptor::MyProc();
-      const int NN = N;
-      for (std::size_t n = 0; n < in.size(); ++n) {
-        const int h[3] = {rrk::cell_of(in[n].x[0], NN), rrk::cell_of(in[n].x[1], NN), rrk::cell_of(in[n].x[2], NN)};
-        store_ray(p, static_cast<int>(n), in[n], NN, myproc, h, ectx);
+    const bool root = ax::ParallelDescriptor::IOProcessor();
+    ax::Long nchunk = root ? static_cast<ax::Long>((in.size() + kScatterChunk - 1) / kScatterChunk) : 0;
+    ax::ParallelDescriptor::ReduceLongMax(nchunk);
+    if (nchunk == 0) nchunk = 1;
+    for (ax::Long ic = 0; ic < nchunk; ++ic) {
+      if (root && !in.empty()) {
+        ax::MFIter mfi(C);
+        if (!mfi.isValid()) throw std::runtime_error("checkpoint: rank 0 owns no box");
+        auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+        const std::size_t n0 = static_cast<std::size_t>(ic) * kScatterChunk;
+        const std::size_t n1 = std::min(in.size(), n0 + kScatterChunk);
+        const int old = pt.numParticles();
+        pt.resize(old + (n1 - n0));
+        const PTD p = pt.getParticleTileData();
+        const int myproc = ax::ParallelDescriptor::MyProc();
+        const int NN = N;
+        for (std::size_t n = n0; n < n1; ++n) {
+          const int h[3] = {rrk::cell_of(in[n].x[0], NN), rrk::cell_of(in[n].x[1], NN),
+                            rrk::cell_of(in[n].x[2], NN)};
+          store_ray(p, old + static_cast<int>(n - n0), in[n], NN, myproc, h, ectx);
+        }
       }
+      pc->Redistribute();
     }
-    pc->Redistribute();
   }
 
   std::string timers() const override {
@@ -1194,6 +1221,11 @@ int backend_rank() { return g_initialized ? amrex::ParallelDescriptor::MyProc() 
 int backend_nranks() { return g_initialized ? amrex::ParallelDescriptor::NProcs() : 1; }
 void backend_barrier() {
   if (g_initialized) amrex::ParallelDescriptor::Barrier();
+}
+void backend_reduce_minmax(double& lo, double& hi) {
+  if (!g_initialized) return;
+  amrex::ParallelDescriptor::ReduceRealMin(lo);
+  amrex::ParallelDescriptor::ReduceRealMax(hi);
 }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }

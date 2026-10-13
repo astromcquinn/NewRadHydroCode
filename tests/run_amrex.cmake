@@ -32,6 +32,11 @@ if(NP GREATER 1 OR LAUNCH)
     message(FATAL_ERROR "no MPI launcher (RADRAY_MPIEXEC) for ${NP} ranks")
   endif()
   set(launch ${LAUNCH} ${LAUNCH_FLAGS} ${NPFLAG} ${NP})
+  # srun inherits the allocation's --cpus-per-task (SLURM_CPUS_PER_TASK), which
+  # multiplied by the rank count exceeds the allocation: give it the threads
+  if(LAUNCH MATCHES "srun$" AND NOT LAUNCH_FLAGS MATCHES "cpus-per-task")
+    list(APPEND launch --cpus-per-task=${NT})
+  endif()
 endif()
 set(ENV{OMP_NUM_THREADS} ${NT})
 execute_process(COMMAND ${launch} ${DRIVER} ${PROBLEM} ${OUT} ${extra}
