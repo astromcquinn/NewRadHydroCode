@@ -19,7 +19,9 @@
 # Environment: DRYRUN=1 (make the directories, print the sbatch commands),
 # SBATCH_ARGS (default: a whole node, 2 days), THREADS (default 192),
 # NO_TENSOR_DUMP=1 (append tensor_dump = 0, which overrides the base's: the
-# dumps are 14 GB per snapshot at 512^3), EXTRA (more "key = value" lines, separated by ';').
+# dumps are 14 GB per snapshot at 512^3), PARAMS_EXTRA (more "key = value"
+# lines, separated by ';'; not EXTRA, which reion_production.slurm passes
+# to radhydro as arguments).
 set -eu
 THREADS="${THREADS:-192}"
 SBATCH_ARGS="${SBATCH_ARGS:---exclusive --cpus-per-task=192 --mem=400G --time=2-00:00:00}"
@@ -43,7 +45,7 @@ for tag in "$@"; do
     *) echo "unknown closure tag $tag"; exit 2 ;;
   esac
   [ "${NO_TENSOR_DUMP:-0}" = 1 ] && extra="$extra;tensor_dump = 0"
-  [ -n "${EXTRA:-}" ] && extra="$extra;$EXTRA"
+  [ -n "${PARAMS_EXTRA:-}" ] && extra="$extra;$PARAMS_EXTRA"
   dst="${base}_otvet_${tag}"
   mkdir -p "$dst"
   if [ ! -f "$dst/params.txt" ]; then
@@ -57,6 +59,6 @@ for tag in "$@"; do
   fi
   [ -e "$dst/ics" ] || ln -s "$ics" "$dst/ics"
   cmd=(sbatch $SBATCH_ARGS --job-name="otvcl_$tag" --output="$dst/slurm-%j.out"
-       --export=ALL,PROB="$dst",THREADS="$THREADS" tools/hyak/reion_production.slurm)
+       --export=ALL,EXTRA=,PROB="$dst",THREADS="$THREADS" tools/hyak/reion_production.slurm)
   if [ "${DRYRUN:-0}" = 1 ]; then echo "${cmd[*]}"; else "${cmd[@]}"; fi
 done
