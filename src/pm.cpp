@@ -587,6 +587,14 @@ void calc_kick_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1
 
 void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double eta1,
                            SimClock& clk, const Units& u) {
+  if (s.pc.amrex_state) {
+    // amrex_state = 1: the particles and the gas live on the level
+    // (pm_backend.hpp); the drifts there too
+    amrex_pm_drift(s, clk.dt_sim);
+    amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);
+    amrex_pm_drift(s, clk.dt_sim);
+    return;
+  }
   calc_drift(s, clk.dt_sim);
   if (s.pc.backend == PMBackend::AMReX) {
     amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);
@@ -812,6 +820,7 @@ void read_f32(const std::string& path, float* dst, std::size_t n) {
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
                           std::vector<float>& w_gas, const Units& u) {
   read_f32(dir + "/xv_dm.init", s.xv.data(), s.xv.size());
+  if (u_gas.empty()) return;  // amrex_state = 1 on a rank other than 0: no host gas grid
   read_f32(dir + "/u_gas.init", u_gas.data(), u_gas.size());
   const std::int64_t ncell = s.pc.Ncell;
   for (std::int64_t c = 0; c < ncell; ++c) {

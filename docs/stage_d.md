@@ -492,6 +492,7 @@ rank 0's peak down from 61.7 to 37.3 GB and the others' from 14.9–18 to
 |---|---|---|---|---|
 | serial, 192 threads (1 node) | 2593.4 | 2878.7 | 203.8 | |
 | backend, 1 node, 12 ranks × 16 threads | OOM | | 300.5 at the kill | 140.6 mean |
+| backend, 1 node, 8 ranks × 24 threads (job 41820322, 2026-10-13) | 3258.3 | 3329.8 | 293.0 | 170.7 / 196.2 / 293.0 |
 | backend, 2 nodes, 24 ranks × 16 threads | 1460.7 | 1540.9 | 292.9 | 103.0 / 119.3 / 292.9 |
 | backend, 4 nodes, 48 ranks × 16 threads | 782.1 | 876.2 | 292.9 | 99.7 / 109.7 / 292.9 |
 
@@ -509,9 +510,17 @@ the checkpoint and the ray list it is converted to before the scatter,
 both freed afterwards) and the gathered ray list of `post_rt`. The
 serial code itself peaks at 204 GB (the state plus the live ray pool).
 With this Stage D model (every rank a full copy of the serial state)
-512³ needs 2 nodes or more at 12 ranks per node; fewer, fatter ranks
-(8 × 24 threads) would fit on one node but were not run. Stage E removes
-the redundant state, which is the point of it.
+512³ needs 2 nodes or more at 12 ranks per node. Fewer, fatter ranks do
+fit: 8 ranks × 24 threads on one node (job 41820322, with the UCX
+setting of `docs/stage_e_hydro.md` §5) ran the step, with rank 0 at
+293 GB and the others at 171–196 GB (1.6 TB of VmHWM peaks that do not
+all coincide), but the RT took 3258 s, 1.26× the serial code's 2593 s
+on the same node and 4.9× the 4-node backend: `SumBoundary` 642 s,
+`cast1` 1366 s, `step1` 401 s, `sort` 298 s, the memory-bound phases
+with 8 ranks sharing the node's bandwidth. The fields are bitwise
+identical to the 2- and 4-node runs. So with the redundant state the
+one-node 512³ exists but is not useful; Stage E3 (`docs/stage_e_state.md`)
+removes the redundant state, which is the point of it.
 
 Timing on 2 nodes (384 cores against the serial code's 192): the RT is
 1.78× faster, the step 1.87×. Phases, serial (`ray_tracing_1` 814.2,

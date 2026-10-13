@@ -35,6 +35,9 @@ struct RTGrid {
   std::vector<std::int64_t> htoc;
 
   void allocate(int n);
+  // amrex_state = 1 on the ranks other than 0: only Luv and sfr (the
+  // sources, computed on every rank); the other fields stay empty
+  void allocate_sources_only(int n);
 
   // 1-based Fortran cell indices -> linear index
   std::int64_t cell(int i, int j, int k) const {
@@ -64,6 +67,10 @@ struct GasGrid {
   // (init_unsplit_state); empty with the legacy scheme, whose code never
   // reads it. docs/hydro_unsplit.md section 2.
   std::vector<float> e;
+  // amrex_state = 1 on the ranks other than 0: the dual-energy field exists
+  // (on the level) although e is not allocated here
+  bool e_on = false;
+  bool has_e() const { return e_on || !e.empty(); }
 
   void allocate(int n) {
     N = n;

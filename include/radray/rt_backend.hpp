@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,10 @@ int backend_nranks();
 void backend_barrier();
 // Min and max over the ranks of a double (identity without MPI)
 void backend_reduce_minmax(double& lo, double& hi);
+// io_rank()'s values of n doubles, or n bytes, onto every rank (identity
+// without MPI)
+void backend_bcast(double* v, int n);
+void backend_bcast_bytes(void* p, std::size_t n);
 
 // The RT of one hydro step on the level (called by rt_tools.cpp in place of
 // prep_rt / rt_step_1-3 / post_rt when use_amrex(cfg)):
@@ -64,6 +69,16 @@ int amrex_rt_bytes_per_ray(const Simulation& s);
 // the rays of its boxes).
 void amrex_rt_gather_rays(const Simulation& s, std::vector<rrk::RayP>& out);
 void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in);
+// The streaming forms (docs/stage_e_state.md: rank 0's transient is one
+// chunk, not the pool): gather_chunks calls sink(chunk) on io_rank() for
+// rank 0's rays and then every other rank's, in rank order, in chunks of
+// at most 8 M rays (collective; the total is amrex_rt_nrays); scatter with
+// first = true clears the level's rays, false appends, each call scattering
+// one chunk held by io_rank() (collective, the same number of calls on
+// every rank).
+void amrex_rt_gather_rays_chunks(const Simulation& s,
+                                 const std::function<void(const std::vector<rrk::RayP>&)>& sink);
+void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in, bool first);
 // One line of the backend's phase timers
 std::string amrex_rt_timers(const Simulation& s);
 

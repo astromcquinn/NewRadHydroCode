@@ -337,8 +337,13 @@ double eta1_of(const Config& cfg) { return cfg.dual_energy ? cfg.dual_eta1 : 0.0
 // --------------------------------------------------------------------------
 void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroState& hs) {
   if (cfg.hydro_scheme != HydroScheme::Unsplit) return;
+  if (cfg.amrex_state && gas.u.empty()) {
+    // amrex_state = 1 on a rank other than 0: the gas (and e) is on the level
+    gas.e_on = true;
+    return;
+  }
   if (fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
-  if (!gas.e.empty()) return;
+  if (gas.has_e()) return;
   const double Tmin = 1 / un.temp1_unit;
   gas.e.assign(static_cast<std::size_t>(gas.ncell), 0.0f);
   for (std::int64_t c = 0; c < gas.ncell; ++c) {
@@ -354,10 +359,12 @@ void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroS
 
 void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& gas,
                         HydroState& hs) {
-  if (gas.e.empty()) throw std::runtime_error("hydro_step_unsplit: call init_unsplit_state first");
+  if (!gas.has_e()) throw std::runtime_error("hydro_step_unsplit: call init_unsplit_state first");
   if (!(cfg.unsplit_cfl > 0)) throw std::runtime_error("unsplit_cfl must be > 0");
   const int n = gas.N;
-  if (fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
+  // amrex_state = 1: the gas is on the level and v is identically zero
+  // (the unsplit scheme never shifts the frame), nothing to fold
+  if (!cfg.amrex_state && fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   hs.dt_hy = dt;
   if (use_amrex_hydro(cfg)) {  // the same step on the AMReX level (hydro_backend.hpp)
     amrex_hydro_step(cfg, un, dt, gas, hs);

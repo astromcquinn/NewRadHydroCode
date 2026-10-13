@@ -34,6 +34,7 @@ add_library(radray
   src/rt_backend.cpp
   src/pm_backend.cpp
   src/hydro_backend.cpp
+  src/amrex_state.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
@@ -79,7 +80,8 @@ if(RADRAY_AMREX)
     FetchContent_MakeAvailable(amrex)
   endif()
   set(RADRAY_HAVE_AMREX ON)
-  add_library(radray_amrex src/amrex/rt_level.cpp src/amrex/pm_level.cpp src/amrex/hydro_level.cpp)
+  add_library(radray_amrex src/amrex/rt_level.cpp src/amrex/pm_level.cpp src/amrex/hydro_level.cpp
+                           src/amrex/gas_state.cpp)
   target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
   # the PM level's pencil FFT uses FFTW3f directly (the library of the
   # serial port and of AMReX's own FFT module)
@@ -103,9 +105,17 @@ if(RADRAY_AMREX)
     target_compile_options(radray_amrex PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
   endif()
   set(RADRAY_RT_BACKEND_LIB radray_amrex)
+  # The stubs as a library of their own: the gfortran harness of the live
+  # full-loop tests links libradray.a (whose rt_tools.cpp and halo code
+  # reference the backend functions) without AMReX, so it links these
+  # after it (reference/harness_full/Makefile, when the file exists).
+  add_library(radray_backend_stubs STATIC src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp
+                                          src/amrex/hydro_level_stub.cpp src/amrex/gas_state_stub.cpp)
+  target_link_libraries(radray_backend_stubs PUBLIC radray)
   message(STATUS "AMReX RT backend: enabled (AMReX ${AMReX_VERSION})")
 else()
-  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp src/amrex/hydro_level_stub.cpp)
+  target_sources(radray PRIVATE src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp src/amrex/hydro_level_stub.cpp
+                                src/amrex/gas_state_stub.cpp)
   set(RADRAY_RT_BACKEND_LIB radray)
   message(STATUS "AMReX RT backend: disabled (RADRAY_AMREX=OFF)")
 endif()

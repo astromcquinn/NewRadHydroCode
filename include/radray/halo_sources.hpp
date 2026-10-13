@@ -246,6 +246,15 @@ bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::stri
 // obtain the source list (read_halo, or FoF + source model on xv_dm) and,
 // if Nsource > 0, calc_halo. Returns the catalog; the caller calls
 // radiative_transfer when Nsource > 0. xv_dm may be null in legacy mode.
+// The two halves of update_sources (amrex_state = 1: the catalogue on rank 0
+// from its particle mirror, broadcast, then applied on every rank):
+// source_catalog finds the halos and assigns the sources (the FoF cache of
+// s is updated here); apply_sources sets s.Nsource, the Luv/sfr fields and
+// the halo metals. bcast_catalog: rank 0's catalogue onto every rank.
+SourceCatalog source_catalog(Simulation& s, const float* xv_dm, std::int64_t npart,
+                             const HaloSourceParams& p, std::ostream* log);
+void apply_sources(Simulation& s, const SourceCatalog& cat, const HaloSourceParams& p);
+void bcast_catalog(SourceCatalog& cat);
 SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npart,
                              const HaloSourceParams& p, std::ostream* log = nullptr);
 

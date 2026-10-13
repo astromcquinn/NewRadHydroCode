@@ -57,6 +57,7 @@
 #include <omp.h>
 #endif
 
+#include "gas_state.hpp"
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/kernels/hydro_mh.hpp"
@@ -320,6 +321,8 @@ struct PMLevel {
   ax::ParticleLocator<ax::DenseBins<ax::Box>> locator;
   std::unique_ptr<PencilFFT> pfft;
   std::unique_ptr<ax::FFT::R2C<float>> afft;
+  gs::GasState* state = nullptr;  // amrex_state = 1: the gas on the level (gas_state.hpp)
+  bool loaded = false;            // amrex_state = 1: the particles live on the level
   Timers T;
 
   explicit PMLevel(const pm::PMConfig& pc_) {
@@ -344,6 +347,17 @@ struct PMLevel {
     dm = ax::DistributionMapping(ba);
     bag = ba;
     bag.coarsen(r);  // the gas grid: each gas cell's r^3 mesh cells lie in its box
+    if (pc_.amrex_state) {
+      // the gas state's decomposition, refined by pm_refine for the mesh
+      // (gas_state.hpp): the gas is read and written locally
+      state = gs::active();
+      if (!state) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
+      if (state->N != Ng) throw std::runtime_error("pm_backend = amrex: the gas state has another N");
+      bag = state->ba;
+      ba = state->ba;
+      ba.refine(r);
+      dm = state->dm;
+    }
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
     acc.define(ba, dm, 1, 1);
@@ -359,10 +373,183 @@ struct PMLevel {
   // The particles of s.xv whose home cell (link_dm's cell) lies in a local
   // box, and the gas of the local gas boxes (e_gas: the dual-energy field in
   // place of v_gas when the kick is the unsplit one)
+  // ---- amrex_state = 1: the particles on the level between steps -----------
+
+  // link_dm's home cell of a position (mesh units): int(x * x_dm_m) mod Nm
+  AMREX_FORCE_INLINE int home(float x) const { return f::mod(f::int4(static_cast<double>(x) * x_dm_m), Nm); }
+
+  // Rank 0's xv onto the level: broadcast in chunks, every rank keeps the
+  // particles of its own boxes (id = the host index ip). Collective.
+  void load_particles(const pm::PMState& s) {
+    const double t0 = now();
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const int root = ax::ParallelDescriptor::IOProcessorNumber();
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    if (io && static_cast<std::int64_t>(s.xv.size()) != 6 * Npart)
+      throw std::runtime_error("amrex_state = 1: rank 0's xv is not allocated");
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi)
+      pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
+    const auto assign = locator.getGridAssignor();
+    constexpr std::int64_t kChunk = std::int64_t(1) << 22;  // 4 M particles, 100 MB
+    std::vector<float> buf;
+    Long nmine = 0;
+    for (std::int64_t ip0 = 1; ip0 <= Npart; ip0 += kChunk) {
+      const std::int64_t n = std::min(kChunk, Npart - ip0 + 1);
+      buf.resize(static_cast<std::size_t>(6 * n));
+      if (io) std::memcpy(buf.data(), s.xv_p(ip0), static_cast<std::size_t>(6 * n) * sizeof(float));
+      if (ax::ParallelDescriptor::NProcs() > 1) ax::ParallelDescriptor::Bcast(buf.data(), 6 * n, root);
+      // the local ones, per box, in index order (deterministic tiles)
+      const int nlocal = pot.local_size();
+      std::vector<std::vector<std::int64_t>> lists(nlocal);
+      for (std::int64_t q = 0; q < n; ++q) {
+        const float* p = &buf[static_cast<std::size_t>(6 * q)];
+        const auto gt = assign(ax::IntVect(home(p[0]), home(p[1]), home(p[2])), ax::IntVect(0));
+        if (gt.first < 0) throw std::runtime_error("pm_backend = amrex: a particle has no home box");
+        if (dm[gt.first] == myproc) lists[pot.localindex(gt.first)].push_back(q);
+      }
+      for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+        const auto& L = lists[mfi.LocalIndex()];
+        if (L.empty()) continue;
+        auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+        const std::size_t n0 = pt.numParticles();
+        pt.resize(n0 + L.size());
+        const PTD pd = pt.getParticleTileData();
+        for (std::size_t q = 0; q < L.size(); ++q) {
+          const float* p = &buf[static_cast<std::size_t>(6 * L[q])];
+          const int n_ = static_cast<int>(n0 + q);
+          pd.m_rdata[0][n_] = static_cast<float>(home(p[0])) + 0.5f;
+          pd.m_rdata[1][n_] = static_cast<float>(home(p[1])) + 0.5f;
+          pd.m_rdata[2][n_] = static_cast<float>(home(p[2])) + 0.5f;
+          for (int c = 0; c < 3; ++c) {
+            pd.m_rdata[kX + c][n_] = p[c];
+            pd.m_rdata[kV + c][n_] = p[3 + c];
+          }
+          pd.m_idcpu[n_] = ax::SetParticleIDandCPU(ip0 + L[q], myproc);
+        }
+        nmine += static_cast<Long>(L.size());
+      }
+    }
+    ax::ParallelDescriptor::ReduceLongSum(nmine);
+    if (nmine != Npart) throw std::runtime_error("pm_backend = amrex: the particle count does not add up");
+    loaded = true;
+    T.prep += now() - t0;
+  }
+
+  // calc_drift on the level: x = mod(x + v dt/2 + ndmr, ndmr) per particle
+  // (the host arithmetic), then the home cells and a Redistribute
+  void drift(double dt_sim, double ndmr) {
+    const double t0 = now();
+    const double xdg = x_dm_m;
+    const int NN = Nm;
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+#pragma omp parallel for schedule(static)
+      for (int n = 0; n < np; ++n) {
+        for (int c = 0; c < 3; ++c) {
+          const double t = static_cast<double>(pd.m_rdata[kX + c][n]) +
+                           static_cast<double>(pd.m_rdata[kV + c][n]) * dt_sim / 2 + ndmr;
+          const float x = static_cast<float>(f::mod(t, ndmr));
+          pd.m_rdata[kX + c][n] = x;
+          pd.m_rdata[c][n] = static_cast<float>(f::mod(f::int4(static_cast<double>(x) * xdg), NN)) + 0.5f;
+        }
+      }
+    }
+    pc->Redistribute();
+    T.prep += now() - t0;
+  }
+
+  // The level's particles into rank 0's xv by id (the mirror): every rank
+  // sends (id, x, v) records to rank 0 in chunks. Collective.
+  void gather_particles(pm::PMState& s) {
+    const double t0 = now();
+    struct Rec {
+      Long id;
+      float xv[6];
+    };
+    std::vector<Rec> mine;
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+      const std::size_t n0 = mine.size();
+      mine.resize(n0 + np);
+      for (int n = 0; n < np; ++n) {
+        Rec& r = mine[n0 + n];
+        r.id = static_cast<Long>(ax::ParticleIDWrapper(pd.m_idcpu[n]));
+        for (int c = 0; c < 3; ++c) {
+          r.xv[c] = pd.m_rdata[kX + c][n];
+          r.xv[3 + c] = pd.m_rdata[kV + c][n];
+        }
+      }
+    }
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    if (io && static_cast<std::int64_t>(s.xv.size()) != 6 * Npart)
+      throw std::runtime_error("amrex_state = 1: rank 0's xv is not allocated");
+    auto unpack = [&](const Rec* r, std::size_t n) {
+      for (std::size_t q = 0; q < n; ++q) {
+        if (r[q].id < 1 || r[q].id > Npart) throw std::runtime_error("pm_backend = amrex: a particle id out of range");
+        std::memcpy(s.xv_p(r[q].id), r[q].xv, sizeof r[q].xv);
+      }
+    };
+    const int nranks = ax::ParallelDescriptor::NProcs();
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const int root = ax::ParallelDescriptor::IOProcessorNumber();
+    if (nranks == 1) {
+      unpack(mine.data(), mine.size());
+    } else {
+#ifdef AMREX_USE_MPI
+      const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+      constexpr std::size_t kChunk = std::size_t(1) << 24;  // records per message (512 MB)
+      Long count = static_cast<Long>(mine.size());
+      std::vector<Long> counts(nranks);
+      MPI_Gather(&count, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
+      if (io) unpack(mine.data(), mine.size());
+      std::vector<Rec> rbuf;
+      for (int r = 0; r < nranks; ++r) {
+        if (r == root) continue;
+        if (myproc == r) {
+          for (std::size_t off = 0; off < mine.size(); off += kChunk) {
+            const int n = static_cast<int>(std::min(kChunk, mine.size() - off));
+            MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(Rec)), MPI_BYTE, root, 7, comm);
+          }
+        } else if (io) {
+          const std::size_t total = static_cast<std::size_t>(counts[r]);
+          for (std::size_t off = 0; off < total; off += kChunk) {
+            const int n = static_cast<int>(std::min(kChunk, total - off));
+            rbuf.resize(static_cast<std::size_t>(n));
+            MPI_Recv(rbuf.data(), n * static_cast<int>(sizeof(Rec)), MPI_BYTE, r, 7, comm, MPI_STATUS_IGNORE);
+            unpack(rbuf.data(), static_cast<std::size_t>(n));
+          }
+        }
+      }
+#endif
+    }
+    T.gather += now() - t0;
+  }
+
   void prep(const pm::PMState& s, const float* u_gas, const float* v_gas, const float* e_gas, int kind) {
     const double t0 = now();
     const int myproc = ax::ParallelDescriptor::MyProc();
     const int nlocal = pot.local_size();
+    if (state) {
+      // amrex_state = 1: the particles are on the level already (load_particles,
+      // drift); only the gas below
+      if (!loaded) throw std::runtime_error("amrex_state = 1: amrex_pm_load_particles was not called");
+      if (kind != 2) throw std::runtime_error("amrex_state = 1 needs hydro_scheme = unsplit");
+      for (ax::MFIter mfi(gas); mfi.isValid(); ++mfi) {
+        auto g = gas.array(mfi);
+        auto ga = state->G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          for (int m = 0; m < 5; ++m) g(i, j, k, m) = ga(i, j, k, gs::kU + m);
+          g(i, j, k, 5) = ga(i, j, k, gs::kE);
+          g(i, j, k, 6) = g(i, j, k, 7) = 0.0f;
+        });
+      }
+      T.prep += now() - t0;
+      return;
+    }
     for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi)
       pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
     const auto assign = locator.getGridAssignor();
@@ -723,6 +910,20 @@ struct PMLevel {
   // writes its own values into zeroed arrays, then a bitwise OR all-reduce
   void gather(pm::PMState& s, float* u_gas, float* v_gas, int kind) {
     const double t0 = now();
+    if (state) {
+      // amrex_state = 1: the particles stay on the level (their velocities
+      // are kicked in place); the kicked u(2:5) into the level's gas state
+      for (ax::MFIter mfi(gas); mfi.isValid(); ++mfi) {
+        auto g = gas.const_array(mfi);
+        auto ga = state->G.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          for (int m = 1; m < 5; ++m) ga(i, j, k, gs::kU + m) = g(i, j, k, m);
+        });
+      }
+      T.g_gas += now() - t0;
+      T.gather += now() - t0;
+      return;
+    }
     // DM velocities
     std::vector<float> vb(static_cast<std::size_t>(3) * Npart, 0.0f);
     for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
@@ -895,6 +1096,10 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
 void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor) {
   level_of(s).fields(s, u_gas, scalefactor);
 }
+
+void amrex_pm_load_particles(pm::PMState& s) { level_of(s).load_particles(s); }
+void amrex_pm_gather_particles(pm::PMState& s) { level_of(s).gather_particles(s); }
+void amrex_pm_drift(pm::PMState& s, double dt_sim) { level_of(s).drift(dt_sim, s.pc.ndmr); }
 
 std::string amrex_pm_timers(const pm::PMState& s) { return s.amrex ? s.amrex->level->timers() : ""; }
 

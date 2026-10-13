@@ -1,6 +1,44 @@
 # Project status
 
-*Last updated: 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## In progress 2026-10-13: Stage E3, the state on the levels (branch `stage-e-state`)
+
+**`docs/stage_e_state.md`.** `amrex_state = 1`: the gas lives in one
+MultiFab on a decomposition shared by the RT, hydro and PM levels, which
+read and write it locally; the particles live in the PM container
+(drifts and `Redistribute` on the level); the host grids and particle
+arrays exist only on rank 0, as a mirror refreshed by slab gathers for
+the statistics, the outputs and the checkpoint (formats unchanged); the
+halo finder runs on rank 0's mirror and the catalogue is broadcast.
+Needs the three backends, `hydro_scheme = unsplit`, `rt_method = rays`.
+- **Byte-identical** to the same three backends with the host state on
+  every rank (`amrex_state = 0`): the smoke problem at 1/2/3 ranks and 2
+  threads, every file (fields, stats, frames, checkpoints), and a
+  bit-identical restart (`ctest -L amrex_state`, 5 tests); the whole
+  `amrex` label 159/159 on klone with the phase-2 build.
+- **klone, 256³ on one node:** bitwise identical to the host-state
+  three-backend run; the ranks other than 0 hold 4.5 GB (8 GB with the
+  host state, 12.8 GB in Stage D); RT 151 s. **512³ on one node runs**
+  (24 ranks × 8 threads, rank 0 293 GB in the restart, the others 35 GB
+  with the phase-1 build): RT 1756 s, step 1849 s, 1.48× faster than the
+  serial code on the same node (Stage D needed 2 nodes, or 8 fat ranks
+  at 3258 s), and **bitwise identical at 512³** to the 2-node run with
+  the same backends and the host state; with phase 2 the other ranks
+  hold 24 GB. The 2- and 4-node runs with the state on the levels are
+  queued (jobs 41824738–9).
+- Costs to remove next: the per-step mirror gathers (60 B per cell, for
+  bitwise statistics; a 128-bit on-level path where round-off is fine),
+  rank 0's restart transient (the serial ray pool and list of the
+  checkpoint), the host P(k) and FoF on rank 0, and `Luv`/`sfr` on every
+  rank.
+- Also: the checkpoint's backend rays are streamed in chunks (written
+  while gathered, scattered while read: rank 0 holds one chunk, and the
+  2 GB `MPI_Gatherv` limit is gone); the live-Fortran full-loop tests
+  link again in an AMReX build (`radray_backend_stubs`, which they
+  could not since Stage D); `build_amrex.sh` builds AMReX with the FFT module on
+  klone (`AMReX_FFTW_IGNORE_OMP`); `amrex_hydro_max_grid_size = 0` means
+  `amrex_max_grid_size`.
 
 ## Done 2026-10-12: Stage E2, the PM gravity on AMReX (branch `stage-e-pm`)
 
@@ -89,7 +127,9 @@ backend built, tested and timed on `cpu-g2`, 1 to 4 nodes.
   round-off as at 256³, bitwise identical between 2 and 4 nodes. These
   512³ runs are from the earlier build (`d927abd`); the RT level is
   unchanged since. Stage D needs ≥ 2 nodes at 512³ until Stage E removes
-  the redundant state; 8 ranks × 24 threads on one node was not tried.
+  the redundant state; 8 ranks × 24 threads on one node (2026-10-13) fits
+  (rank 0 293 GB, the others 171–196 GB) but takes 3258 s for the RT,
+  1.26× the serial code, fields bitwise identical.
 - **The multi-node hydro slowdown is the UCX transport, not the ghost
   volume** (`docs/stage_e_hydro.md` §5; 256³ random3d, 2 steps, 24 × 8
   per node, every layout byte-identical to the serial run). With the
@@ -108,8 +148,10 @@ backend built, tested and timed on `cpu-g2`, 1 to 4 nodes.
   844.5 against 782.1. **`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf`**
   (eager below 8 MB) is the compromise and the best of all for the RT:
   256³ 2 nodes 89.7 s (−10 %), 512³ 4 nodes 667.1 s (−15 %), hydro
-  `fill` 0.6–1.5 s on 2 nodes; every run bitwise identical to the
-  module-default one. `tools/hyak/env.sh` exports it for every AMReX
+  `fill` 0.34–0.38 s on 2 nodes in a fixed-node-pair sweep (the module
+  defaults 4.0–4.4 s, 16 MB and above 0.5–1.5 s: the gather's 16–32 MB
+  broadcast blocks then go eager too, `amrex_hydro_ucx_sweep.slurm`);
+  every run bitwise identical to the module-default one. `tools/hyak/env.sh` exports it for every AMReX
   job (`radray_ucx_eager`; `RADRAY_UCX_RNDV_THRESH`, `RADRAY_UCX_EAGER=0`).
   Box size for production: **32³** (16³ costs 5–10 % more, 64³ leaves
   ranks idle at 4 nodes). The backend on one node is 4.7× faster than

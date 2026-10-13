@@ -60,6 +60,9 @@ struct PMConfig {
   PMBackend backend = PMBackend::Serial;
   int amrex_max_grid_size = 16;  // the mesh's box size (amrex_pm_max_grid_size)
   int amrex_fft = 0;             // amrex_pm_fft: 0 pencil, 1 amrex::FFT
+  // amrex_state = 1 (amrex_state.hpp): the gas on the shared decomposition,
+  // the mesh boxes pm_refine times the gas boxes
+  bool amrex_state = false;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
@@ -68,6 +71,9 @@ struct PMConfig {
     c.amrex_max_grid_size = cfg.amrex_pm_max_grid_size > 0 ? cfg.amrex_pm_max_grid_size
                                                            : cfg.amrex_max_grid_size;
     c.amrex_fft = cfg.amrex_pm_fft;
+    c.amrex_state = cfg.amrex_state;
+    if (cfg.amrex_state && cfg.amrex_pm_max_grid_size == 0)
+      c.amrex_max_grid_size = cfg.pm_refine * cfg.amrex_max_grid_size;
     return c;
   }
 };

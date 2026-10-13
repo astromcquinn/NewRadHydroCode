@@ -48,5 +48,14 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
 void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor);
 // One line of the backend's phase timers ("" without the level)
 std::string amrex_pm_timers(const pm::PMState& s);
+// amrex_state = 1 (amrex_state.hpp, docs/stage_e_state.md): the particles
+// live on the level between steps. load: rank 0's s.xv onto the level
+// (broadcast in chunks, every rank keeps its own; the ICs and a restart);
+// gather: the level's particles into rank 0's s.xv by id (the mirror, for
+// the halo finder, the summaries, the outputs and the checkpoint); drift:
+// calc_drift on the level followed by a Redistribute. All collective.
+void amrex_pm_load_particles(pm::PMState& s);
+void amrex_pm_gather_particles(pm::PMState& s);
+void amrex_pm_drift(pm::PMState& s, double dt_sim);
 
 }  // namespace radray
