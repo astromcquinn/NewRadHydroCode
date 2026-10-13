@@ -52,6 +52,7 @@
 #include "radray/io.hpp"
 #include "radray/parallel.hpp"
 #include "radray/pm.hpp"
+#include "radray/pm_backend.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
@@ -261,6 +262,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     // moment RT (docs/rt_moments.md)
   } else if (set_rt_backend_param(P.rtm, key, val)) {
     // rt_backend = serial | amrex (docs/stage_d.md)
+  } else if (set_pm_backend_param(P.rtm, key, val)) {
+    // pm_backend = serial | amrex (docs/stage_e_pm.md)
   } else if (set_hydro_scheme_param(P.hydro, key, val)) {
     // hydro scheme (docs/hydro_unsplit.md)
   } else if (set_hydro_backend_param(P.hydro, key, val)) {
@@ -558,9 +561,11 @@ int main(int argc, char** argv) {
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
+    copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
     copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
+    check_pm_backend_param(s.cfg);
     check_hydro_backend_param(s.cfg);
     check_rt_cells_param(s.cfg);
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
@@ -630,6 +635,7 @@ int main(int argc, char** argv) {
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
+           << ", " << pm_backend_summary(cfg)
            << ", ranks = " << backend_nranks()
            << ", deterministic_parallel = " << P.deterministic_parallel
            << ", threads = " << par::max_threads() << ", sources = "
@@ -1094,6 +1100,7 @@ int main(int argc, char** argv) {
                   format_rt_timers(s.timers).c_str(), static_cast<long long>(s.rays.npool_limited),
                   static_cast<long long>(s.rays.npool_forced));
       if (use_amrex(cfg)) std::printf(" %s\n", amrex_rt_timers(s).c_str());
+      if (use_amrex_pm(cfg)) std::printf(" %s\n", amrex_pm_timers(pm).c_str());
       if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
     }
     if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {

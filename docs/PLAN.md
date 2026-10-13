@@ -322,6 +322,40 @@ policy on klone, and deleting the merged branches.
   the user runs it), `ray_rotate` (its branch is not on the remote).
 
 
+## Stage E2 thread (2026-10-12): the PM gravity on AMReX
+
+* **Request (user):** Stage E2 on branch `stage-e-pm`: the PM gravity on
+  AMReX behind `pm_backend = amrex` (default `serial`, bit-for-bit): the
+  dark matter in an AMReX `ParticleContainer` (single-precision build,
+  AMReX 26.10 as Stage D), the CIC deposit onto a MultiFab of the PM mesh
+  (`pm_refine`: a BoxArray of its own), the gas density from the host
+  grid, the Poisson solve with `amrex::FFT`, the force interpolation, the
+  DM kick and the gas kick returned to the host (`calc_kick` and
+  `calc_kick_unsplit`); the level copies the host state in at the start of
+  the PM step and gathers the results back (the hydro and the RT still
+  hold the full state on every rank); `src/amrex/pm_level.cpp` with a stub;
+  minimal, additive edits to the shared files; the hydro files untouched
+  (the E1 thread's). Validation under the label `amrex_pm`; timings at
+  128³ and 256³; `docs/stage_e_pm.md`.
+* **Choices made in this thread** (open to revision; `docs/stage_e_pm.md`):
+  - the two drifts of `particle_mesh` stay on the host (per-particle
+    arithmetic, identical on every rank), so the particles never move while
+    on the level and no `Redistribute` is needed; the level holds no state
+    between steps, so checkpoints and restarts are unchanged;
+  - the gather back is a bitwise-OR MPI all-reduce of disjoint pieces
+    (exact; a sum would turn −0.0 into +0.0);
+  - the CIC deposit is int64 fixed point at 2⁻³⁸ (range 3.4e7 per mesh
+    cell), the kick statistics 128-bit at 2⁻⁵⁶;
+  - **`amrex_pm_fft = pencil` is the default**: per-line 1-D FFTW
+    transforms on slab layouts, rank- and thread-independent by
+    construction; `amrex_pm_fft = amrex` (`amrex::FFT::R2C`) is available
+    and was bitwise rank/thread-independent in every test here, but its
+    determinism rests on FFTW's planner choices for `plan_many` transforms,
+    which is not guaranteed;
+  - the PM kernels (CIC, force stencil, Green's function) moved into
+    `include/radray/kernels/pm_kernels.hpp`, called by the serial code
+    (byte-identical) and the level, as Stage D did for the RT.
+
 ## B16 fix thread (2026-10-10): `ray_rotate`
 
 * **The user asked for the per-substep random rotation** of the source
