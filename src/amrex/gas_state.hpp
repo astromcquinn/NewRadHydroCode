@@ -78,4 +78,16 @@ struct AmrexState {
   ~AmrexState();
 };
 
+// Load balancing (amrex_balance = 1): implemented by the levels, called by
+// amrex_balance_step in gas_state.cpp. rt_box_costs adds the live ray count
+// of every box (global box index) into cost; rt_remap and pm_remap move a
+// level's persistent data onto a new mapping of the same BoxArray; the
+// hydro level is rebuilt lazily (amrex_hydro_release).
+namespace pm {
+struct PMState;
+}
+void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count);
+void rt_remap(Simulation& s, const amrex::DistributionMapping& dm);
+void pm_remap(pm::PMState& p, const amrex::DistributionMapping& dm);
+
 }  // namespace radray

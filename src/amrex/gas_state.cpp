@@ -12,8 +12,11 @@
 #include <AMReX.H>
 #include <AMReX_MFIter.H>
 
+#include <AMReX_DistributionMapping.H>
+
 #include "radray/amrex_state.hpp"
 #include "radray/fortran.hpp"
+#include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/simulation.hpp"
 
@@ -115,6 +118,51 @@ void amrex_state_clamp_gas(Simulation& s) {
       for (int m = 0; m < 4; ++m) a(i, j, k, gs::kW + m) = f::gmax(a(i, j, k, gs::kW + m), 0.0f);
     });
   }
+}
+
+// ---- load balancing (amrex_balance = 1) --------------------------------------
+
+namespace {
+// mean over max of the per-rank cost sums under a mapping
+double efficiency(const amrex::Vector<amrex::Real>& cost, const amrex::DistributionMapping& dm, int nranks) {
+  std::vector<double> per(static_cast<std::size_t>(nranks), 0.0);
+  for (int b = 0; b < static_cast<int>(cost.size()); ++b) per[static_cast<std::size_t>(dm[b])] += cost[b];
+  double mx = 0, sum = 0;
+  for (double c : per) {
+    mx = std::max(mx, c);
+    sum += c;
+  }
+  return mx > 0 ? sum / nranks / mx : 1.0;
+}
+}  // namespace
+
+bool amrex_balance_step(Simulation& s, pm::PMState& pm, double& eff_old, double& eff_new) {
+  namespace ax = amrex;
+  gs::GasState& g = state_of(s);
+  const int nranks = ax::ParallelDescriptor::NProcs();
+  const int nbox = static_cast<int>(g.ba.size());
+  // the cost of every box: its cells plus the weighted live rays
+  ax::Vector<ax::Real> cost(nbox, 0.0);
+  rt_box_ray_counts(s, cost);
+  for (int b = 0; b < nbox; ++b)
+    cost[b] = static_cast<ax::Real>(g.ba[b].numPts()) + s.cfg.amrex_balance_ray_weight * cost[b];
+  eff_old = efficiency(cost, g.dm, nranks);
+  ax::DistributionMapping dm2 = s.cfg.amrex_balance_method == 1 ? ax::DistributionMapping::makeKnapSack(cost)
+                                                                 : ax::DistributionMapping::makeSFC(cost, g.ba);
+  eff_new = efficiency(cost, dm2, nranks);
+  if (nranks == 1 || !(eff_new > eff_old + s.cfg.amrex_balance_min_gain)) {
+    eff_new = eff_old;
+    return false;
+  }
+  // the gas onto the new mapping, then the levels
+  gs::FFab G2(g.ba, dm2, gs::kNC, 0);
+  G2.ParallelCopy(g.G, 0, 0, gs::kNC);
+  g.G = std::move(G2);
+  g.dm = dm2;
+  rt_remap(s, dm2);
+  pm_remap(pm, dm2);
+  amrex_hydro_release();  // rebuilt on the new mapping at its next step
+  return true;
 }
 
 void amrex_state_add_metals(Simulation& s, const std::vector<std::int64_t>& cells, const std::vector<double>& dz) {

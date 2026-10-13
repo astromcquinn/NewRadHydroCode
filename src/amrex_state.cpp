@@ -11,23 +11,64 @@
 namespace radray {
 
 bool set_amrex_state_param(Config& c, const std::string& key, const std::string& val) {
-  if (key != "amrex_state") return false;
-  if (val == "1")
-    c.amrex_state = true;
-  else if (val == "0")
-    c.amrex_state = false;
-  else
-    throw std::runtime_error("amrex_state must be 0 or 1");
-  return true;
+  auto flag = [&](bool& f) {
+    if (val == "1")
+      f = true;
+    else if (val == "0")
+      f = false;
+    else
+      throw std::runtime_error(key + " must be 0 or 1");
+  };
+  if (key == "amrex_state") {
+    flag(c.amrex_state);
+    return true;
+  }
+  if (key == "amrex_balance") {
+    flag(c.amrex_balance);
+    return true;
+  }
+  if (key == "amrex_balance_ray_weight") {
+    c.amrex_balance_ray_weight = std::stod(val);
+    if (!(c.amrex_balance_ray_weight >= 0)) throw std::runtime_error("amrex_balance_ray_weight must be >= 0");
+    return true;
+  }
+  if (key == "amrex_balance_min_gain") {
+    c.amrex_balance_min_gain = std::stod(val);
+    if (!(c.amrex_balance_min_gain >= 0)) throw std::runtime_error("amrex_balance_min_gain must be >= 0");
+    return true;
+  }
+  if (key == "amrex_balance_method") {
+    if (val == "sfc")
+      c.amrex_balance_method = 0;
+    else if (val == "knapsack")
+      c.amrex_balance_method = 1;
+    else
+      throw std::runtime_error("amrex_balance_method must be sfc or knapsack");
+    return true;
+  }
+  return false;
 }
 
-void copy_amrex_state_param(const Config& from, Config& to) { to.amrex_state = from.amrex_state; }
+void copy_amrex_state_param(const Config& from, Config& to) {
+  to.amrex_state = from.amrex_state;
+  to.amrex_balance = from.amrex_balance;
+  to.amrex_balance_ray_weight = from.amrex_balance_ray_weight;
+  to.amrex_balance_min_gain = from.amrex_balance_min_gain;
+  to.amrex_balance_method = from.amrex_balance_method;
+}
 
 std::string amrex_state_summary(const Config& c) {
-  return c.amrex_state ? "amrex_state = 1 (the gas on the levels, host mirror on rank 0)" : "amrex_state = 0";
+  if (!c.amrex_state) return "amrex_state = 0";
+  std::string s = "amrex_state = 1 (the gas on the levels, host mirror on rank 0)";
+  if (c.amrex_balance)
+    s += ", amrex_balance = 1 (" + std::string(c.amrex_balance_method ? "knapsack" : "sfc") +
+         ", ray weight " + std::to_string(c.amrex_balance_ray_weight) + ", min gain " +
+         std::to_string(c.amrex_balance_min_gain) + ")";
+  return s;
 }
 
 void check_amrex_state_param(const Config& c) {
+  if (c.amrex_balance && !c.amrex_state) throw std::runtime_error("amrex_balance = 1 needs amrex_state = 1");
   if (!c.amrex_state) return;
   if (!amrex_available())
     throw std::runtime_error("amrex_state = 1: this build has no AMReX (cmake -DRADRAY_AMREX=ON)");

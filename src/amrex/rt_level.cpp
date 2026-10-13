@@ -222,6 +222,10 @@ struct LevelBase {
   // five of write_stats), and rank 0's RT grid onto the cells (a restart)
   virtual void gather_fields(Simulation& s, bool stats_only) = 0;
   virtual void scatter_fields(Simulation& s) = 0;
+  // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
+  // and rays moved onto a new mapping of the same BoxArray
+  virtual void box_ray_counts(ax::Vector<ax::Real>& count) const = 0;
+  virtual void remap(const ax::DistributionMapping& dm2) = 0;
   virtual std::int64_t nrays() const = 0;
   virtual int bytes_per_ray() const = 0;
   virtual void gather_rays(std::vector<RayP>& out) const = 0;
@@ -1151,6 +1155,38 @@ struct Level : LevelBase {
     sync_fields(s);
   }
 
+  // ---- amrex_balance = 1: costs and the move to a new mapping ----------------
+
+  void box_ray_counts(ax::Vector<ax::Real>& count) const override {
+    if (static_cast<int>(count.size()) != static_cast<int>(ba.size())) count.resize(ba.size(), 0.0);
+    std::vector<Long> n(static_cast<std::size_t>(ba.size()), 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
+      n[static_cast<std::size_t>(mfi.index())] =
+          pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).numParticles();
+    ax::ParallelDescriptor::ReduceLongSum(n.data(), static_cast<int>(n.size()));
+    for (std::size_t b = 0; b < n.size(); ++b) count[static_cast<int>(b)] += static_cast<ax::Real>(n[b]);
+  }
+
+  // The cells by ParallelCopy, the rays by a Redistribute under the new
+  // mapping (their positions are unchanged); the work arrays and the
+  // per-box scratch rebuilt
+  void remap(const ax::DistributionMapping& dm2) override {
+    const double t0 = now();
+    CFab C2(ba, dm2, 1, 0);
+    C2.ParallelCopy(C, 0, 0, 1);
+    C = std::move(C2);
+    dm = dm2;
+    TF.define(ba, dm, 10, ng);
+    A.define(ba, dm, rrk::kNdep, ng);
+    pc->SetParticleDistributionMap(0, dm);
+    pc->Redistribute();
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
+      pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    scratch.clear();
+    scratch.resize(C.local_size());
+    T.sync += now() - t0;
+  }
+
   // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
@@ -1443,6 +1479,8 @@ void backend_bcast_bytes(void* p, std::size_t n) {
   }
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
+void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
+void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }
