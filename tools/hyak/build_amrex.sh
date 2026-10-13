@@ -69,12 +69,18 @@ if [ ! -f "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" ] || \
   fi
   export PKG_CONFIG_PATH="$RADRAY_FFTW/lib/pkgconfig:$FFTW_DOUBLE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   [ -d "$RADRAY_SW/src/amrex" ] || git clone --branch 26.10 --depth 1 https://github.com/AMReX-Codes/amrex.git "$RADRAY_SW/src/amrex"
-  cmake -S "$RADRAY_SW/src/amrex" -B "$RADRAY_SW/src/build-amrex" -DCMAKE_BUILD_TYPE=Release \
+  # AMReX_FFTW_IGNORE_OMP: with AMReX_OMP the FFT module insists on the
+  # threaded FFTW libraries of both precisions, which neither backend uses
+  # (the PM's pencil FFT runs single-threaded plans line by line; the
+  # amrex::FFT solver is the amrex_pm_fft = amrex option); a fresh build
+  # directory, since build-amrex holds the configuration without FFT.
+  cmake -S "$RADRAY_SW/src/amrex" -B "$RADRAY_SW/src/build-amrex-fft" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$AMREX_DIR" -DAMReX_SPACEDIM=3 -DAMReX_MPI=ON -DAMReX_OMP=ON \
     -DAMReX_PARTICLES=ON -DAMReX_PARTICLES_PRECISION=SINGLE -DAMReX_FORTRAN=OFF -DAMReX_FASTMATH=OFF \
-    -DAMReX_LINEAR_SOLVERS=OFF -DAMReX_PROBINIT=OFF -DAMReX_AMRLEVEL=OFF -DAMReX_FFT=ON
-  cmake --build "$RADRAY_SW/src/build-amrex" -j "$ncpu"
-  cmake --install "$RADRAY_SW/src/build-amrex"
+    -DAMReX_LINEAR_SOLVERS=OFF -DAMReX_PROBINIT=OFF -DAMReX_AMRLEVEL=OFF -DAMReX_FFT=ON \
+    -DAMReX_FFTW_IGNORE_OMP=ON
+  cmake --build "$RADRAY_SW/src/build-amrex-fft" -j "$ncpu"
+  cmake --install "$RADRAY_SW/src/build-amrex-fft"
 fi
 
 launcher="${RADRAY_MPIEXEC:-mpirun}"
