@@ -273,6 +273,39 @@ every host-state layout, with the hydro at 0.4 s and the PM at 0.1 s
 are the price of keeping every statistic bitwise the serial one; a
 128-bit on-level path can replace them where round-off is acceptable.
 
+## 5. Load balancing (`amrex_balance = 1`, Stage E4; branch `stage-e-balance`)
+
+The shared decomposition of §2.1 is the RT level's, so a ray-weighted
+mapping balances the RT and moves the gas and the particles with it.
+Before every RT step (after the sources are assigned, whose work does not
+depend on the mapping) `amrex_balance_step` prices each box at its cells
+plus `amrex_balance_ray_weight` (default 10: at 512³ a ray-substep costs
+about ten times a cell-substep, `docs/stage_d.md` §4.4) times its live
+rays, builds a new mapping of the same BoxArray by AMReX's space-filling
+curve (`amrex_balance_method = sfc`, the default, which keeps the boxes of
+a rank contiguous for the exchanges) or knapsack, and compares the balance
+efficiency (the mean rank cost over the largest) of the two mappings. If
+the proposed one gains more than `amrex_balance_min_gain` (0.05) the state
+moves: the gas MultiFab by `ParallelCopy`, the RT cells by `ParallelCopy`
+and the rays by a `Redistribute` under the new mapping (their positions
+are unchanged), the particles likewise, the work arrays rebuilt, the hydro
+level dropped and rebuilt at its next step. The RT, hydro and PM levels
+are bitwise independent of the mapping (the same argument as their rank
+independence: every cross-box sum is an integer or a maximum, every merge
+canonical), so a rebalanced run is byte-identical to the fixed mapping:
+`ctest -L amrex_state` includes `amrex_balance_full_pair_r2` and `_r3`
+(the smoke problem with 8³ boxes, remapped at every RT step with
+`amrex_balance_min_gain = 0`, against the fixed mapping). The driver
+prints the efficiency of every RT step and whether it remapped, and the
+count at the end.
+
+What this does not do yet: balance inside a step (rays migrate during the
+substeps, so the cost of a box changes while the step runs), weigh the
+hydro and PM work (small against the RT), or split boxes (the granularity
+is the box; at 256³ on 4 nodes, 512 boxes of 32³ over 96 ranks, the
+balance is limited by 5 boxes per rank and finer boxes would be the next
+lever).
+
 ## 3. Phases and validation
 
 | Phase | Work | Test |
