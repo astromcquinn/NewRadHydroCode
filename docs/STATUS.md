@@ -15,7 +15,9 @@ unsplit` only; the legacy split scheme stays serial by design.
 - **Bitwise identical to `hydro_backend = serial`** for 1–8 ranks × 1–2
   threads × box sizes 32/16/8 on `sod_x`, `random3d`, `sound_x`, and in
   the full loop with either RT backend at 1–3 ranks; bit-identical
-  restarts. `ctest -L amrex_hydro`: 27/27 here.
+  restarts. `ctest -L amrex_hydro`: 27/27 here; the whole `amrex` label
+  54/54 + 27 and the default build's fast suite 135/135 (gfortran live
+  tests included) after the change.
 - Stage E1 model: every rank still holds the full gas grid; a step copies
   its boxes in and gathers the level back with per-rank broadcasts (40 B
   per cell per half step). `hydro_driver` gained `--set` and rank-0 I/O.
