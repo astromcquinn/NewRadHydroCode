@@ -775,6 +775,32 @@ hydro-step means:
   once the light outgrows the thin sum). The screen variants end late:
   one λ screens the overlap-era geometry wrongly (§3).
 
+**The runs' own tensors against the rays'** (`tensor_compare.py --moment`:
+each run's step-averaged D N at the snapshot nearest the rays', so a
+different radiation field, for orientation). "cone" is the rerun with the
+ionised-cell budget (`otvcl256_otvet_cone2`), "cone v1" the first run.
+
+| z | x_V | cell error OTVET / split / cone v1 / cone | block error | block A (truth) | force error k = 0.94 |
+|---|---|---|---|---|---|
+| 9.63 | 0.05 | 0.108 / 0.106 / 0.225 / 0.110 | 0.065 / 0.063 / 0.180 / 0.076 | 0.394 / 0.391 / 0.320 / 0.458 (0.411) | 0.01 / 0.01 / 0.12 / 0.01 |
+| 8.13 | 0.17 | 0.129 / 0.129 / 0.179 / 0.110 | 0.087 / 0.087 / 0.148 / 0.082 | 0.342 / 0.340 / 0.381 / 0.425 (0.415) | 0.04 / 0.04 / 0.32 / 0.04 |
+| 7.40 | 0.36 | 0.133 / 0.133 / 0.093 / 0.085 | 0.100 / 0.100 / 0.068 / 0.056 | 0.319 / 0.319 / 0.409 / 0.420 (0.418) | 0.19 / 0.19 / 0.10 / 0.06 |
+| 6.59 | 0.74 | 0.102 / 0.102 / 0.077 / 0.075 | 0.074 / 0.074 / 0.047 / 0.046 | 0.288 / 0.288 / 0.372 / 0.374 (0.351) | 0.22 / 0.22 / 0.13 / 0.11 |
+| 6.19 | 0.94 | 0.094 / 0.090 / 0.075 / 0.075 | 0.076 / 0.072 / 0.054 / 0.054 | 0.276 / 0.260 / 0.294 / 0.294 (0.258) | 1.09 / 0.88 / 0.38 / 0.36 |
+| 5.85 | 1.00 | 0.126 / 0.066 / 0.055 / 0.055 | 0.116 / 0.051 / 0.036 / 0.036 | 0.261 / 0.142 / 0.145 / 0.144 (0.147) | 24.7 / 4.7 / 3.2 / 3.1 |
+| 5.67 | 1.00 | 0.142 / 0.052 / 0.051 / 0.051 | 0.133 / 0.036 / 0.033 / 0.033 | 0.256 / 0.109 / 0.093 / 0.093 (0.108) | 112 / 8.2 / 7.0 / 7.0 |
+| 4.92 | 1.00 | 0.166 / 0.042 / 0.041 / 0.041 | 0.158 / 0.026 / 0.023 / 0.023 | 0.248 / 0.057 / 0.052 / 0.052 (0.066) | 2510 / 55 / 49 / 50 |
+
+- With the ionised-cell budget the cone's own tensor is the closest to the
+  rays' at every z from 8.1 down. At z = 9.6 it equals thin OTVET's (cell
+  0.110 against 0.108; slightly too anisotropic on blocks, 0.458 against
+  0.411).
+- The split equals OTVET until overlap, then has the rays' anisotropy.
+- The rerun changes nothing after overlap (P_Γ, Γ quantiles, history all
+  within 2 %). Before overlap its Γ quantiles are closer to the rays'
+  (z = 9.63: median 8.86 ⟨Γ⟩ against the rays' 9.19 and the first run's
+  10.29).
+
 **Verdict (256³).** The split removes OTVET's after-overlap excess almost
 exactly, at no cost. The cone does as well after overlap, and it also
 improves the overlap era (morphology, the end of reionization, Γ
