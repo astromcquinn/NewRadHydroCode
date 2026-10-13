@@ -232,6 +232,23 @@ pencil FFT, `docs/stage_e_pm.md`), 13 rays of 144 M.
 | the three backends, host state (`amrex_state = 0`) | 156.4 | 1.1 | 0.7 | 2.0 | 163.1 | 37.3 / 8.0 / |
 | **the state on the levels** (`amrex_state = 1`) | 151.3 | 1.3 | 0.5 | 21.4 | 177.7 | 37.4 / **4.5** / |
 
+**512³ on one node** (`reion512_40mpc_f0.23`, step 53, 1.12 G rays, job
+41822520, the same phase-1 build, 24 ranks × 8 threads, `--mem=1400G`):
+**it runs**, where Stage D ran out of memory at 24 × 8 and at 12 × 16 and
+needed 8 × 24 to fit (3258 s). RT 1756.1 s, step 1848.9 s, against the
+serial code's 2593.4 and 2878.7 s on the same node (1.48× faster) and
+Stage D's 1460.7 s on 2 nodes and 782.1 s on 4. Peak RSS 293.0 GB on
+rank 0 (the restart's serial ray pool and ray list, as before) and
+35.3 GB at least on the others (the level's cells, deposits and rays,
+plus the phase-1 host particles and PM arrays that phase 2 removes),
+about 1.1 TB in all. Phases: `step1` 247.2, `cast1` 534.5 (`SumBoundary`
+105.2), `phys` 279.4, `cast3` 386.4, `sort` 163.8, `migrate` 71.0,
+`sync` 43.1 s; hydro 2.7 s, PM 3.6 s, halos 14.6 s (the FoF on rank 0),
+P(k) 30.2 s (the host P(k) on rank 0's mirror), io 64.0 s (the mirror
+gathers of the step and the fields of the last step, single-threaded in
+this build). The bitwise comparison against the 2-node host-state run
+with the same backends (job 41823172) is in §4.1 when it has run.
+
 Reading: the ranks other than 0 hold 4.5 GB (the level's share of the
 cells and rays, `Luv`/`sfr`, the catalogue) against 8 GB with the host
 state and 12.8 GB in Stage D; rank 0's peak is the restart (the serial
