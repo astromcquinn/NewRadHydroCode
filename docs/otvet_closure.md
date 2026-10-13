@@ -598,6 +598,12 @@ FFT kernel is now filled in parallel; the values are the same.
   closure that was actually used.
 - `ray.log` has a line `OTVET : …` per hydro step: λ, λ_x, ΣN_dir/ΣN, the
   number of sources and the wall time.
+- **Lag of the budget.** λ and λ_x use the photons at the start of the
+  hydro step, while the light crosses hundreds of cells within a step
+  (`nstep_rt` ≈ 350 at 256³, z = 14). In the first hydro step with sources
+  there are no photons yet, so the screened kernel uses λ = 1 cell and the
+  cone no cutoff. From the second step on, the budget follows the
+  solution.
 
 **Checks so far.**
 - `apps/otvet_tensor` computes a closure's tensor on a tensor-dump

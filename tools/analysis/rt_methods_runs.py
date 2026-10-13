@@ -48,7 +48,7 @@ sys.path.insert(0, HERE)
 import reion_history as rh  # noqa: E402
 import reion  # noqa: E402
 
-COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6", "#d6336c", "#6b7280", "#0e9aa7"]
 
 
 def outputs(run):

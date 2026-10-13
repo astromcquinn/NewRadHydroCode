@@ -229,7 +229,7 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    colors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6"]
+    colors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6", "#d6336c", "#6b7280", "#0e9aa7"]
     nz = len(results)
     fig, ax = plt.subplots(3, nz, figsize=(3.6 * nz + 0.6, 9.0), squeeze=False, sharex=True)
     k = binner.k
