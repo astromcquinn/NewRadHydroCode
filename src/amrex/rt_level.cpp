@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -224,7 +225,8 @@ struct LevelBase {
   virtual std::int64_t nrays() const = 0;
   virtual int bytes_per_ray() const = 0;
   virtual void gather_rays(std::vector<RayP>& out) const = 0;
-  virtual void scatter_rays(const std::vector<RayP>& in) = 0;
+  virtual void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const = 0;
+  virtual void scatter_rays(const std::vector<RayP>& in, bool first) = 0;
   virtual std::string timers() const = 0;
 };
 
@@ -1268,6 +1270,13 @@ struct Level : LevelBase {
   // limited to 2 GB, 25 M rays; a 512^3 production run holds 1.1 G)
   static constexpr std::size_t kGatherChunk = std::size_t(1) << 23;  // 8 M rays, 640 MB
   void gather_rays(std::vector<RayP>& out) const override {
+    out.clear();
+    gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
+  }
+
+  // The streaming gather: rank 0's own rays first, then every rank's in rank
+  // order, each handed to sink on rank 0 in chunks of kGatherChunk
+  void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     std::vector<RayP> mine;
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1277,25 +1286,23 @@ struct Level : LevelBase {
       for (int n = 0; n < np; ++n) mine.push_back(Enc::load(p, n, ectx));
     }
     const int nranks = ax::ParallelDescriptor::NProcs();
-    out.clear();
-    if (nranks == 1) {
-      out.swap(mine);
-      return;
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    std::vector<RayP> chunk;
+    if (io) {
+      for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
+        const std::size_t n = std::min(kGatherChunk, mine.size() - off);
+        chunk.assign(mine.begin() + off, mine.begin() + off + n);
+        sink(chunk);
+      }
     }
+    if (nranks == 1) return;
 #ifdef AMREX_USE_MPI
     const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
     const int root = ax::ParallelDescriptor::IOProcessorNumber();
     const int myproc = ax::ParallelDescriptor::MyProc();
-    const bool io = ax::ParallelDescriptor::IOProcessor();
     long long count = static_cast<long long>(mine.size());
     std::vector<long long> counts(nranks);
     MPI_Gather(&count, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
-    if (io) {
-      std::size_t total = 0;
-      for (long long c : counts) total += static_cast<std::size_t>(c);
-      out.reserve(total);
-      out.insert(out.end(), mine.begin(), mine.end());  // rank 0's own first
-    }
     for (int r = 0; r < nranks; ++r) {
       if (r == root) continue;
       if (myproc == r) {
@@ -1307,9 +1314,9 @@ struct Level : LevelBase {
         const std::size_t total = static_cast<std::size_t>(counts[r]);
         for (std::size_t off = 0; off < total; off += kGatherChunk) {
           const int n = static_cast<int>(std::min(kGatherChunk, total - off));
-          const std::size_t n0 = out.size();
-          out.resize(n0 + static_cast<std::size_t>(n));
-          MPI_Recv(out.data() + n0, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 11, comm, MPI_STATUS_IGNORE);
+          chunk.resize(static_cast<std::size_t>(n));
+          MPI_Recv(chunk.data(), n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 11, comm, MPI_STATUS_IGNORE);
+          sink(chunk);
         }
       }
     }
@@ -1325,10 +1332,11 @@ struct Level : LevelBase {
   // particles plus their send buffers at 512^3). Every rank calls
   // Redistribute the same number of times (collective).
   static constexpr std::size_t kScatterChunk = std::size_t(1) << 25;
-  void scatter_rays(const std::vector<RayP>& in) override {
+  void scatter_rays(const std::vector<RayP>& in, bool first) override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
-      pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
+    if (first)
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
+        pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
     const bool root = ax::ParallelDescriptor::IOProcessor();
     ax::Long nchunk = root ? static_cast<ax::Long>((in.size() + kScatterChunk - 1) / kScatterChunk) : 0;
     ax::ParallelDescriptor::ReduceLongMax(nchunk);
@@ -1447,7 +1455,14 @@ void amrex_rt_gather_rays(const Simulation& s, std::vector<rrk::RayP>& out) {
   out.clear();
   if (s.amrex) s.amrex->level->gather_rays(out);
 }
-void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in) { level_of(s).scatter_rays(in); }
+void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in) { level_of(s).scatter_rays(in, true); }
+void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in, bool first) {
+  level_of(s).scatter_rays(in, first);
+}
+void amrex_rt_gather_rays_chunks(const Simulation& s,
+                                 const std::function<void(const std::vector<rrk::RayP>&)>& sink) {
+  if (s.amrex) s.amrex->level->gather_rays_chunks(sink);
+}
 std::string amrex_rt_timers(const Simulation& s) { return s.amrex ? s.amrex->level->timers() : ""; }
 
 }  // namespace radray

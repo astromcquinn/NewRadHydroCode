@@ -33,6 +33,10 @@ std::int64_t amrex_rt_nrays(const Simulation&) { return 0; }
 int amrex_rt_bytes_per_ray(const Simulation&) { return 0; }
 void amrex_rt_gather_rays(const Simulation&, std::vector<rrk::RayP>&) { no_amrex(); }
 void amrex_rt_scatter_rays(Simulation&, const std::vector<rrk::RayP>&) { no_amrex(); }
+void amrex_rt_scatter_rays(Simulation&, const std::vector<rrk::RayP>&, bool) { no_amrex(); }
+void amrex_rt_gather_rays_chunks(const Simulation&, const std::function<void(const std::vector<rrk::RayP>&)>&) {
+  no_amrex();
+}
 std::string amrex_rt_timers(const Simulation&) { return ""; }
 
 }  // namespace radray

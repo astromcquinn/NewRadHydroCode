@@ -7,6 +7,7 @@
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -110,11 +111,14 @@ void ray_stat_io(IO& io, RS& r) {
 
 void write_checkpoint(const std::string& path, const Simulation& s, const HydroState& hs,
                       const pm::PMState& pm, const DriverState& d) {
-  // rt_backend = amrex: the rays live on the level; gather them on rank 0
-  // (collective: every rank calls this function, only io_rank() writes)
-  std::vector<rrk::RayP> brays;
-  if (use_amrex(s.cfg)) amrex_rt_gather_rays(s, brays);
-  if (!io_rank()) return;
+  // rt_backend = amrex: the rays live on the level; rank 0 receives them in
+  // chunks while it writes (collective: every rank takes part in the count
+  // and the gather, only io_rank() writes; rank 0's transient is one chunk)
+  const std::int64_t nbrays = use_amrex(s.cfg) ? amrex_rt_nrays(s) : 0;
+  if (!io_rank()) {
+    if (use_amrex(s.cfg)) amrex_rt_gather_rays_chunks(s, [](const std::vector<rrk::RayP>&) {});
+    return;
+  }
   const std::string tmp = path + ".tmp";
   {
     Out o;
@@ -213,7 +217,12 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     // AMReX backend (version 5): its rays in the float layout
     const std::int32_t backend = static_cast<std::int32_t>(s.cfg.rt_backend);
     o.pod(backend);
-    o.vec(brays);
+    o.pod(nbrays);  // the vec layout: the count, then the rays, streamed
+    if (use_amrex(s.cfg))
+      amrex_rt_gather_rays_chunks(s, [&](const std::vector<rrk::RayP>& chunk) {
+        o.f.write(reinterpret_cast<const char*>(chunk.data()),
+                  static_cast<std::streamsize>(chunk.size() * sizeof(rrk::RayP)));
+      });
     o.pod(s.ngam_total_backend);
     // rt_cells_per_substep (version 6)
     const std::int32_t cells = s.cfg.rt_cells_per_substep;
@@ -409,12 +418,42 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   }
   std::int32_t backend = 0;
   std::vector<rrk::RayP> brays;
+  // rt_backend = amrex: the rays go onto the level in chunks as rank 0
+  // reads them (collective: the same number of scatters on every rank)
+  constexpr std::int64_t kRayChunk = std::int64_t(1) << 25;  // 32 M rays, 2.7 GB
+  bool scattered = false;
   if (ver >= 5) {
     in.pod(backend);
-    if (skip_rays)
+    if (use_amrex(s.cfg) && backend != 0) {
+      std::int64_t n = 0;
+      if (!skip_rays)
+        in.pod(n);
+      else
+        in.skip_vec<rrk::RayP>();  // past the block; rank 0 streams it
+      double nd = static_cast<double>(n);
+      backend_bcast(&nd, 1);
+      n = static_cast<std::int64_t>(nd);
+      const std::int64_t nchunk = std::max<std::int64_t>(1, (n + kRayChunk - 1) / kRayChunk);
+      for (std::int64_t c = 0; c < nchunk; ++c) {
+        brays.clear();
+        if (!skip_rays) {
+          const std::int64_t m = std::min(kRayChunk, n - c * kRayChunk);
+          brays.resize(static_cast<std::size_t>(std::max<std::int64_t>(m, 0)));
+          if (m > 0) {
+            in.f.read(reinterpret_cast<char*>(brays.data()), static_cast<std::streamsize>(m * sizeof(rrk::RayP)));
+            if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+          }
+        }
+        amrex_rt_scatter_rays(s, brays, c == 0);
+      }
+      brays.clear();
+      brays.shrink_to_fit();
+      scattered = true;
+    } else if (skip_rays) {
       in.skip_vec<rrk::RayP>();
-    else
+    } else {
       in.vec(brays);
+    }
     in.pod(s.ngam_total_backend);
   }
   if (backend == 0 && use_amrex(s.cfg)) {
@@ -424,25 +463,50 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     // the backend's, not the serial continuation). The serial pool is then
     // released.
     if (s.cfg.legacy_rt) throw std::runtime_error("rt_backend = amrex needs a legacy_rt = 0 checkpoint");
-    brays.clear();
+    // the live rays of the chains, streamed onto the level in chunks (rank
+    // 0 holds the serial pool and one chunk, not a second copy of the pool)
     double tot = 0;
+    std::int64_t nlive = 0;
     if (!skip_rays) {
       for (std::int64_t c = 0; c < G.ncell; ++c)
-        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = R.at(ir).next) brays.push_back(R.at(ir));
+        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = R.at(ir).next) ++nlive;
       tot = ngam_rays_total_serial(s);
     }
+    double nd = static_cast<double>(nlive);
+    backend_bcast(&nd, 1);
+    nlive = static_cast<std::int64_t>(nd);
+    const std::int64_t nchunk = std::max<std::int64_t>(1, (nlive + kRayChunk - 1) / kRayChunk);
+    std::int64_t c = 0, ir = 0;  // the traversal state on rank 0
+    if (!skip_rays && G.ncell > 0) ir = G.htoc_ray(3, 0);
+    for (std::int64_t k = 0; k < nchunk; ++k) {
+      brays.clear();
+      if (!skip_rays) {
+        while (static_cast<std::int64_t>(brays.size()) < kRayChunk && c < G.ncell) {
+          if (ir > 0) {
+            brays.push_back(R.at(ir));
+            ir = R.at(ir).next;
+          } else if (++c < G.ncell) {
+            ir = G.htoc_ray(3, c);
+          }
+        }
+      }
+      amrex_rt_scatter_rays(s, brays, k == 0);
+    }
+    brays.clear();
+    brays.shrink_to_fit();
+    scattered = true;
     // (rank 0 writes the outputs and checkpoints; the other ranks keep 0
     // until the next post_rt sets the reduced total on every rank)
     s.ngam_total_backend = tot;
     R.init(R.Nray_max, R.Nfree_max);
     std::fill(G.htoc.begin(), G.htoc.end(), 0);
-    R.Nray = static_cast<std::int64_t>(brays.size());
+    R.Nray = nlive;
   } else if (backend != static_cast<std::int32_t>(s.cfg.rt_backend)) {
     throw std::runtime_error("checkpoint was written with rt_backend = " +
                              std::string(backend ? "amrex" : "serial") + ", this run has " +
                              rt_backend_summary(s.cfg));
   }
-  if (use_amrex(s.cfg)) amrex_rt_scatter_rays(s, brays);
+  if (use_amrex(s.cfg) && !scattered) amrex_rt_scatter_rays(s, brays, true);
   std::int32_t cells = 1;
   if (ver >= 6) in.pod(cells);
   if (cells < 1) throw std::runtime_error("checkpoint: bad rt_cells_per_substep: " + path);
