@@ -247,8 +247,12 @@ about 1.1 TB in all. Phases: `step1` 247.2, `cast1` 534.5 (`SumBoundary`
 `sync` 43.1 s; hydro 2.7 s, PM 3.6 s, halos 14.6 s (the FoF on rank 0),
 P(k) 30.2 s (the host P(k) on rank 0's mirror), io 64.0 s (the mirror
 gathers of the step and the fields of the last step, single-threaded in
-this build). The bitwise comparison against the 2-node host-state run
-with the same backends (job 41823172) is in §4.1 when it has run.
+this build). With phase 2 and the threaded transfers (job 41824737): RT 1783.2 s,
+step 1837.5 s, io 29.4 s, P(k) 14.0 s, PM 0.7 s, the ranks other than 0
+at 23.8 GB (rank 0 293 GB, the restart), the fields and statistics
+bitwise identical to the phase-1 run. The bitwise comparison against the
+2-node host-state run with the same backends (job 41823172) and the 2-
+and 4-node runs (jobs 41824738–9) follow when they have run.
 
 Reading: the ranks other than 0 hold 3.1 GB with the particles on the
 level (4.5 GB in phase 1: the level's share of the cells and rays,
