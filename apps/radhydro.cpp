@@ -730,6 +730,8 @@ int main(int argc, char** argv) {
         for (std::int64_t c = 0; c < G.ncell; ++c) g1[c] = G.gamma[c * 3];
         W("gammaHI", g1);
       }
+      // Luv: the source luminosity per RT cell (written only when listed)
+      if (("," + P.fields + ",").find(",Luv,") != std::string::npos) W("Luv", G.Luv);
       W("lambda", G.lambda);
       W("dx", G.dx);
       W("u_gas", s.gas.u);

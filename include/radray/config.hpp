@@ -206,10 +206,17 @@ struct Config {
   //                1/moment_nsub of the explicit GLF scheme; >= 3 in 3-D,
   //                and 3 decouples odd and even cells, docs/rt_moments.md);
   //   otvet_tensor: how the OTVET tensor is summed over the sources:
-  //                0 = auto, 1 = direct sum, 2 = FFT convolution.
+  //                0 = auto, 1 = direct sum, 2 = FFT convolution;
+  //   moment_inject: when the source and recombination photons of an RT
+  //                substep enter the moments: 0 = before the transport
+  //                (default; a source cell's photons are mostly moved to its
+  //                neighbours before photo_cell absorbs anything), 1 = after
+  //                it, so they are absorbed in their own cell first, as the
+  //                rays' photons are (docs/rt_moments.md).
   RTMethod rt_method = RTMethod::Rays;
   int moment_nsub = 4;
   int otvet_tensor = 0;
+  int moment_inject = 0;
 
   // params.txt rt_backend = serial (default) | amrex and the parameters of
   // the AMReX backend (set_rt_backend_param in rt_backend.hpp;
