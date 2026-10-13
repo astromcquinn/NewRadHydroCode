@@ -598,6 +598,32 @@ FFT kernel is now filled in parallel; the values are the same.
   closure that was actually used.
 - `ray.log` has a line `OTVET : …` per hydro step: λ, λ_x, ΣN_dir/ΣN, the
   number of sources and the wall time.
+- **The cone's budget counts the ionised cells only** (x_HII > 0.5; fix
+  `c53a503`).
+  - In the first 256³ cone run, before overlap, the thin near field
+    (unattenuated, out to 2 r_c = 16 cells) alone held more light than all
+    the photons of the solution. Around H II regions smaller than 16 cells
+    it lights the neutral gas, which the solution never fills. The budget
+    then drove λ_x to 1 cell (z ≈ 12–9.5), the cones' light vanished
+    beyond 16 cells from the sources, and those cells fell back to the
+    isotropic tensor: the run's own tensor at z = 9.6 had cell error 0.225
+    against thin OTVET's 0.108.
+  - Now the direct light and the photons are both summed over the ionised
+    cells (each receiver weighted by the ionised fraction of its block),
+    and no cutoff is applied if the near field alone exceeds the photons.
+  - In the rerun (`otvcl256_otvet_cone2`), λ_x is none, then 56, 21, 69 and
+    293 cells before overlap; none during it (ΣN_dir/ΣN = 0.99); and 762,
+    500, 631, 764 cells after it, unchanged.
+  - A priori on the rays' snapshots (blend, cell error in ionised cells):
+
+    | z | 9.63 | 8.13 | 7.40 | 6.59 | 6.19 | 5.67 | 4.92 |
+    |---|---|---|---|---|---|---|---|
+    | cell error | 0.089 | 0.079 | 0.069 | 0.067 | 0.075 | 0.052 | 0.041 |
+    | λ_x (cells) | none | 4433 | 340 | 628 | 1252 | 489 | 850 |
+
+    The old budget gave 0.096 at z = 9.63 (thin OTVET 0.107) and the same
+    numbers after overlap.
+  - The 512³ cone run was restarted with this fix.
 - **Lag of the budget.** λ and λ_x use the photons at the start of the
   hydro step, while the light crosses hundreds of cells within a step
   (`nstep_rt` ≈ 350 at 256³, z = 14). In the first hydro step with sources
