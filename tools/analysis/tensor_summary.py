@@ -6,6 +6,8 @@ Eddington tensor as a function of redshift.
 usage: tensor_summary.py LOG_OR_JSON... [--closures otvet split ...] [--png FILE]
                          [--txt FILE]
 
+Several analyses of the same snapshot (same z) are merged into one row.
+
 The screened kernels are logged as atten<lambda> with lambda in cells; the
 --closures names 'atten' and 'split_atten' pick the one at lambda_eff.
 """
@@ -93,6 +95,30 @@ def parse_log(path):
     return out
 
 
+def merge(parsed):
+    """Analyses of the same snapshot (several runs of tensor_compare.py with
+    different closures) become one entry; the first one's value wins where
+    they overlap. Sorted by decreasing z."""
+    by = {}
+    for d in parsed:
+        k = round(d["z"], 3)
+        if k not in by:
+            by[k] = d
+            continue
+        m = by[k]
+        for t in ("cell", "A", "block"):
+            for reg, row in d[t].items():
+                for c, v in row.items():
+                    m[t].setdefault(reg, {}).setdefault(c, v)
+        for t in ("blockA", "force", "r"):
+            for c, v in d[t].items():
+                m[t].setdefault(c, v)
+        for t in ("Atrue", "noise"):
+            for reg, v in d[t].items():
+                m[t].setdefault(reg, v)
+    return [by[k] for k in sorted(by, reverse=True)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("logs", nargs="+")
@@ -100,7 +126,7 @@ def main():
     ap.add_argument("--png", default=None)
     ap.add_argument("--txt", default=None)
     a = ap.parse_args()
-    runs = sorted((parse(p) for p in a.logs), key=lambda d: -d["z"])
+    runs = merge(parse(p) for p in a.logs)
     lines = []
 
     def key_of(d, table, name):
