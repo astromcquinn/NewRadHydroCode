@@ -262,12 +262,17 @@ field and `stats.txt`.
 | Stage D, 2 nodes (12 × 16; one node does not fit) | 1460.7 | 1540.9 | | 292.9 / 103.0 |
 | 1 node (job 41824737) | 1783.2 | 1837.5 | 1 | 293.0 / 23.8 |
 | 2 nodes (job 41824738) | 974.4 | 1034.5 | 1.83 | 293.0 / 13.1 |
-| 4 nodes (job 41824739) | N4STATE | | | |
+| 4 nodes (job 41824739) | 538.3 | 598.4 | 3.31 | 143.8 / 13.0 |
 
-The fields of every node count are bitwise identical. Phases, 1 → 2
-nodes: `step1` 275.6 → 165.5, `cast1` 532.1 → 268.2 (`SumBoundary` 99.9
-→ 80.5), `phys` 277.3 → 140.1, `cast3` 390.2 → 221.9, `sort` 163.9 →
-84.4, `migrate` 71.0 → 43.6 s. The 4-node run follows when it has run.
+The fields of every node count are bitwise identical. Phases, 1 → 2 → 4
+nodes: `step1` 275.6 → 165.5 → 94.3, `cast1` 532.1 → 268.2 → 154.3
+(`SumBoundary` 99.9 → 80.5 → 22.7), `phys` 277.3 → 140.1 → 70.3, `cast3`
+390.2 → 221.9 → 123.7, `sort` 163.9 → 84.4 → 46.2, `migrate` 71.0 → 43.6
+→ 26.2 s. So the RT scales 1.83× per doubling of the nodes (1.81× from 2
+to 4), against Stage D's 1.87× from 2 to 4 nodes at 4.8× the memory per
+rank; on 4 nodes the step is 598 s, 4.8× faster than the serial code on
+one node. Rank 0's peak on 4 nodes is 144 GB (the restart's chunked
+scatter leaves less in flight with 96 ranks), the others 13 GB.
 
 Reading: the ranks other than 0 hold 3.1 GB with the particles on the
 level (4.5 GB in phase 1: the level's share of the cells and rays,
