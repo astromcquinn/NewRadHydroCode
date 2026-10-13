@@ -1172,8 +1172,27 @@ struct Level : LevelBase {
   // per-box scratch rebuilt
   void remap(const ax::DistributionMapping& dm2) override {
     const double t0 = now();
+    // the cells through float FabArrays (ParallelCopy needs an arithmetic
+    // FAB type): pack, move, unpack
+    FFab Cf(ba, dm, NC, 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      auto f = Cf.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        f(i, j, k, m) = cf(c, i, j, k, m);
+      });
+    }
+    FFab Cf2(ba, dm2, NC, 0);
+    Cf2.ParallelCopy(Cf, 0, 0, NC);
     CFab C2(ba, dm2, 1, 0);
-    C2.ParallelCopy(C, 0, 0, 1);
+    for (ax::MFIter mfi(C2); mfi.isValid(); ++mfi) {
+      auto c = C2.array(mfi);
+      auto f = Cf2.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+        float* dp = reinterpret_cast<float*>(&c(i, j, k));
+        for (int m = 0; m < NC; ++m) dp[m] = f(i, j, k, m);
+      });
+    }
     C = std::move(C2);
     dm = dm2;
     TF.define(ba, dm, 10, ng);
