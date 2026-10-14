@@ -161,7 +161,7 @@ bool amrex_balance_step(Simulation& s, pm::PMState& pm, double& eff_old, double&
   g.dm = dm2;
   rt_remap(s, dm2);
   pm_remap(pm, dm2);
-  amrex_hydro_release();  // rebuilt on the new mapping at its next step
+  amrex_hydro_remap(dm2);  // level 0 on the new mapping, the refined levels kept
   return true;
 }
 

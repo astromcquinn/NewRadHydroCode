@@ -1114,6 +1114,54 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                              PROCESSORS ${np})
       endforeach()
     endforeach()
+    # Stage F1 (docs/stage_f.md): the refined hierarchy. The result must not
+    # depend on the rank count, the thread count or the box sizes (the fine
+    # grids are chopped per rank), and the conserved totals of every step
+    # must equal the uniform run's to round-off (periodic box, refluxing
+    # and average-down). Label amr inside amrex_hydro.
+    foreach(cfg "sod_x;1;0.5" "sound_x;1;0.99" "random3d;2;8")
+      list(GET cfg 0 p)
+      list(GET cfg 1 L)
+      list(GET cfg 2 M)
+      set(amrset "hydro_scheme=unsplit,hydro_backend=amrex,amrex_max_level=${L},amrex_refine_mass=${M}")
+      math(EXPR Lp1 "${L} + 1")
+      add_test(NAME amrex_hydro_amr_ref_${p}_L${L}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=1 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:hydro_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p}
+                 -DOUT=${amrex_runs}/amr_ref_${p}_L${L} -DREF=${amrex_runs}/hydro_ref_${p}
+                 "-DSET=${amrset},amrex_hydro_max_grid_size=16"
+                 -DEXTRA=--quiet
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/amr_conservation_check.py
+                 -DSTRICT=cons "-DEXTRA_TOL=--levels;${Lp1}"
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(amrex_hydro_amr_ref_${p}_L${L} PROPERTIES FIXTURES_REQUIRED amrex_hydro_ref_${p}
+                           FIXTURES_SETUP amrex_hydro_amr_ref_${p}_L${L} LABELS "amrex;amrex_hydro;amr"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 900)
+      foreach(rc "2;1;16" "4;2;8" "1;1;32")
+        list(GET rc 0 np)
+        list(GET rc 1 nt)
+        list(GET rc 2 mgs)
+        set(tname amrex_hydro_amr_bitwise_${p}_L${L}_r${np}t${nt}_mgs${mgs})
+        add_test(NAME ${tname}
+                 COMMAND ${CMAKE_COMMAND}
+                   -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                   -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                   -DDRIVER=$<TARGET_FILE:hydro_driver>
+                   -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p}
+                   -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/amr_ref_${p}_L${L}
+                   "-DSET=${amrset},amrex_hydro_max_grid_size=${mgs}"
+                   -DEXTRA=--quiet
+                   -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                   -DSTRICT=1
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+        set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_hydro_amr_ref_${p}_L${L}
+                             LABELS "amrex;amrex_hydro;amr" ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 900
+                             PROCESSORS ${np})
+      endforeach()
+    endforeach()
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro
     add_test(NAME amrex_hydro_full_ranks_smoke

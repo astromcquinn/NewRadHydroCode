@@ -282,6 +282,21 @@ struct Config {
   //   amrex_hydro_max_grid_size: box size of the hydro level's decomposition.
   HydroBackend hydro_backend = HydroBackend::Serial;
   int amrex_hydro_max_grid_size = 32;
+  // Stage F (docs/stage_f.md): the gas hierarchy of hydro_backend = amrex.
+  //   amrex_max_level: refinement levels (0 = one level, the Stage E step);
+  //   amrex_refine_mass: a level-l cell is tagged when its gas mass exceeds
+  //                amrex_refine_mass times the mean base-cell mass, i.e.
+  //                rho/rho_avg > amrex_refine_mass * 8^l;
+  //   amrex_regrid_every: regrid every n hydro calls;
+  //   amrex_fine_max_grid_size, amrex_blocking_factor, amrex_n_error_buf,
+  //   amrex_grid_eff: the AMReX gridding parameters of the refined levels.
+  int amrex_max_level = 0;
+  double amrex_refine_mass = 8.0;
+  int amrex_regrid_every = 1;
+  int amrex_fine_max_grid_size = 32;
+  int amrex_blocking_factor = 8;
+  int amrex_n_error_buf = 1;
+  double amrex_grid_eff = 0.7;
   // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for

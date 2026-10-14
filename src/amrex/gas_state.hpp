@@ -92,5 +92,9 @@ struct PMState;
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count);
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm);
 void pm_remap(pm::PMState& p, const amrex::DistributionMapping& dm);
+// The hydro hierarchy's level 0 onto the new mapping (its data is copied
+// in from the gas state at every step; the refined levels keep their own
+// mapping); nothing without a hierarchy.
+void amrex_hydro_remap(const amrex::DistributionMapping& dm);
 
 }  // namespace radray

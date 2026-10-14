@@ -42,5 +42,12 @@ void amrex_hydro_step(const Config& cfg, const Units& un, double dt, GasGrid& ga
 std::string amrex_hydro_timers();
 // Frees the level (backend_finalize calls it before amrex::Finalize)
 void amrex_hydro_release();
+// Stage F (docs/stage_f.md): the finest level in use (0 without refinement);
+// the refined levels to and from a directory of AMReX VisMF files (the
+// checkpoint; nothing with amrex_max_level = 0). read builds the level if
+// needed. Collective.
+int amrex_hydro_finest_level();
+void amrex_hydro_write_levels(const std::string& dir);
+void amrex_hydro_read_levels(const Config& cfg, int N, const std::string& dir);
 
 }  // namespace radray

@@ -1025,6 +1025,10 @@ int main(int argc, char** argv) {
         amrex_state_scatter_rt(s);
         amrex_pm_load_particles(pm);
       }
+      // Stage F: the refined hydro levels of the checkpoint (a checkpoint
+      // without them starts with level 0 only and regrids at the first step)
+      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr"))
+        amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
     } else {
       // Summarize the initial state
       calc_sim_var(cfg, s.clk, s.units);
@@ -1203,6 +1207,8 @@ int main(int argc, char** argv) {
         else
           std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
         write_checkpoint(odir + name, s, hs, pm, dst);
+        // Stage F: the refined hydro levels next to it (docs/stage_f.md)
+        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) amrex_hydro_write_levels(odir + name + ".amr");
         if (P.restart_keep > 0 && io) {
           // keep the newest restart_keep numbered checkpoints (names sort by step)
           std::vector<std::string> ck;
@@ -1213,7 +1219,10 @@ int main(int argc, char** argv) {
               ck.push_back(e.path().string());
           }
           std::sort(ck.begin(), ck.end());
-          for (std::size_t i = 0; i + P.restart_keep < ck.size(); ++i) std::filesystem::remove(ck[i]);
+          for (std::size_t i = 0; i + P.restart_keep < ck.size(); ++i) {
+            std::filesystem::remove(ck[i]);
+            std::filesystem::remove_all(ck[i] + ".amr");  // its refined levels, if any
+          }
         }
       }
 
