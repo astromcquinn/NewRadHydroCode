@@ -234,9 +234,59 @@ swapping the serial RT for the RT backend (Stage D) changes them by 1e-8
 to 3e-7. That is the sensitivity of the 16³ smoke problem to the force
 round-off (1e-6 of the maximum force, §1.3) through the hydro, not an
 error of the backend: the gravity-only problems above follow the serial
-trajectories to 1e-5 over 30 steps, and the unit tests pin the forces. A
-64³ production-configuration comparison (as `amrex_full64_vs_serial` does
-for the RT) is the right nightly check and is not added here.
+trajectories to 1e-5 over 30 steps, and the unit tests pin the forces. The
+64³ production-configuration comparison is §3.1.
+
+### 3.1 The 64³ production configuration (klone, 2026-10-13)
+
+Nightly test `amrex_state_full64_vs_serial` (labels `amrex;amrex_state;
+full;nightly`; `tests/amrex_full64_check.py ... state`): `make_production.py
+--N 64 --recomb-rad 0` with today's production defaults (10 Mpc/h, 0.01c,
+factor 16, on-the-fly sources, `legacy_rt = legacy_physics = 0`,
+`hydro_scheme = unsplit`, `redshift_per_distance = 1`, case B), z = 100 → 5
+in 27 hydro steps. The serial code (4 threads, `deterministic_parallel`)
+against the three backends with the state on the levels (`rt_backend =
+hydro_backend = pm_backend = amrex`, `amrex_state = 1`, 2 ranks × 2
+threads), compared as `amrex_full64_vs_serial` does for the RT: the
+histories of `stats.txt` (x_HII and T, volume and mass weighted, every
+step), τ_es from the movie frames, and the per-cell fields of the last
+step. Measured on klone (job 41832828, the build of this branch; the rows
+other than the test are runs of the same problem with fewer backends,
+the RT + hydro run bitwise the RT-only one):
+
+| 64³, serial vs backends | x_HII,V | x_HII,M | T_V | T_M | τ_es | fHI rms (z = 5) | T rms | ρ_gas rms |
+|---|---|---|---|---|---|---|---|---|
+| RT backend only (2 × 2) | 3.2e-8 | 3.7e-7 | 2.1e-7 | 1.1e-6 | 1.1e-8 | 1.6e-4 | 6.7e-6 | 3.2e-6 |
+| RT + hydro backends | 3.2e-8 | 3.7e-7 | 2.1e-7 | 1.1e-6 | 1.1e-8 | 1.6e-4 | 6.7e-6 | 3.2e-6 |
+| PM backend only (serial RT and hydro) | 1.2e-6 | 1.6e-6 | 3.2e-5 | 1.9e-5 | 1.5e-7 | 5.4e-2 | 6.4e-4 | 5.2e-5 |
+| **the three backends, `amrex_state = 1` (the test)** | 1.2e-6 | 1.5e-6 | 3.2e-5 | 1.9e-5 | 2.2e-7 (0.05728) | 5.4e-2 | 7.1e-4 | 5.2e-5 |
+| tolerance of the test | 1e-3 | 1e-3 | 1e-3 | 1e-3 | 1e-3 | 0.15 | 1e-2 | 5e-4 |
+
+(history columns: the largest relative difference over the steps; fields:
+rms difference over rms value.) The three backends with `amrex_state = 1`
+are bitwise identical to the same three with the host state
+(`amrex_state = 0`), as at 256³ and 512³ (`docs/stage_e_state.md` §4).
+
+Reading: the histories and τ_es follow the serial code to 3e-5, the gas
+density to 5e-5 and the temperature to 7e-4 per cell, all from the PM
+backend's round-off (its fixed-point CIC and per-line FFT, §1.3; the hydro
+backend is bitwise the serial step and the RT backend contributes 1e-4).
+The 5 % rms in fHI at z = 5, after overlap, is not a density or
+temperature effect: per cell, the fHI difference is the Γ_HI difference
+with the sign reversed (correlation −0.9998, slope −0.99; median |ΔΓ/Γ|
+1e-3, rms of Δln Γ 4.5e-2, against 1.3e-4 in Δln ρ). The 1e-4 density
+round-off moves rays across the split, merge and removal thresholds, which
+reshuffles the rays' per-cell sampling noise in Γ (the noise of a single
+substep that `docs/otvet_closure.md` finds in the rays' snapshot Γ); the
+RT backend alone, whose densities are bitwise the serial ones, stays at
+1.6e-4. The test takes 95 s on 4 cores (serial 38 s, backends 53 s), well
+inside the nightly budget.
+
+The existing nightly `amrex_full64_vs_serial` had stopped working: it read
+τ_es with the frame layout of before `be49827` (the Γ columns of
+`frames.txt`) and wrote into a work directory it did not create. Both are
+fixed here; it passes on klone (x_HII 4e-6, T 8e-5, τ_es 8e-7, fHI 6e-3,
+T 1e-3 per cell, 105 s).
 
 ## 4. Timing
 
