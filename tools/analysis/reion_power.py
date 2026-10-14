@@ -34,7 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gamma_power as gp  # noqa: E402
 
-COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6"]
+COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8b5cf6", "#d6336c", "#6b7280", "#0e9aa7"]
 FIELDS = ("rhoHI", "xHII")
 LABEL = {"rhoHI": r"$\rho_{\rm HI}=x_{\rm HI}(1+\delta)$", "xHII": r"$x_{\rm HII}$"}
 

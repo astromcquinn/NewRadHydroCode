@@ -58,6 +58,12 @@ struct MomentState {
   // (1 direct, 2 FFT).
   std::int64_t nsrc = 0;
   int tensor_method = 0;
+  // otvet_split = 1 (otvet_closure.hpp): the direct light tr P/(4 pi) per
+  // cell in luminosity units (N_dir,g = q_g ndir); empty otherwise. Not
+  // checkpointed (recomputed every hydro step, like h).
+  std::vector<float> ndir;
+  // Diagnostics of the last alternative tensor (otvet_closure.hpp)
+  double closure_lambda = 0, closure_lam_x = 0, closure_ratio = 0, closure_seconds = 0;
   // Scratch of the transport (one group at a time; not checkpointed)
   std::vector<float> P, nn, nfx, nfy, nfz, ne;
 };

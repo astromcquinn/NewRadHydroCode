@@ -218,6 +218,30 @@ struct Config {
   int moment_nsub = 4;
   int otvet_tensor = 0;
   int moment_inject = 0;
+  // Alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md;
+  // set_otvet_closure_param). New options, not in the original; the
+  // defaults keep the thin minimum-image tensor:
+  //   otvet_closure: 0 = thin (default), 1 = screen (e^(-r/lambda) over the
+  //                periodic images), 2 = cone (HI-attenuated cones);
+  //   otvet_split: 1 = the direct light carries h, the rest of the photons
+  //                is isotropic (thin or screen);
+  //   otvet_screen_lambda: screening length in RT cells (0 = from the
+  //                photon budget);
+  //   otvet_cone_nside, _coarse, _rc, _taucap, _smax, _budget, _blend: the
+  //                cones (HEALPix nside, receiver grid factor, near-field
+  //                radius in cells, per-cell tau cap, reach in boxes, extra
+  //                cutoff from the photon budget, Gaussian sigma in cells of
+  //                the blend with the split thin tensor; 0 = none).
+  int otvet_closure = 0;
+  int otvet_split = 0;
+  double otvet_screen_lambda = 0;
+  int otvet_cone_nside = 4;
+  int otvet_cone_coarse = 4;
+  double otvet_cone_rc = 8;
+  double otvet_cone_taucap = 1;
+  double otvet_cone_smax = 8;
+  int otvet_cone_budget = 1;
+  double otvet_cone_blend = 4;
 
   // params.txt rt_backend = serial (default) | amrex and the parameters of
   // the AMReX backend (set_rt_backend_param in rt_backend.hpp;
