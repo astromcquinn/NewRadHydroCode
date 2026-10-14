@@ -1837,8 +1837,10 @@ struct Hierarchy : LevelBase {
 
   // The ghost cells of a refined level that lie outside its grids take the
   // parent's values of TF components [c0, c0 + nc): the optical depth per
-  // cell halves with the cell size (comps 0-4), the absorbed fraction of a
-  // half cell is 1 - sqrt(1 - fgam) (5-9). A ray about to leave the level
+  // cell halves with the cell size (comps 0-4), and fgam, the fraction of a
+  // cell's deposit it transmits (rt_cell.hpp photo_cell_finish; cast_3
+  // takes 1 - fgam of the deposit), is sqrt(fgam) for a half cell (5-9).
+  // A ray about to leave the level
   // sees the parent's gas there; its deposits beyond the level go to the
   // parent (exchange_deposits). Collective.
   void fill_ghost_tf(int l, int c0, int nc) {
@@ -1858,7 +1860,7 @@ struct Hierarchy : LevelBase {
       ax::ParallelForOMP(gbx, nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
         if (inp(i, j, k)) return;
         const float v = pc_(i >> 1, j >> 1, k >> 1, m);
-        tf(i, j, k, c0 + m) = tau ? 0.5f * v : static_cast<float>(1.0 - std::sqrt(static_cast<double>(1.0f - v)));
+        tf(i, j, k, c0 + m) = tau ? 0.5f * v : static_cast<float>(std::sqrt(static_cast<double>(v)));
       });
     }
   }
