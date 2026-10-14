@@ -11,8 +11,8 @@ cooling flag and the sink), F3 (the RT across levels).*
 
 | Item | State |
 |---|---|
-| F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | in progress |
-| F2: refined hydro validated on the hydro test suite; `cool_suppress_overdensity`; the star-formation sink | planned |
+| F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
+| F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
 | F3: rays across levels with the coarse substep (`rt_cells_per_substep` = 2^l on level l) | planned |
 
 ## 1. The hierarchy (F1)
@@ -106,13 +106,46 @@ averaged down, so level 0 is always consistent with them.
 
 ## 2. Refined hydro, cooling and the sink (F2)
 
-Validation: the hydro test suite (`tests/hydro_suite`, `docs/hydro_tests.md`)
-with `hydro_backend = amrex` and `amrex_max_level = 1, 2` against the
-analytic solutions and the uniform runs at the matched finest resolution
-(the composite of the finest data on a uniform grid of N·2^L cells,
-`amrex_hydro_fine_grid`, test problems only); Sod, Sedov, Zel'dovich
-pancake, Kelvin–Helmholtz. Plus the full-loop smoke problem with
-refinement for restarts and thread/rank independence.
+**Validation on the hydro test suite** (`tests/hydro_suite`,
+`docs/hydro_tests.md`; `run_suite.py --scheme unsplit --amr L
+--refine-mass 0.2`, `tools/hyak/hydro_suite_amr.slurm`, one klone node,
+2026-10-14; JSON in `docs/data/stage_f/`). With `refine_mass = 0.2` every
+cell above 0.2× the mean gas density is refined: the whole Sedov box (the
+ambient medium is at the mean density) and everything but the
+undisturbed low-density state of a tube, so a refined run on N³ is the
+uniform (2^L N)³ solution averaged down to N³, and the analysis (the
+level-0 fields) should sit between the uniform N³ and (2N)³ runs. L1
+errors against the exact solutions (ρ, u, p for the tubes; ρ, p, v and
+the shock radius for Sedov at t = 10), uniform / 1 level / 2 levels:
+
+| case | ρ | u or v | p | R error | wall [s] |
+|---|---|---|---|---|---|
+| Sod x, N = 32 | 0.0227 / 0.0098 / 0.0098 | 0.0242 / 0.0099 / 0.0099 | 0.0196 / 0.0080 / 0.0080 | | 3 / 11 / 13 |
+| Sod x, N = 64 | 0.0120 / 0.0057 / 0.0057 | 0.0142 / 0.0066 / 0.0066 | 0.0090 / 0.0042 / 0.0042 | | 11 / 148 / 168 |
+| Sod xyz (diagonal), N = 32 | 0.0248 / 0.0189 / 0.0189 | 0.0262 / 0.0186 / 0.0186 | 0.0228 / 0.0170 / 0.0170 | | 3 / 6 / 7 |
+| strong shock, N = 32 | 0.159 / 0.086 / 0.036 | 0.0257 / 0.0128 / 0.0091 | 0.0249 / 0.0104 / 0.0096 | | 1 / 11 / 50 |
+| strong shock, N = 64 | 0.114 / 0.066 / 0.034 | 0.0142 / 0.0068 / 0.0054 | 0.0137 / 0.0063 / 0.0047 | | 8 / 154 / 508 |
+| 123 (double rarefaction), N = 32 | 0.0327 / 0.0210 / 0.0221 | 0.0649 / 0.0196 / 0.0184 | 0.279 / 0.057 / 0.069 | | 1 / 8 / 32 |
+| Sedov, N = 32 | 0.0608 / 0.0427 / 0.0345 | 0.0987 / 0.0683 / 0.0604 | 0.0765 / 0.0523 / 0.0436 | +5.9 % / +4.3 % / +3.5 % | 2 / 39 / 113 |
+| Sedov, N = 64 | 0.0406 / 0.0279 / 0.0202 | 0.0648 / 0.0418 / 0.0332 | 0.0467 / 0.0318 / 0.0250 | +3.0 % / +1.9 % / +1.5 % | 43 / 936 / 2587 |
+
+One level on N = 32 matches or beats the uniform N = 64 run (Sod: 0.0098
+against 0.0120; Sedov: 0.0427 against 0.0406, R error 4.3 % against
+3.0 %), two levels halve the errors again where the second level is
+tagged (the strong shock, Sedov; Sod's second level never is: the
+threshold 0.2 · 8 is above its densities, so amr1 = amr2 there). The
+Sedov anisotropy falls from 2.7 % to 1.3 % to 1.0 % (N = 32). The cost
+is the whole-box refinement's: 8× the cells and 2× the substeps per level
+(the N = 64 two-level Sedov run is a 256³ run, 60× the uniform wall), with
+the flux-register and FillPatch overheads on top (`reflux` and `fill` in
+the timers line; to profile). Before the two fixes of §1 ("three traps")
+the refined runs were *worse* than the uniform ones: Sedov's radius
+20–40 % short, the tube errors 4–10× larger.
+
+Still to do in F2: the pancake and Kelvin–Helmholtz cases of the suite,
+the full tier, and the composite of the finest data for a comparison at
+the matched finest resolution; `cool_suppress_overdensity` and the sink
+are built (below).
 
 `cool_suppress_overdensity` (done with F1: `params.txt` / `--set`, both
 drivers, `make_production.py --cool-suppress-overdensity`; default 200 =
