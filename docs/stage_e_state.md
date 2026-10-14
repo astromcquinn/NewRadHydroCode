@@ -316,6 +316,21 @@ canonical), so a rebalanced run is byte-identical to the fixed mapping:
 prints the efficiency of every RT step and whether it remapped, and the
 count at the end.
 
+**klone, 512³** (jobs 41826700–1, the same checkpoint and layouts as
+§4, `amrex_balance = 1` with the defaults; one RT step in the run, so
+one remap):
+
+| 512³, step 53, 24 × 8 per node | RT, fixed mapping [s] | RT, rebalanced [s] | gain |
+|---|---|---|---|
+| 2 nodes | 974.4 | 936.1 | 4 % |
+| 4 nodes | 538.3 | 470.0 | 13 % |
+
+The fields and statistics of the rebalanced runs are bitwise those of
+the fixed mapping. The gain grows with the rank count, as the imbalance
+does (at 2 nodes 85 boxes of 32³ per rank average out the ray
+clustering, at 4 nodes 43 do); the 256³ runs on 2 and 4 nodes follow.
+The whole `amrex` label passes on this build (161/161 on klone).
+
 What this does not do yet: balance inside a step (rays migrate during the
 substeps, so the cost of a box changes while the step runs), weigh the
 hydro and PM work (small against the RT), or split boxes (the granularity
