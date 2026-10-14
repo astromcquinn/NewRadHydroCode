@@ -278,6 +278,7 @@ class HydroLevel {
   ax::Vector<ax::BCRec> bcs;
   double rho_avg = 0;  // the mean gas density (tagging)
   std::vector<SinkEvent> events;  // the sink's events of the last call (this rank)
+  double mass0 = 0;  // the gas mass of level 0 after the last call (double sum; diagnostic)
 
   const ax::Geometry& geom_of(int lev) const { return max_level > 0 ? mesh->Geom(lev) : geom; }
   ax::MultiFab& U(int lev) { return levels[static_cast<std::size_t>(lev)].U; }
@@ -836,6 +837,7 @@ class HydroLevel {
     T.substeps += nsub_call;
     T.calls += 1;
     sink(cfg, dt, scalefactor);
+    mass0 = U(0).sum(0);  // (MultiFab::sum: valid cells, reduced; order-dependent at 1e-16)
     remember_level0();
     if (state)
       copy_out(*const_cast<gs::GasState*>(state));
@@ -984,13 +986,16 @@ class HydroLevel {
                                    " reflux " + std::to_string(T.reflux) + " pushdown " + std::to_string(T.pushdown))
                                       .c_str()
                                 : "");
+    char bm[64];
+    std::snprintf(bm, sizeof bm, "; mass0 %.17g", mass0);
+    std::string out = std::string(buf) + bm;
     if (T.sink_events > 0) {
       char b2[160];
       std::snprintf(b2, sizeof b2, "; sink %lld events, mass %.6g (this rank, %.3f s)",
                     static_cast<long long>(T.sink_events), T.sink_mass, T.sink);
-      return std::string(buf) + b2;
+      out += b2;
     }
-    return buf;
+    return out;
   }
 };
 
