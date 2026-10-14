@@ -457,6 +457,33 @@ struct Level : LevelBase {
     }
   }
 
+  // RADRAY_RT_DEBUG: the first cell of the level with a non-finite gas,
+  // species, deposit or optical-depth value after a phase
+  void check_cells(const char* where) {
+    if (!std::getenv("RADRAY_RT_DEBUG")) return;
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      const Box_t bx = mfi.validbox();
+      const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+      for (int k = lo.z; k <= hi.z; ++k)
+        for (int j = lo.y; j <= hi.y; ++j)
+          for (int i = lo.x; i <= hi.x; ++i) {
+            const RTCell& d = c(i, j, k);
+            bool bad = false;
+            for (int m = 0; m < 5; ++m) bad = bad || !std::isfinite(d.u[m]) || !std::isfinite(d.ngam[m]) || !std::isfinite(d.tau[m]);
+            for (int m = 0; m < 4; ++m) bad = bad || !std::isfinite(d.w[m]);
+            if (!bad) continue;
+            std::fprintf(stderr,
+                         "RT debug: level %d %s: cell (%d,%d,%d) rho %g u1 %g E %g e %g w (%g,%g,%g,%g) ngam (%g,%g,%g,%g,%g) "
+                         "tau (%g,%g,%g,%g,%g) Luv %g sfr %g rhog %g fHI %g fHeI %g fHeII %g temp %g\n",
+                         lev, where, i, j, k, d.u[0], d.u[1], d.u[4], d.e, d.w[0], d.w[1], d.w[2], d.w[3], d.ngam[0],
+                         d.ngam[1], d.ngam[2], d.ngam[3], d.ngam[4], d.tau[0], d.tau[1], d.tau[2], d.tau[3], d.tau[4],
+                         d.Luv, d.sfr, d.rhog, d.fHI, d.fHeI, d.fHeII, d.temp);
+            return;
+          }
+    }
+  }
+
   // The gas state's FabArray of this level (level 0: G; refined: fine[lev-1].G)
   gs::FFab& state_G() const {
     return lev == 0 ? state->G : state->fine[static_cast<std::size_t>(lev) - 1].G;
@@ -1950,6 +1977,7 @@ struct Hierarchy : LevelBase {
     sync();
     for (auto& l : levels) l->prep(s);
     place_sources(s);
+    for (auto& l : levels) l->check_cells("after prep");
   }
 
   // The sources of the cells covered by a finer level, on the finest level
@@ -2004,11 +2032,14 @@ struct Hierarchy : LevelBase {
     }
   }
   void substep(Simulation& s) override {
+    for (auto& l : levels) l->check_cells("before tau");
     for (auto& l : levels) l->substep_tau(s);
     for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 0, 5);  // the parent's tau in the ghosts outside the level
+    for (auto& l : levels) l->check_cells("after tau");
     for (auto& l : levels) l->substep_cast(s);
     for (int l = finest; l >= 1; --l) exchange_deposits(l);
     for (auto& l : levels) l->substep_phys(s);
+    for (auto& l : levels) l->check_cells("after phys");
     for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 5, 5);  // the parent's fgam likewise
     for (auto& l : levels) l->substep_advance(s);
     migrate();
