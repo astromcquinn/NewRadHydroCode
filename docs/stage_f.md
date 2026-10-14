@@ -64,6 +64,26 @@ every substep as the serial driver does. With `amrex_max_level = 0` the
 recursion is the Stage E1 loop, operation for operation: bitwise
 identical (`ctest -L amrex_hydro`).
 
+**Three traps met on the way** (all fixed, all with tests): (1) the
+kernel's `dtdx` is the *level-0* substep on every level, since a level-l
+cell of dx 2^-l takes dt 2^-l; with the level's own dt the fine levels
+advanced at half speed per level (Sedov's shock radius came out 20–40 %
+short while mass, momentum and energy were still conserved, the register
+factors being consistent with the wrong update). (2) The time within a
+hydro call restarts at zero, so every level's interpolation interval
+(the parent's old and new states) must be reset at each call; with the
+previous call's interval the first fine fill of a call extrapolated and
+produced negative ghost densities. (3) AMReX's `cell_cons_interp` and
+`lincc_interp` limit the slopes per direction, and in a field with
+density contrasts of 1e6 (`random3d`) the three-direction sum made
+negative fine densities next to small coarse values; the hierarchy
+interpolates with `mf_linear_slope_minmax_interp` (the slope vector
+limited so that no fine value leaves the range of the coarse neighbours),
+which FillPatch dispatches only when passed as an `MFInterpolater*`.
+`RADRAY_AMR_DEBUG=1` scans every level after each phase and reports the
+first non-finite or non-positive cell with its parent column, and counts
+the bad or untouched ghost cells of every fill.
+
 **Regridding.** `AmrMesh::MakeNewGrids` with `ErrorEst` tagging on the
 level's density (above); new levels are filled by `FillPatchTwoLevels`
 (the old fine data where it exists, the parent interpolated elsewhere),
