@@ -118,7 +118,7 @@ void check_rt_backend_param(const Config& c) {
     throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
   if (c.recomb_rad && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex does not implement recomb_rad with the rays yet");
-  if (c.det_parallel)
+  if (c.det_parallel && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex: deterministic_parallel applies to the serial backend only");
   if (c.N_rt_gas != 1) throw std::runtime_error("rt_backend = amrex needs N_rt_gas = 1");
 }
