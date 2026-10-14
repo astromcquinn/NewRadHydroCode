@@ -25,6 +25,20 @@
   `.github/workflows/regen_references.yml` (artifact `references`), with
   `reference/harness/store_outputs.py` for the RT subset; the legacy sets
   are untouched.
+- **Stage F1, the gas hierarchy** (`docs/stage_f.md` §1):
+  `amrex_max_level` (0 = Stage E, bitwise: `ctest -L amrex_hydro` 27/27
+  on klone), AmrMesh regridding on the gas overdensity
+  (`amrex_refine_mass` · 8^l), FillPatch ghosts, two substeps of dt/2 per
+  parent substep, refluxing and average-down, the CFL over every level,
+  the push-down of the level-0 changes the RT and PM make between hydro
+  calls, the refined levels through the checkpoint (`<checkpoint>.amr/`)
+  and across a rebalancing. Tests (label `amr`): conservation against
+  the uniform run and layout independence at 1 and 2 levels.
+- `cool_suppress_overdensity` (§2; 200 = the original, 0 = dense gas
+  cools), `make_production.py --cool-suppress-overdensity`.
+- The hydro suite runs on the backend with refinement (`run_suite.py
+  --amr L`, `tools/hyak/hydro_suite_amr.slurm`); the star-formation sink
+  is designed (§2, F2b), not built.
 - Storage: the Stage D/E one-step timing outputs (581 GB) were deleted on
   the user's instruction.
 
