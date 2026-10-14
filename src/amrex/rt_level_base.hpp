@@ -88,7 +88,7 @@ struct Timers {
   double bins = 0, gather = 0, writeback = 0, depred = 0;  // parts of sort / cast1
   // the moment level: calc_rt_1, injection, transport (and its halo
   // exchange), deposit, step 3, the exact sums (chains, gathers)
-  double rt1 = 0, inject = 0, trans = 0, halo = 0, deposit = 0, absorb = 0, sums = 0, tensor = 0;
+  double rt1 = 0, inject = 0, trans = 0, halo = 0, deposit = 0, absorb = 0, sums = 0, tensor = 0, tflux = 0, tglf = 0, tcopy = 0;
 };
 
 // The level as rt_level.cpp drives it

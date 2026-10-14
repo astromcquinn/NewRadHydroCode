@@ -120,7 +120,6 @@ void chain(double* v, int n, F&& local) {
 struct MomentLevel : CellLevel {
   int stats_mode = 0;  // amrex_moment_stats: 0 exact, 1 fixed
   ax::FabArray<ax::BaseFab<float>> M;   // the moments, 1 ghost
-  ax::FabArray<ax::BaseFab<float>> Pf;  // the transport fluxes of one group, 1 ghost
   ax::FabArray<ax::BaseFab<float>> Wn;  // the new values of one group
   std::vector<int> zorder;              // the local boxes (local indices) in z order
   // per local box and rt_stat component (kSNgam + sp: kNfreq per cell, in
@@ -171,7 +170,6 @@ struct MomentLevel : CellLevel {
           throw std::runtime_error("the moment level needs the slabs mapped to the ranks in z order");
     M.define(ba, dm, kMC, 1);
     M.setVal(0.0f);
-    Pf.define(ba, dm, 9, 1);
     Wn.define(ba, dm, 5, 0);
     const int nloc = static_cast<int>(C.local_size());
     zorder.resize(nloc);
@@ -934,37 +932,86 @@ struct MomentLevel : CellLevel {
     T.inject += now() - t0;
   }
 
-  // One GLF subcycle of group g (rt_moments transport_group)
+  // One GLF subcycle of group g (rt_moments transport_group): the face
+  // ghosts of the group (FillBoundary, cross: the 7-point stencil), the
+  // fluxes of the grown box into a per-cell contiguous scratch (as the
+  // serial P), the update of the valid cells into Wn, copied back. Plain
+  // OpenMP loops on raw indices; the arithmetic is moment_cell.hpp's.
+  std::vector<std::vector<float>> pscratch;  // per local box: 9 fluxes per grown cell
   void transport_group(int g, mk::Closure cl, double C, double qg) {
     double t0 = now();
-    M.FillBoundary(5 * g, 5, period);
+    M.FillBoundary(5 * g, 5, period, true);
     T.halo += now() - t0;
+    if (pscratch.size() != M.local_size()) pscratch.resize(M.local_size());
     for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
-      auto m = M.const_array(mfi, 5 * g);
-      auto P = Pf.array(mfi);
-      const ax::Box gbx = ax::grow(mfi.validbox(), 1);
-      ax::Array4<float const> h = cl != mk::Closure::M1 ? H.const_array(mfi) : ax::Array4<float const>{};
-      ax::Array4<float const> nd = cl == mk::Closure::Split ? Nd.const_array(mfi) : ax::Array4<float const>{};
-      ax::ParallelForOMP(gbx, [=](int i, int j, int k) {
-        float Pc[9], hc[6];
-        if (cl != mk::Closure::M1)
-          for (int q = 0; q < 6; ++q) hc[q] = h(i, j, k, q);
-        const double ndc = cl == mk::Closure::Split ? qg * static_cast<double>(nd(i, j, k)) : 0.0;
-        mk::flux_cell(cl, m(i, j, k, 0), m(i, j, k, 1), m(i, j, k, 2), m(i, j, k, 3), m(i, j, k, 4), hc, ndc, Pc);
-        for (int q = 0; q < 9; ++q) P(i, j, k, q) = Pc[q];
-      });
-      auto w = Wn.array(mfi);
-      auto Pc = Pf.const_array(mfi);
-      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
-        const int di[7] = {0, -1, 1, 0, 0, 0, 0}, dj[7] = {0, 0, 0, -1, 1, 0, 0}, dk[7] = {0, 0, 0, 0, 0, -1, 1};
-        float out[5];
-        mk::glf_cell([&](int q, int p) { return m(i + di[p], j + dj[p], k + dk[p], q); },
-                     [&](int p, int q) { return Pc(i + di[p], j + dj[p], k + dk[p], q); }, C, out);
-        for (int q = 0; q < 5; ++q) w(i, j, k, q) = out[q];
-      });
-      auto mw = M.array(mfi, 5 * g);
-      auto wc = Wn.const_array(mfi);
-      ax::ParallelForOMP(mfi.validbox(), 5, [=](int i, int j, int k, int q) { mw(i, j, k, q) = wc(i, j, k, q); });
+      double ta = now();
+      auto ma = M.array(mfi, 5 * g);
+      const auto glo = ax::lbound(ma), glen = ax::length(ma);  // the grown box
+      const std::int64_t js = glen.x, ks = static_cast<std::int64_t>(glen.x) * glen.y, cs = comp_stride(ma);
+      const std::int64_t npg = ks * glen.z;
+      float* mb = &ma(glo.x, glo.y, glo.z, 0);
+      const float* hb = nullptr;
+      std::int64_t hcs = 0;
+      if (cl != mk::Closure::M1) {
+        auto ha = H.const_array(mfi);
+        hb = &ha(glo.x, glo.y, glo.z, 0);
+        hcs = comp_stride(ha);
+      }
+      const float* nb = nullptr;
+      if (cl == mk::Closure::Split) {
+        auto na = Nd.const_array(mfi);
+        nb = &na(glo.x, glo.y, glo.z, 0);
+      }
+      std::vector<float>& Pv = pscratch[mfi.LocalIndex()];
+      if (static_cast<std::int64_t>(Pv.size()) != 9 * npg) Pv.assign(static_cast<std::size_t>(9 * npg), 0.0f);
+      float* P = Pv.data();
+#pragma omp parallel for collapse(2) schedule(static)
+      for (int k = 0; k < glen.z; ++k)
+        for (int j = 0; j < glen.y; ++j) {
+          const std::int64_t row = j * js + k * ks;
+          for (int i = 0; i < glen.x; ++i) {
+            const std::int64_t c = row + i;
+            float hc[6];
+            if (hb)
+              for (int q = 0; q < 6; ++q) hc[q] = hb[c + q * hcs];
+            const double ndc = nb ? qg * static_cast<double>(nb[c]) : 0.0;
+            mk::flux_cell(cl, mb[c], mb[c + cs], mb[c + 2 * cs], mb[c + 3 * cs], mb[c + 4 * cs], hc, ndc, &P[9 * c]);
+          }
+        }
+      double tb = now();
+      T.tflux += tb - ta;
+      // the update of the valid cells (offsets 1 into the grown box)
+      auto wa = Wn.array(mfi);
+      const auto vlen = ax::length(wa);
+      const auto vlo = ax::lbound(wa);
+      const std::int64_t wjs = vlen.x, wks = static_cast<std::int64_t>(vlen.x) * vlen.y, wcs = comp_stride(wa);
+      float* wb = &wa(vlo.x, vlo.y, vlo.z, 0);
+      const std::int64_t off[7] = {0, -1, 1, -js, js, -ks, ks};
+#pragma omp parallel for collapse(2) schedule(static)
+      for (int k = 0; k < vlen.z; ++k)
+        for (int j = 0; j < vlen.y; ++j) {
+          const std::int64_t row = (j + 1) * js + (k + 1) * ks + 1;
+          const std::int64_t wrow = j * wjs + k * wks;
+          for (int i = 0; i < vlen.x; ++i) {
+            const std::int64_t c = row + i;
+            float out[5];
+            mk::glf_cell([&](int q, int p) { return mb[c + off[p] + q * cs]; },
+                         [&](int p, int q) { return P[9 * (c + off[p]) + q]; }, C, out);
+            const std::int64_t w = wrow + i;
+            for (int q = 0; q < 5; ++q) wb[w + q * wcs] = out[q];
+          }
+        }
+      double tc = now();
+      T.tglf += tc - tb;
+#pragma omp parallel for collapse(2) schedule(static)
+      for (int k = 0; k < vlen.z; ++k)
+        for (int j = 0; j < vlen.y; ++j) {
+          const std::int64_t row = (j + 1) * js + (k + 1) * ks + 1;
+          const std::int64_t wrow = j * wjs + k * wks;
+          for (int q = 0; q < 5; ++q)
+            for (int i = 0; i < vlen.x; ++i) mb[row + i + q * cs] = wb[wrow + i + q * wcs];
+        }
+      T.tcopy += now() - tc;
     }
   }
 
@@ -1451,9 +1498,9 @@ struct MomentLevel : CellLevel {
     char buf[512];
     std::snprintf(buf, sizeof buf,
                   "AMReX moment timers [s]: prep %.3f calc_rt_1 %.3f inject %.3f transport %.3f (halo %.3f) "
-                  "deposit %.3f phys %.3f step3 %.3f sums %.3f post %.3f sync %.3f tensor %.3f",
+                  "deposit %.3f phys %.3f step3 %.3f sums %.3f post %.3f sync %.3f tensor %.3f [flux %.3f glf %.3f copy %.3f]",
                   T.prep, T.rt1, T.inject, T.trans, T.halo, T.deposit, T.phys, T.absorb, T.sums, T.post, T.sync,
-                  T.tensor);
+                  T.tensor, T.tflux, T.tglf, T.tcopy);
     return buf;
   }
 };
