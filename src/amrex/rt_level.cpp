@@ -387,11 +387,16 @@ struct Level : LevelBase {
   // ---- the hierarchy (F3b): rays between levels ------------------------------
 
   // A ray in the units of another level: positions and the source distance
-  // scale with the cell size, dr = rmax(nside) - r (ray_kernels.hpp) follows
+  // scale with the cell size, dr = rmax(nside) - r (ray_kernels.hpp)
+  // follows, and the photons, which the kernels keep per <nH> and RT cell
+  // volume (ray_source: ngam / vol_rt / nH_avg), scale with the cell volume
+  // (f^3: 8 going down, 1/8 going up)
   static RayP rescaled(RayP r, double f) {
     for (int d = 0; d < 3; ++d) r.x[d] = static_cast<float>(r.x[d] * f);
     r.r = static_cast<float>(r.r * f);
     r.dr = static_cast<float>(rrk::rmax_from_nside(r.nside) - static_cast<double>(r.r));
+    const double f3 = f * f * f;
+    for (int m = 0; m < rrk::NF; ++m) r.ngam[m] = static_cast<float>(r.ngam[m] * f3);
     return r;
   }
   // The cells of this level under the finer level's grids (fine_ba in the
@@ -1868,8 +1873,12 @@ struct Hierarchy : LevelBase {
   // The deposits of a refined level's rays beyond its grids (in its ghost
   // cells outside the level) summed into the parent's cells, and the
   // parent's deposits under the level (rays that entered it from outside)
-  // shared among the 8 children (the remainder to the first ones: exact
-  // in the int64 fixed point). After both levels' SumBoundary. Collective.
+  // given to the 8 children. The deposits are per <nH> and RT cell volume
+  // (ray_source, photo_cell: photons / vol_rt / nH_avg), so a parent cell
+  // takes the sum of its 8 fine ghost cells divided by 8 (photons add,
+  // the volume is 8x), and each child takes the parent's value as it is
+  // (an eighth of the photons in an eighth of the volume). After both
+  // levels' SumBoundary. Collective.
   void exchange_deposits(int l) {
     L& F = *levels[static_cast<std::size_t>(l)];
     L& P = *levels[static_cast<std::size_t>(l) - 1];
@@ -1893,7 +1902,7 @@ struct Hierarchy : LevelBase {
               if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
               sum += a(fi, fj, fk, m);
             }
-        u(i, j, k, m) = sum;
+        u(i, j, k, m) = (sum + (sum >= 0 ? 4 : -4)) / 8;  // per the parent's volume, rounded
       });
     }
     P.A.ParallelCopy(up, 0, 0, ND, 0, 0, P.period, ax::FabArrayBase::ADD);
@@ -1905,10 +1914,7 @@ struct Hierarchy : LevelBase {
       auto a = F.A.array(mfi);
       auto d = down.const_array(mfi);
       ax::ParallelForOMP(mfi.validbox(), ND, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
-        const Long v = d(i >> 1, j >> 1, k >> 1, m);
-        const Long q = v / 8, r = v - 8 * q;  // (v >= 0: deposits are counts)
-        const int child = (i & 1) + 2 * ((j & 1) + 2 * (k & 1));
-        a(i, j, k, m) += q + (child < r ? 1 : 0);
+        a(i, j, k, m) += d(i >> 1, j >> 1, k >> 1, m);  // per the child's volume: the parent's value
       });
     }
     // the parent's cells under the level keep their copy only as a
