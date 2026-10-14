@@ -20,6 +20,12 @@
 # STATS   amrex_moment_stats: exact (default; the bitwise comparison) | fixed
 # EXTRA   further --set arguments
 # COMPARE 0: no comparison (timing runs past the serial run's end)
+# MODE    host (default): the RT and the hydro on the level, the host state
+#         on every rank (amrex_state = 0) and the serial PM, so that the run
+#         is bitwise the serial production run's continuation (the AMReX PM
+#         agrees with the serial PM to round-off only); state: the
+#         production configuration (amrex_state = 1, the three backends; the
+#         state on the slabs), for the timings
 #
 #SBATCH --job-name=moments-validate
 #SBATCH --account=astro
@@ -47,12 +53,16 @@ ulimit -s unlimited
 CK=$(printf "%s/run/restart/checkpoint_%04d.bin" "$SRC" "$STEP")
 [ -e "$CK" ] || { echo "no checkpoint $CK"; exit 1; }
 mkdir -p "$OUT"
-echo "$(date) $SRC step $STEP + $NSTEPS on $RANKS ranks x $OMP_NUM_THREADS threads, ${SLURM_JOB_NUM_NODES:-1} nodes (${SLURM_JOB_NODELIST:-})"
+case "${MODE:-host}" in
+  host) backends="--set pm_backend=serial --set amrex_state=0" ;;
+  state) backends="--set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1" ;;
+  *) echo "MODE must be host or state"; exit 1 ;;
+esac
+echo "$(date) MODE ${MODE:-host}: $SRC step $STEP + $NSTEPS on $RANKS ranks x $OMP_NUM_THREADS threads, ${SLURM_JOB_NUM_NODES:-1} nodes (${SLURM_JOB_NODELIST:-})"
 /usr/bin/time -v srun --ntasks="$RANKS" --cpus-per-task="$OMP_NUM_THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
   --chdir="$OUT" "$EXE" "$SRC" "$OUT" --quiet --restart "$CK" \
   --set run_steps="$NSTEPS" --set restart_every=0 \
-  --set rt_backend=amrex --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex \
-  --set amrex_state=1 --set amrex_slab=1 --set amrex_slab_planes="${PLANES:-0}" \
+  --set rt_backend=amrex --set hydro_backend=amrex $backends --set amrex_slab=1 --set amrex_slab_planes="${PLANES:-0}" \
   --set amrex_moment_stats="${STATS:-exact}" ${EXTRA:-} > "$OUT.log" 2>&1
 rc=$?
 echo "$(date) radhydro exit $rc"

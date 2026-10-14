@@ -33,9 +33,22 @@ otvet` on z-slabs (`amrex_slab = 1`), every sum in the serial order.
   slabs against the serial moment RT; restarts. All bitwise.
   The fast suite: only the 10 `platform_ref` tests fail, as on `main`
   (outputs byte-identical to `main`'s).
-* **Next:** threaded FFTW plans with the bitwise guard; phase 5 (klone
-  256³ / 512³ validation and timing on 1, 2, 4 nodes); phase 6 (1024³ on
-  `ckpt-g2`).
+* **Threaded OTVET FFT plans, done** (`fd1d8f0`): `amrex_moment_fft_threads`,
+  the guard at the first convolution (tests `otvet_fft_threads_{64,128}`).
+* **Phase 5, 256³ on klone (2026-10-14):** the serial production runs
+  `otvcl256_*` restarted from their step-40 checkpoints on the level with
+  the serial PM (`tools/hyak/moments_validate.slurm`, MODE = host; the
+  AMReX PM agrees with the serial PM to round-off only, so the production
+  configuration is compared with the serial RT by the full-loop pair
+  tests instead): M1, thin, split, screen + split bitwise the production
+  runs' step 41 (19 files each); the cone bitwise the current serial code
+  on 1 and 2 nodes (7 files, 12 movie frames). The cone production run
+  itself predates the final cone code (its step 41 differs from today's
+  serial code, λ_x 760.865 vs 760.866).
+* **Transport:** rewritten on raw indices (`5a4f5d4`), GLF 3× faster.
+* **Next:** 512³ cone on 1, 2, 4 nodes (bitwise against the current serial
+  code from checkpoint 52; timings in the production configuration);
+  phase 6 (1024³ on `ckpt-g2`).
 
 ## Done 2026-10-13: a better Eddington tensor for OTVET (branch `otvet-closure`, PR #35)
 
