@@ -667,7 +667,24 @@ struct Level : LevelBase {
 
   // ---- one RT substep: rt_step_1, rt_step_2, rt_step_3 ---------------------
 
+  // One RT substep in four phases (the hierarchy interleaves the levels'
+  // phases and exchanges the optical depths and deposits in between):
+  //   tau      1a: calc_rt_1, tau -> TF ghosts
+  //   cast     gather, histograms, emit/split/merge, cast_1 (deposits), SumBoundary
+  //   phys     2: radiative_physics, statistics, fgam -> TF ghosts
+  //   advance  3: cast_3, the write-back, the migration, the statistics
   void substep(Simulation& s) override {
+    substep_tau(s);
+    substep_cast(s);
+    substep_phys(s);
+    substep_advance(s);
+  }
+  double tp1 = 0, tp4 = 0, tp5 = 0;  // the phase boundaries' clock
+  Long cmax_sub[3] = {0, 0, 0};
+  i128 stats_sub[kSNstat] = {};
+  Long nsfill_sub = 0, ngfill_sub = 0;
+
+  void substep_tau(Simulation& s) {
     s.timers.substeps += 1;
     substep_count += 1;
     const int myproc = ax::ParallelDescriptor::MyProc();
@@ -716,9 +733,21 @@ struct Level : LevelBase {
       T.fillbnd += now() - tf0;
     }
     double t1 = now();
+    tp1 = t1;
     T.cell += t1 - t0;
     s.timers.calc_rt1 += t1 - t0;
+  }
 
+  void substep_cast(Simulation& s) {
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    Long* const hist_p = hist.data();
+    Long* const cstat_p = cstat.data();
+    int* const err_p = err.data();
+    const int NN = N;
+    const int ngh = ng;
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const double sfr_min = units_of(s).sfr_min;
+    (void)myproc; (void)hist_p; (void)cstat_p; (void)err_p; (void)NN; (void)ngh; (void)sfr_min;
     // ---- gather rays per box into cell-sorted scratch (DenseBins): one
     // decode per ray per substep; the histograms below read the scratch ----
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -764,7 +793,7 @@ struct Level : LevelBase {
     }
     check_err("gather");
     double t1b = now();
-    T.sort += t1b - t1;
+    T.sort += t1b - tp1;
     // ---- 1b. calc_ray_1: histograms of the live rays -> thresholds, pool guard ----
     i128 ngam_sum = 0;
     {
@@ -853,7 +882,8 @@ struct Level : LevelBase {
     const double tz = now();
     A.setVal(0);
     T.zero += now() - tz;
-    Long cmax[3] = {0, 0, 0};
+    Long* cmax = cmax_sub;
+    cmax[0] = cmax[1] = cmax[2] = 0;
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       BoxScratch& S = scratch[mfi.LocalIndex()];
       const Box_t bx = mfi.validbox();
@@ -1036,9 +1066,21 @@ struct Level : LevelBase {
     double t4 = now();
     T.cast1 += t4 - t3;
     s.timers.trace1 += t4 - t2;
+    tp4 = t4;
+  }
 
+  void substep_phys(Simulation& s) {
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    Long* const hist_p = hist.data();
+    Long* const cstat_p = cstat.data();
+    int* const err_p = err.data();
+    const int NN = N;
+    const int ngh = ng;
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const double sfr_min = units_of(s).sfr_min;
+    (void)myproc; (void)hist_p; (void)cstat_p; (void)err_p; (void)NN; (void)ngh; (void)sfr_min;
     // ---- 2. radiative_physics; statistics; fgam -> TF ghosts ----
-    i128 stats[kSNstat];
+    i128* stats = stats_sub;
     for (int a = 0; a < kSNstat; ++a) stats[a] = 0;
     Long nsfill = 0, ngfill = 0;
     {
@@ -1127,9 +1169,24 @@ struct Level : LevelBase {
       T.fillbnd += now() - tf0;
     }
     double t5 = now();
-    T.phys += t5 - t4;
-    s.timers.physics += t5 - t4;
+    T.phys += t5 - tp4;
+    s.timers.physics += t5 - tp4;
+    tp5 = t5;
+    nsfill_sub = nsfill;
+    ngfill_sub = ngfill;
+  }
 
+  void substep_advance(Simulation& s) {
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    Long* const hist_p = hist.data();
+    Long* const cstat_p = cstat.data();
+    int* const err_p = err.data();
+    const int NN = N;
+    const int ngh = ng;
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const double sfr_min = units_of(s).sfr_min;
+    (void)myproc; (void)hist_p; (void)cstat_p; (void)err_p; (void)NN; (void)ngh; (void)sfr_min;
+    const rrk::RTP P = params_of(s);
     // ---- 3. advance (cast_3) ----
     Long nout_loc = 0, nkeep_loc = 0;
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1175,7 +1232,7 @@ struct Level : LevelBase {
     }
     check_err("cast_3");
     double t6 = now();
-    T.cast3 += t6 - t5;
+    T.cast3 += t6 - tp5;
     // ---- write survivors back into the particle tiles ----
     leaving.clear();
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1241,7 +1298,7 @@ struct Level : LevelBase {
       pc->Redistribute();
     double t8 = now();
     T.migrate += t8 - t7;
-    s.timers.trace3 += t8 - t5;
+    s.timers.trace3 += t8 - tp5;
 
     // ---- the substep's statistics into s (every rank the same) ----
     {
@@ -1249,17 +1306,17 @@ struct Level : LevelBase {
       ax::Gpu::copy(ax::Gpu::deviceToHost, cstat.begin(), cstat.end(), sv);
       sv[4] = nout_loc - nkeep_loc;  // deleted in cast_3
       sv[5] = nkeep_loc;             // live rays
-      sv[6] = nsfill;
-      sv[7] = ngfill;
+      sv[6] = nsfill_sub;
+      sv[7] = ngfill_sub;
       sv[8] = 0;
       for (int a = 0; a < 9; ++a) sv_loc[a] = sv[a];
-      for (int a = 0; a < 3; ++a) cmax_loc[a] = cmax[a];
-      for (int a = 0; a < kSNstat; ++a) stats_loc[a] = stats[a];
+      for (int a = 0; a < 3; ++a) cmax_loc[a] = cmax_sub[a];
+      for (int a = 0; a < kSNstat; ++a) stats_loc[a] = stats_sub[a];
       if (in_hierarchy) {  // the hierarchy sums the levels and publishes once
         s.timers.sync += now() - t8;
         return;
       }
-      publish_stats(s, sv, cmax, stats);
+      publish_stats(s, sv, cmax_sub, stats_sub);
     }
     s.timers.sync += now() - t8;
   }
@@ -1738,6 +1795,84 @@ struct Hierarchy : LevelBase {
     }
   }
 
+  // The ghost cells of a refined level that lie outside its grids take the
+  // parent's values of TF components [c0, c0 + nc): the optical depth per
+  // cell halves with the cell size (comps 0-4), the absorbed fraction of a
+  // half cell is 1 - sqrt(1 - fgam) (5-9). A ray about to leave the level
+  // sees the parent's gas there; its deposits beyond the level go to the
+  // parent (exchange_deposits). Collective.
+  void fill_ghost_tf(int l, int c0, int nc) {
+    L& F = *levels[static_cast<std::size_t>(l)];
+    L& P = *levels[static_cast<std::size_t>(l) - 1];
+    ax::BoxArray gba = F.ba;
+    gba.grow(F.ng);
+    gba.coarsen(2);
+    FFab Pc(gba, F.dm, nc, 0);
+    Pc.ParallelCopy(P.TF, c0, 0, nc, 0, 0, P.period);
+    for (ax::MFIter mfi(F.TF); mfi.isValid(); ++mfi) {
+      auto tf = F.TF.array(mfi);
+      auto pc_ = Pc.const_array(mfi);
+      auto inp = F.in_patch->const_array(mfi);
+      const ax::Box gbx = ax::grow(mfi.validbox(), F.ng);
+      const bool tau = c0 == 0;
+      ax::ParallelForOMP(gbx, nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        if (inp(i, j, k)) return;
+        const float v = pc_(i >> 1, j >> 1, k >> 1, m);
+        tf(i, j, k, c0 + m) = tau ? 0.5f * v : static_cast<float>(1.0 - std::sqrt(static_cast<double>(1.0f - v)));
+      });
+    }
+  }
+
+  // The deposits of a refined level's rays beyond its grids (in its ghost
+  // cells outside the level) summed into the parent's cells, and the
+  // parent's deposits under the level (rays that entered it from outside)
+  // shared among the 8 children (the remainder to the first ones: exact
+  // in the int64 fixed point). After both levels' SumBoundary. Collective.
+  void exchange_deposits(int l) {
+    L& F = *levels[static_cast<std::size_t>(l)];
+    L& P = *levels[static_cast<std::size_t>(l) - 1];
+    constexpr int ND = rrk::kNdep;
+    // fine ghosts outside the level -> parent cells
+    ax::BoxArray gba = F.ba;
+    gba.grow(F.ng);
+    gba.coarsen(2);
+    LFab up(gba, F.dm, ND, 0);
+    for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
+      auto u = up.array(mfi);
+      auto a = F.A.const_array(mfi);
+      auto inp = F.in_patch->const_array(mfi);
+      const ax::Box gbx = ax::grow(ax::refine(mfi.validbox(), 2), 0) & ax::grow(F.ba[mfi.index()], F.ng);
+      ax::ParallelForOMP(mfi.validbox(), ND, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        Long sum = 0;
+        for (int kk = 0; kk < 2; ++kk)
+          for (int jj = 0; jj < 2; ++jj)
+            for (int ii = 0; ii < 2; ++ii) {
+              const int fi = 2 * i + ii, fj = 2 * j + jj, fk = 2 * k + kk;
+              if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
+              sum += a(fi, fj, fk, m);
+            }
+        u(i, j, k, m) = sum;
+      });
+    }
+    P.A.ParallelAdd(up, 0, 0, ND, ax::IntVect(0), ax::IntVect(0), P.period);
+    // parent cells under the level -> the children
+    const ax::BoxArray cba = ax::coarsen(F.ba, 2);
+    LFab down(cba, F.dm, ND, 0);
+    down.ParallelCopy(P.A, 0, 0, ND, 0, 0, P.period);
+    for (ax::MFIter mfi(F.A); mfi.isValid(); ++mfi) {
+      auto a = F.A.array(mfi);
+      auto d = down.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), ND, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        const Long v = d(i >> 1, j >> 1, k >> 1, m);
+        const Long q = v / 8, r = v - 8 * q;  // (v >= 0: deposits are counts)
+        const int child = (i & 1) + 2 * ((j & 1) + 2 * (k & 1));
+        a(i, j, k, m) += q + (child < r ? 1 : 0);
+      });
+    }
+    // the parent's cells under the level keep their copy only as a
+    // diagnostic (no physics there; averaged over after the step)
+  }
+
   // The finer levels' cells and gas averaged down onto their parents
   // (plain averages of the 8 children of every covered cell, in double,
   // rounded once), finest first
@@ -1856,7 +1991,13 @@ struct Hierarchy : LevelBase {
     }
   }
   void substep(Simulation& s) override {
-    for (auto& l : levels) l->substep(s);
+    for (auto& l : levels) l->substep_tau(s);
+    for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 0, 5);  // the parent's tau in the ghosts outside the level
+    for (auto& l : levels) l->substep_cast(s);
+    for (int l = finest; l >= 1; --l) exchange_deposits(l);
+    for (auto& l : levels) l->substep_phys(s);
+    for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 5, 5);  // the parent's fgam likewise
+    for (auto& l : levels) l->substep_advance(s);
     migrate();
     Long sv[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0}, cmax[3] = {0, 0, 0};
     i128 stats[kSNstat] = {};
