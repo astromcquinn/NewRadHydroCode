@@ -112,6 +112,13 @@ struct LevelBase {
   virtual void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const = 0;
   virtual void scatter_rays(const std::vector<RayP>& in, bool first) = 0;
   virtual std::string timers() const = 0;
+  // the moment level's checkpoint blocks (rt_backend.hpp)
+  virtual void ckpt_write(const std::function<void(const void*, std::size_t)>&) const {
+    throw std::runtime_error("ckpt_write: not the moment level");
+  }
+  virtual void ckpt_read(const std::function<void(void*, std::size_t)>&, int) {
+    throw std::runtime_error("ckpt_read: not the moment level");
+  }
 };
 
 // The cells of a level and their transfers

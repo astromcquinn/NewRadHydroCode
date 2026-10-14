@@ -84,5 +84,14 @@ void amrex_rt_gather_rays_chunks(const Simulation& s,
 void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in, bool first);
 // One line of the backend's phase timers
 std::string amrex_rt_timers(const Simulation& s);
+// rt_method = m1 | otvet on the level (checkpoint.cpp): the checkpoint's
+// moment block (the five moment vectors and the budget) and recombination
+// block (version >= 4) in the serial format, streamed slab by slab
+// (collective): write calls sink(bytes) in file order (meaningful on
+// io_rank() only); read calls rd(dst, bytes), which reads into dst, or
+// skips the bytes for dst = null (the ranks other than io_rank() pass null
+// for the data, real buffers for the headers and the budgets).
+void amrex_moment_ckpt_write(const Simulation& s, const std::function<void(const void*, std::size_t)>& sink);
+void amrex_moment_ckpt_read(Simulation& s, const std::function<void(void*, std::size_t)>& rd, int version);
 
 }  // namespace radray

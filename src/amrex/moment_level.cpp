@@ -40,14 +40,16 @@
 //               its ground-state recombinations (recomb_count_cell) into a
 //               buffer on the slabs and emits them at the next substep, the
 //               emitted total by plane.
-//
-// The checkpoint comes in the next phase and is refused until then.
+//   * checkpoint the serial format (checkpoint.cpp, version 7): the moment and
+//               recombination blocks streamed through rank 0 slab by slab.
 #include <mpi.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <stdexcept>
@@ -1249,6 +1251,155 @@ struct MomentLevel : CellLevel {
       return;
     }
     sync_fields(s);
+  }
+
+  // ---- checkpoint: the serial format, slab by slab (rt_backend.hpp) ---------
+
+  // Components [scomp, scomp + ncomp) of src, kSlabPlanes planes at a time
+  // on rank 0: fn(k0, nk, a), a the one-box FAB's Array4 (gas_state.hpp
+  // gather_slabs with a component offset). Collective.
+  template <class F>
+  void gather_comps(const FFab& src, int scomp, int ncomp, F&& fn) const {
+    const ax::DistributionMapping dm0(ax::Vector<int>{0});
+    for (int k0 = 0; k0 < N; k0 += gs::kSlabPlanes) {
+      const int nk = std::min(gs::kSlabPlanes, N - k0);
+      const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
+      FFab s0(ax::BoxArray(slab), dm0, ncomp, 0);
+      s0.ParallelCopy(src, scomp, 0, ncomp);
+      fn(k0, nk, ax::ParallelDescriptor::IOProcessor() ? s0.const_array(0) : ax::Array4<float const>{});
+    }
+  }
+  // The reverse: rank 0 fills (fill(k0, nk, a)), copied onto dst's
+  // components [dcomp, dcomp + ncomp). Collective.
+  template <class F>
+  void scatter_comps(FFab& dst, int dcomp, int ncomp, F&& fill) {
+    const ax::DistributionMapping dm0(ax::Vector<int>{0});
+    for (int k0 = 0; k0 < N; k0 += gs::kSlabPlanes) {
+      const int nk = std::min(gs::kSlabPlanes, N - k0);
+      const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
+      FFab s0(ax::BoxArray(slab), dm0, ncomp, 0);
+      fill(k0, nk, ax::ParallelDescriptor::IOProcessor() ? s0.array(0) : ax::Array4<float>{});
+      dst.ParallelCopy(s0, 0, dcomp, ncomp);
+    }
+  }
+
+  // The moment block (MomentState n, fx, fy, fz, e: [g][cell] each; the
+  // budget) and the recombination block (RecombState ngam, egam: [cell][g];
+  // ots, mode; launched, dropped, onspot)
+  void ckpt_write(const std::function<void(const void*, std::size_t)>& sink) const override {
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    const std::int64_t ncell = static_cast<std::int64_t>(N) * N * N;
+    const std::size_t npl = static_cast<std::size_t>(N) * N;
+    std::vector<float> buf;
+    const std::int64_t nv = kNfreq * ncell;
+    for (int q = 0; q < 5; ++q) {
+      sink(&nv, sizeof nv);
+      for (int g = 0; g < kNfreq; ++g)
+        gather_comps(M, 5 * g + q, 1, [&](int k0, int nk, ax::Array4<float const> const& a) {
+          if (!io) return;
+          buf.resize(npl * nk);
+#pragma omp parallel for schedule(static)
+          for (int k = k0; k < k0 + nk; ++k)
+            for (int j = 0; j < N; ++j)
+              for (int i = 0; i < N; ++i) buf[i + N * (j + static_cast<std::size_t>(N) * (k - k0))] = a(i, j, k);
+          sink(buf.data(), buf.size() * sizeof(float));
+        });
+    }
+    const double budget[3] = {injected, absorbed, lost};
+    sink(budget, sizeof budget);
+    if (!recomb) {
+      const std::int64_t zero = 0;
+      for (int q = 0; q < 4; ++q) sink(&zero, sizeof zero);
+    } else {
+      const std::int64_t nr = kNfreq * ncell;
+      for (int which = 0; which < 2; ++which) {
+        sink(&nr, sizeof nr);
+        gather_comps(RB, which * kNfreq, kNfreq, [&](int k0, int nk, ax::Array4<float const> const& a) {
+          if (!io) return;
+          buf.resize(npl * nk * kNfreq);
+#pragma omp parallel for schedule(static)
+          for (int k = k0; k < k0 + nk; ++k)
+            for (int j = 0; j < N; ++j)
+              for (int i = 0; i < N; ++i)
+                for (int g = 0; g < kNfreq; ++g)
+                  buf[(i + N * (j + static_cast<std::size_t>(N) * (k - k0))) * kNfreq + g] = a(i, j, k, g);
+          sink(buf.data(), buf.size() * sizeof(float));
+        });
+      }
+      // ots (0: no cell is on the spot) and mode (1: every cell launches),
+      // as the serial moment RT keeps them
+      sink(&ncell, sizeof ncell);
+      std::vector<float> z(npl, 0.0f);
+      for (int k = 0; k < N; ++k) sink(z.data(), z.size() * sizeof(float));
+      sink(&ncell, sizeof ncell);
+      std::vector<std::uint8_t> one(npl, 1);
+      for (int k = 0; k < N; ++k) sink(one.data(), one.size());
+    }
+    const double rbud[3] = {launched, 0, 0};
+    sink(rbud, sizeof rbud);
+  }
+
+  void ckpt_read(const std::function<void(void*, std::size_t)>& rd, int version) override {
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    const std::int64_t ncell = static_cast<std::int64_t>(N) * N * N;
+    const std::size_t npl = static_cast<std::size_t>(N) * N;
+    std::vector<float> buf;
+    for (int q = 0; q < 5; ++q) {
+      std::int64_t n = 0;
+      rd(&n, sizeof n);
+      if (n == 0) continue;  // written before the first RT step
+      if (n != kNfreq * ncell) throw std::runtime_error("checkpoint: moment RT state of the wrong size");
+      for (int g = 0; g < kNfreq; ++g)
+        scatter_comps(M, 5 * g + q, 1, [&](int k0, int nk, ax::Array4<float> const& a) {
+          const std::size_t bytes = npl * nk * sizeof(float);
+          if (!io) {
+            rd(nullptr, bytes);
+            return;
+          }
+          buf.resize(npl * nk);
+          rd(buf.data(), bytes);
+#pragma omp parallel for schedule(static)
+          for (int k = k0; k < k0 + nk; ++k)
+            for (int j = 0; j < N; ++j)
+              for (int i = 0; i < N; ++i) a(i, j, k) = buf[i + N * (j + static_cast<std::size_t>(N) * (k - k0))];
+        });
+    }
+    double budget[3];
+    rd(budget, sizeof budget);
+    injected = budget[0];
+    absorbed = budget[1];
+    lost = budget[2];
+    if (version < 4) return;
+    std::int64_t n = 0;
+    for (int which = 0; which < 2; ++which) {
+      rd(&n, sizeof n);
+      if (n == 0) continue;
+      if (!recomb) throw std::runtime_error("checkpoint and run differ in recomb_rad");
+      if (n != kNfreq * ncell) throw std::runtime_error("checkpoint: recombination buffers of the wrong size");
+      scatter_comps(RB, which * kNfreq, kNfreq, [&](int k0, int nk, ax::Array4<float> const& a) {
+        const std::size_t bytes = npl * nk * kNfreq * sizeof(float);
+        if (!io) {
+          rd(nullptr, bytes);
+          return;
+        }
+        buf.resize(npl * nk * kNfreq);
+        rd(buf.data(), bytes);
+#pragma omp parallel for schedule(static)
+        for (int k = k0; k < k0 + nk; ++k)
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i)
+              for (int g = 0; g < kNfreq; ++g)
+                a(i, j, k, g) = buf[(i + N * (j + static_cast<std::size_t>(N) * (k - k0))) * kNfreq + g];
+      });
+    }
+    // ots and mode: the moment RT keeps no cell on the spot
+    rd(&n, sizeof n);
+    rd(nullptr, static_cast<std::size_t>(n) * sizeof(float));
+    rd(&n, sizeof n);
+    rd(nullptr, static_cast<std::size_t>(n));
+    double rbud[3];
+    rd(rbud, sizeof rbud);
+    launched = rbud[0];
   }
 
   // ---- no rays --------------------------------------------------------------

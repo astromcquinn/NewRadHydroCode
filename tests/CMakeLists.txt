@@ -1315,6 +1315,33 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # the moment RT on the level through a checkpoint (rank 0 streams the
+    # moment and recombination blocks slab by slab): bit-identical restarts
+    foreach(rc "m1 2 4" "split 1 0" "conerecomb 3 4")
+      separate_arguments(rc)
+      list(GET rc 0 mc)
+      list(GET rc 1 np)
+      list(GET rc 2 planes)
+      if(mc STREQUAL "m1")
+        set(margs --set rt_method=m1)
+      elseif(mc STREQUAL "split")
+        set(margs --set rt_method=otvet --set otvet_split=1)
+      else()
+        set(margs --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2 --set recomb_case=A
+                  --set recomb_rad=1)
+      endif()
+      add_test(NAME amrex_moment_restart_${mc}_r${np}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${amrex_runs}/moment_restart_${mc}_r${np} 13 ${margs} --set legacy_rt=0 --set legacy_physics=0
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                       --set amrex_slab=1 --set amrex_slab_planes=${planes} --set movie_dz=0.5 --set movie_z0=25)
+      set_tests_properties(amrex_moment_restart_${mc}_r${np} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_state;moments;amrex_moments;restart" ENVIRONMENT OMP_NUM_THREADS=1
+                           PROCESSORS ${np})
+    endforeach()
     add_test(NAME amrex_slab_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke

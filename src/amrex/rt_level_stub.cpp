@@ -38,5 +38,7 @@ void amrex_rt_gather_rays_chunks(const Simulation&, const std::function<void(con
   no_amrex();
 }
 std::string amrex_rt_timers(const Simulation&) { return ""; }
+void amrex_moment_ckpt_write(const Simulation&, const std::function<void(const void*, std::size_t)>&) { no_amrex(); }
+void amrex_moment_ckpt_read(Simulation&, const std::function<void(void*, std::size_t)>&, int) { no_amrex(); }
 
 }  // namespace radray

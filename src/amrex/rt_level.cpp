@@ -1185,5 +1185,22 @@ void amrex_rt_gather_rays_chunks(const Simulation& s,
   if (s.amrex) s.amrex->level->gather_rays_chunks(sink);
 }
 std::string amrex_rt_timers(const Simulation& s) { return s.amrex ? s.amrex->level->timers() : ""; }
+void amrex_moment_ckpt_write(const Simulation& s, const std::function<void(const void*, std::size_t)>& sink) {
+  if (s.amrex) {
+    s.amrex->level->ckpt_write(sink);
+    return;
+  }
+  // no RT step yet: the serial checkpoint's empty moment and recombination
+  // state (as before prep_rt allocated it)
+  const std::int64_t zero = 0;
+  for (int q = 0; q < 5; ++q) sink(&zero, sizeof zero);
+  const double b[3] = {0, 0, 0};
+  sink(b, sizeof b);
+  for (int q = 0; q < 4; ++q) sink(&zero, sizeof zero);
+  sink(b, sizeof b);
+}
+void amrex_moment_ckpt_read(Simulation& s, const std::function<void(void*, std::size_t)>& rd, int version) {
+  level_of(s).ckpt_read(rd, version);
+}
 
 }  // namespace radray

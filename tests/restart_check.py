@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Bit-identical restart of apps/radhydro.
 
-usage: restart_check.py RADHYDRO PROBLEM WORKDIR STEP [--set key=value ...]
+usage: restart_check.py [--launch LAUNCHER FLAGS NPFLAG NP] RADHYDRO PROBLEM WORKDIR STEP
+                        [--set key=value ...]
+
+(--launch: both runs under the MPI launcher; FLAGS a ;-separated list, as
+CMake passes it.)
 
 Run A writes a checkpoint after every step (restart_every = 1,
 restart_keep_latest = 0) and all fields every step. Run B restarts from A's
@@ -26,18 +30,24 @@ def run(cmd, log):
 
 
 def main():
-    exe, prob, work, step = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
-    sets = sys.argv[5:]
+    args = sys.argv[1:]
+    launch = []
+    if args and args[0] == "--launch":
+        launcher, flags, npflag, np = args[1:5]
+        launch = [launcher] + [f for f in flags.split(";") if f] + [npflag, np]
+        args = args[5:]
+    exe, prob, work, step = args[0], args[1], args[2], int(args[3])
+    sets = args[4:]
     a, b = os.path.join(work, "A"), os.path.join(work, "B")
     for d in (a, b):
         if os.path.isdir(d):
             shutil.rmtree(d)
         os.makedirs(d)
     common = sets + ["--set", "fields_every=1"]
-    run([exe, prob, a, "--quiet", "--set", "restart_every=1", "--set", "restart_keep_latest=0"]
+    run(launch + [exe, prob, a, "--quiet", "--set", "restart_every=1", "--set", "restart_keep_latest=0"]
         + common, a + ".log")
     ck = os.path.join(a, "restart", f"checkpoint_{step:04d}.bin")
-    run([exe, prob, b, "--quiet", "--restart", ck] + common, b + ".log")
+    run(launch + [exe, prob, b, "--quiet", "--restart", ck] + common, b + ".log")
 
     bad, n = [], 0
     for f in sorted(glob.glob(os.path.join(b, "**", "*"), recursive=True)):
