@@ -1,6 +1,7 @@
 // hydro_backend parameters (hydro_backend.hpp); AMReX-free.
 #include "radray/hydro_backend.hpp"
 
+#include <cstdio>
 #include <stdexcept>
 
 #include "radray/rt_backend.hpp"
@@ -59,6 +60,13 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
     if (!(c.amrex_grid_eff > 0 && c.amrex_grid_eff <= 1)) throw std::runtime_error("amrex_grid_eff must be in (0, 1]");
     return true;
   }
+  if (key == "amrex_refine_box") {
+    int v[6];
+    if (std::sscanf(val.c_str(), "%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6)
+      throw std::runtime_error("amrex_refine_box must be i0,j0,k0,i1,j1,k1 (level-0 cells, inclusive)");
+    for (int m = 0; m < 6; ++m) c.amrex_refine_box[m] = v[m];
+    return true;
+  }
   // the star-formation sink (docs/stage_f.md section 2)
   if (key == "sf_overdensity") {
     c.sf_overdensity = std::stod(val);
@@ -83,6 +91,7 @@ void copy_hydro_backend_param(const Config& from, Config& to) {
   to.amrex_blocking_factor = from.amrex_blocking_factor;
   to.amrex_n_error_buf = from.amrex_n_error_buf;
   to.amrex_grid_eff = from.amrex_grid_eff;
+  for (int m = 0; m < 6; ++m) to.amrex_refine_box[m] = from.amrex_refine_box[m];
   to.sf_overdensity = from.sf_overdensity;
   to.sf_efficiency = from.sf_efficiency;
 }

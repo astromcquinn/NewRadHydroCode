@@ -194,6 +194,7 @@ class HydroLevel {
   HydroLevel(const Config& cfg, int N_, int max_grid_size, gs::GasState* state_)
       : N(N_), domain(ax::IntVect(0), ax::IntVect(N_ - 1)), state(state_), max_level(cfg.amrex_max_level),
         refine_mass(cfg.amrex_refine_mass), regrid_every(cfg.amrex_regrid_every) {
+    for (int m = 0; m < 6; ++m) refine_box[m] = cfg.amrex_refine_box[m];
     const ax::RealBox rb({0., 0., 0.}, {double(N_), double(N_), double(N_)});  // dx = 1 (cell units)
     const ax::Array<int, 3> per{1, 1, 1};
     geom.define(domain, rb, ax::CoordSys::cartesian, per);
@@ -275,6 +276,7 @@ class HydroLevel {
   int finest_ever = 0;  // the deepest level used so far (the timers line)
   double refine_mass = 8;
   int regrid_every = 1;
+  int refine_box[6] = {0, 0, 0, -1, -1, -1};
   std::unique_ptr<Mesh> mesh;
   ax::MultiFab prev0;  // level 0 as last written out (the push-down reference)
   bool have_prev0 = false;
@@ -519,11 +521,16 @@ class HydroLevel {
   void tag(int lev, ax::TagBoxArray& tags) {
     const double thr = rho_avg * refine_mass * std::ldexp(1.0, 3 * lev);
     const ax::MultiFab& Ul = U(lev);
+    // amrex_refine_box (level-0 cells, inclusive) at this level's resolution
+    const int* rb = refine_box;
+    const bool have_box = rb[3] >= rb[0] && rb[4] >= rb[1] && rb[5] >= rb[2];
+    const ax::Box fixed(ax::IntVect(rb[0] << lev, rb[1] << lev, rb[2] << lev),
+                        ax::IntVect(((rb[3] + 1) << lev) - 1, ((rb[4] + 1) << lev) - 1, ((rb[5] + 1) << lev) - 1));
     for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
       auto u = Ul.const_array(mfi);
       auto t = tags.array(mfi);
       ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-        if (u(i, j, k, 0) > thr) t(i, j, k) = ax::TagBox::SET;
+        if (u(i, j, k, 0) > thr || (have_box && fixed.contains(ax::IntVect(i, j, k)))) t(i, j, k) = ax::TagBox::SET;
       });
     }
   }
