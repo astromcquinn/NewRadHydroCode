@@ -254,15 +254,25 @@ uniform 64³ run as the reference:
 
 The refined run tracks the 64³ front to a few hundredths of a cell, as
 well as the base run does; here the front stayed inside the refined
-region (radius 8). A second run with the refined region of radius 4, so
-that the front crosses the level boundary, is below. Two more traps on
-the way: the refined levels' RT parameters must carry their own grid
-size for the periodic wrap (`nrtr`, `hrtr`: a source ray at x = 32.5 on
-level 1 wrapped to cell 0), and after the RT hierarchy's step the hydro's
-push-down reference must be the current level 0 (the RT changed the fine
-cells itself and averaged them down; the hydro pushed the same change
-down again, and a species that had grown from ~0 overflowed in the ratio
-rule, now guarded).
+region (radius 8). With the whole box refined (the RT entirely on level
+1, the hydro and PM at 32³) the front reaches 8.60 base cells at step 10
+against the 64³ run's 8.74 and the 32³ run's 8.65, with the same photons
+in flight (526 against 552): the 1.5 % lag is the two-cell coarse
+substep's (the k = 2 result of `docs/rt_multicell.md`, the decision's
+price), not a defect. The first run with the refined region of radius 4,
+so that the front crosses the level boundary, overshot by 0.57 cells
+right after the crossing and had 8× the photons in flight: the kernels
+keep a ray's photons per RT-cell volume (`ray_source`: ngam / vol_rt /
+nH_avg), so a ray and the exchanged deposits must be rescaled by 8 across
+a level (now done). The rerun is below. Three more traps on the way: the
+refined levels' RT parameters must carry their own grid size for the
+periodic wrap (`nrtr`, `hrtr`: a source ray at x = 32.5 on level 1
+wrapped to cell 0); after the RT hierarchy's step the hydro's push-down
+reference must be the current level 0 (the RT changed the fine cells
+itself and averaged them down; the hydro pushed the same change down
+again, and a species that had grown from ~0 overflowed in the ratio rule,
+now guarded); and `fgam` is the transmitted fraction, so a half cell's is
+√fgam.
 
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
