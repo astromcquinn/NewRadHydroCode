@@ -1485,8 +1485,12 @@ void backend_init(int& argc, char**& argv) {
     pp.add("the_arena_is_managed", 0);
     // a cancelled or timed-out job (SIGTERM from srun/scancel) writes
     // Backtrace.<rank>.<thread> in the working directory: where every rank
-    // was when a run hung (tools/hyak/amrex_scaling.slurm runs in $OUT)
+    // was when a run hung (tools/hyak/amrex_scaling.slurm runs in $OUT).
+    // Without addr2line (slow; the first rank done aborts the others, which
+    // would leave their files empty): tools/hyak/backtrace_lines.py resolves
+    // the addresses afterwards and groups the ranks by stack.
     pp.add("handle_sigterm", 1);
+    pp.add("call_addr2line", 0);
   });
   g_initialized = true;
 }
