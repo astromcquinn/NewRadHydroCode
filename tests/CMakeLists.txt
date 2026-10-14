@@ -967,6 +967,78 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_ref_${tag} LABELS amrex
                            ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 1800 PROCESSORS ${np})
     endforeach()
+    # amrex_slab = 1 (docs/stage_e_moments.md section 2): z-slabs of P planes
+    # in z order, with more slabs than ranks (3 ranks, 8 slabs: unequal
+    # shares), thinner than the ghost and Redistribute reach (P = 2), and
+    # the automatic P (0)
+    foreach(cfg "1;1;0" "2;1;8" "3;1;4" "4;2;2" "8;1;0")
+      list(GET cfg 0 np)
+      list(GET cfg 1 nt)
+      list(GET cfg 2 planes)
+      set(tname amrex_bitwise_${tag}_r${np}t${nt}_slab${planes})
+      add_test(NAME ${tname}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob}
+                 -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/ref_${tag}
+                 "-DSET=legacy_rt=0,rt_backend=amrex,amrex_slab=1,amrex_slab_planes=${planes}${xset}"
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                 -DSTRICT=1
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_ref_${tag} LABELS "amrex;amrex_slab"
+                           ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 1800 PROCESSORS ${np})
+    endforeach()
+  endforeach()
+  # the moment RT on the level (rt_method = m1 | otvet with rt_backend =
+  # amrex, docs/stage_e_moments.md): bitwise identical to the serial moment
+  # RT (rt_driver, the same settings) for ranks x threads x slab planes,
+  # with every sum in the serial order (amrex_moment_stats = exact); with
+  # amrex_moment_stats = fixed the fields stay bitwise and the rt_stat sums
+  # agree to round-off. N = 32: 3 ranks hold 3, 3, 2 slabs of 4.
+  foreach(mcase "m1;lognormal_16src;-" "m1;uniform_8src;-" "m1inj;lognormal_16src;moment_inject=1,moment_nsub=4")
+    list(GET mcase 0 mtag)
+    list(GET mcase 1 prob)
+    list(GET mcase 2 xs)
+    set(mset "legacy_rt=0,legacy_physics=0,nsteps=4,rt_method=m1")
+    if(NOT xs STREQUAL "-")
+      set(mset "${mset},${xs}")
+    endif()
+    string(REPLACE "," ";" mset_list "${mset}")
+    set(mref_args)
+    foreach(kv IN LISTS mset_list)
+      list(APPEND mref_args --set ${kv})
+    endforeach()
+    set(mref amrex_moment_ref_${mtag}_${prob})
+    add_test(NAME ${mref}
+             COMMAND rt_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob} ${amrex_runs}/${mref} ${mref_args})
+    set_tests_properties(${mref} PROPERTIES FIXTURES_SETUP ${mref} LABELS "amrex;moments"
+                         ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800)
+    foreach(cfg "1;1;0;exact" "2;1;8;exact" "3;2;4;exact" "4;1;2;exact" "4;2;0;exact" "3;1;4;fixed")
+      list(GET cfg 0 np)
+      list(GET cfg 1 nt)
+      list(GET cfg 2 planes)
+      list(GET cfg 3 stats)
+      set(tname amrex_moment_${mtag}_${prob}_r${np}t${nt}_p${planes}_${stats})
+      set(xtol "")
+      if(stats STREQUAL "fixed")
+        set(xtol "--stats-rtol;1e-12")
+      endif()
+      add_test(NAME ${tname}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                 -DDRIVER=$<TARGET_FILE:rt_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob}
+                 -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/${mref}
+                 "-DSET=${mset},rt_backend=amrex,amrex_slab=1,amrex_slab_planes=${planes},amrex_moment_stats=${stats}"
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                 -DSTRICT=1 "-DEXTRA_TOL=${xtol}"
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED ${mref} LABELS "amrex;moments;amrex_moments"
+                           ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 1800 PROCESSORS ${np})
+    endforeach()
   endforeach()
   # round-off against the serial port (rt_driver, legacy_rt = 0) on the five
   # RT problems: tolerances of docs/framework_decision.md section 2 (dx in
@@ -1155,6 +1227,59 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # amrex_slab = 1: the shared decomposition as z-slabs (P planes; 0 = N /
+    # ranks), byte-identical to the host state on the default boxes; N = 16:
+    # 3 ranks hold 2, 1, 1 slabs of 4; P = 2 is thinner than the hydro's
+    # ghosts and the rays' Redistribute reach
+    foreach(rt "1 1 4" "2 1 2" "3 1 4" "2 2 0")
+      separate_arguments(rt)
+      list(GET rt 0 np)
+      list(GET rt 1 nt)
+      list(GET rt 2 planes)
+      add_test(NAME amrex_slab_full_pair_r${np}t${nt}_p${planes}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       ${amrex_runs}/slab_pair_r${np}t${nt}_p${planes} $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "amrex_state=0"
+                       "amrex_state=1,amrex_slab=1,amrex_slab_planes=${planes}"
+                       --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set movie_dz=0.5
+                       --set movie_z0=25 --set restart_every=1 --set restart_keep_latest=0)
+      set_tests_properties(amrex_slab_full_pair_r${np}t${nt}_p${planes} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_state;amrex_slab;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
+                           PROCESSORS ${np})
+    endforeach()
+    # the full loop with the moment RT on the level and the state on the
+    # slabs, byte-identical to the serial moment RT with the hydro and PM
+    # backends (fields, stats, movie frames)
+    foreach(rt "1 1 0" "2 1 4" "3 2 4")
+      separate_arguments(rt)
+      list(GET rt 0 np)
+      list(GET rt 1 nt)
+      list(GET rt 2 planes)
+      add_test(NAME amrex_moment_full_pair_m1_r${np}t${nt}_p${planes}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       ${amrex_runs}/moment_pair_m1_r${np}t${nt}_p${planes} $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "rt_backend=serial,amrex_state=0"
+                       "rt_backend=amrex,amrex_state=1,amrex_slab=1,amrex_slab_planes=${planes}"
+                       --quiet --set rt_method=m1 --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                       --set pm_backend=amrex --set movie_dz=0.5 --set movie_z0=25 --set restart_every=0)
+      set_tests_properties(amrex_moment_full_pair_m1_r${np}t${nt}_p${planes} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_state;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
+                           PROCESSORS ${np})
+    endforeach()
+    add_test(NAME amrex_slab_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/slab_restart 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                     --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                     --set amrex_slab=1 --set amrex_slab_planes=4 --set movie_dz=0.5 --set movie_z0=25)
+    set_tests_properties(amrex_slab_restart_smoke PROPERTIES TIMEOUT 1800
+                         LABELS "amrex;amrex_state;amrex_slab;restart")
     # amrex_balance = 1: the mapping rebalanced every RT step, byte-identical
     # to the fixed mapping (the levels are mapping-independent), 2 and 3 ranks
     # (min_gain = -1 remaps at every RT step whatever the gain; knapsack on 2

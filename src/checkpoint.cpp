@@ -111,6 +111,8 @@ void ray_stat_io(IO& io, RS& r) {
 
 void write_checkpoint(const std::string& path, const Simulation& s, const HydroState& hs,
                       const pm::PMState& pm, const DriverState& d) {
+  if (use_amrex(s.cfg) && use_moments(s.cfg))
+    throw std::runtime_error("checkpoint: rt_method = m1 | otvet with rt_backend = amrex is not implemented yet");
   // rt_backend = amrex: the rays live on the level; rank 0 receives them in
   // chunks while it writes (collective: every rank takes part in the count
   // and the gather, only io_rank() writes; rank 0's transient is one chunk)
@@ -249,6 +251,8 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.path = path;
   in.f.open(path, std::ios::binary);
   if (!in.f) throw std::runtime_error("cannot open checkpoint " + path);
+  if (use_amrex(s.cfg) && use_moments(s.cfg))
+    throw std::runtime_error("checkpoint: rt_method = m1 | otvet with rt_backend = amrex is not implemented yet");
   char m[8];
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0) throw std::runtime_error("not a checkpoint: " + path);
@@ -266,12 +270,13 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
                              "; this run has different sizes");
   in.pod(s.clk);
   // amrex_state = 1: the grids are rank 0's mirror (scattered onto the
-  // levels by the driver afterwards); the other ranks skip their blocks
+  // levels by the driver afterwards); the other ranks skip their blocks,
+  // Luv and sfr too (their sources come from the next calc_halo)
   const bool skip_grids = use_amrex_state(s.cfg) && !io_rank();
   RTGrid& G = s.rt;
   for (auto* v : {&G.rhog, &G.fHI, &G.fHeI, &G.fHeII, &G.temp, &G.Luv, &G.sfr, &G.dx, &G.gamma,
                   &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau}) {
-    if (skip_grids && v != &G.Luv && v != &G.sfr)
+    if (skip_grids)
       in.skip_vec<float>();
     else
       in.vec(*v, static_cast<std::int64_t>(v->size()));

@@ -83,7 +83,7 @@ if(RADRAY_AMREX)
   endif()
   set(RADRAY_HAVE_AMREX ON)
   add_library(radray_amrex src/amrex/rt_level.cpp src/amrex/pm_level.cpp src/amrex/hydro_level.cpp
-                           src/amrex/gas_state.cpp)
+                           src/amrex/gas_state.cpp src/amrex/moment_level.cpp)
   target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
   # the PM level's pencil FFT uses FFTW3f directly (the library of the
   # serial port and of AMReX's own FFT module)

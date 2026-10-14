@@ -317,15 +317,27 @@ On top of that:
 
 With 16 ranks per node that would be 550 GB per node. Node 0 would then
 hold the mirror (270 GB), its share of the levels (220 GB) and the cone
-tasks: more than its 1.5 TB at 32 ranks, and too close at 16. The fix:
+tasks: more than its 1.5 TB at 32 ranks, and too close at 16.
 
-- `calc_halo` runs on rank 0, which has the mirror and the catalogue;
-- every rank receives its own source cells (sparse: cell, Luv, sfr);
-- every rank receives the global source list that the OTVET tensor
-  needs (~20 B per source cell).
+**Done (phase 0), simpler than first planned.** Every rank already
+receives the halo catalogue (`bcast_catalog`), so no rank-0 step is
+needed:
 
-This changes nothing in the arithmetic. It is a prerequisite here
-(phase 0), and also removes "Luv/sfr on every rank" from E3's list.
+- `calc_halo` builds a sparse list of the source cells in ascending cell
+  order (`RTGrid::src_cell`, `src_Luv`, `src_sfr`, 16 B per source
+  cell) with a stable sort of the sources by cell. The per-cell sums keep
+  the original input order. `rt_stat.Luv` and `rt_stat.sfr` add the
+  source cells in cell order; the empty cells added 0, which changes no
+  sum. So the serial results are byte-identical, and the N³ `per_cell`
+  lists are gone on every backend.
+- The dense `Luv` and `sfr` are filled from the list where they exist: on
+  every rank of the serial backends and on rank 0's mirror. With
+  `amrex_state = 1` the other ranks allocate no grid field at all
+  (`RTGrid::allocate_none`), and a restart skips their `Luv` and `sfr`
+  blocks.
+- The RT level's prep sets each local cell's Luv and sfr from the list
+  (binary search on the box's k-planes).
+- The same list is the global source list the OTVET tensor needs.
 
 ## 7. Validation
 

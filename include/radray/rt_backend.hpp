@@ -18,13 +18,16 @@ namespace radray {
 struct Simulation;
 
 // Parameters: rt_backend, ray_encoding, amrex_max_grid_size, amrex_ghosts,
-// amrex_redist_local; false for any other key.
+// amrex_redist_local, amrex_slab, amrex_slab_planes; false for any other key.
 bool set_rt_backend_param(Config& c, const std::string& key, const std::string& val);
 void copy_rt_backend_param(const Config& from, Config& to);
 std::string rt_backend_summary(const Config& c);
 // Throws for a combination the backend does not implement (legacy_rt = 1,
 // rt_method != rays, recomb_rad, deterministic_parallel).
 void check_rt_backend_param(const Config& c);
+// amrex_slab = 1: the k-planes per slab for an N^3 grid on nranks ranks
+// (amrex_slab_planes, or for 0 about N / nranks: even, dividing N, >= 2)
+int amrex_slab_planes(const Config& c, int N, int nranks);
 inline bool use_amrex(const Config& c) { return c.rt_backend == RTBackend::AMReX; }
 
 // Whether this build has the AMReX backend (RADRAY_AMREX).

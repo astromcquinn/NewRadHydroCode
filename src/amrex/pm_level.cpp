@@ -57,6 +57,7 @@
 #include <omp.h>
 #endif
 
+#include "exact_sum.hpp"
 #include "gas_state.hpp"
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
@@ -92,28 +93,13 @@ constexpr int kDensBits = 38;
 // vrms = sum |v|^2) in 128-bit fixed point: resolution 2^-56 = 1.4e-17,
 // range 2^71.
 constexpr int kStatBits = 56;
-using i128 = __int128;
+// (exact_sum.hpp)
+using xs::allreduce_i128;
+using xs::from_fx128;
+using xs::i128;
+using xs::to_fx128;
 
 inline Long to_fx(double x, int bits) { return static_cast<Long>(std::floor(std::ldexp(x, bits) + 0.5)); }
-inline i128 to_fx128(double x, int bits) { return static_cast<i128>(std::floor(std::ldexp(x, bits) + 0.5)); }
-inline double from_fx128(i128 v, int bits) { return std::ldexp(static_cast<double>(v), -bits); }
-
-// MPI sum of 128-bit integers as four 32-bit limbs in int64 (rt_level.cpp)
-void allreduce_i128(i128* v, int n) {
-  if (ax::ParallelDescriptor::NProcs() == 1) return;
-  std::vector<Long> limbs(static_cast<std::size_t>(4 * n));
-  for (int i = 0; i < n; ++i) {
-    const unsigned __int128 u = static_cast<unsigned __int128>(v[i]);
-    for (int k = 0; k < 4; ++k) limbs[4 * i + k] = static_cast<Long>((u >> (32 * k)) & 0xffffffffULL);
-  }
-  ax::ParallelDescriptor::ReduceLongSum(limbs.data(), 4 * n);
-  for (int i = 0; i < n; ++i) {
-    unsigned __int128 r = 0;
-    for (int k = 0; k < 4; ++k)
-      r += static_cast<unsigned __int128>(static_cast<unsigned long long>(limbs[4 * i + k])) << (32 * k);
-    v[i] = static_cast<i128>(r);
-  }
-}
 
 // In-place bitwise OR of an array over all ranks (exact gather of disjoint
 // pieces: every rank holds its own values and zeros elsewhere).

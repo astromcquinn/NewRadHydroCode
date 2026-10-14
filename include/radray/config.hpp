@@ -254,11 +254,24 @@ struct Config {
   //   amrex_redist_local: cells a ray may move per substep for the local
   //                (neighbour-only) Redistribute; 0 = global (at least k+1
   //                are used with rt_cells_per_substep = k).
+  //   amrex_slab: 0 (default) = boxes of amrex_max_grid_size; 1 = z-slabs
+  //                of amrex_slab_planes k-planes (0 = about N / ranks, even),
+  //                mapped to the ranks in z order (the decomposition of the
+  //                moment RT, docs/stage_e_moments.md section 2; with
+  //                amrex_state = 1 also that of the hydro and PM levels);
+  //   amrex_moment_stats: the photochemistry statistics (rt_stat) of the
+  //                moment RT on the level: exact (default; the serial
+  //                order, a chain over the ranks) | fixed (128-bit fixed
+  //                point: exact and decomposition-independent, but not
+  //                the serial rounding; production runs).
   RTBackend rt_backend = RTBackend::Serial;
   RayEncoding ray_encoding = RayEncoding::Float;
   int amrex_max_grid_size = 16;
   int amrex_ghosts = 2;
   int amrex_redist_local = 3;
+  bool amrex_slab = false;
+  int amrex_slab_planes = 0;
+  int amrex_moment_stats = 0;  // 0 exact, 1 fixed
 
   // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
   // in pm_backend.hpp; docs/stage_e_pm.md):

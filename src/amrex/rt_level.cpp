@@ -66,7 +66,9 @@
 #include <unistd.h>
 #endif
 
+#include "exact_sum.hpp"
 #include "gas_state.hpp"
+#include "rt_level_base.hpp"
 #include "radray/amrex_state.hpp"
 #include "radray/hydro_backend.hpp"
 #include "radray/kernels/ray_kernels.hpp"
@@ -74,6 +76,7 @@
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_backend.hpp"
+#include "radray/rt_moments.hpp"
 #include "radray/simulation.hpp"
 #include "ray_encoding.hpp"
 
@@ -81,28 +84,11 @@ namespace radray {
 
 namespace {
 
-namespace ax = amrex;
-using RTCell = rrk::CellData;  // not CellData: amrex::CellData exists too
-using rrk::RayP;
-using ax::Long;
-
-constexpr int NC = static_cast<int>(sizeof(RTCell) / sizeof(float));
-static_assert(sizeof(RTCell) == 46 * sizeof(float), "RTCell must be 46 packed floats");
-constexpr int kLuv = offsetof(RTCell, Luv) / sizeof(float);
-constexpr int kSfr = offsetof(RTCell, sfr) / sizeof(float);
-constexpr int kTau = offsetof(RTCell, tau) / sizeof(float);
+using namespace rtl;
 static_assert(std::is_same_v<ax::ParticleReal, float>, "build AMReX with AMReX_PARTICLES_PRECISION=SINGLE");
 static_assert(sizeof(Long) == sizeof(long long), "int64 accumulators");
 
-using FFab = ax::FabArray<ax::BaseFab<float>>;
-using LFab = ax::FabArray<ax::BaseFab<Long>>;
-using CFab = ax::FabArray<ax::BaseFab<RTCell>>;
 
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE float cf(ax::Array4<RTCell const> const& a, int i, int j, int k, int m) {
-  float v;
-  std::memcpy(&v, reinterpret_cast<const char*>(&a(i, j, k)) + m * sizeof(float), sizeof v);
-  return v;
-}
 // Wrapped global 0-based index g -> index of its periodic image nearest to
 // the home index h (h is a valid cell of the box).
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE int near_image(int g, int h, int N) {
@@ -112,66 +98,17 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE int near_image(int g, int h, int N) {
   return h + d;
 }
 
-double now() {
-  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-}
 
 // ---------------------------------------------------------------------------
 // 128-bit fixed point: exact, associative sums of the double statistics
 // ---------------------------------------------------------------------------
-using i128 = __int128;
-inline i128 to_fx128(double x, int bits) {
-  return static_cast<i128>(std::floor(std::ldexp(x, bits) + 0.5));
-}
-inline double from_fx128(i128 v, int bits) { return std::ldexp(static_cast<double>(v), -bits); }
-// MPI sum of 128-bit integers as four 32-bit limbs in int64 (each limb sum
-// fits for < 2^31 ranks); two's complement makes the limb sum of signed
-// values the signed sum modulo 2^128.
-void allreduce_i128(i128* v, int n) {
-  if (ax::ParallelDescriptor::NProcs() == 1) return;
-  std::vector<Long> limbs(static_cast<std::size_t>(4 * n));
-  for (int i = 0; i < n; ++i) {
-    const unsigned __int128 u = static_cast<unsigned __int128>(v[i]);
-    for (int k = 0; k < 4; ++k) limbs[4 * i + k] = static_cast<Long>((u >> (32 * k)) & 0xffffffffULL);
-  }
-  ax::ParallelDescriptor::ReduceLongSum(limbs.data(), 4 * n);
-  for (int i = 0; i < n; ++i) {
-    unsigned __int128 r = 0;
-    for (int k = 0; k < 4; ++k)
-      r += static_cast<unsigned __int128>(static_cast<unsigned long long>(limbs[4 * i + k])) << (32 * k);
-    v[i] = static_cast<i128>(r);
-  }
-}
-// scales (bits) of the fixed-point statistics: resolution 2^-bits, range
-// 2^(127-bits); the addends are the per-cell values the serial port adds
-constexpr int kBitsRate = 100;    // nion, ncol, nrec, nrab, ngam (per H atom, /Ncell): <= 1e8
-constexpr int kBitsGamma = 120;   // gamma [1/s] /Ncell: <= 1e2
-constexpr int kBitsLambda = 160;  // lambda [erg/s] /Ncell: <= 1e-10
-constexpr int kBitsTau = 110;     // dtau: <= 1e5
-constexpr int kBitsNgam = 40;     // photons per ray, summed over rays: <= 1e26
-enum { kSNgam = 0, kSNion = 3, kSNcol = 6, kSNrec = 9, kSNrab = 12, kSGamma = 15, kSLambda = 18, kSDtau = 21, kSNstat = 22 };
-int stat_bits(int a) {
-  if (a >= kSGamma && a < kSLambda) return kBitsGamma;
-  if (a >= kSLambda && a < kSDtau) return kBitsLambda;
-  if (a == kSDtau) return kBitsTau;
-  return kBitsRate;
-}
+// (exact_sum.hpp)
+using xs::allreduce_i128;
+using xs::from_fx128;
+using xs::i128;
+using xs::to_fx128;
 
-// Per-cell statistics of radiative_physics written by the physics kernel
-// and folded serially per box into the fixed-point sums
-struct CellPhys {
-  rrk::PhotoStats st;
-  double ngam_src[3][5];  // photo_source addends of a processed source cell
-  int flags;              // 1 processed, 2 photons (ngfill), 4 source (nsfill)
-  int err;
-};
 
-struct Timers {
-  double cell = 0, hist = 0, step1 = 0, cast1 = 0, phys = 0, cast3 = 0, sort = 0, migrate = 0,
-         post = 0, prep = 0, sync = 0;
-  double fillbnd = 0, sumbnd = 0, zero = 0;
-  double bins = 0, gather = 0, writeback = 0, depred = 0;  // parts of sort / cast1
-};
 
 // Per-box scratch, kept across substeps
 struct BoxScratch {
@@ -216,44 +153,15 @@ void zero(ax::Gpu::DeviceVector<Long>& v) {
   ax::ParallelFor(static_cast<int>(v.size()), [=] AMREX_GPU_DEVICE(int n) { p[n] = 0; });
 }
 
-// The level with one ray encoding (ray_encoding.hpp: FloatEnc, RStructEnc)
-struct LevelBase {
-  virtual ~LevelBase() = default;
-  virtual void prep(Simulation& s) = 0;
-  virtual void substep(Simulation& s) = 0;
-  virtual void post(Simulation& s) = 0;
-  virtual void sync_fields(Simulation& s) = 0;
-  // amrex_state = 1: the cells into rank 0's mirror (all fields, or the
-  // five of write_stats), and rank 0's RT grid onto the cells (a restart)
-  virtual void gather_fields(Simulation& s, bool stats_only) = 0;
-  virtual void scatter_fields(Simulation& s) = 0;
-  // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
-  // and rays moved onto a new mapping of the same BoxArray
-  virtual void box_ray_counts(ax::Vector<ax::Real>& count) const = 0;
-  virtual void remap(const ax::DistributionMapping& dm2) = 0;
-  virtual std::int64_t nrays() const = 0;
-  virtual int bytes_per_ray() const = 0;
-  virtual void gather_rays(std::vector<RayP>& out) const = 0;
-  virtual void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const = 0;
-  virtual void scatter_rays(const std::vector<RayP>& in, bool first) = 0;
-  virtual std::string timers() const = 0;
-};
 
+// The level with one ray encoding (ray_encoding.hpp: FloatEnc, RStructEnc)
 template <class Enc>
-struct Level : LevelBase {
+struct Level : CellLevel {
   using RayPC = ax::ParticleContainerPureSoA<Enc::kNR, Enc::kNI>;
   using PTD = typename RayPC::ParticleTileType::ParticleTileDataType;
 
-  int N = 0, ng = 2, redist_local = 3;
-  bool has_e = false;
-  gs::GasState* state = nullptr;  // amrex_state = 1 (gas_state.hpp)
+  int ng = 2, redist_local = 3;
   std::int64_t substep_count = 0;  // global RT substep counter (dithering keys)
-  ax::Box domain;
-  ax::Geometry geom;
-  ax::Periodicity period;
-  ax::BoxArray ba;
-  ax::DistributionMapping dm;
-  CFab C;
   FFab TF;
   LFab A;
   std::unique_ptr<RayPC> pc;
@@ -266,7 +174,6 @@ struct Level : LevelBase {
   ax::Gpu::DeviceVector<double> d_cool, d_alpha, d_gcol;
   const double* rates_src = nullptr;
   double sig_init[3][5];
-  Timers T;
   Long ray_substeps = 0;
 
   rrk::RatesView rates_view(const Simulation& s) {
@@ -288,8 +195,7 @@ struct Level : LevelBase {
     return v;
   }
 
-  Level(const Config& cfg, bool with_e) {
-    N = cfg.Nrt;
+  Level(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
     // The reach of one substep is k+1 cells for rt_cells_per_substep = k (a
     // split moves a ray by up to one cell, then it is cast k cells; a ray
     // moves k cells, plus one at a cell face): the ghost layers and the
@@ -298,32 +204,6 @@ struct Level : LevelBase {
     const int reach = cfg.rt_cells_per_substep + 1;
     ng = std::max(cfg.amrex_ghosts, reach);
     redist_local = cfg.amrex_redist_local > 0 ? std::max(cfg.amrex_redist_local, reach) : 0;
-    has_e = with_e;
-    domain = ax::Box(ax::IntVect(0), ax::IntVect(N - 1));
-    const ax::RealBox rb({0., 0., 0.}, {double(N), double(N), double(N)});  // dx = 1
-    const ax::Array<int, 3> per{1, 1, 1};
-    geom = ax::Geometry(domain, rb, ax::CoordSys::cartesian, per);
-    period = geom.periodicity();
-    ba = ax::BoxArray(domain);
-    ba.maxSize(cfg.amrex_max_grid_size);
-    dm = ax::DistributionMapping(ba);
-    if (cfg.amrex_state) {
-      // the gas state's decomposition (gas_state.hpp): the gas is read and
-      // written locally
-      state = gs::active();
-      if (!state) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
-      if (state->N != N) throw std::runtime_error("rt_backend = amrex: the gas state has another N");
-      ba = state->ba;
-      dm = state->dm;
-    }
-    C.define(ba, dm, 1, 0);
-    if (state) {
-      // the cells persist between steps (the host arrays start from zero)
-      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-        auto c = C.array(mfi);
-        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) { c(i, j, k) = RTCell{}; });
-      }
-    }
     TF.define(ba, dm, 10, ng);
     A.define(ba, dm, rrk::kNdep, ng);
     pc = std::make_unique<RayPC>(geom, dm, ba);
@@ -360,153 +240,6 @@ struct Level : LevelBase {
     for (int d = 0; d < 3; ++d)
       p.m_rdata[d][n] = static_cast<float>(near_image(rrk::cell_of(r.x[d], N), h[d], N)) + 0.5f;
     p.m_idcpu[n] = ax::SetParticleIDandCPU(1, cpu);
-  }
-
-  // ---- host state <-> level ------------------------------------------------
-
-  using Box_t = ax::Box;
-
-  void prep(Simulation& s) override {
-    const double t0 = now();
-    if (has_e != s.gas.has_e()) throw std::runtime_error("rt_backend = amrex: the dual-energy field appeared after the level was built");
-    const RTGrid& G = s.rt;
-    const GasGrid& g = s.gas;
-    const Units u = s.units;
-    const bool he = has_e;
-    const int NN = N;
-    if (state) {
-      // the gas from the level's state, the sources from the host (computed
-      // on every rank), the radiation fields of the previous step from the
-      // cells themselves
-      const float *gLuv = G.Luv.data(), *gsfr = G.sfr.data();
-      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-        auto c = C.array(mfi);
-        auto ga = state->G.const_array(mfi);
-        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-          const std::int64_t gc = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
-          RTCell d = c(i, j, k);
-          for (int m = 0; m < 5; ++m) d.u[m] = ga(i, j, k, gs::kU + m);
-          for (int m = 0; m < 4; ++m) d.w[m] = ga(i, j, k, gs::kW + m);
-          d.e = he ? ga(i, j, k, gs::kE) : 0.0f;
-          d.Luv = gLuv[gc];
-          d.sfr = gsfr[gc];
-          rrk::prep_cell(d, u, he);
-          c(i, j, k) = d;
-        });
-      }
-      T.prep += now() - t0;
-      s.timers.prep += now() - t0;
-      return;
-    }
-    // (host pointers: the gas grid is a host array)
-    const float *gu = g.u.data(), *gw = g.w.data(), *ge = he ? g.e.data() : nullptr;
-    const float *gLuv = G.Luv.data(), *gsfr = G.sfr.data(), *gdx = G.dx.data(), *ggam = G.gamma.data(),
-                *glam = G.lambda.data(), *gnu = G.nu.data(), *gng = G.ngam.data(), *gfg = G.fgam.data(),
-                *gtau = G.tau.data();
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-      auto c = C.array(mfi);
-      const Box_t bx = mfi.validbox();
-      ax::ParallelForOMP(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-        const std::int64_t gc = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
-        RTCell d{};
-        for (int m = 0; m < 5; ++m) d.u[m] = gu[gc * 5 + m];
-        for (int m = 0; m < 4; ++m) d.w[m] = gw[gc * 4 + m];
-        d.e = he ? ge[gc] : 0.0f;
-        d.Luv = gLuv[gc];
-        d.sfr = gsfr[gc];
-        // the radiation fields of the previous hydro step (calc_rt_1 resets
-        // them; kept so sync_fields before the first substep is consistent)
-        for (int m = 0; m < 3; ++m) {
-          d.dx[m] = gdx[gc * 3 + m];
-          d.gamma[m] = ggam[gc * 3 + m];
-          d.lambda[m] = glam[gc * 3 + m];
-        }
-        for (int m = 0; m < 5; ++m) {
-          d.nu[m] = gnu[gc * 5 + m];
-          d.ngam[m] = gng[gc * 5 + m];
-          d.fgam[m] = gfg[gc * 5 + m];
-          d.tau[m] = gtau[gc * 5 + m];
-        }
-        rrk::prep_cell(d, u, he);
-        c(i, j, k) = d;
-      });
-    }
-    // the host's RT grid gas state of prep_rt (rt_driver's outputs and the
-    // halo/source code read it between the substeps only through sync)
-    T.prep += now() - t0;
-    s.timers.prep += now() - t0;
-  }
-
-  // The level's cells into s.rt and s.gas on every rank: gathered on rank 0
-  // and broadcast slab by slab (kSyncPlanes k-planes at a time: a one-box
-  // FabArray of the slab on rank 0 by ParallelCopy, flattened, Bcast), so no
-  // rank holds a second copy of the whole grid (46 x N^3 floats, 25 GB at
-  // 512^3, which with the redundant serial state of every rank overflowed
-  // a 1.5 TB node at 24 ranks).
-  static constexpr int kSyncPlanes = 8;
-  void sync_fields(Simulation& s) override {
-    if (state) {  // amrex_state = 1: rank 0's mirror only
-      gather_fields(s, false);
-      return;
-    }
-    const double t0 = now();
-    FFab Cf(ba, dm, NC, 0);
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-      auto c = C.const_array(mfi);
-      auto f = Cf.array(mfi);
-      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
-        f(i, j, k, m) = cf(c, i, j, k, m);
-      });
-    }
-    RTGrid& G = s.rt;
-    GasGrid& g = s.gas;
-    const ax::DistributionMapping dm0(ax::Vector<int>{0});
-    const std::size_t nplane = static_cast<std::size_t>(N) * N;
-    std::vector<float> flat(nplane * kSyncPlanes * NC);
-    for (int k0 = 0; k0 < N; k0 += kSyncPlanes) {
-      const int nk = std::min(kSyncPlanes, N - k0);
-      const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
-      FFab C0(ax::BoxArray(slab), dm0, NC, 0);
-      C0.ParallelCopy(Cf, 0, 0, NC);
-      if (ax::ParallelDescriptor::IOProcessor()) {
-        const auto a = C0.const_array(0);
-        for (int k = 0; k < nk; ++k)
-          for (int j = 0; j < N; ++j)
-            for (int i = 0; i < N; ++i) {
-              float* b = &flat[(i + static_cast<std::size_t>(N) * (j + static_cast<std::size_t>(N) * k)) * NC];
-              for (int m = 0; m < NC; ++m) b[m] = a(i, j, k0 + k, m);
-            }
-      }
-      if (ax::ParallelDescriptor::NProcs() > 1)
-        ax::ParallelDescriptor::Bcast(flat.data(), nplane * nk * NC, ax::ParallelDescriptor::IOProcessorNumber());
-      const std::int64_t c0 = static_cast<std::int64_t>(k0) * nplane;
-      const std::int64_t c1 = c0 + static_cast<std::int64_t>(nk) * nplane;
-#pragma omp parallel for schedule(static)
-      for (std::int64_t c = c0; c < c1; ++c) {
-        RTCell d;
-        std::memcpy(&d, &flat[static_cast<std::size_t>(c - c0) * NC], sizeof d);
-        G.rhog[c] = d.rhog;
-        G.fHI[c] = d.fHI;
-        G.fHeI[c] = d.fHeI;
-        G.fHeII[c] = d.fHeII;
-        G.temp[c] = d.temp;
-        for (int m = 0; m < 3; ++m) {
-          G.dx[c * 3 + m] = d.dx[m];
-          G.gamma[c * 3 + m] = d.gamma[m];
-          G.lambda[c * 3 + m] = d.lambda[m];
-        }
-        for (int m = 0; m < 5; ++m) {
-          G.nu[c * 5 + m] = d.nu[m];
-          G.ngam[c * 5 + m] = d.ngam[m];
-          G.fgam[c * 5 + m] = d.fgam[m];
-          G.tau[c * 5 + m] = d.tau[m];
-        }
-        for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
-        for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
-        if (has_e) g.e[c] = d.e;
-      }
-    }
-    T.sync += now() - t0;
   }
 
   // ---- one RT substep: rt_step_1, rt_step_2, rt_step_3 ---------------------
@@ -1139,22 +872,7 @@ struct Level : LevelBase {
     T.post += now() - t0;
     s.timers.post += now() - t0;
     if (state) {
-      // the gas the RT changed (w, u(5), e) back into the level's state,
-      // locally; the host mirror is refreshed on demand (gather_fields)
-      const double t1 = now();
-      const bool he2 = has_e;
-      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-        auto c = C.const_array(mfi);
-        auto ga = state->G.array(mfi);
-        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-          const RTCell& d = c(i, j, k);
-          for (int m = 0; m < 5; ++m) ga(i, j, k, gs::kU + m) = d.u[m];
-          for (int m = 0; m < 4; ++m) ga(i, j, k, gs::kW + m) = d.w[m];
-          if (he2) ga(i, j, k, gs::kE) = d.e;
-        });
-      }
-      T.sync += now() - t1;
-      s.timers.sync += now() - t1;
+      write_gas_back(s);
       return;
     }
     sync_fields(s);
@@ -1209,111 +927,6 @@ struct Level : LevelBase {
     scratch.clear();
     scratch.resize(C.local_size());
     T.sync += now() - t0;
-  }
-
-  // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
-
-  // The first nc components of every cell (the rt_grid fields, then u, w,
-  // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)
-  void gather_fields(Simulation& s, bool stats_only) override {
-    const double t0 = now();
-    const int nc = stats_only ? 5 : NC;
-    FFab Cf(ba, dm, nc, 0);
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-      auto c = C.const_array(mfi);
-      auto f = Cf.array(mfi);
-      ax::ParallelForOMP(mfi.validbox(), nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
-        f(i, j, k, m) = cf(c, i, j, k, m);
-      });
-    }
-    RTGrid& G = s.rt;
-    GasGrid& g = s.gas;
-    const bool he = has_e;
-    const int NN = N;
-    gs::gather_slabs(Cf, N, nc, [&](int k0, int nk, ax::Array4<float const> const& a) {
-      if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
-        throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
-#pragma omp parallel for schedule(static) collapse(2)
-      for (int k = k0; k < k0 + nk; ++k)
-        for (int j = 0; j < NN; ++j)
-          for (int i = 0; i < NN; ++i) {
-            const std::int64_t c = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
-            G.rhog[c] = a(i, j, k, 0);
-            G.fHI[c] = a(i, j, k, 1);
-            G.fHeI[c] = a(i, j, k, 2);
-            G.fHeII[c] = a(i, j, k, 3);
-            G.temp[c] = a(i, j, k, 4);
-            if (stats_only) continue;
-            RTCell d;
-            float* dp = reinterpret_cast<float*>(&d);
-            for (int m = 0; m < NC; ++m) dp[m] = a(i, j, k, m);
-            for (int m = 0; m < 3; ++m) {
-              G.dx[c * 3 + m] = d.dx[m];
-              G.gamma[c * 3 + m] = d.gamma[m];
-              G.lambda[c * 3 + m] = d.lambda[m];
-            }
-            for (int m = 0; m < 5; ++m) {
-              G.nu[c * 5 + m] = d.nu[m];
-              G.ngam[c * 5 + m] = d.ngam[m];
-              G.fgam[c * 5 + m] = d.fgam[m];
-              G.tau[c * 5 + m] = d.tau[m];
-            }
-            for (int m = 0; m < 5; ++m) g.u[c * 5 + m] = d.u[m];
-            for (int m = 0; m < 4; ++m) g.w[c * 4 + m] = d.w[m];
-            if (he) g.e[c] = d.e;
-          }
-    });
-    T.sync += now() - t0;
-    s.timers.sync += now() - t0;
-  }
-
-  // Rank 0's rt_grid fields (the first 36 floats of a cell) onto the cells
-  // (a restart); u, w, e come from the gas state at the next prep
-  void scatter_fields(Simulation& s) override {
-    constexpr int nf = kTau + 5;  // rhog .. tau: the rt_grid fields
-    static_assert(nf == 36, "rt_grid fields");
-    FFab Cf(ba, dm, nf, 0);
-    const RTGrid& G = s.rt;
-    const int NN = N;
-    gs::scatter_slabs(Cf, N, nf, [&](int k0, int nk, ax::Array4<float> const& a) {
-      if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
-        throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
-#pragma omp parallel for schedule(static) collapse(2)
-      for (int k = k0; k < k0 + nk; ++k)
-        for (int j = 0; j < NN; ++j)
-          for (int i = 0; i < NN; ++i) {
-            const std::int64_t c = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
-            RTCell d{};
-            d.rhog = G.rhog[c];
-            d.fHI = G.fHI[c];
-            d.fHeI = G.fHeI[c];
-            d.fHeII = G.fHeII[c];
-            d.temp = G.temp[c];
-            d.Luv = G.Luv[c];
-            d.sfr = G.sfr[c];
-            for (int m = 0; m < 3; ++m) {
-              d.dx[m] = G.dx[c * 3 + m];
-              d.gamma[m] = G.gamma[c * 3 + m];
-              d.lambda[m] = G.lambda[c * 3 + m];
-            }
-            for (int m = 0; m < 5; ++m) {
-              d.nu[m] = G.nu[c * 5 + m];
-              d.ngam[m] = G.ngam[c * 5 + m];
-              d.fgam[m] = G.fgam[c * 5 + m];
-              d.tau[m] = G.tau[c * 5 + m];
-            }
-            const float* dp = reinterpret_cast<const float*>(&d);
-            for (int m = 0; m < nf; ++m) a(i, j, k, m) = dp[m];
-          }
-    });
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-      auto c = C.array(mfi);
-      auto f = Cf.const_array(mfi);
-      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-        float* dp = reinterpret_cast<float*>(&c(i, j, k));
-        for (int m = 0; m < nf; ++m) dp[m] = f(i, j, k, m);
-      });
-    }
   }
 
   std::int64_t nrays() const override {
@@ -1493,7 +1106,9 @@ LevelBase& level_of(Simulation& s) {
     check_rt_backend_param(s.cfg);
     s.amrex = std::make_shared<AmrexRT>();
     const bool with_e = s.gas.has_e();
-    if (s.cfg.ray_encoding == RayEncoding::RStruct)
+    if (use_moments(s.cfg))
+      s.amrex->level = make_moment_level(s.cfg, with_e);  // rt_method = m1 | otvet (moment_level.cpp)
+    else if (s.cfg.ray_encoding == RayEncoding::RStruct)
       s.amrex->level = std::make_unique<Level<amrex_enc::RStructEnc>>(s.cfg, with_e);
     else
       s.amrex->level = std::make_unique<Level<amrex_enc::FloatEnc>>(s.cfg, with_e);
