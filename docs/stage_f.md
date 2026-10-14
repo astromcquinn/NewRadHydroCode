@@ -13,7 +13,7 @@ cooling flag and the sink), F3 (the RT across levels).*
 |---|---|
 | F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
 | F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
-| F3: rays across levels with the coarse substep (`rt_cells_per_substep` = 2^l on level l) | planned |
+| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | done 2026-10-15: the I-front validated inside the refined region and across its boundary (§3) |
 
 ## 1. The hierarchy (F1)
 
@@ -209,7 +209,79 @@ the level-0 changes the RT and PM make (§1) moves to the state, where it
 belongs. Nothing changes for `amrex_max_level = 0` (bitwise), and the
 level-0-only RT keeps working on refined runs as today.
 
-**F3b: rays on the levels.** Each level has its own RT cells (`RTCell`
+**Built (2026-10-14/15, branch `stage-f3`).** F3a as designed. F3b in
+`src/amrex/rt_level.cpp`: `Level` carries its refinement index, cells
+per coarse substep (`rt_cells_per_substep` 2^l), per-level units and RT
+parameters, a coverage mask (the cells under the finer level: no
+emission, no physics, no statistics), an in-patch mask (where a ray
+leaves the level) and the rays leaving it; the substep is split into
+four phases (tau, cast, phys, advance), and `Hierarchy` (one `Level`
+per level of the gas state, rebuilt at a regrid with its rays parked on
+the parent) interleaves the levels' phases: after the tau phase a
+refined level's ghost cells outside its grids take the parent's tau
+(halved) and after the physics the parent's fgam (1 − √(1 − f)); after
+the casts the deposits cross the boundary both ways (a level's ghost
+deposits beyond its grids summed into the parent's cells, the parent's
+deposits under the level shared among the 8 children exactly in the
+int64 fixed point); after the advance the rays migrate (`leaving` up,
+`collect_down` down, scaled to the other level's units with dr = rmax(nside)
+− r); the statistics are summed over the levels and published once; after
+`post` the finer levels' cells and gas are averaged down onto the
+parents. Sources: `apply_sources` records the catalogue's positions
+(`Simulation::rt_sources`) and the hierarchy puts a covered base cell's
+Luv/sfr on the finest cell holding each source. The checkpoint carries
+every level's rays in base units (a restart scatters them onto the base
+level and the first prep moves them down). `amrex_refine_box` refines a
+fixed region (tests). With `amrex_max_level = 0` the plain `Level` runs:
+bitwise Stage E (176/176 on klone), and the refined smoke runs are
+byte-identical across 1, 2 and 3 ranks and through a restart (the `sink`
+tests run with one level).
+
+**Validation, first result (2026-10-15, `tools/hyak/rt_amr_ifront.slurm`,
+`tests/problems_full/make_ifront.py`, `tools/analysis/ifront_full.py`).**
+One source at the centre of a uniform 4 Mpc/h box, the fixed physics,
+ĉ = 0.1c, RT from z = 30 on 8 ranks; the I-front radius from the ionised
+volume, R = (3V/4π)^{1/3}, in base cells. The refined 32³ run (one level
+over the central half of the box) against the uniform 32³ run and the
+uniform 64³ run as the reference:
+
+| step | R (64³) | R (32³) | err | R (32³ + 1 level) | err |
+|---|---|---|---|---|---|
+| 3 | 4.138 | 4.159 | 0.022 | 4.142 | 0.004 |
+| 4 | 4.868 | 4.897 | 0.029 | 4.854 | 0.014 |
+| 5 | 5.448 | 5.479 | 0.031 | 5.430 | 0.018 |
+| 6 | 6.030 | 6.039 | 0.008 | 5.986 | 0.044 |
+
+The refined run tracks the 64³ front to a few hundredths of a cell, as
+well as the base run does; here the front stayed inside the refined
+region (radius 8). With the whole box refined (the RT entirely on level
+1, the hydro and PM at 32³) the front reaches 8.60 base cells at step 10
+against the 64³ run's 8.74 and the 32³ run's 8.65, with the same photons
+in flight (526 against 552): the 1.5 % lag is the two-cell coarse
+substep's (the k = 2 result of `docs/rt_multicell.md`, the decision's
+price), not a defect. The first run with the refined region of radius 4,
+so that the front crosses the level boundary, overshot by 0.57 cells
+right after the crossing and had 8× the photons in flight: the kernels
+keep a ray's photons per RT-cell volume (`ray_source`: ngam / vol_rt /
+nH_avg), so a ray and the exchanged deposits must be rescaled by 8 across
+a level (now done). The rerun (`rt_amr_ifront5`): the front crosses the
+level boundary between steps 8 and 10 without a jump and continues on
+the base level; refined 32³ against the 64³ reference, errors in base
+cells: 0.004, 0.014, 0.018, 0.044, 0.061, 0.080, 0.108, 0.140 (steps
+3–10; the uniform 32³ run: 0.022, 0.029, 0.031, 0.008, 0.010, 0.029,
+0.060, 0.087), i.e. the fine level's lag carried across, nothing from the
+crossing. CTest `amrex_rt_amr_ifront` (label `amr`, nightly) repeats the
+three runs on 2 ranks. Three more traps on the way: the
+refined levels' RT parameters must carry their own grid size for the
+periodic wrap (`nrtr`, `hrtr`: a source ray at x = 32.5 on level 1
+wrapped to cell 0); after the RT hierarchy's step the hydro's push-down
+reference must be the current level 0 (the RT changed the fine cells
+itself and averaged them down; the hydro pushed the same change down
+again, and a species that had grown from ~0 overflowed in the ratio rule,
+now guarded); and `fgam` is the transmitted fraction, so a half cell's is
+√fgam.
+
+**F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
 and ray container. A ray lives on the finest level covering its position;
 positions stay in level-0 cell units, so a migration between levels is a

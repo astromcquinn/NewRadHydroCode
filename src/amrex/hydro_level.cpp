@@ -191,9 +191,10 @@ class HydroLevel {
  public:
   // state: amrex_state = 1, the gas state on the level (gas_state.hpp): the
   // level takes its decomposition and copies its boxes in and out locally
-  HydroLevel(const Config& cfg, int N_, int max_grid_size, const gs::GasState* state_)
+  HydroLevel(const Config& cfg, int N_, int max_grid_size, gs::GasState* state_)
       : N(N_), domain(ax::IntVect(0), ax::IntVect(N_ - 1)), state(state_), max_level(cfg.amrex_max_level),
         refine_mass(cfg.amrex_refine_mass), regrid_every(cfg.amrex_regrid_every) {
+    for (int m = 0; m < 6; ++m) refine_box[m] = cfg.amrex_refine_box[m];
     const ax::RealBox rb({0., 0., 0.}, {double(N_), double(N_), double(N_)});  // dx = 1 (cell units)
     const ax::Array<int, 3> per{1, 1, 1};
     geom.define(domain, rb, ax::CoordSys::cartesian, per);
@@ -267,7 +268,7 @@ class HydroLevel {
   std::vector<Long> box_offset;
   Long total = 0;
   std::vector<float> sendbuf, recvbuf;
-  const gs::GasState* state = nullptr;
+  gs::GasState* state = nullptr;
   Timers T;
   // the hierarchy (amrex_max_level > 0)
   int max_level = 0;
@@ -275,6 +276,7 @@ class HydroLevel {
   int finest_ever = 0;  // the deepest level used so far (the timers line)
   double refine_mass = 8;
   int regrid_every = 1;
+  int refine_box[6] = {0, 0, 0, -1, -1, -1};
   std::unique_ptr<Mesh> mesh;
   ax::MultiFab prev0;  // level 0 as last written out (the push-down reference)
   bool have_prev0 = false;
@@ -371,6 +373,61 @@ class HydroLevel {
     T.copyout += now() - t0;
   }
 
+  // The refined levels from and to the state (amrex_state = 1): the state's
+  // float copy is the gas between steps; the hydro's double U is refilled
+  // at every call (F3a, docs/stage_f.md section 3)
+  void copy_in_fine() {
+    if (!state) return;
+    const double t0 = now();
+    for (int lev = 1; lev <= finest; ++lev) {
+      ax::MultiFab& Ul = U(lev);
+      const gs::FFab& G = state->fine[static_cast<std::size_t>(lev) - 1].G;
+      for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
+        auto u = Ul.array(mfi);
+        auto g = G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          u(i, j, k, m) = g(i, j, k, m);
+        });
+      }
+    }
+    T.copyin += now() - t0;
+  }
+  void copy_out_fine() {
+    if (!state) return;
+    const double t0 = now();
+    for (int lev = 1; lev <= finest; ++lev) {
+      const ax::MultiFab& Ul = U(lev);
+      gs::FFab& G = state->fine[static_cast<std::size_t>(lev) - 1].G;
+      for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
+        auto u = Ul.const_array(mfi);
+        auto g = G.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          g(i, j, k, m) = static_cast<float>(u(i, j, k, m));
+        });
+      }
+    }
+    T.copyout += now() - t0;
+  }
+  // The state's fine level lev (re)defined from the hydro's (ba, dm) and
+  // filled from U(lev), rounded
+  void state_define_fine(int lev) {
+    if (!state) return;
+    if (static_cast<int>(state->fine.size()) < lev) state->fine.resize(static_cast<std::size_t>(lev));
+    gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(lev) - 1];
+    const LevelData& L = levels[static_cast<std::size_t>(lev)];
+    F.ba = L.ba;
+    F.dm = L.dm;
+    F.G.define(L.ba, L.dm, NC, 0);
+    const ax::MultiFab& Ul = L.U;
+    for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
+      auto u = Ul.const_array(mfi);
+      auto g = F.G.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        g(i, j, k, m) = static_cast<float>(u(i, j, k, m));
+      });
+    }
+  }
+
   // ---- host <-> level ------------------------------------------------------
 
   // The rank's boxes from the host arrays (float -> double)
@@ -464,11 +521,16 @@ class HydroLevel {
   void tag(int lev, ax::TagBoxArray& tags) {
     const double thr = rho_avg * refine_mass * std::ldexp(1.0, 3 * lev);
     const ax::MultiFab& Ul = U(lev);
+    // amrex_refine_box (level-0 cells, inclusive) at this level's resolution
+    const int* rb = refine_box;
+    const bool have_box = rb[3] >= rb[0] && rb[4] >= rb[1] && rb[5] >= rb[2];
+    const ax::Box fixed(ax::IntVect(rb[0] << lev, rb[1] << lev, rb[2] << lev),
+                        ax::IntVect(((rb[3] + 1) << lev) - 1, ((rb[4] + 1) << lev) - 1, ((rb[5] + 1) << lev) - 1));
     for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
       auto u = Ul.const_array(mfi);
       auto t = tags.array(mfi);
       ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-        if (u(i, j, k, 0) > thr) t(i, j, k) = ax::TagBox::SET;
+        if (u(i, j, k, 0) > thr || (have_box && fixed.contains(ax::IntVect(i, j, k)))) t(i, j, k) = ax::TagBox::SET;
       });
     }
   }
@@ -511,11 +573,16 @@ class HydroLevel {
       ax::MultiFab::Copy(L.U, nU, 0, 0, NC, 0);
       mesh->SetBoxArray(lev, nba);
       mesh->SetDistributionMap(lev, ndm);
+      state_define_fine(lev);
     }
     for (int lev = new_finest + 1; lev <= max_level; ++lev) {
       levels[static_cast<std::size_t>(lev)].clear();
       mesh->ClearBoxArray(lev);
       mesh->ClearDistributionMap(lev);
+    }
+    if (state) {
+      state->fine.resize(static_cast<std::size_t>(new_finest));
+      state->finest = new_finest;
     }
     finest = new_finest;
     finest_ever = std::max(finest_ever, finest);
@@ -567,7 +634,10 @@ class HydroLevel {
           auto ratio = [&](int m, double x) {
             const double o = co(ci, cj, ck, m), n = cn(ci, cj, ck, m);
             if (n == o) return x;
-            return o != 0 ? x * (n / o) : x + (n - o);
+            // the ratio only when the old value carries it (a species that
+            // was ~0 and grew: additive, or n/o overflows)
+            const double r = o != 0 ? n / o : 0.0;
+            return (o != 0 && std::fabs(r) < 1e6) ? x * r : x + (n - o);
           };
           const double rho_old = u(i, j, k, 0);
           const double rho_new = ratio(0, rho_old);
@@ -593,6 +663,19 @@ class HydroLevel {
     T.pushdown += now() - t0;
   }
 
+  // prev0 from the state's level 0 (the RT hierarchy averaged the refined
+  // levels down itself)
+  void level0_is_current() {
+    if (max_level == 0 || !state) return;
+    for (ax::MFIter mfi(prev0); mfi.isValid(); ++mfi) {
+      auto p = prev0.array(mfi);
+      auto g = state->G.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        p(i, j, k, m) = static_cast<double>(g(i, j, k, m));
+      });
+    }
+    have_prev0 = true;
+  }
   void remember_level0() {
     if (max_level == 0) return;
     const ax::MultiFab& U0 = U(0);
@@ -891,6 +974,7 @@ class HydroLevel {
       copy_in(*state);
     else
       copy_in(gas);
+    copy_in_fine();
     rho_avg = un.Dgas_avg;
     if (max_level > 0) {
       push_down();
@@ -948,9 +1032,10 @@ class HydroLevel {
     mass0 = U(0).sum(0);  // (MultiFab::sum: valid cells, reduced; order-dependent at 1e-16)
     remember_level0();
     if (state)
-      copy_out(*const_cast<gs::GasState*>(state));
+      copy_out(*state);
     else
       copy_out(gas);
+    copy_out_fine();
   }
 
   // The star-formation sink (docs/stage_f.md section 2): on every level's
@@ -1051,7 +1136,22 @@ class HydroLevel {
     ax::ParallelDescriptor::Barrier();
     for (int lev = 1; lev <= finest; ++lev) {
       const LevelData& L = levels[static_cast<std::size_t>(lev)];
-      ax::VisMF::Write(L.U, dir + "/Level_" + std::to_string(lev) + "_U");
+      if (state) {
+        // the state's float copy is the gas between steps: write it (as
+        // doubles, VisMF's format), so a restart is bit-identical
+        ax::MultiFab tmp(L.ba, L.dm, NC, 0);
+        const gs::FFab& G = state->fine[static_cast<std::size_t>(lev) - 1].G;
+        for (ax::MFIter mfi(tmp); mfi.isValid(); ++mfi) {
+          auto t = tmp.array(mfi);
+          auto g = G.const_array(mfi);
+          ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+            t(i, j, k, m) = g(i, j, k, m);
+          });
+        }
+        ax::VisMF::Write(tmp, dir + "/Level_" + std::to_string(lev) + "_U");
+      } else {
+        ax::VisMF::Write(L.U, dir + "/Level_" + std::to_string(lev) + "_U");
+      }
     }
   }
 
@@ -1077,6 +1177,11 @@ class HydroLevel {
     }
     for (int lev = nf + 1; lev <= max_level; ++lev) levels[static_cast<std::size_t>(lev)].clear();
     finest = nf;
+    if (state) {
+      state->fine.clear();
+      for (int lev = 1; lev <= nf; ++lev) state_define_fine(lev);  // the floats written above, exactly
+      state->finest = nf;
+    }
     mesh->SetFinestLevel(finest);
     have_prev0 = false;  // the level-0 state of the checkpoint is what the fine levels saw
   }
@@ -1120,7 +1225,7 @@ HydroLevel& level_of(const Config& cfg, int N) {
     const int mgs = cfg.amrex_hydro_max_grid_size ? cfg.amrex_hydro_max_grid_size : cfg.amrex_max_grid_size;
     if (N % 2 != 0 && mgs < N)
       throw std::runtime_error("hydro_backend = amrex: N must be even or amrex_hydro_max_grid_size >= N");
-    const gs::GasState* st = cfg.amrex_state ? gs::active() : nullptr;
+    gs::GasState* st = cfg.amrex_state ? gs::active() : nullptr;
     if (cfg.amrex_state && !st) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
     g_level = std::make_unique<HydroLevel>(cfg, N, mgs, st);
   }
@@ -1143,6 +1248,9 @@ std::string amrex_hydro_timers() { return g_level ? g_level->timers() : ""; }
 void amrex_hydro_release() { g_level.reset(); }
 void amrex_hydro_remap(const amrex::DistributionMapping& dm) {
   if (g_level) g_level->remap(dm);
+}
+void amrex_hydro_level0_is_current() {
+  if (g_level) g_level->level0_is_current();
 }
 int amrex_hydro_finest_level() { return g_level ? g_level->finest : 0; }
 void amrex_hydro_write_levels(const std::string& dir) {
