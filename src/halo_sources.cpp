@@ -559,6 +559,18 @@ SourceCatalog source_catalog(Simulation& s, const float* xv_dm, std::int64_t npa
 void apply_sources(Simulation& s, const SourceCatalog& cat, const HaloSourceParams& p) {
   s.Nsource = cat.Nsource;
   if (cat.Nsource > 0) calc_halo_records(s, cat.halo, cat.Nsource, p.add_metals);
+  // the sources for the RT hierarchy (simulation.hpp): position in RT cells
+  // (the same quotient grid_index truncates), L and sfr, in record order
+  s.rt_sources.clear();
+  s.rt_sources.reserve(static_cast<std::size_t>(cat.Nsource));
+  for (std::int64_t n = 0; n < cat.Nsource; ++n) {
+    const SourceRecord& r = cat.halo[static_cast<std::size_t>(n)];
+    Simulation::RTSource q;
+    for (int d = 0; d < 3; ++d) q.x[d] = static_cast<double>(r.x[d]) / s.cfg.x_rt_box;
+    q.L = r.L;
+    q.sfr = r.sfr;
+    s.rt_sources.push_back(q);
+  }
 }
 
 SourceCatalog update_sources(Simulation& s, const float* xv_dm, std::int64_t npart,

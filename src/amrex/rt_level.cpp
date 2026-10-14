@@ -45,6 +45,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 #include <AMReX.H>
@@ -1800,6 +1801,59 @@ struct Hierarchy : LevelBase {
   void prep(Simulation& s) override {
     sync();
     for (auto& l : levels) l->prep(s);
+    place_sources(s);
+  }
+
+  // The sources of the cells covered by a finer level, on the finest level
+  // covering their positions: a covered base cell's Luv and sfr (the host
+  // arrays, every rank) are shared among its sources in proportion to
+  // their L (one source per cell in practice), each going to the finest
+  // cell holding it; the base cells themselves emit nothing there (prep)
+  void place_sources(Simulation& s) {
+    if (finest == 0 || s.rt_sources.empty()) return;
+    const int N0 = base().N;
+    const RTGrid& G = s.rt;
+    // the sum of L per covered base cell
+    std::unordered_map<std::int64_t, double> lsum;
+    auto cell0 = [&](const Simulation::RTSource& q, int c[3]) {
+      for (int d = 0; d < 3; ++d) c[d] = rrk::cell_of(q.x[d], N0);
+      return c[0] + static_cast<std::int64_t>(N0) * (c[1] + static_cast<std::int64_t>(N0) * c[2]);
+    };
+    for (const auto& q : s.rt_sources) {
+      if (!(q.L > 0)) continue;
+      int c[3];
+      lsum[cell0(q, c)] += q.L;
+    }
+    for (const auto& q : s.rt_sources) {
+      if (!(q.L > 0)) continue;
+      int c[3];
+      const std::int64_t gc = cell0(q, c);
+      // the finest level whose grids hold the source's cell
+      int lev = 0;
+      for (int l = 1; l <= finest; ++l) {
+        int cl[3];
+        for (int d = 0; d < 3; ++d) cl[d] = rrk::cell_of(q.x[d] * (1 << l), N0 << l);
+        if (levels[static_cast<std::size_t>(l)]->ba.contains(ax::IntVect(cl[0], cl[1], cl[2])))
+          lev = l;
+        else
+          break;
+      }
+      if (lev == 0) continue;  // the base cell emits as before
+      const double share = q.L / lsum[gc];
+      const float Luv = static_cast<float>(static_cast<double>(G.Luv[static_cast<std::size_t>(gc)]) * share);
+      const float sfr = static_cast<float>(static_cast<double>(G.sfr[static_cast<std::size_t>(gc)]) * share);
+      L& Ll = *levels[static_cast<std::size_t>(lev)];
+      int cl[3];
+      for (int d = 0; d < 3; ++d) cl[d] = rrk::cell_of(q.x[d] * (1 << lev), N0 << lev);
+      const ax::IntVect iv(cl[0], cl[1], cl[2]);
+      for (ax::MFIter mfi(Ll.C); mfi.isValid(); ++mfi) {
+        if (!mfi.validbox().contains(iv)) continue;
+        RTCell& d = Ll.C.array(mfi)(cl[0], cl[1], cl[2]);
+        d.Luv = static_cast<float>(d.Luv + Luv);
+        d.sfr = static_cast<float>(d.sfr + sfr);
+        break;
+      }
+    }
   }
   void substep(Simulation& s) override {
     for (auto& l : levels) l->substep(s);
@@ -1842,7 +1896,8 @@ struct Hierarchy : LevelBase {
       const ax::BoxArray& ba0 = base_c().ba;
       for (int b = 0; b < static_cast<int>(F.ba.size()); ++b) {
         if (n[static_cast<std::size_t>(b)] == 0) continue;
-        ax::IntVect lo = F.ba[b].smallEnd();
+        const ax::Box fb = F.ba[b];
+        ax::IntVect lo = fb.smallEnd();
         for (int d = 0; d < 3; ++d) lo[d] >>= l;
         const auto isects = ba0.intersections(ax::Box(lo, lo));
         if (!isects.empty()) count[isects[0].first] += static_cast<ax::Real>(n[static_cast<std::size_t>(b)]);

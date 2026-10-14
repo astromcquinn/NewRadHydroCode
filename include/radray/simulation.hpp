@@ -77,6 +77,15 @@ struct Simulation {
   DetDomains ddom;
   RTTimers timers;
   std::int64_t Nsource = 0;
+  // The sources of the current catalogue (apply_sources): position in RT
+  // cells and luminosity, for the RT hierarchy, which places a source on
+  // the finest level covering it (docs/stage_f.md section 3); every rank
+  // holds the list
+  struct RTSource {
+    double x[3];
+    float L, sfr;
+  };
+  std::vector<RTSource> rt_sources;
 
   // Called after every RT substep (after the clock update), e.g. for movie
   // frames; must not change the state.
