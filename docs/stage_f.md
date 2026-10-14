@@ -13,7 +13,7 @@ cooling flag and the sink), F3 (the RT across levels).*
 |---|---|
 | F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
 | F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
-| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | built; the I-front validation running |
+| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | built; the I-front validation passes with the front inside the refined region; the boundary-crossing run pending |
 
 ## 1. The hierarchy (F1)
 
@@ -236,6 +236,33 @@ fixed region (tests). With `amrex_max_level = 0` the plain `Level` runs:
 bitwise Stage E (176/176 on klone), and the refined smoke runs are
 byte-identical across 1, 2 and 3 ranks and through a restart (the `sink`
 tests run with one level).
+
+**Validation, first result (2026-10-15, `tools/hyak/rt_amr_ifront.slurm`,
+`tests/problems_full/make_ifront.py`, `tools/analysis/ifront_full.py`).**
+One source at the centre of a uniform 4 Mpc/h box, the fixed physics,
+ĉ = 0.1c, RT from z = 30 on 8 ranks; the I-front radius from the ionised
+volume, R = (3V/4π)^{1/3}, in base cells. The refined 32³ run (one level
+over the central half of the box) against the uniform 32³ run and the
+uniform 64³ run as the reference:
+
+| step | R (64³) | R (32³) | err | R (32³ + 1 level) | err |
+|---|---|---|---|---|---|
+| 3 | 4.138 | 4.159 | 0.022 | 4.142 | 0.004 |
+| 4 | 4.868 | 4.897 | 0.029 | 4.854 | 0.014 |
+| 5 | 5.448 | 5.479 | 0.031 | 5.430 | 0.018 |
+| 6 | 6.030 | 6.039 | 0.008 | 5.986 | 0.044 |
+
+The refined run tracks the 64³ front to a few hundredths of a cell, as
+well as the base run does; here the front stayed inside the refined
+region (radius 8). A second run with the refined region of radius 4, so
+that the front crosses the level boundary, is below. Two more traps on
+the way: the refined levels' RT parameters must carry their own grid
+size for the periodic wrap (`nrtr`, `hrtr`: a source ray at x = 32.5 on
+level 1 wrapped to cell 0), and after the RT hierarchy's step the hydro's
+push-down reference must be the current level 0 (the RT changed the fine
+cells itself and averaged them down; the hydro pushed the same change
+down again, and a species that had grown from ~0 overflowed in the ratio
+rule, now guarded).
 
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
