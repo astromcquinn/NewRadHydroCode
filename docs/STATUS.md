@@ -17,8 +17,14 @@ gathered box by box in a canonical order (sorted by home cell and bytes),
 so the file does not depend on the mapping or the rank count. Also
 fixed: `radray_amrex` links the threaded FFTW itself (its objects reach
 the PM level now), and `env.sh` prefers the threaded float FFTW over a
-stale `RADRAY_FFTW` in the login environment. The 256³ and 512³ runs on
-2 and 4 nodes with and without the balancing are queued.
+stale `RADRAY_FFTW` in the login environment.
+- **klone:** the RT step at 512³ is 4 % faster on 2 nodes and 13 % on
+  4 nodes (936 and 470 s), at 256³ 11 % and 12 % (74 and 42.5 s), all
+  bitwise identical to the fixed mapping. One fixed-mapping run at 256³
+  on 4 nodes hung inside the RT step with identical data up to the hang
+  and did not reproduce on other nodes (§5); the backend now writes
+  AMReX backtraces on SIGTERM into the run directory and four repeats
+  are queued.
 
 ## Done 2026-10-13: Stage E3, the state on the levels (branch `stage-e-state`, PR #34, merged)
 

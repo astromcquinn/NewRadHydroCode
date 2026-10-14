@@ -1483,6 +1483,10 @@ void backend_init(int& argc, char**& argv) {
     amrex::ParmParse pp("amrex");
     pp.add("verbose", 0);
     pp.add("the_arena_is_managed", 0);
+    // a cancelled or timed-out job (SIGTERM from srun/scancel) writes
+    // Backtrace.<rank>.<thread> in the working directory: where every rank
+    // was when a run hung (tools/hyak/amrex_scaling.slurm runs in $OUT)
+    pp.add("handle_sigterm", 1);
   });
   g_initialized = true;
 }

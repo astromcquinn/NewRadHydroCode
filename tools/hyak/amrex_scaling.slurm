@@ -41,7 +41,10 @@
 #          --export=ALL,PROB=...,CK=...,THREADS=16 tools/hyak/amrex_scaling.slurm
 # (24 ranks x 8 threads per node overflowed 1.5 TB at 512^3 in the restart.)
 # An OOM-killed rank aborts the step (--kill-on-bad-exit); without it the
-# other ranks wait in MPI until the time limit.
+# other ranks wait in MPI until the time limit. A hung run spins until the
+# time limit (give short runs a short --time); the SIGTERM of the limit or
+# of scancel leaves Backtrace.<rank>.<thread> files in $OUT/amrex_n<nodes>
+# with every rank's call stack (docs/stage_e_state.md section 5).
 # Peak RSS per rank: the last line of timing.txt (peak_rss_MB of rank 0 and
 # the min/max over the ranks) and sacct's MaxRSS of the job steps, printed
 # at the end.
@@ -60,20 +63,20 @@ cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
 radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
 radray_ucx_eager  # UCX eager below 8 MB across nodes (env.sh; RADRAY_UCX_EAGER=0 for the module defaults)
-PROB="${PROB:?set PROB to the problem directory}"
-CK="${CK:?set CK to the checkpoint}"
+PROB="$(readlink -f "${PROB:?set PROB to the problem directory}")"
+CK="$(readlink -f "${CK:?set CK to the checkpoint}")"
 OUT="${OUT:-$PROB/amrex_scaling}"
+mkdir -p "$OUT" && OUT="$(readlink -f "$OUT")"
 STEPS="${STEPS:-1}"
 NODES="${SLURM_JOB_NUM_NODES:-1}"
 RANKS="${RANKS:-${SLURM_NTASKS:-24}}"
 THREADS="${THREADS:-8}"
 MGS="${MGS:-32}"
-EXE="${EXE:-$PWD/build-amrex/radhydro}"
+EXE="$(readlink -f "${EXE:-$PWD/build-amrex/radhydro}")"
 SERIAL="${SERIAL:-$([ "$NODES" = 1 ] && echo 1 || echo 0)}"
 AMREX_OUT="$OUT/amrex_n$NODES"
 [ -x "$EXE" ] || { echo "no executable $EXE (tools/hyak/build_amrex.sh)"; exit 1; }
 [ -f "$CK" ] || { echo "no checkpoint $CK"; exit 1; }
-mkdir -p "$OUT"
 {
   echo "host $(hostname), nodes ${SLURM_JOB_NODELIST:-}, job ${SLURM_JOB_ID:-}, $(date)"
   echo "EXE $EXE, $NODES nodes, ranks $RANKS x threads $THREADS, max_grid_size $MGS, checkpoint $CK, steps $STEPS${EXTRA:+, extra: $EXTRA}"
@@ -84,7 +87,10 @@ common=(--quiet --restart "$CK" --set run_steps="$STEPS" --set restart_every=0 -
 # the backend: one rank per CCD, threads pinned inside it
 export OMP_NUM_THREADS=$THREADS OMP_PLACES=cores OMP_PROC_BIND=close
 rm -rf "$AMREX_OUT"
-srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
+mkdir -p "$AMREX_OUT"
+# --chdir: a hung run cancelled or timed out leaves Backtrace.<rank>.<thread>
+# (where every rank was) in $AMREX_OUT, not in the checkout
+srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 --chdir="$AMREX_OUT" \
   "$EXE" "$PROB" "$AMREX_OUT" "${common[@]}" --set rt_backend=amrex --set deterministic_parallel=0 \
   --set amrex_max_grid_size="$MGS" ${EXTRA:-} > "$AMREX_OUT.log" 2>&1
 echo "amrex rc=$?"; tail -3 "$AMREX_OUT.log"

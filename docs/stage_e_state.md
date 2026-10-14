@@ -325,11 +325,38 @@ one remap):
 | 2 nodes | 974.4 | 936.1 | 4 % |
 | 4 nodes | 538.3 | 470.0 | 13 % |
 
+**klone, 256³** (`reion256_f0.2`, step 49, 92 RT substeps, 24 × 8 per
+node, 512 boxes of 32³; jobs 41826697/41826699 rebalanced, 41840184
+fixed; one remap in the one RT step):
+
+| 256³, step 49 | RT, fixed mapping [s] | RT, rebalanced [s] | gain | step [s] |
+|---|---|---|---|---|
+| 2 nodes | 83.7 | 74.1 | 11 % | 93.3 → 84.1 |
+| 4 nodes | 48.4 | 42.5 | 12 % | 56.7 → 50.7 |
+
 The fields and statistics of the rebalanced runs are bitwise those of
-the fixed mapping. The gain grows with the rank count, as the imbalance
-does (at 2 nodes 85 boxes of 32³ per rank average out the ray
-clustering, at 4 nodes 43 do); the 256³ runs on 2 and 4 nodes follow.
-The whole `amrex` label passes on this build (161/161 on klone).
+the fixed mapping at both sizes (at 256³ the five runs, 2 and 4 nodes
+with and without the balancing and the previous build, give one
+checksum of the fields and the particles). At 512³ the gain grows with
+the rank count, as the imbalance does (at 2 nodes 85 boxes of 32³ per
+rank average out the ray clustering, at 4 nodes 43 do); at 256³ the
+remap costs about the same fraction at 5 and 10 boxes per rank. The
+whole `amrex` label passes on this build (161/161 on klone).
+
+**A hang, once.** The first 256³ fixed-mapping run on 4 nodes (job
+41826698, 96 ranks) hung inside the RT step, at about substep 80 of 92,
+with every rank spinning until it was cancelled three hours later; its
+ray log is an exact prefix of the good runs' logs, so the data were
+identical up to the hang. The same binary, checkpoint and parameters on
+four other nodes finished in 3 minutes, and the previous build did too,
+so it is not reproducible from the data (a transport-level or hardware
+event is the likeliest reading; UCX reported no error). To catch the
+next one: the backend sets `amrex.handle_sigterm = 1`, so the SIGTERM of
+`scancel` or of the time limit writes `Backtrace.<rank>.<thread>` with
+every rank's call stack; `amrex_scaling.slurm` runs the backend in the
+run directory, where those files land, and the klone build keeps line
+tables (`-g1`). Give short runs a short `--time`. Four repeats of the
+case are queued (jobs 41850991–41850994).
 
 What this does not do yet: balance inside a step (rays migrate during the
 substeps, so the cost of a box changes while the step runs), weigh the
