@@ -246,10 +246,7 @@ void near_fill(int N, int m, const void* ctx, float* K) {
 }
 
 // Mip-map level: n^3 means of the level below
-struct Level {
-  int n = 0;
-  std::vector<float> a;
-};
+using Level = OtvetMip;
 
 std::vector<Level> pyramid(const std::vector<float>& fine, int N) {
   std::vector<Level> L;
@@ -259,27 +256,13 @@ std::vector<Level> pyramid(const std::vector<float>& fine, int N) {
     Level c;
     c.n = b.n / 2;
     c.a.assign(static_cast<std::size_t>(c.n) * c.n * c.n, 0.0f);
-#pragma omp parallel for schedule(static) if (par::worth(static_cast<long long>(c.n) * c.n * c.n))
-    for (int k = 0; k < c.n; ++k)
-      for (int j = 0; j < c.n; ++j)
-        for (int i = 0; i < c.n; ++i) {
-          double s = 0;
-          for (int dk = 0; dk < 2; ++dk)
-            for (int dj = 0; dj < 2; ++dj)
-              for (int di = 0; di < 2; ++di)
-                s += b.a[idx(2 * i + di, 2 * j + dj, 2 * k + dk, b.n)];
-          c.a[idx(i, j, k, c.n)] = static_cast<float>(s / 8);
-        }
+    otvet_mip_coarsen(b.a.data(), b.n, 0, c.n, c.a.data());
     L.push_back(std::move(c));
   }
   return L;
 }
 
-inline int wrapi(long long i, int n) {
-  long long r = i % n;
-  if (r < 0) r += n;
-  return static_cast<int>(r);
-}
+inline int wrapi(long long i, int n) { return otvet_wrapi(i, n); }
 
 // Trilinear periodic sample of level l (cell centres at (i + 0.5) 2^l in
 // fine-cell units; scipy map_coordinates order 1, grid-wrap)
@@ -308,11 +291,7 @@ inline double sample(const Level& L, double f, const double pos[3]) {
 // Periodic separable Gaussian (sigma in cells, truncated at 4 sigma as
 // scipy.ndimage.gaussian_filter) of one component stored with stride 6
 void gauss_blur(std::vector<float>& a, int comp, int N, double sigma) {
-  const int R = static_cast<int>(4 * sigma + 0.5);
-  std::vector<double> w(2 * R + 1);
-  double ws = 0;
-  for (int k = -R; k <= R; ++k) ws += (w[k + R] = std::exp(-0.5 * k * k / (sigma * sigma)));
-  for (double& x : w) x /= ws;
+  const std::vector<double> w = otvet_gauss_weights(sigma);
   for (int axis = 0; axis < 3; ++axis) {
 #pragma omp parallel for schedule(static) if (par::worth(static_cast<long long>(N) * N * N))
     for (int b = 0; b < N; ++b) {
@@ -324,11 +303,7 @@ void gauss_blur(std::vector<float>& a, int comp, int N, double sigma) {
           return idx(a2, b, t, N);
         };
         for (int t = 0; t < N; ++t) line[t] = a[6 * cell(t) + comp];
-        for (int t = 0; t < N; ++t) {
-          double s = 0;
-          for (int k = -R; k <= R; ++k) s += w[k + R] * line[wrapi(t + k, N)];
-          outl[t] = s;
-        }
+        for (int t = 0; t < N; ++t) outl[t] = otvet_gauss_point(w, t, N, [&](int u) { return line[u]; });
         for (int t = 0; t < N; ++t) a[6 * cell(t) + comp] = static_cast<float>(outl[t]);
       }
     }
@@ -459,6 +434,145 @@ void thin_tensor(const OtvetClosureIn& in, int method, std::vector<float>& h,
 
 }  // namespace
 
+void otvet_mip_coarsen(const float* fine, int n, int kc0, int kc1, float* coarse) {
+  const int nc2 = n / 2;
+  auto fidx = [&](int i, int j, int k) {
+    return i + static_cast<std::int64_t>(n) * (j + static_cast<std::int64_t>(n) * (k - 2 * kc0));
+  };
+#pragma omp parallel for schedule(static) if (par::worth(static_cast<long long>(kc1 - kc0) * nc2 * nc2))
+  for (int k = kc0; k < kc1; ++k)
+    for (int j = 0; j < nc2; ++j)
+      for (int i = 0; i < nc2; ++i) {
+        double s = 0;
+        for (int dk = 0; dk < 2; ++dk)
+          for (int dj = 0; dj < 2; ++dj)
+            for (int di = 0; di < 2; ++di) s += fine[fidx(2 * i + di, 2 * j + dj, 2 * k + dk)];
+        coarse[i + static_cast<std::int64_t>(nc2) * (j + static_cast<std::int64_t>(nc2) * (k - kc0))] =
+            static_cast<float>(s / 8);
+      }
+}
+
+std::vector<double> otvet_gauss_weights(double sigma) {
+  const int R = static_cast<int>(4 * sigma + 0.5);
+  std::vector<double> w(2 * R + 1);
+  double ws = 0;
+  for (int k = -R; k <= R; ++k) ws += (w[k + R] = std::exp(-0.5 * k * k / (sigma * sigma)));
+  for (double& x : w) x /= ws;
+  return w;
+}
+
+void otvet_blend_finish(const float* hs, const float* d, float* hout) {
+  double h[6];
+  for (int m = 0; m < 6; ++m) h[m] = static_cast<double>(hs[m]) + d[m];
+  const double tr = (h[0] + h[1]) + h[2];
+  for (int m = 0; m < 6; ++m) h[m] /= tr;
+  clamp_eigen(h);
+  for (int m = 0; m < 6; ++m) hout[m] = static_cast<float>(h[m]);
+}
+
+OtvetCone::OtvetCone(const OtvetClosureParams& p, const std::array<double, kNfreq>& q,
+                     const std::array<double, kNfreq>& sig18, int N_)
+    : N(N_), sigma18(sig18) {
+  co = p.cone_coarse;
+  ncr = N / co;
+  rc = p.cone_rc;
+  smax = p.cone_smax * N;
+  // the mip levels of pyramid()
+  nlev = 1;
+  for (int n = N; n % 2 == 0 && n >= 2; n /= 2) ++nlev;
+  // transmission weights of the source spectrum (Gamma-weighted)
+  double Ws = 0;
+  for (int g = 0; g < kNfreq; ++g) Ws += (W[g] = q[g] * sigma18[g]);
+  for (int g = 0; g < kNfreq; ++g) W[g] = Ws > 0 ? W[g] / Ws : 0.0;
+  // half-octave distance bins from r_c (budget), else one bin
+  if (p.cone_budget) {
+    const int ne = static_cast<int>(std::ceil(2 * std::log2(smax / rc) + 2));
+    for (int i = 0; i < ne; ++i) edges.push_back(rc * std::pow(2.0, i / 2.0));
+  } else {
+    edges = {rc, smax};
+  }
+  nb = static_cast<int>(edges.size()) - 1;
+  dirs = otvet_healpix_dirs(p.cone_nside);
+  npix = static_cast<int>(dirs.size());
+  omega = 4 * M_PI / npix;
+  tanth = std::tan(std::acos(1 - omega / (2 * M_PI)));
+  // the level of the first step (the cones widen with s)
+  const double d0 = std::max(2 * rc * tanth, 1.0);
+  lmin = std::max(0, std::min(nlev - 1, static_cast<int>(std::floor(std::log2(d0)))));
+}
+
+double OtvetCone::trans(double col) const {
+  double t = 0;
+  for (int g = 0; g < kNfreq; ++g) t += W[g] * std::exp(-sigma18[g] * col);
+  return t;
+}
+
+void OtvetCone::march(const OtvetMip* R, const OtvetMip* C, int ix, int iy, int iz, float* o) const {
+  constexpr double kStep = 0.5, kTmin = 1e-4;
+  const double X[3] = {(ix + 0.5) * co, (iy + 0.5) * co, (iz + 0.5) * co};
+  std::vector<double> acc(static_cast<std::size_t>(nb) * 6, 0.0), Ib(nb);
+  for (int pix = 0; pix < npix; ++pix) {
+    const std::array<double, 3>& n = dirs[pix];
+    const double nn[6] = {n[0] * n[0], n[1] * n[1], n[2] * n[2], n[0] * n[1], n[0] * n[2], n[1] * n[2]};
+    std::fill(Ib.begin(), Ib.end(), 0.0);
+    double s = rc, colacc = 0;
+    while (s < smax) {
+      const double d = std::max(2 * s * tanth, 1.0);
+      const double ds = kStep * d;
+      const double sm = s + ds / 2;
+      const int l = std::max(0, std::min(nlev - 1, static_cast<int>(std::floor(std::log2(d)))));
+      if (l < lmin) throw std::runtime_error("otvet cone: a march below its finest level");
+      const double f = std::ldexp(1.0, l);
+      const double pos[3] = {X[0] + sm * n[0], X[1] + sm * n[1], X[2] + sm * n[2]};
+      const double rv = sample(R[l], f, pos);
+      const double cv = sample(C[l], f, pos);
+      const double w = smoothstep(sm, rc, 2 * rc);
+      const double T = trans(colacc + cv * ds / 2);
+      int b = static_cast<int>(std::upper_bound(edges.begin(), edges.end(), sm) - edges.begin()) - 1;
+      b = std::max(0, std::min(nb - 1, b));
+      Ib[b] += w * rv * omega * ds * T;
+      colacc += cv * ds;
+      s += ds;
+      if (T < kTmin) break;
+    }
+    for (int b = 0; b < nb; ++b)
+      for (int m = 0; m < 6; ++m) acc[6 * b + m] += Ib[b] * nn[m];
+  }
+  for (int q = 0; q < nb * 6; ++q) o[q] = static_cast<float>(acc[q]);
+}
+
+double OtvetCone::budget(int cone_budget, const std::vector<double>& tb, double near_tr, double target, double unit,
+                         std::vector<double>& fac, double& ratio) const {
+  std::vector<double> sb(nb);
+  for (int b = 0; b < nb; ++b) sb[b] = std::sqrt(edges[b] * edges[b + 1]);
+  const double cvol = static_cast<double>(co) * co * co;
+  auto light = [&](double lx) {
+    double t = near_tr;
+    for (int b = 0; b < nb; ++b) t += cvol * tb[b] * (lx > 0 ? std::exp(-sb[b] / lx) : 1.0);
+    return t * unit;
+  };
+  double lx = 0;
+  if (cone_budget && light(0) > target) {
+    if (near_tr * unit >= target) {
+      lx = 0;  // the near field alone exceeds the budget: no cutoff
+    } else {
+      double lo = 0, hi = 12;  // log10 lambda_x (cells)
+      for (int it = 0; it < 60; ++it) {
+        const double mid = 0.5 * (lo + hi);
+        if (light(std::pow(10.0, mid)) > target)
+          hi = mid;
+        else
+          lo = mid;
+      }
+      lx = std::pow(10.0, 0.5 * (lo + hi));
+    }
+    if (lx > 0)
+      for (int b = 0; b < nb; ++b) fac[b] = std::exp(-sb[b] / lx);
+  }
+  ratio = light(lx) / target;
+  return lx;
+}
+
 void otvet_screen_fill(int N, int m, const void* ctx, float* K) { screen_fill(N, m, ctx, K); }
 void otvet_near_fill(int N, int m, const void* ctx, float* K) { near_fill(N, m, ctx, K); }
 void otvet_normalise(const double P[6], float* h) { normalise(P, h); }
@@ -540,11 +654,11 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
   }
 
   // ---- cone ---------------------------------------------------------------
-  const int co = p.cone_coarse;
-  const int ncr = N / co;
+  const OtvetCone cone(p, in.q, in.sigma18, N);
+  const int co = cone.co;
+  const int ncr = cone.ncr;
   const std::int64_t nrec = static_cast<std::int64_t>(ncr) * ncr * ncr;
   const double rc = p.cone_rc;
-  const double smax = p.cone_smax * N;
 
   // h_s: the split thin tensor (blend), from the Gamma-weighted N
   std::vector<float> hs;
@@ -552,16 +666,8 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
     std::vector<float> nd;
     thin_tensor(in, tensor_method, hs, nd);
 #pragma omp parallel for schedule(static) if (par::worth(nc))
-    for (std::int64_t c = 0; c < nc; ++c) {
-      const double Nw = in.nw ? in.nw[c] : 0.0;
-      if (!(Nw > 0)) continue;
-      const double beta = std::min(1.0, qw * static_cast<double>(nd[c]) / Nw);
-      float* h = &hs[6 * c];
-      for (int m = 0; m < 6; ++m) {
-        const double iso = m < 3 ? 1.0 / 3 : 0.0;
-        h[m] = static_cast<float>(iso + beta * (static_cast<double>(h[m]) - iso));
-      }
-    }
+    for (std::int64_t c = 0; c < nc; ++c)
+      otvet_blend_hs(&hs[6 * c], static_cast<double>(nd[c]), in.nw ? in.nw[c] : 0.0, qw);
   }
 
   // near field r < 2 r_c (FFT), in L/Lmax units
@@ -585,71 +691,14 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
   }
   const double trmin = kNoiseFloor * total(rho.data(), N);
   std::vector<double>().swap(rho);
-  const int nlev = static_cast<int>(R.size());
-
-  // transmission weights of the source spectrum (Gamma-weighted)
-  std::array<double, kNfreq> W{};
-  double Ws = 0;
-  for (int g = 0; g < kNfreq; ++g) Ws += (W[g] = in.q[g] * in.sigma18[g]);
-  for (int g = 0; g < kNfreq; ++g) W[g] = Ws > 0 ? W[g] / Ws : 0.0;
-  auto trans = [&](double col) {
-    double t = 0;
-    for (int g = 0; g < kNfreq; ++g) t += W[g] * std::exp(-in.sigma18[g] * col);
-    return t;
-  };
-
-  // half-octave distance bins from r_c (budget), else one bin
-  std::vector<double> edges;
-  if (p.cone_budget) {
-    const int ne = static_cast<int>(std::ceil(2 * std::log2(smax / rc) + 2));
-    for (int i = 0; i < ne; ++i) edges.push_back(rc * std::pow(2.0, i / 2.0));
-  } else {
-    edges = {rc, smax};
-  }
-  const int nb = static_cast<int>(edges.size()) - 1;
-
-  const std::vector<std::array<double, 3>> dirs = otvet_healpix_dirs(p.cone_nside);
-  const int npix = static_cast<int>(dirs.size());
-  const double omega = 4 * M_PI / npix;
-  const double tanth = std::tan(std::acos(1 - omega / (2 * M_PI)));
-  constexpr double kStep = 0.5, kTmin = 1e-4;
+  const int nb = cone.nb;
 
   std::vector<float> Pb(static_cast<std::size_t>(nrec) * nb * 6, 0.0f);
 #pragma omp parallel for schedule(dynamic, 64) if (nrec >= 4096)
   for (std::int64_t r = 0; r < nrec; ++r) {
     const int ix = static_cast<int>(r % ncr), iy = static_cast<int>((r / ncr) % ncr),
               iz = static_cast<int>(r / (static_cast<std::int64_t>(ncr) * ncr));
-    const double X[3] = {(ix + 0.5) * co, (iy + 0.5) * co, (iz + 0.5) * co};
-    std::vector<double> acc(static_cast<std::size_t>(nb) * 6, 0.0), Ib(nb);
-    for (int pix = 0; pix < npix; ++pix) {
-      const std::array<double, 3>& n = dirs[pix];
-      const double nn[6] = {n[0] * n[0], n[1] * n[1], n[2] * n[2],
-                            n[0] * n[1], n[0] * n[2], n[1] * n[2]};
-      std::fill(Ib.begin(), Ib.end(), 0.0);
-      double s = rc, colacc = 0;
-      while (s < smax) {
-        const double d = std::max(2 * s * tanth, 1.0);
-        const double ds = kStep * d;
-        const double sm = s + ds / 2;
-        const int l = std::max(0, std::min(nlev - 1, static_cast<int>(std::floor(std::log2(d)))));
-        const double f = std::ldexp(1.0, l);
-        const double pos[3] = {X[0] + sm * n[0], X[1] + sm * n[1], X[2] + sm * n[2]};
-        const double rv = sample(R[l], f, pos);
-        const double cv = sample(C[l], f, pos);
-        const double w = smoothstep(sm, rc, 2 * rc);
-        const double T = trans(colacc + cv * ds / 2);
-        int b = static_cast<int>(std::upper_bound(edges.begin(), edges.end(), sm) - edges.begin()) - 1;
-        b = std::max(0, std::min(nb - 1, b));
-        Ib[b] += w * rv * omega * ds * T;
-        colacc += cv * ds;
-        s += ds;
-        if (T < kTmin) break;
-      }
-      for (int b = 0; b < nb; ++b)
-        for (int m = 0; m < 6; ++m) acc[6 * b + m] += Ib[b] * nn[m];
-    }
-    float* o = &Pb[static_cast<std::size_t>(r) * nb * 6];
-    for (int q = 0; q < nb * 6; ++q) o[q] = static_cast<float>(acc[q]);
+    cone.march(R.data(), C.data(), ix, iy, iz, &Pb[static_cast<std::size_t>(r) * nb * 6]);
   }
 
   // budget: lambda_x such that the direct light equals the photons held, both
@@ -688,40 +737,13 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
         wr[r] = static_cast<double>(n) / (static_cast<double>(co) * co * co);
       }
     }
-    std::vector<double> tb(nb, 0.0), sb(nb);
-    for (int b = 0; b < nb; ++b) sb[b] = std::sqrt(edges[b] * edges[b + 1]);
+    std::vector<double> tb(nb, 0.0);
     for (std::int64_t r = 0; r < nrec; ++r)
       for (int b = 0; b < nb; ++b) {
         const float* o = &Pb[(static_cast<std::size_t>(r) * nb + b) * 6];
         tb[b] += wr[r] * ((static_cast<double>(o[0]) + o[1]) + o[2]);
       }
-    const double cvol = static_cast<double>(co) * co * co;
-    auto light = [&](double lx) {
-      double t = near_tr;
-      for (int b = 0; b < nb; ++b) t += cvol * tb[b] * (lx > 0 ? std::exp(-sb[b] / lx) : 1.0);
-      return t * unit;
-    };
-    const double target = target_ion;
-    double lx = 0;
-    if (p.cone_budget && light(0) > target) {
-      if (near_tr * unit >= target) {
-        lx = 0;  // the near field alone exceeds the budget: no cutoff
-      } else {
-        double lo = 0, hi = 12;  // log10 lambda_x (cells)
-        for (int it = 0; it < 60; ++it) {
-          const double mid = 0.5 * (lo + hi);
-          if (light(std::pow(10.0, mid)) > target)
-            hi = mid;
-          else
-            lo = mid;
-        }
-        lx = std::pow(10.0, 0.5 * (lo + hi));
-      }
-      if (lx > 0)
-        for (int b = 0; b < nb; ++b) fac[b] = std::exp(-sb[b] / lx);
-    }
-    out.lam_x = lx;
-    out.ratio = light(lx) / target;
+    out.lam_x = cone.budget(p.cone_budget, tb, near_tr, target_ion, unit, fac, out.ratio);
   }
 
   // cone part per receiver, prolonged (trilinear, periodic), plus the near
@@ -735,32 +757,15 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
     }
   std::vector<float>().swap(Pb);
 #pragma omp parallel for schedule(static) if (par::worth(nc))
-  for (int k = 0; k < N; ++k) {
-    double t[3];
-    int a0[3], a1[3];
+  for (int k = 0; k < N; ++k)
     for (int j = 0; j < N; ++j)
       for (int i = 0; i < N; ++i) {
-        const int fi[3] = {i, j, k};
-        for (int d = 0; d < 3; ++d) {
-          const double cc = (fi[d] + 0.5) / co - 0.5;
-          const double fl = std::floor(cc);
-          t[d] = cc - fl;
-          a0[d] = wrapi(static_cast<long long>(fl), ncr);
-          a1[d] = a0[d] + 1 == ncr ? 0 : a0[d] + 1;
-        }
         const std::int64_t c = idx(i, j, k, N);
         double P[6];
         for (int m = 0; m < 6; ++m) P[m] = Pn[m][c];
-        for (int dz = 0; dz < 2; ++dz)
-          for (int dy = 0; dy < 2; ++dy)
-            for (int dx = 0; dx < 2; ++dx) {
-              const double wgt = (dx ? t[0] : 1 - t[0]) * (dy ? t[1] : 1 - t[1]) * (dz ? t[2] : 1 - t[2]);
-              const std::int64_t rr = idx(dx ? a1[0] : a0[0], dy ? a1[1] : a0[1], dz ? a1[2] : a0[2], ncr);
-              for (int m = 0; m < 6; ++m) P[m] += wgt * Pr[6 * rr + m];
-            }
+        otvet_cone_prolong(co, ncr, i, j, k, [&](int a, int b2, int c2) { return &Pr[6 * idx(a, b2, c2, ncr)]; }, P);
         normalise_safe(P, trmin, &out.h[6 * c]);
       }
-  }
   for (auto& v : Pn) std::vector<double>().swap(v);
 
   if (p.cone_blend > 0) {
@@ -768,14 +773,7 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
     for (std::int64_t q = 0; q < 6 * nc; ++q) out.h[q] = out.h[q] - hs[q];
     for (int m = 0; m < 6; ++m) gauss_blur(out.h, m, N, p.cone_blend);
 #pragma omp parallel for schedule(static) if (par::worth(nc))
-    for (std::int64_t c = 0; c < nc; ++c) {
-      double h[6];
-      for (int m = 0; m < 6; ++m) h[m] = static_cast<double>(hs[6 * c + m]) + out.h[6 * c + m];
-      const double tr = (h[0] + h[1]) + h[2];
-      for (int m = 0; m < 6; ++m) h[m] /= tr;
-      clamp_eigen(h);
-      for (int m = 0; m < 6; ++m) out.h[6 * c + m] = static_cast<float>(h[m]);
-    }
+    for (std::int64_t c = 0; c < nc; ++c) otvet_blend_finish(&hs[6 * c], &out.h[6 * c], &out.h[6 * c]);
   }
   out.seconds = wall_seconds() - t0;
 }

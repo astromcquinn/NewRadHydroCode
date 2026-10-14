@@ -27,8 +27,17 @@
 //               m * nranks / 6, copied onto the slabs (ParallelCopy) and
 //               normalised there; h and ndir with one ghost layer.
 //
-// The cone, recomb_rad = 1 and the checkpoint come in the next phases and
-// are refused until then.
+//               The cone: the blend's thin tensor and the near field as 12
+//               FFT tasks; the mip-maps built per slab down to the finest
+//               level a march samples (lmin), that level gathered on every
+//               rank and the coarser ones rebuilt there; the march of each
+//               slab's receivers; the budget sums by plane and, over the
+//               receivers, as a chain; the prolongation with one ghost
+//               receiver layer; the blend's Gaussian along x and y on the
+//               slabs and along z on y-slabs (a transpose).
+//
+// recomb_rad = 1 and the checkpoint come in the next phases and are refused
+// until then.
 #include <mpi.h>
 
 #include <algorithm>
@@ -41,7 +50,9 @@
 #include <string>
 #include <vector>
 
+#include <AMReX_BoxList.H>
 #include <AMReX_FArrayBox.H>
+#include <AMReX_MultiFab.H>
 
 #include "exact_sum.hpp"
 #include "radray/constants.hpp"
@@ -63,6 +74,13 @@ using xs::allreduce_i128;
 using xs::from_fx128;
 using xs::i128;
 using xs::to_fx128;
+
+// A receiver's 6 components in a FAB (otvet_cone_prolong reads q[m])
+struct PrRef {
+  ax::Array4<double const> a;
+  int i, j, k;
+  double operator[](int m) const { return a(i, j, k, m); }
+};
 
 constexpr int kMC = 5 * kNfreq;  // the moment components: 5 g + q (q: 0 N, 1-3 F, 4 E)
 constexpr int kChainTag = 7101;
@@ -105,7 +123,8 @@ struct MomentLevel : CellLevel {
   std::vector<Src> src;
   // OTVET: the tensor h (6) and the split's ndir (1), one ghost layer
   ax::FabArray<ax::BaseFab<float>> H, Nd;
-  bool split = false;
+  bool split = false;      // otvet_split = 1 (Nd defined)
+  bool split_now = false;  // the transport uses N_dir this hydro step (not with the cone)
   std::unique_ptr<OtvetConvolver> conv;  // the FFT tasks of this rank
   std::int64_t nsrc = 0;
   // the photon budget (MomentState's, rank 0's values on every rank)
@@ -115,8 +134,6 @@ struct MomentLevel : CellLevel {
   MomentLevel(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
     if (!cfg.amrex_slab)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
-    if (cfg.rt_method == RTMethod::OTVET && otvet_closure_params(cfg).closure == 2)
-      throw std::runtime_error("rt_backend = amrex: otvet_closure = cone is not implemented yet");
     if (cfg.recomb_rad) throw std::runtime_error("rt_backend = amrex: recomb_rad = 1 with the moment RT is not implemented yet");
     stats_mode = cfg.amrex_moment_stats;
     // whole planes per box, and the ranks in z order (the chains)
@@ -199,13 +216,14 @@ struct MomentLevel : CellLevel {
   }
 
   // The FFT convolution P[m] = (K_m * rho) / N^3 of the serial code onto the
-  // slabs (comp m of P6), one component per task: rho = L / Lmax at the
-  // sources. Collective.
+  // slabs (comp m of P6), one component per task (task base + m of ntask on
+  // rank (base + m) * nranks / ntask): rho = L / Lmax at the sources.
+  // Collective.
   void fft_components(const std::vector<OtvetSource>& gs, double Lmax, OtvetKernelFill fill, const void* ctx,
-                      const char* tag, double param, ax::FabArray<ax::BaseFab<float>>& P6) {
+                      const char* tag, double param, FFab& P6, int base, int ntask) {
     const int np = ax::ParallelDescriptor::NProcs(), me = ax::ParallelDescriptor::MyProc();
     const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
-    auto owner = [&](int m) { return static_cast<int>(static_cast<long long>(m) * np / 6); };
+    auto owner = [&](int m) { return static_cast<int>(static_cast<long long>(base + m) * np / ntask); };
     bool mine = false;
     for (int m = 0; m < 6; ++m) mine = mine || owner(m) == me;
     if (mine) {
@@ -222,7 +240,7 @@ struct MomentLevel : CellLevel {
     }
     for (int m = 0; m < 6; ++m) {
       const ax::DistributionMapping dm1(ax::Vector<int>{owner(m)});
-      ax::FabArray<ax::BaseFab<float>> one(ax::BoxArray(domain), dm1, 1, 0);
+      FFab one(ax::BoxArray(domain), dm1, 1, 0);
       if (owner(m) == me) {
         const void* ks = conv->kernel(m, fill, ctx, tag, param, conv->out());
         conv->convolve(ks, conv->out());
@@ -237,8 +255,85 @@ struct MomentLevel : CellLevel {
     }
   }
 
+  // The thin tensor h (6 comps of Hd) and N_dir = tr P / (4 pi) (NDd, may be
+  // null) on the valid cells (compute_otvet_tensor / thin_tensor: the
+  // direct sum, method 1, or the FFT, method 2); gs not empty
+  void thin_slabs(const std::vector<OtvetSource>& gs, double Lmax, int method, FFab& Hd, FFab* NDd, int base,
+                  int ntask) {
+    const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
+    if (method == 1) {
+      for (ax::MFIter mfi(Hd); mfi.isValid(); ++mfi) {
+        auto h = Hd.array(mfi);
+        ax::Array4<float> nd = NDd ? NDd->array(mfi) : ax::Array4<float>{};
+        const bool sp = NDd != nullptr;
+        const int NN = N;
+        const OtvetSource* sv = gs.data();
+        const std::size_t ns = gs.size();
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          auto mimg = [NN](int d) {
+            d %= NN;
+            if (d < 0) d += NN;
+            if (2 * d > NN) d -= NN;
+            return d;
+          };
+          double P[6] = {0, 0, 0, 0, 0, 0}, K[6];
+          for (std::size_t n = 0; n < ns; ++n) {
+            const OtvetSource& q2 = sv[n];
+            otvet_kernel(NN, mimg(i - q2.i), mimg(j - q2.j), mimg(k - q2.k), K);
+            for (int m = 0; m < 6; ++m) P[m] += q2.L * K[m];
+          }
+          float hc[6];
+          otvet_normalise(P, hc);
+          for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+          if (sp) nd(i, j, k) = static_cast<float>(((P[0] + P[1]) + P[2]) / (4 * M_PI));
+        });
+      }
+      return;
+    }
+    FFab P6(ba, dm, 6, 0);
+    fft_components(gs, Lmax, otvet_thin_fill, nullptr, "thin", 0.0, P6, base, ntask);
+    const double ncd = static_cast<double>(nc);
+    for (ax::MFIter mfi(Hd); mfi.isValid(); ++mfi) {
+      auto h = Hd.array(mfi);
+      auto pp = P6.const_array(mfi);
+      ax::Array4<float> nd = NDd ? NDd->array(mfi) : ax::Array4<float>{};
+      const bool sp = NDd != nullptr;
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        double Pc[6];
+        for (int m = 0; m < 6; ++m) Pc[m] = static_cast<double>(pp(i, j, k, m)) / ncd;
+        float hc[6];
+        otvet_normalise(Pc, hc);
+        for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+        if (sp) nd(i, j, k) = static_cast<float>(std::max(0.0, (Pc[0] + Pc[1]) + Pc[2]) * Lmax / (4 * M_PI));
+      });
+    }
+  }
+
+  // The method of the thin tensor (otvet_tensor; 0: direct when Nsrc Ncell
+  // is small)
+  int thin_method(const Simulation& s, std::size_t ns) const {
+    const double nc = static_cast<double>(N) * N * N;
+    int method = s.cfg.otvet_tensor;
+    if (method == 0) method = (!otvet_fft_available() || static_cast<double>(ns) * nc <= 2.7e8) ? 1 : 2;
+    if (method == 2 && !otvet_fft_available()) throw std::runtime_error("otvet_tensor = fft: built without FFTW3f");
+    return method;
+  }
+
+  // trmin = 1e-6 sum rho, by plane in cell order (the empty cells add 0)
+  double trmin_of(const std::vector<OtvetSource>& gs, double Lmax) const {
+    std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+    for (const OtvetSource& q2 : gs) {
+      double rho = 0.0;
+      rho += q2.L / Lmax;
+      part[static_cast<std::size_t>(q2.k)] += rho;
+    }
+    double t = 0;
+    for (double pk : part) t = t + pk;
+    return kOtvetNoiseFloor * t;
+  }
+
   // rt_moments otvet_update_tensor / compute_otvet_tensor /
-  // otvet_closure_tensor (thin, split, screen) on the slabs
+  // otvet_closure_tensor on the slabs
   void tensor(Simulation& s) {
     const double t0 = now();
     const OtvetClosureParams p = otvet_closure_params(s.cfg);
@@ -262,6 +357,12 @@ struct MomentLevel : CellLevel {
     }
     double qw = 0;
     for (int g = 0; g < kNfreq; ++g) qw += q[g] * sigma18[g];
+    // Gamma-weighted photons of the solution per cell (nw)
+    auto nw_at = [&](const ax::Array4<float const>& m, int i, int j, int k) {
+      double w = 0;
+      for (int g = 0; g < kNfreq; ++g) w += sigma18[g] * static_cast<double>(m(i, j, k, 5 * g));
+      return w;
+    };
     // the budget: the Gamma-weighted photons of the solution, by plane
     double target = 0;
     if (p.active()) {
@@ -273,11 +374,7 @@ struct MomentLevel : CellLevel {
         for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
           double t = 0;
           for (int j = 0; j < N; ++j)
-            for (int i = 0; i < N; ++i) {
-              double w = 0;
-              for (int g = 0; g < kNfreq; ++g) w += sigma18[g] * static_cast<double>(m(i, j, k, 5 * g));
-              t += w;
-            }
+            for (int i = 0; i < N; ++i) t += nw_at(m, i, j, k);
           part[static_cast<std::size_t>(k)] = t;
         }
       }
@@ -286,66 +383,20 @@ struct MomentLevel : CellLevel {
     double Lsum = 0, Lmax = 0;
     for (const OtvetSource& q2 : gs) Lsum += q2.L;
     for (const OtvetSource& q2 : gs) Lmax = std::max(Lmax, q2.L);
-    double lam = 0, ratio = 0;
+    double lam = 0, lam_x = 0, ratio = 0;
 
     auto iso = [&]() {
       H.setVal(0.0f);
       H.setVal(static_cast<float>(1.0 / 3), 0, 3, H.nGrow());
       if (split) Nd.setVal(0.0f);
     };
-    // thin, or thin + split (compute_otvet_tensor / thin_tensor)
+    split_now = split;
     if (p.closure == 0) {
-      int method = s.cfg.otvet_tensor;
-      if (method == 0)
-        method = (!otvet_fft_available() || static_cast<double>(gs.size()) * static_cast<double>(nc) <= 2.7e8) ? 1 : 2;
-      if (method == 2 && !otvet_fft_available()) throw std::runtime_error("otvet_tensor = fft: built without FFTW3f");
+      // thin, or thin + split (compute_otvet_tensor / thin_tensor)
       if (gs.empty()) {
         iso();
-      } else if (method == 1) {
-        for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
-          auto h = H.array(mfi);
-          ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
-          const bool sp = split;
-          const int NN = N;
-          const OtvetSource* sv = gs.data();
-          const std::size_t ns = gs.size();
-          ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
-            double P[6] = {0, 0, 0, 0, 0, 0}, K[6];
-            for (std::size_t n = 0; n < ns; ++n) {
-              const OtvetSource& q2 = sv[n];
-              auto mimg = [NN](int d) {
-                d %= NN;
-                if (d < 0) d += NN;
-                if (2 * d > NN) d -= NN;
-                return d;
-              };
-              otvet_kernel(NN, mimg(i - q2.i), mimg(j - q2.j), mimg(k - q2.k), K);
-              for (int m = 0; m < 6; ++m) P[m] += q2.L * K[m];
-            }
-            float hc[6];
-            otvet_normalise(P, hc);
-            for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
-            if (sp) nd(i, j, k) = static_cast<float>(((P[0] + P[1]) + P[2]) / (4 * M_PI));
-          });
-        }
       } else {
-        ax::FabArray<ax::BaseFab<float>> P6(ba, dm, 6, 0);
-        fft_components(gs, Lmax, otvet_thin_fill, nullptr, "thin", 0.0, P6);
-        const double ncd = static_cast<double>(nc);
-        for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
-          auto h = H.array(mfi);
-          auto pp = P6.const_array(mfi);
-          ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
-          const bool sp = split;
-          ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
-            double Pc[6];
-            for (int m = 0; m < 6; ++m) Pc[m] = static_cast<double>(pp(i, j, k, m)) / ncd;
-            float hc[6];
-            otvet_normalise(Pc, hc);
-            for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
-            if (sp) nd(i, j, k) = static_cast<float>(std::max(0.0, (Pc[0] + Pc[1]) + Pc[2]) * Lmax / (4 * M_PI));
-          });
-        }
+        thin_slabs(gs, Lmax, thin_method(s, gs.size()), H, split ? &Nd : nullptr, 0, 6);
       }
       if (split && target > 0 && !gs.empty()) {
         std::vector<double> part(static_cast<std::size_t>(N), 0.0);
@@ -361,57 +412,48 @@ struct MomentLevel : CellLevel {
         }
         ratio = qw * plane_total(part) / target;
       }
-    } else {
+    } else if (!otvet_fft_available()) {
+      throw std::runtime_error("otvet_closure = screen | cone need FFTW3f");
+    } else if (gs.empty() || !(Lsum > 0)) {
+      iso();
+    } else if (p.closure == 1) {
       // screen (otvet_closure_tensor closure 1)
-      if (!otvet_fft_available()) throw std::runtime_error("otvet_closure = screen | cone need FFTW3f");
-      if (gs.empty() || !(Lsum > 0)) {
-        iso();
-      } else {
-        lam = p.screen_lambda;
-        if (!(lam > 0)) lam = (target > 0 && qw > 0) ? target / (qw * Lsum) : 1.0;
-        lam = std::max(lam, 1.0);
-        const OtvetScreenCtx ctx{lam};
-        ax::FabArray<ax::BaseFab<float>> P6(ba, dm, 6, 0);
-        fft_components(gs, Lmax, otvet_screen_fill, &ctx, p.screen_lambda > 0 ? "screen" : nullptr, lam, P6);
-        // trmin = 1e-6 sum rho, by plane in cell order (the empty cells add 0)
-        double trmin = 0;
-        {
-          std::vector<double> part(static_cast<std::size_t>(N), 0.0);
-          for (const OtvetSource& q2 : gs) {
-            double rho = 0.0;
-            rho += q2.L / Lmax;
-            part[static_cast<std::size_t>(q2.k)] += rho;
-          }
-          double t = 0;
-          for (double pk : part) t = t + pk;
-          trmin = kOtvetNoiseFloor * t;
-        }
-        const double ncd = static_cast<double>(nc);
-        std::vector<double> part(static_cast<std::size_t>(N), 0.0);
-        for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
-          auto h = H.array(mfi);
-          auto pp = P6.const_array(mfi);
-          ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
-          const bool sp = split;
-          const ax::Box bx = mfi.validbox();
+      lam = p.screen_lambda;
+      if (!(lam > 0)) lam = (target > 0 && qw > 0) ? target / (qw * Lsum) : 1.0;
+      lam = std::max(lam, 1.0);
+      const OtvetScreenCtx ctx{lam};
+      FFab P6(ba, dm, 6, 0);
+      fft_components(gs, Lmax, otvet_screen_fill, &ctx, p.screen_lambda > 0 ? "screen" : nullptr, lam, P6, 0, 6);
+      const double trmin = trmin_of(gs, Lmax);
+      const double ncd = static_cast<double>(nc);
+      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+      for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
+        auto h = H.array(mfi);
+        auto pp = P6.const_array(mfi);
+        ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
+        const bool sp = split;
+        const ax::Box bx = mfi.validbox();
 #pragma omp parallel for schedule(static)
-          for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
-            double t = 0;
-            for (int j = 0; j < N; ++j)
-              for (int i = 0; i < N; ++i) {
-                double Pc[6];
-                for (int m = 0; m < 6; ++m) Pc[m] = static_cast<double>(pp(i, j, k, m)) / ncd;
-                float hc[6];
-                otvet_normalise_safe(Pc, trmin, hc);
-                for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
-                if (sp) nd(i, j, k) = static_cast<float>(std::max(0.0, (Pc[0] + Pc[1]) + Pc[2]) * Lmax / (4 * M_PI));
-                t += (Pc[0] + Pc[1]) + Pc[2];
-              }
-            part[static_cast<std::size_t>(k)] = t;
-          }
+        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+          double t = 0;
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i) {
+              double Pc[6];
+              for (int m = 0; m < 6; ++m) Pc[m] = static_cast<double>(pp(i, j, k, m)) / ncd;
+              float hc[6];
+              otvet_normalise_safe(Pc, trmin, hc);
+              for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+              if (sp) nd(i, j, k) = static_cast<float>(std::max(0.0, (Pc[0] + Pc[1]) + Pc[2]) * Lmax / (4 * M_PI));
+              t += (Pc[0] + Pc[1]) + Pc[2];
+            }
+          part[static_cast<std::size_t>(k)] = t;
         }
-        if (target > 0) ratio = qw * plane_total(part) * Lmax / (4 * M_PI) / target;
       }
+      if (target > 0) ratio = qw * plane_total(part) * Lmax / (4 * M_PI) / target;
+    } else {
+      // the cone writes no N_dir (the transport is not split)
+      split_now = false;
+      cone_tensor(s, p, gs, Lmax, q, sigma18, qw, nw_at, lam_x, ratio);
     }
     H.FillBoundary(period);
     if (split) Nd.FillBoundary(period);
@@ -419,8 +461,345 @@ struct MomentLevel : CellLevel {
     T.tensor += secs;
     if (p.active() && s.raylog)
       *s.raylog << " OTVET      : " << otvet_closure_summary(s.cfg) << "; lambda " << static_cast<float>(lam)
-                << " lambda_x " << 0.0f << " N_dir/N " << static_cast<float>(ratio) << " sources " << nsrc << " "
-                << static_cast<float>(secs) << " s\n";
+                << " lambda_x " << static_cast<float>(lam_x) << " N_dir/N " << static_cast<float>(ratio) << " sources "
+                << nsrc << " " << static_cast<float>(secs) << " s\n";
+  }
+
+  // ---- the cone (otvet_closure_tensor closure 2) on the slabs ---------------
+
+  template <class NwAt>
+  void cone_tensor(const Simulation& s, const OtvetClosureParams& p, const std::vector<OtvetSource>& gs, double Lmax,
+                   const std::array<double, kNfreq>& q, const std::array<double, kNfreq>& sigma18, double qw,
+                   NwAt&& nw_at, double& lam_x, double& ratio) {
+    const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
+    const double ncd = static_cast<double>(nc);
+    const OtvetCone cone(p, q, sigma18, N);
+    const int co = cone.co, ncr = cone.ncr, nb = cone.nb;
+    const int lstep = 1 << cone.lmin;
+    for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
+      const ax::Box bx = ba[b];
+      if (bx.smallEnd(2) % co != 0 || bx.length(2) % co != 0 || bx.smallEnd(2) % lstep != 0 ||
+          bx.length(2) % lstep != 0)
+        throw std::runtime_error("otvet_closure = cone: amrex_slab_planes must be a multiple of otvet_cone_coarse (" +
+                                 std::to_string(co) + ") and of 2^" + std::to_string(cone.lmin));
+    }
+    // the Gamma-weighted photons and the ionised cells (x_HII = 1 - fHI > 0.5)
+    auto ion_at = [](const ax::Array4<RTCell const>& c, int i, int j, int k) {
+      return 1.0f - c(i, j, k).fHI > 0.5f;
+    };
+
+    // h_s: the split thin tensor (blend), from the Gamma-weighted N
+    FFab HS;
+    if (p.cone_blend > 0) {
+      HS.define(ba, dm, 6, 0);
+      FFab ND(ba, dm, 1, 0);
+      thin_slabs(gs, Lmax, thin_method(s, gs.size()), HS, &ND, 0, 12);
+      for (ax::MFIter mfi(HS); mfi.isValid(); ++mfi) {
+        auto h = HS.array(mfi);
+        auto nd = ND.const_array(mfi);
+        auto m = M.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=, &nw_at](int i, int j, int k) {
+          float hc[6];
+          for (int c = 0; c < 6; ++c) hc[c] = h(i, j, k, c);
+          otvet_blend_hs(hc, static_cast<double>(nd(i, j, k)), nw_at(m, i, j, k), qw);
+          for (int c = 0; c < 6; ++c) h(i, j, k, c) = hc[c];
+        });
+      }
+    }
+
+    // the near field r < 2 r_c (FFT), in L/Lmax units
+    FFab PN(ba, dm, 6, 0);
+    {
+      const OtvetNearCtx ctx{p.cone_rc};
+      fft_components(gs, Lmax, otvet_near_fill, &ctx, "near", p.cone_rc, PN, 6, 12);
+    }
+
+    // the mip-maps of the emissivity and of the capped HI column: each slab
+    // builds its planes down to level lmin, which is gathered on every rank,
+    // then the coarser levels (the same arithmetic as pyramid())
+    std::vector<OtvetMip> R(cone.nlev), Cm(cone.nlev);
+    {
+      const double cap = sigma18[0] > 0 ? p.cone_taucap / sigma18[0] : 0.0;
+      const Units u = s.units;
+      // the local fine planes, local boxes in z order
+      std::vector<float> fr, fc;
+      for (int li : zorder) {
+        const ax::Box bx = local_box(li);
+        auto c = C.atLocalIdx(li).const_array();
+        const std::size_t off = fr.size();
+        const std::size_t npl = static_cast<std::size_t>(N) * N * bx.length(2);
+        fr.resize(off + npl, 0.0f);
+        fc.resize(off + npl, 0.0f);
+        float* pr = fr.data() + off;
+        float* pc = fc.data() + off;
+        const int z0 = bx.smallEnd(2);
+        const int NN = N;
+        ax::ParallelForOMP(bx, [=](int i, int j, int k) {
+          const RTCell& d = c(i, j, k);
+          // HI column per cell (1e-18 cm^-2), as calc_rt_1's tau
+          const double nH = static_cast<double>(d.rhog) * u.rhob_avg * cp::XHy / pc::mH_cgs;
+          const float col = static_cast<float>(nH * static_cast<double>(d.fHI) * u.len_rt * 1e-18);
+          pc[i + static_cast<std::size_t>(NN) * (j + static_cast<std::size_t>(NN) * (k - z0))] =
+              static_cast<float>(std::min(static_cast<double>(col), cap));
+        });
+        for (const OtvetSource& q2 : gs) {
+          if (q2.k < bx.smallEnd(2) || q2.k > bx.bigEnd(2)) continue;
+          double rho = 0.0;
+          rho += q2.L / Lmax;
+          pr[q2.i + static_cast<std::size_t>(N) * (q2.j + static_cast<std::size_t>(N) * (q2.k - z0))] =
+              static_cast<float>(rho);
+        }
+      }
+      // down to lmin (the local boxes are contiguous in z)
+      int n = N;
+      for (int l = 0; l < cone.lmin; ++l) {
+        const int npl = static_cast<int>(fr.size() / (static_cast<std::size_t>(n) * n));
+        const int nn = n / 2;
+        std::vector<float> cr(static_cast<std::size_t>(nn) * nn * (npl / 2)), cc(cr.size());
+        otvet_mip_coarsen(fr.data(), n, 0, npl / 2, cr.data());
+        otvet_mip_coarsen(fc.data(), n, 0, npl / 2, cc.data());
+        fr.swap(cr);
+        fc.swap(cc);
+        n = nn;
+      }
+      // the level lmin on every rank (ranks in z order)
+      const int np = ax::ParallelDescriptor::NProcs();
+      for (int which = 0; which < 2; ++which) {
+        std::vector<float>& loc = which == 0 ? fr : fc;
+        OtvetMip& L = which == 0 ? R[cone.lmin] : Cm[cone.lmin];
+        L.n = n;
+        L.a.assign(static_cast<std::size_t>(n) * n * n, 0.0f);
+        if (np == 1) {
+          L.a = loc;
+        } else {
+          int cnt = static_cast<int>(loc.size());
+          std::vector<int> cnts(np), displ(np);
+          MPI_Allgather(&cnt, 1, MPI_INT, cnts.data(), 1, MPI_INT, comm());
+          long long tot = 0;
+          for (int r = 0; r < np; ++r) {
+            displ[r] = static_cast<int>(tot);
+            tot += cnts[r];
+          }
+          if (tot != static_cast<long long>(L.a.size())) throw std::runtime_error("otvet cone: mip level gather");
+          MPI_Allgatherv(loc.data(), cnt, MPI_FLOAT, L.a.data(), cnts.data(), displ.data(), MPI_FLOAT, comm());
+        }
+      }
+      for (int l = cone.lmin + 1; l < cone.nlev; ++l)
+        for (std::vector<OtvetMip>* P : {&R, &Cm}) {
+          const OtvetMip& b = (*P)[l - 1];
+          OtvetMip& c = (*P)[l];
+          c.n = b.n / 2;
+          c.a.assign(static_cast<std::size_t>(c.n) * c.n * c.n, 0.0f);
+          otvet_mip_coarsen(b.a.data(), b.n, 0, c.n, c.a.data());
+        }
+    }
+    const double trmin = trmin_of(gs, Lmax);
+
+    // the march of the local receivers (whole receivers per slab)
+    std::vector<std::vector<float>> Pb(zorder.size());
+    std::vector<std::array<int, 2>> rz(zorder.size());  // the receiver planes of each local box
+    for (std::size_t a = 0; a < zorder.size(); ++a) {
+      const ax::Box bx = local_box(zorder[a]);
+      const int iz0 = bx.smallEnd(2) / co, iz1 = (bx.bigEnd(2) + 1) / co;
+      rz[a] = {iz0, iz1};
+      const std::int64_t nr = static_cast<std::int64_t>(ncr) * ncr * (iz1 - iz0);
+      Pb[a].assign(static_cast<std::size_t>(nr) * nb * 6, 0.0f);
+      float* pb = Pb[a].data();
+#pragma omp parallel for schedule(dynamic, 64)
+      for (std::int64_t r = 0; r < nr; ++r) {
+        const int ix = static_cast<int>(r % ncr), iy = static_cast<int>((r / ncr) % ncr),
+                  iz = iz0 + static_cast<int>(r / (static_cast<std::int64_t>(ncr) * ncr));
+        cone.march(R.data(), Cm.data(), ix, iy, iz, pb + static_cast<std::size_t>(r) * nb * 6);
+      }
+    }
+    std::vector<OtvetMip>().swap(R);
+    std::vector<OtvetMip>().swap(Cm);
+
+    // the budget (target_ion, near_tr by plane; tb in receiver order)
+    std::vector<double> fac(nb, 1.0);
+    double target_ion = 0;
+    {
+      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+      for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
+        auto m = M.const_array(mfi);
+        auto c = C.const_array(mfi);
+        const ax::Box bx = mfi.validbox();
+#pragma omp parallel for schedule(static)
+        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+          double t = 0;
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i)
+              if (ion_at(c, i, j, k)) t += nw_at(m, i, j, k);
+          part[static_cast<std::size_t>(k)] = t;
+        }
+      }
+      target_ion = plane_total(part);
+    }
+    if (target_ion > 0 && qw > 0) {
+      const double unit = qw * Lmax / (4 * M_PI);  // photons per (L/Lmax) unit of tr P
+      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+      for (ax::MFIter mfi(PN); mfi.isValid(); ++mfi) {
+        auto pn = PN.const_array(mfi);
+        auto c = C.const_array(mfi);
+        const ax::Box bx = mfi.validbox();
+#pragma omp parallel for schedule(static)
+        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+          double t = 0;
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i)
+              if (ion_at(c, i, j, k))
+                t += (static_cast<double>(pn(i, j, k, 0)) / ncd + static_cast<double>(pn(i, j, k, 1)) / ncd) +
+                     static_cast<double>(pn(i, j, k, 2)) / ncd;
+          part[static_cast<std::size_t>(k)] = t;
+        }
+      }
+      const double near_tr = plane_total(part);
+      // tb[b] += wr[r] tr(Pb[r][b]) over the receivers in order (a chain)
+      std::vector<double> tb(nb, 0.0);
+      const double cvol = static_cast<double>(co) * co * co;
+      chain(tb.data(), nb, [&](double* t) {
+        for (std::size_t a = 0; a < zorder.size(); ++a) {
+          auto c = C.atLocalIdx(zorder[a]).const_array();
+          const std::int64_t nr = static_cast<std::int64_t>(ncr) * ncr * (rz[a][1] - rz[a][0]);
+          for (std::int64_t r = 0; r < nr; ++r) {
+            const int ix = static_cast<int>(r % ncr), iy = static_cast<int>((r / ncr) % ncr),
+                      iz = rz[a][0] + static_cast<int>(r / (static_cast<std::int64_t>(ncr) * ncr));
+            int n = 0;
+            for (int dz = 0; dz < co; ++dz)
+              for (int dy = 0; dy < co; ++dy)
+                for (int dx = 0; dx < co; ++dx) n += ion_at(c, ix * co + dx, iy * co + dy, iz * co + dz);
+            const double wr = static_cast<double>(n) / cvol;
+            for (int b = 0; b < nb; ++b) {
+              const float* o = &Pb[a][(static_cast<std::size_t>(r) * nb + b) * 6];
+              t[b] += wr * ((static_cast<double>(o[0]) + o[1]) + o[2]);
+            }
+          }
+        }
+      });
+      lam_x = cone.budget(p.cone_budget, tb, near_tr, target_ion, unit, fac, ratio);
+    }
+
+    // the receivers' P on the coarse slabs, one ghost receiver layer
+    ax::BoxArray bac = ba;
+    bac.coarsen(co);
+    ax::MultiFab Pr(bac, dm, 6, 1);
+    Pr.setVal(0.0);
+    for (std::size_t a = 0; a < zorder.size(); ++a) {
+      auto pr = Pr.atLocalIdx(zorder[a]).array();
+      const std::int64_t nr = static_cast<std::int64_t>(ncr) * ncr * (rz[a][1] - rz[a][0]);
+      const float* pb = Pb[a].data();
+      const int iz0 = rz[a][0];
+      const std::vector<double>& fc = fac;
+#pragma omp parallel for schedule(static)
+      for (std::int64_t r = 0; r < nr; ++r) {
+        const int ix = static_cast<int>(r % ncr), iy = static_cast<int>((r / ncr) % ncr),
+                  iz = iz0 + static_cast<int>(r / (static_cast<std::int64_t>(ncr) * ncr));
+        double v[6] = {0, 0, 0, 0, 0, 0};
+        for (int b = 0; b < nb; ++b) {
+          const float* o = pb + (static_cast<std::size_t>(r) * nb + b) * 6;
+          for (int m = 0; m < 6; ++m) v[m] += fc[b] * static_cast<double>(o[m]);
+        }
+        for (int m = 0; m < 6; ++m) pr(ix, iy, iz, m) = v[m];
+      }
+    }
+    std::vector<std::vector<float>>().swap(Pb);
+    Pr.FillBoundary(ax::Geometry(ax::Box(ax::IntVect(0), ax::IntVect(ncr - 1)),
+                                 ax::RealBox({0., 0., 0.}, {double(ncr), double(ncr), double(ncr)}), ax::CoordSys::cartesian,
+                                 ax::Array<int, 3>{1, 1, 1})
+                        .periodicity());
+
+    // h_cone = normalise(P_near + prolonged P_r) on the fine cells, then the
+    // blend: D = h_cone - h_s, blurred (x, y local; z on y-slabs)
+    FFab& D = H;  // h_cone, then D, then h
+    for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
+      auto h = H.array(mfi);
+      auto pn = PN.const_array(mfi);
+      auto pr = Pr.const_array(mfi);
+      const ax::Box cb = ax::grow(bac[mfi.index()], 1);
+      const int czlo = cb.smallEnd(2), czhi = cb.bigEnd(2);
+      const int NN = N, NR = ncr, CO = co;
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        double P[6];
+        for (int m = 0; m < 6; ++m) P[m] = static_cast<double>(pn(i, j, k, m)) / ncd;
+        otvet_cone_prolong(CO, NR, i, j, k,
+                           [&](int a, int b2, int c2) {
+                             // the periodic index c2 as the copy within the grown coarse box
+                             int cz = c2;
+                             if (cz > czhi) cz -= NR;
+                             if (cz < czlo) cz += NR;
+                             return PrRef{pr, a, b2, cz};
+                           },
+                           P);
+        float hc[6];
+        otvet_normalise_safe(P, trmin, hc);
+        for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+        (void)NN;
+      });
+    }
+    if (!(p.cone_blend > 0)) return;
+    for (ax::MFIter mfi(D); mfi.isValid(); ++mfi) {
+      auto d = D.array(mfi);
+      auto hs = HS.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), 6, [=](int i, int j, int k, int m) { d(i, j, k, m) = d(i, j, k, m) - hs(i, j, k, m); });
+    }
+    const std::vector<double> w = otvet_gauss_weights(p.cone_blend);
+    // axes x and y on the slabs (whole planes)
+    for (int axis = 0; axis < 2; ++axis)
+      for (ax::MFIter mfi(D); mfi.isValid(); ++mfi) {
+        auto d = D.array(mfi);
+        const ax::Box bx = mfi.validbox();
+        const int NN = N;
+#pragma omp parallel for schedule(static) collapse(2)
+        for (int m = 0; m < 6; ++m)
+          for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+            std::vector<double> line(NN), outl(NN);
+            for (int a2 = 0; a2 < NN; ++a2) {
+              for (int t = 0; t < NN; ++t) line[t] = axis == 0 ? d(t, a2, k, m) : d(a2, t, k, m);
+              for (int t = 0; t < NN; ++t) outl[t] = otvet_gauss_point(w, t, NN, [&](int v) { return line[v]; });
+              for (int t = 0; t < NN; ++t) (axis == 0 ? d(t, a2, k, m) : d(a2, t, k, m)) = static_cast<float>(outl[t]);
+            }
+          }
+      }
+    // axis z on y-slabs (the transpose of the slabs: whole z lines)
+    {
+      ax::BoxList bly;
+      for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
+        const ax::Box& bz = ba[b];
+        bly.push_back(ax::Box(ax::IntVect(0, bz.smallEnd(2), 0), ax::IntVect(N - 1, bz.bigEnd(2), N - 1)));
+      }
+      const ax::BoxArray bay(bly);
+      FFab DY(bay, dm, 6, 0);
+      DY.ParallelCopy(D, 0, 0, 6);
+      for (ax::MFIter mfi(DY); mfi.isValid(); ++mfi) {
+        auto d = DY.array(mfi);
+        const ax::Box bx = mfi.validbox();
+        const int NN = N;
+#pragma omp parallel for schedule(static) collapse(2)
+        for (int m = 0; m < 6; ++m)
+          for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
+            std::vector<double> line(NN), outl(NN);
+            for (int i = 0; i < NN; ++i) {
+              for (int t = 0; t < NN; ++t) line[t] = d(i, j, t, m);
+              for (int t = 0; t < NN; ++t) outl[t] = otvet_gauss_point(w, t, NN, [&](int v) { return line[v]; });
+              for (int t = 0; t < NN; ++t) d(i, j, t, m) = static_cast<float>(outl[t]);
+            }
+          }
+      }
+      D.ParallelCopy(DY, 0, 0, 6);
+    }
+    for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
+      auto h = H.array(mfi);
+      auto hs = HS.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        float a[6], dd[6], o[6];
+        for (int m = 0; m < 6; ++m) {
+          a[m] = hs(i, j, k, m);
+          dd[m] = h(i, j, k, m);
+        }
+        otvet_blend_finish(a, dd, o);
+        for (int m = 0; m < 6; ++m) h(i, j, k, m) = o[m];
+      });
+    }
   }
 
   // ---- one RT substep: moment_step_1, rt_step_2, rt_step_3 ----------------
@@ -545,7 +924,7 @@ struct MomentLevel : CellLevel {
       const int nsub = s.cfg.moment_nsub;
       const double Cn = 1.0 / nsub;
       const bool otvet = s.cfg.rt_method == RTMethod::OTVET;
-      const mk::Closure cl = !otvet ? mk::Closure::M1 : split ? mk::Closure::Split : mk::Closure::Otvet;
+      const mk::Closure cl = !otvet ? mk::Closure::M1 : split_now ? mk::Closure::Split : mk::Closure::Otvet;
       // otvet_split = 1: N_dir,g = q_g ndir
       std::array<double, kNfreq> qg{};
       for (int g = 0; g < kNfreq; ++g) qg[g] = cl == mk::Closure::Split ? inject_per_L(s, g) : 0.0;

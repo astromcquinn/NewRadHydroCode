@@ -1006,7 +1006,11 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                 "split;lognormal_16src;rt_method=otvet,nsteps=4,otvet_split=1;few"
                 "splitfft;lognormal_16src;rt_method=otvet,nsteps=4,otvet_split=1,otvet_tensor=fft;few"
                 "screenfix;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=screen,otvet_screen_lambda=6;few"
-                "screensplit;uniform_8src;rt_method=otvet,otvet_closure=screen,otvet_split=1;few")
+                "screensplit;uniform_8src;rt_method=otvet,otvet_closure=screen,otvet_split=1;few"
+                "cone2;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=cone,otvet_cone_nside=2;cone"
+                "cone;uniform_8src;rt_method=otvet,otvet_closure=cone;cone"
+                "conenoblend;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=cone,otvet_cone_blend=0;cone"
+                "conelamx;lognormal_16src;rt_method=otvet,otvet_closure=cone,otvet_cone_rc=1,otvet_cone_coarse=2;cone2")
     list(GET mcase 0 mtag)
     list(GET mcase 1 prob)
     list(GET mcase 2 xs)
@@ -1024,6 +1028,13 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                          ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800)
     if(which STREQUAL "all")
       set(mcfgs "1:1:0:exact" "2:1:8:exact" "3:2:4:exact" "4:1:2:exact" "4:2:0:exact" "3:1:4:fixed")
+    elseif(which STREQUAL "cone")
+      # (slab planes a multiple of otvet_cone_coarse = 4)
+      set(mcfgs "1:1:0:exact" "3:2:4:exact" "4:1:4:exact" "2:2:8:fixed")
+    elseif(which STREQUAL "cone2")
+      # (otvet_cone_coarse = 2, r_c = 1: lambda_x from the budget, the fine
+      # mip level gathered)
+      set(mcfgs "1:1:0:exact" "3:2:2:exact" "4:1:2:exact" "2:2:4:fixed")
     else()
       set(mcfgs "1:1:0:exact" "3:2:4:exact" "4:1:2:exact" "2:2:8:fixed")
     endif()
@@ -1266,7 +1277,8 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
     # the full loop with the moment RT on the level and the state on the
     # slabs, byte-identical to the serial moment RT with the hydro and PM
     # backends (fields, stats, movie frames)
-    foreach(rt "m1 1 1 0" "m1 2 1 4" "m1 3 2 4" "otvet 3 2 4" "split 2 2 2" "screensplit 3 1 4")
+    foreach(rt "m1 1 1 0" "m1 2 1 4" "m1 3 2 4" "otvet 3 2 4" "split 2 2 2" "screensplit 3 1 4" "cone 2 2 4"
+               "cone 4 1 4")
       separate_arguments(rt)
       list(GET rt 0 mc)
       list(GET rt 1 np)
@@ -1278,6 +1290,8 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
         set(margs --set rt_method=otvet)
       elseif(mc STREQUAL "split")
         set(margs --set rt_method=otvet --set otvet_split=1)
+      elseif(mc STREQUAL "cone")
+        set(margs --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2)
       else()
         set(margs --set rt_method=otvet --set otvet_closure=screen --set otvet_split=1)
       endif()
