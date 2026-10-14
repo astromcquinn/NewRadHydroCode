@@ -143,7 +143,7 @@ PMConfig PMConfig::make(int Ngas, int Ndm, bool mf, int refine) {
 }
 
 // pm_tools.f90: init_pm
-void init_pm(PMState& s, const PMConfig& pc, const Domains& dom) {
+void init_pm(PMState& s, const PMConfig& pc, const Domains& dom, bool host_arrays) {
   s.pc = pc;
   s.dom = dom;
   // pm_refine > 1: the same domains, in the same order, on the mesh
@@ -157,6 +157,7 @@ void init_pm(PMState& s, const PMConfig& pc, const Domains& dom) {
   // npt = Npart/Ncpu + min(1,mod(Npart,Ncpu)) with Ncpu = 1
   s.dm_cpu[0] = 1;
   s.dm_cpu[1] = pc.Npart;
+  if (!host_arrays) return;
   s.xv.assign(6 * pc.Npart, 0.0f);
   s.ll.assign(pc.Npart + 1, 0);
   s.hoc.assign(N * N * N, 0);

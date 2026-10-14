@@ -606,13 +606,15 @@ int main(int argc, char** argv) {
     init_variables(P.z_init, s.clk);                  // init_variables
     init_domain_gas(cfg, gdom);                        // init_domain_gas
     init_domain_rt(cfg, s.dom);                        // init_domain_rt
+    // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
+    // before any level; the host grids stay as rank 0's mirror only, and
+    // the other ranks never allocate the host PM arrays (at pm_refine = 2
+    // with 1024^3 particles they are 45 GB per rank)
+    const bool on_level = use_amrex_state(cfg);
     init_hydro(cfg, s.gas, hs);                        // init_hydro
-    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom);    // init_pm
+    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && !io));  // init_pm
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
-    // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
-    // before any level; the host grids stay as rank 0's mirror only
-    const bool on_level = use_amrex_state(cfg);
     if (on_level) {
       amrex_state_init(s);
       if (!io) {
@@ -655,7 +657,7 @@ int main(int argc, char** argv) {
     int& idata2 = dst.idata2;
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
-    fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
+    if (!(on_level && !io)) fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     if (on_level && !io) {
       // amrex_state = 1: the particles live on the level; rank 0 keeps the
       // host PM arrays as the mirror (the halo finder, P(k), the outputs)
