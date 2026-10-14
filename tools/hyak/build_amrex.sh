@@ -91,7 +91,9 @@ case "$launcher" in
   *srun) default_flags="--overlap" ;;
   *)     default_flags="--bind-to;none;--oversubscribe" ;;
 esac
-cmake -S "$src" -B "$bld" -DCMAKE_BUILD_TYPE=Release -DRADRAY_AMREX=ON \
+# -g1: line tables for the Backtrace.<rank> files of a hung run (SIGTERM);
+# CMAKE_CXX_FLAGS, since CMakeLists.txt fixes CMAKE_CXX_FLAGS_RELEASE
+cmake -S "$src" -B "$bld" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-g1" -DRADRAY_AMREX=ON \
   -DAMReX_DIR="$AMREX_DIR/lib/cmake/AMReX" -DAMReX_FFTW_IGNORE_OMP=ON \
   -DRADRAY_MPIEXEC="$launcher" -DRADRAY_MPIEXEC_FLAGS="${RADRAY_MPIEXEC_FLAGS:-$default_flags}" \
   ${CMAKE_EXTRA:-}

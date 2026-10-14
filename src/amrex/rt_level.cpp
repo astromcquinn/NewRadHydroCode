@@ -59,6 +59,11 @@
 #include <AMReX_Scan.H>
 #ifdef AMREX_USE_OMP
 #include <omp.h>
+
+#include <csignal>
+#include <execinfo.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include "gas_state.hpp"
@@ -222,6 +227,10 @@ struct LevelBase {
   // five of write_stats), and rank 0's RT grid onto the cells (a restart)
   virtual void gather_fields(Simulation& s, bool stats_only) = 0;
   virtual void scatter_fields(Simulation& s) = 0;
+  // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
+  // and rays moved onto a new mapping of the same BoxArray
+  virtual void box_ray_counts(ax::Vector<ax::Real>& count) const = 0;
+  virtual void remap(const ax::DistributionMapping& dm2) = 0;
   virtual std::int64_t nrays() const = 0;
   virtual int bytes_per_ray() const = 0;
   virtual void gather_rays(std::vector<RayP>& out) const = 0;
@@ -1151,6 +1160,57 @@ struct Level : LevelBase {
     sync_fields(s);
   }
 
+  // ---- amrex_balance = 1: costs and the move to a new mapping ----------------
+
+  void box_ray_counts(ax::Vector<ax::Real>& count) const override {
+    if (static_cast<int>(count.size()) != static_cast<int>(ba.size())) count.resize(ba.size(), 0.0);
+    std::vector<Long> n(static_cast<std::size_t>(ba.size()), 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
+      n[static_cast<std::size_t>(mfi.index())] =
+          pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).numParticles();
+    ax::ParallelDescriptor::ReduceLongSum(n.data(), static_cast<int>(n.size()));
+    for (std::size_t b = 0; b < n.size(); ++b) count[static_cast<int>(b)] += static_cast<ax::Real>(n[b]);
+  }
+
+  // The cells by ParallelCopy, the rays by a Redistribute under the new
+  // mapping (their positions are unchanged); the work arrays and the
+  // per-box scratch rebuilt
+  void remap(const ax::DistributionMapping& dm2) override {
+    const double t0 = now();
+    // the cells through float FabArrays (ParallelCopy needs an arithmetic
+    // FAB type): pack, move, unpack
+    FFab Cf(ba, dm, NC, 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      auto f = Cf.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        f(i, j, k, m) = cf(c, i, j, k, m);
+      });
+    }
+    FFab Cf2(ba, dm2, NC, 0);
+    Cf2.ParallelCopy(Cf, 0, 0, NC);
+    CFab C2(ba, dm2, 1, 0);
+    for (ax::MFIter mfi(C2); mfi.isValid(); ++mfi) {
+      auto c = C2.array(mfi);
+      auto f = Cf2.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+        float* dp = reinterpret_cast<float*>(&c(i, j, k));
+        for (int m = 0; m < NC; ++m) dp[m] = f(i, j, k, m);
+      });
+    }
+    C = std::move(C2);
+    dm = dm2;
+    TF.define(ba, dm, 10, ng);
+    A.define(ba, dm, rrk::kNdep, ng);
+    pc->SetParticleDistributionMap(0, dm);
+    pc->Redistribute();
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
+      pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    scratch.clear();
+    scratch.resize(C.local_size());
+    T.sync += now() - t0;
+  }
+
   // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
@@ -1274,57 +1334,77 @@ struct Level : LevelBase {
     gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
   }
 
-  // The streaming gather: rank 0's own rays first, then every rank's in rank
-  // order, each handed to sink on rank 0 in chunks of kGatherChunk
+  // The streaming gather, in a canonical order: box by box in the global
+  // box order, each box's rays sorted by home cell and then by their bytes
+  // (a total order; identical rays are interchangeable), so the checkpoint
+  // does not depend on the mapping or the rank count (the tiles' order
+  // after a step depends on the arrival order of the migration). The
+  // owner of a box sends it to rank 0 in chunks of kGatherChunk; rank 0
+  // hands every chunk to sink.
   void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
-    std::vector<RayP> mine;
-    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
-      const int np = static_cast<int>(pt.numParticles());
-      const PTD p = pt.getParticleTileData();
-      for (int n = 0; n < np; ++n) mine.push_back(Enc::load(p, n, ectx));
-    }
     const int nranks = ax::ParallelDescriptor::NProcs();
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const int root = ax::ParallelDescriptor::IOProcessorNumber();
     const bool io = ax::ParallelDescriptor::IOProcessor();
-    std::vector<RayP> chunk;
-    if (io) {
-      for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
-        const std::size_t n = std::min(kGatherChunk, mine.size() - off);
-        chunk.assign(mine.begin() + off, mine.begin() + off + n);
-        sink(chunk);
-      }
-    }
-    if (nranks == 1) return;
+    const int NN = N;
+    auto key_less = [NN](const RayP& a, const RayP& b) {
+      const std::int64_t ca = rrk::cell_of(a.x[0], NN) +
+                              static_cast<std::int64_t>(NN) * (rrk::cell_of(a.x[1], NN) +
+                                                               static_cast<std::int64_t>(NN) * rrk::cell_of(a.x[2], NN));
+      const std::int64_t cb = rrk::cell_of(b.x[0], NN) +
+                              static_cast<std::int64_t>(NN) * (rrk::cell_of(b.x[1], NN) +
+                                                               static_cast<std::int64_t>(NN) * rrk::cell_of(b.x[2], NN));
+      if (ca != cb) return ca < cb;
+      return std::memcmp(&a, &b, sizeof(RayP)) < 0;
+    };
+    std::vector<RayP> box_rays, chunk;
 #ifdef AMREX_USE_MPI
     const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
-    const int root = ax::ParallelDescriptor::IOProcessorNumber();
-    const int myproc = ax::ParallelDescriptor::MyProc();
-    long long count = static_cast<long long>(mine.size());
-    std::vector<long long> counts(nranks);
-    MPI_Gather(&count, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
-    for (int r = 0; r < nranks; ++r) {
-      if (r == root) continue;
-      if (myproc == r) {
-        for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
-          const int n = static_cast<int>(std::min(kGatherChunk, mine.size() - off));
-          MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 11, comm);
+#endif
+    for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
+      const int owner = dm[b];
+      if (myproc == owner) {
+        auto& pt = pc->DefineAndReturnParticleTile(0, b, 0);
+        const int np = static_cast<int>(pt.numParticles());
+        const PTD p = pt.getParticleTileData();
+        box_rays.resize(static_cast<std::size_t>(np));
+        for (int n = 0; n < np; ++n) box_rays[static_cast<std::size_t>(n)] = Enc::load(p, n, ectx);
+        std::sort(box_rays.begin(), box_rays.end(), key_less);
+      }
+      if (owner == root) {
+        if (io)
+          for (std::size_t off = 0; off < box_rays.size(); off += kGatherChunk) {
+            const std::size_t n = std::min(kGatherChunk, box_rays.size() - off);
+            chunk.assign(box_rays.begin() + off, box_rays.begin() + off + n);
+            sink(chunk);
+          }
+        continue;
+      }
+      if (nranks == 1) continue;
+#ifdef AMREX_USE_MPI
+      if (myproc == owner) {
+        long long count = static_cast<long long>(box_rays.size());
+        MPI_Send(&count, 1, MPI_LONG_LONG, root, 12, comm);
+        for (std::size_t off = 0; off < box_rays.size(); off += kGatherChunk) {
+          const int n = static_cast<int>(std::min(kGatherChunk, box_rays.size() - off));
+          MPI_Send(box_rays.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 11, comm);
         }
       } else if (io) {
-        const std::size_t total = static_cast<std::size_t>(counts[r]);
+        long long count = 0;
+        MPI_Recv(&count, 1, MPI_LONG_LONG, owner, 12, comm, MPI_STATUS_IGNORE);
+        const std::size_t total = static_cast<std::size_t>(count);
         for (std::size_t off = 0; off < total; off += kGatherChunk) {
           const int n = static_cast<int>(std::min(kGatherChunk, total - off));
           chunk.resize(static_cast<std::size_t>(n));
-          MPI_Recv(chunk.data(), n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 11, comm, MPI_STATUS_IGNORE);
+          MPI_Recv(chunk.data(), n * static_cast<int>(sizeof(RayP)), MPI_BYTE, owner, 11, comm, MPI_STATUS_IGNORE);
           sink(chunk);
         }
       }
-    }
 #endif
+    }
   }
 
-  // Rank 0 adds the rays (home-cell centres as positions), a global
-  // Redistribute moves them to their owners
   // Rank 0 holds the whole list (a checkpoint): the rays go to their owners
   // in chunks of kScatterChunk, each written into rank 0's first tile and
   // redistributed, so rank 0's peak holds one chunk of particles and its
@@ -1386,6 +1466,28 @@ struct AmrexRT {
 namespace {
 bool g_initialized = false;
 
+// SIGTERM (scancel, the time limit, srun --kill-on-bad-exit): every rank
+// writes its call stack to Backtrace.<rank> in the working directory,
+// unbuffered, and dies by the signal. Where a hung run was
+// (docs/stage_e_state.md section 5; tools/hyak/backtrace_lines.py resolves
+// the addresses). AMReX's own handler goes through stdio and MPI_Abort,
+// and the first rank done killed the others before their files were
+// written.
+int g_sig_rank = 0;
+void sigterm_backtrace(int sig) {
+  void* frames[64];
+  const int n = backtrace(frames, 64);
+  char name[32];
+  std::snprintf(name, sizeof name, "Backtrace.%d", g_sig_rank);
+  const int fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd >= 0) {
+    backtrace_symbols_fd(frames, n, fd);
+    close(fd);
+  }
+  std::signal(sig, SIG_DFL);
+  raise(sig);
+}
+
 LevelBase& level_of(Simulation& s) {
   if (!s.amrex) {
     check_rt_backend_param(s.cfg);
@@ -1410,6 +1512,8 @@ void backend_init(int& argc, char**& argv) {
     pp.add("the_arena_is_managed", 0);
   });
   g_initialized = true;
+  g_sig_rank = amrex::ParallelDescriptor::MyProc();
+  std::signal(SIGTERM, sigterm_backtrace);  // Backtrace.<rank> on scancel or the time limit
 }
 void backend_finalize() {
   if (!g_initialized) return;
@@ -1443,6 +1547,8 @@ void backend_bcast_bytes(void* p, std::size_t n) {
   }
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
+void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
+void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }

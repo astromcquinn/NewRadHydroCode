@@ -24,6 +24,14 @@ first zdata1 output), outputs every unit in z to z = 5 (Lyman-alpha forest compa
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
 docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
 
+--backend amrex writes the AMReX backends with the state on the levels and
+load balancing into params.txt (rt/hydro/pm_backend = amrex, amrex_state =
+1, amrex_balance = 1, 32^3 boxes, deterministic_parallel = 0;
+docs/stage_e_state.md): the MPI configuration for runs over several nodes,
+which tools/hyak/reion_production.slurm launches with srun when it sees
+rt_backend = amrex in params.txt (the restarts then use the same
+parameters). It needs a build with AMReX (tools/hyak/build_amrex.sh).
+
 Movie disk: a full-cube frame takes 4N^3 B per field (512 MB at 512^3).
 --movie-slab t writes only the three slabs of t cells through the box
 centre instead (movie_slab = t: 3 x t x N^2 x 4 B per field, 3.1 MB at
@@ -134,12 +142,25 @@ def main():
                          "seed (--phases-from-ndm N); 1: the original, Ndm = N. The abundance matching (any box, "
                          "any pm_refine): --am-params data/uv_lf/am_params_st_fof.txt "
                          "(docs/pm_refine.md section 6)")
+    ap.add_argument("--backend", default="serial", choices=("serial", "amrex"),
+                    help="amrex: the AMReX RT, hydro and PM backends with the state on the levels "
+                         "and load balancing (rt/hydro/pm_backend = amrex, amrex_state = 1, "
+                         "amrex_balance = 1, 32^3 boxes; docs/stage_e_state.md), for MPI runs "
+                         "over several nodes with tools/hyak/reion_production.slurm; needs "
+                         "--hydro-scheme unsplit and no --recomb-rad. Default: the serial code")
     ap.add_argument("--fof-dt-myr", type=float, default=0.0,
                     help="run the on-the-fly FoF only every this many Myr, reusing its halos "
                          "in between (docs/pm_refine.md, FoF cadence); 0: every hydro step "
                          "(the original, no line written)")
     a = ap.parse_args()
     ndm = a.pm_refine * a.N
+    if a.backend == "amrex":
+        if a.hydro_scheme != "unsplit":
+            sys.exit("--backend amrex needs --hydro-scheme unsplit")
+        if a.recomb_rad:
+            sys.exit("--backend amrex has no recombination radiation transport (--recomb-rad 0)")
+        if a.N % 32:
+            sys.exit("--backend amrex: N must be a multiple of the 32^3 boxes")
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
                  f"int32 ray links (rays.hpp); use at most {(2 ** 31 - 1) // a.N ** 3}")
@@ -168,7 +189,9 @@ def main():
         "fof_min_npart = 20",
         "legacy_rt = 0",
         "legacy_physics = 0",
-        "deterministic_parallel = 1",
+        # the serial code's deterministic parallel ray tracing; the backend
+        # is deterministic by construction and refuses the flag
+        f"deterministic_parallel = {0 if a.backend == 'amrex' else 1}",
         f"c_reduced = {a.c_reduced:g}",
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
@@ -178,6 +201,19 @@ def main():
     if a.fof_dt_myr > 0:
         lines.append(f"fof_dt_myr = {a.fof_dt_myr:g}")
     lines.append(f"hydro_scheme = {a.hydro_scheme}")
+    if a.backend == "amrex":
+        lines += [
+            "# The AMReX backends, the state on the levels, load balancing "
+            "(docs/stage_d.md, stage_e_hydro.md, stage_e_pm.md, stage_e_state.md);",
+            "# reion_production.slurm launches MPI ranks when it sees rt_backend = amrex",
+            "rt_backend = amrex",
+            "hydro_backend = amrex",
+            "pm_backend = amrex",
+            "amrex_max_grid_size = 32",
+            "amrex_hydro_max_grid_size = 0",
+            "amrex_state = 1",
+            "amrex_balance = 1",
+        ]
     lines += [
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",

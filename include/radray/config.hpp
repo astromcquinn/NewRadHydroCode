@@ -283,6 +283,16 @@ struct Config {
   // the outputs (amrex_state.hpp, docs/stage_e_state.md). Needs the three
   // backends, hydro_scheme = unsplit, rt_method = rays.
   bool amrex_state = false;
+  // params.txt amrex_balance = 0 (default) | 1: with amrex_state = 1, the
+  // shared decomposition is rebalanced before every RT step on the cost
+  // cells + amrex_balance_ray_weight * rays per box (amrex_balance_method
+  // = sfc | knapsack), when the balance efficiency would improve by more
+  // than amrex_balance_min_gain (negative: at every RT step;
+  // docs/stage_e_state.md section 5).
+  bool amrex_balance = false;
+  double amrex_balance_ray_weight = 10.0;
+  double amrex_balance_min_gain = 0.05;
+  int amrex_balance_method = 0;  // 0 sfc, 1 knapsack
 
   // Recombinations and recombination radiation (docs/recomb_radiation.md;
   // set_recomb_param in recomb_rad.hpp). New options, not in the original:

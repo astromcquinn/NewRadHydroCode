@@ -13,7 +13,11 @@ case $- in *u*) _radray_u=1; set +u ;; *) _radray_u=0 ;; esac
 RADRAY_SW="${RADRAY_SW:-/gscratch/astro/$USER/sw}"
 # The same SSE2 build with --enable-openmp (libfftw3f_omp, used only by
 # pm_refine > 1, docs/pm_refine.md) when it is installed.
-if [ -z "${RADRAY_FFTW:-}" ] && [ -f "$RADRAY_SW/fftw-3.3.10-float-omp/lib/libfftw3f_omp.a" ]; then
+# (a RADRAY_FFTW already in the environment that lacks the threaded library,
+# e.g. the plain float build exported by an old login profile, is replaced:
+# the PM backend's pencil FFT needs fftwf_plan_with_nthreads)
+if [ -f "$RADRAY_SW/fftw-3.3.10-float-omp/lib/libfftw3f_omp.a" ] && \
+   [ ! -f "${RADRAY_FFTW:-/nonexistent}/lib/libfftw3f_omp.a" ]; then
   RADRAY_FFTW="$RADRAY_SW/fftw-3.3.10-float-omp"
 fi
 RADRAY_FFTW="${RADRAY_FFTW:-$RADRAY_SW/fftw-3.3.10-float}"

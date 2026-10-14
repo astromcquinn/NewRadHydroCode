@@ -9,6 +9,16 @@
 # A whole node (docs/cluster.md for the thread count):
 #   sbatch --exclusive --cpus-per-task=192 --mem=256G --export=ALL,PROB=... \
 #          tools/hyak/reion_production.slurm
+# The AMReX backends over several nodes (make_production.py --backend amrex,
+# which writes rt_backend = amrex into params.txt; docs/stage_e_state.md):
+# 24 ranks x 8 threads per node, the module and UCX settings of
+# amrex_scaling.slurm, a build from tools/hyak/build_amrex.sh:
+#   sbatch --exclusive --nodes=2 --ntasks=48 --cpus-per-task=8 --mem=1400G \
+#          --export=ALL,PROB=...,EXE=build-amrex/radhydro,POST=sbatch \
+#          tools/hyak/reion_production.slurm
+# (RANKS and THREADS override the job's --ntasks and --cpus-per-task; at
+# 512^3 ask for the node's memory, rank 0 holds the host mirror and reads
+# the checkpoint, docs/stage_e_state.md section 4.)
 #
 # The job resumes from $RUN/restart/checkpoint.bin when it exists (a requeued
 # or resubmitted job continues the run bit-identically; checkpoint writes are
@@ -23,9 +33,14 @@
 # continue from the last checkpoint.
 #
 # Environment: PROB (required), RUN (default $PROB/run), EXE (default
-# build/radhydro), THREADS (default: the job's cpus), LAUNCH (a prefix such
-# as "numactl --interleave=all"), EXTRA (extra radhydro arguments, e.g.
-# "--set c_reduced=0.1"; they must be the same at every restart).
+# build/radhydro, build-amrex/radhydro for the backends), THREADS (default:
+# the job's cpus per task), RANKS (backends: MPI ranks, default the job's
+# --ntasks), LAUNCH (a prefix such as "numactl --interleave=all"), EXTRA
+# (extra radhydro arguments, e.g. "--set c_reduced=0.1"; they must be the
+# same at every restart), HYAK_MODULES (backends: default ompi/4.1.6-2),
+# RADRAY_UCX_EAGER (backends: 0 for the module's UCX defaults, env.sh).
+# A hung backend run spins until the time limit; its SIGTERM (or scancel's)
+# leaves Backtrace.<rank>.<thread> files in $RUN (amrex.handle_sigterm).
 # POST: what to do after a successful run or leg (radhydro exit 0):
 #   1 (default) run tools/hyak/reion_post.slurm (stills, reion.py,
 #     make_movie.py) in this job; 0 nothing; sbatch submit
@@ -47,24 +62,48 @@ set -u
 cd "${SLURM_SUBMIT_DIR}"
 source tools/hyak/env.sh
 if [ -n "${HYAK_MODULES:-}" ]; then radray_module_load $HYAK_MODULES; fi
-PROB="${PROB:?set PROB to the problem directory}"
+PROB="$(readlink -f "${PROB:?set PROB to the problem directory}")"
 RUN="${RUN:-$PROB/run}"
-EXE="${EXE:-build/radhydro}"
-export OMP_NUM_THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-32}}" OMP_PLACES=cores OMP_PROC_BIND=close
+mkdir -p "$RUN" && RUN="$(readlink -f "$RUN")"
+# the backends: params.txt says rt_backend = amrex (make_production.py
+# --backend amrex); MPI ranks under srun, as tools/hyak/amrex_scaling.slurm
+BACKEND=0
+if grep -Eq '^[[:space:]]*rt_backend[[:space:]]*=[[:space:]]*amrex' "$PROB/params.txt"; then BACKEND=1; fi
+if [ "$BACKEND" = 1 ]; then
+  EXE="$(readlink -f "${EXE:-build-amrex/radhydro}")"
+  radray_module_load ${HYAK_MODULES:-ompi/4.1.6-2}
+  radray_ucx_eager
+  RANKS="${RANKS:-${SLURM_NTASKS:-1}}"
+  export OMP_NUM_THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-8}}"
+else
+  EXE="${EXE:-build/radhydro}"
+  export OMP_NUM_THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-32}}"
+fi
+export OMP_PLACES=cores OMP_PROC_BIND=close
 ulimit -s unlimited
 if [ -e "$RUN/DONE" ]; then echo "run already finished"; exit 0; fi
 CK="$RUN/restart/checkpoint.bin"
 [ -e "$CK" ] || CK="$(ls "$RUN"/restart/checkpoint_*.bin 2>/dev/null | sort | tail -1)"
 args=("$PROB" "$RUN" --quiet)
+layout="$OMP_NUM_THREADS threads"
+[ "$BACKEND" = 1 ] && layout="$RANKS ranks x $OMP_NUM_THREADS threads on ${SLURM_JOB_NUM_NODES:-1} nodes (${SLURM_JOB_NODELIST:-})"
 if [ -n "$CK" ] && [ -e "$CK" ]; then
-  echo "$(date) restarting from $CK on $(hostname), $OMP_NUM_THREADS threads"
+  echo "$(date) restarting from $CK on $(hostname), $layout"
   args+=(--restart "$CK")
 else
-  echo "$(date) starting $PROB on $(hostname), $OMP_NUM_THREADS threads"
+  echo "$(date) starting $PROB on $(hostname), $layout"
 fi
 # Free disk check: a checkpoint is rewritten atomically (needs 2x its size)
 df -h "$(dirname "$RUN")" 2>/dev/null | tail -1 || true
-/usr/bin/time -v ${LAUNCH:-} "$EXE" "${args[@]}" ${EXTRA:-} >> "$RUN.log" 2>&1
+if [ "$BACKEND" = 1 ]; then
+  # one rank per CCD, threads pinned inside it; a rank that dies (OOM) ends
+  # the step instead of leaving the others in MPI; the run directory as the
+  # working directory for the Backtrace files of a hung run
+  /usr/bin/time -v srun --ntasks="$RANKS" --cpus-per-task="$OMP_NUM_THREADS" --cpu-bind=cores \
+    --kill-on-bad-exit=1 --chdir="$RUN" ${LAUNCH:-} "$EXE" "${args[@]}" ${EXTRA:-} >> "$RUN.log" 2>&1
+else
+  /usr/bin/time -v ${LAUNCH:-} "$EXE" "${args[@]}" ${EXTRA:-} >> "$RUN.log" 2>&1
+fi
 rc=$?
 echo "$(date) radhydro exit $rc"
 grep -E "Maximum resident|Elapsed \(wall" "$RUN.log" | tail -2
@@ -86,7 +125,7 @@ if [ $rc -eq 0 ]; then
         echo "$(date) sbatch of the post-processing failed"
       fi
       ;;
-    *) JOBS="$OMP_NUM_THREADS" RUN="$RUN" bash tools/hyak/reion_post.slurm ;;
+    *) JOBS="${SLURM_CPUS_ON_NODE:-$OMP_NUM_THREADS}" RUN="$RUN" bash tools/hyak/reion_post.slurm ;;
   esac
 fi
 exit $rc

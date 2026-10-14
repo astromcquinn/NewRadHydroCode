@@ -254,8 +254,30 @@ bitwise identical to the phase-1 run, and **bitwise identical to the
 2-node run with the same three backends and the host state on every
 rank** (`amrex_state = 0`, 12 ranks × 16 threads, job 41823172: RT
 1123.1 s, step 1164.6 s, the ranks other than 0 at 64.7 GB): every
-field and `stats.txt`. The 2- and 4-node runs with the state on the
-levels (jobs 41824738–9) follow when they have run.
+field and `stats.txt`.
+
+| 512³, step 53, the state on the levels (phase 2), 24 × 8 per node | RT [s] | step [s] | RT speed-up | peak RSS rank 0 / min over ranks [GB] |
+|---|---|---|---|---|
+| serial, 192 threads (1 node) | 2593.4 | 2878.7 | | 203.8 |
+| Stage D, 2 nodes (12 × 16; one node does not fit) | 1460.7 | 1540.9 | | 292.9 / 103.0 |
+| 1 node (job 41824737) | 1783.2 | 1837.5 | 1 | 293.0 / 23.8 |
+| 2 nodes (job 41824738) | 974.4 | 1034.5 | 1.83 | 293.0 / 13.1 |
+| 4 nodes (job 41824739) | 538.3 | 598.4 | 3.31 | 143.8 / 13.0 |
+| 5 nodes, 120 ranks, the whole allocation (job 41851042, the E4 build) | 444.4 | 506.0 | 4.01 | 143.4 / 13.0 |
+
+The fields of every node count are bitwise identical (the 5-node run
+against the 4-node runs too). From 4 to 5 nodes the RT speeds up 1.21×
+for 1.25× the ranks (`SumBoundary` 22.7 → 40.1 s is the part that does
+not: the deposit exchange grows with the rank count); 4.0× the one-node
+RT on 5 nodes, 5.7× the serial step. Phases, 1 → 2 → 4
+nodes: `step1` 275.6 → 165.5 → 94.3, `cast1` 532.1 → 268.2 → 154.3
+(`SumBoundary` 99.9 → 80.5 → 22.7), `phys` 277.3 → 140.1 → 70.3, `cast3`
+390.2 → 221.9 → 123.7, `sort` 163.9 → 84.4 → 46.2, `migrate` 71.0 → 43.6
+→ 26.2 s. So the RT scales 1.83× per doubling of the nodes (1.81× from 2
+to 4), against Stage D's 1.87× from 2 to 4 nodes at 4.8× the memory per
+rank; on 4 nodes the step is 598 s, 4.8× faster than the serial code on
+one node. Rank 0's peak on 4 nodes is 144 GB (the restart's chunked
+scatter leaves less in flight with 96 ranks), the others 13 GB.
 
 Reading: the ranks other than 0 hold 3.1 GB with the particles on the
 level (4.5 GB in phase 1: the level's share of the cells and rays,
@@ -272,6 +294,130 @@ every host-state layout, with the hydro at 0.4 s and the PM at 0.1 s
 (no particle rebuild, no gather). The per-step gathers (60 B per cell)
 are the price of keeping every statistic bitwise the serial one; a
 128-bit on-level path can replace them where round-off is acceptable.
+
+## 5. Load balancing (`amrex_balance = 1`, Stage E4; branch `stage-e-balance`)
+
+The shared decomposition of §2.1 is the RT level's, so a ray-weighted
+mapping balances the RT and moves the gas and the particles with it.
+Before every RT step (after the sources are assigned, whose work does not
+depend on the mapping) `amrex_balance_step` prices each box at its cells
+plus `amrex_balance_ray_weight` (default 10: at 512³ a ray-substep costs
+about ten times a cell-substep, `docs/stage_d.md` §4.4) times its live
+rays, builds a new mapping of the same BoxArray by AMReX's space-filling
+curve (`amrex_balance_method = sfc`, the default, which keeps the boxes of
+a rank contiguous for the exchanges) or knapsack, and compares the balance
+efficiency (the mean rank cost over the largest) of the two mappings. If
+the proposed one gains more than `amrex_balance_min_gain` (0.05) the state
+moves: the gas MultiFab by `ParallelCopy`, the RT cells by `ParallelCopy`
+and the rays by a `Redistribute` under the new mapping (their positions
+are unchanged), the particles likewise, the work arrays rebuilt, the hydro
+level dropped and rebuilt at its next step. The RT, hydro and PM levels
+are bitwise independent of the mapping (the same argument as their rank
+independence: every cross-box sum is an integer or a maximum, every merge
+canonical), so a rebalanced run is byte-identical to the fixed mapping:
+`ctest -L amrex_state` includes `amrex_balance_full_pair_r2` and `_r3`
+(the smoke problem with 8³ boxes, remapped at every RT step with
+`amrex_balance_min_gain = 0`, against the fixed mapping). The driver
+prints the efficiency of every RT step and whether it remapped, and the
+count at the end.
+
+**klone, 512³** (jobs 41826700–1, the same checkpoint and layouts as
+§4, `amrex_balance = 1` with the defaults; one RT step in the run, so
+one remap):
+
+| 512³, step 53, 24 × 8 per node | RT, fixed mapping [s] | RT, rebalanced [s] | gain |
+|---|---|---|---|
+| 2 nodes | 974.4 | 936.1 | 4 % |
+| 4 nodes | 538.3 | 470.0 | 13 % |
+| 5 nodes, 120 ranks (jobs 41851042–3, the whole allocation) | 444.4 | 398.1 | 10 % |
+
+**klone, 256³** (`reion256_f0.2`, step 49, 92 RT substeps, 24 × 8 per
+node, 512 boxes of 32³; jobs 41826697/41826699 rebalanced, 41840184
+fixed; one remap in the one RT step):
+
+| 256³, step 49 | RT, fixed mapping [s] | RT, rebalanced [s] | gain | step [s] |
+|---|---|---|---|---|
+| 2 nodes | 83.7 | 74.1 | 11 % | 93.3 → 84.1 |
+| 4 nodes | 48.4 | 42.5 | 12 % | 56.7 → 50.7 |
+
+The fields and statistics of the rebalanced runs are bitwise those of
+the fixed mapping at both sizes (at 256³ the five runs, 2 and 4 nodes
+with and without the balancing and the previous build, give one
+checksum of the fields and the particles). At 512³ the gain grows with
+the rank count, as the imbalance does (at 2 nodes 85 boxes of 32³ per
+rank average out the ray clustering, at 4 nodes 43 do); at 256³ the
+remap costs about the same fraction at 5 and 10 boxes per rank. The
+whole `amrex` label passes on this build (161/161 on klone).
+
+**A hang, once.** The first 256³ fixed-mapping run on 4 nodes (job
+41826698, 96 ranks) hung inside the RT step, at about substep 80 of 92,
+with every rank spinning until it was cancelled three hours later; its
+ray log is an exact prefix of the good runs' logs, so the data were
+identical up to the hang. The same binary, checkpoint and parameters on
+four other nodes finished in 3 minutes, and the previous build did too,
+so it is not reproducible from the data (a transport-level or hardware
+event is the likeliest reading; UCX reported no error). To catch the
+next one: the backend installs a SIGTERM handler, so `scancel` or the
+time limit makes every rank write its call stack to `Backtrace.<rank>`
+(unbuffered, `backtrace_symbols_fd`, then the signal's default: AMReX's
+own handler, tried first, writes through stdio and aborts the other
+ranks from the first one done, which left their files empty);
+`amrex_scaling.slurm` and `reion_production.slurm` run the backend in
+the run directory, where those files land; the klone build keeps line
+tables (`-g1`); `tools/hyak/backtrace_lines.py <exe> Backtrace.*`
+resolves the addresses and groups the ranks by stack. Tested on a 24 × 8
+production leg killed by its time limit (job 41851905): 21 of the 24
+ranks wrote their stack (the substep's kernels, as expected), three
+files stayed empty (the signal caught those ranks where the unwinder
+could not run before Slurm's kill, 10 s later). Give short runs a short
+`--time`. Four more repeats of the case (jobs 41850991–41850994, two
+of them on the node set of the 5-node runs) finished in 3 minutes each,
+bitwise identical: nine runs of the case, one hang, nothing to read yet.
+
+What this does not do yet: balance inside a step (rays migrate during the
+substeps, so the cost of a box changes while the step runs), weigh the
+hydro and PM work (small against the RT), or split boxes (the granularity
+is the box; at 256³ on 4 nodes, 512 boxes of 32³ over 96 ranks, the
+balance is limited by 5 boxes per rank and finer boxes would be the next
+lever).
+
+## 6. Production runs on the backend
+
+`tools/production/make_production.py --backend amrex` writes the backend
+configuration into `params.txt` (`rt_backend`, `hydro_backend`,
+`pm_backend = amrex`, `amrex_max_grid_size = 32`,
+`amrex_hydro_max_grid_size = 0`, `amrex_state = 1`, `amrex_balance = 1`,
+`deterministic_parallel = 0`; it needs `--hydro-scheme unsplit` and no
+recombination-radiation transport), so that every restart runs the same
+configuration. `tools/hyak/reion_production.slurm` sees `rt_backend =
+amrex` there and launches the ranks with `srun` (24 × 8 per node, the
+module and UCX settings of `amrex_scaling.slurm`, the run directory as
+the working directory); its restart, `DONE` and post-processing logic is
+unchanged, since rank 0 writes every file the serial code writes
+(`docs/cluster.md` §5).
+
+**Validation (klone, 2026-10-13):** a 128³ production problem at 0.1c
+(`make_production.py --N 128 --c-reduced 0.1 --f-esc 0.5`, the
+abundance-matched sources, movie frames every Δz = 0.05, a checkpoint
+every 4 steps) run to z = 5 from the same ICs by the serial code and by
+the backend:
+
+| 128³, 31 steps to z = 5, one node | wall [s] | RT [s] | hydro [s] | io [s] | peak RSS [GB] | z(x_HII = 0.5) | τ_es |
+|---|---|---|---|---|---|---|---|
+| serial, 192 threads (`prod128-serial`, job 41851096) | 605 | 534 | 35 | 22 | 5.6 | 7.831 | 0.06104 |
+| backend, 24 × 8 (`prod128-amrex`, job 41851097) | 484 | 442 | 1.4 | 7.7 | 3.2 (rank 0) | 7.831 | 0.06104 |
+
+The histories (`reion.txt`: x_HII by volume and mass, τ_es at every
+frame) agree to 1 in the fifth digit; the fields differ cell by cell
+from the first sourced step on, as the two ray orders do
+(`docs/stage_d.md` §4: the backend is not the serial continuation), with
+the global statistics (v_rms, c_max, the DM moments) to 2 × 10⁻⁵. The
+job wrote the checkpoints, `DONE`, the stills and the movie through the
+unchanged post-processing. **Restart:** the same problem under a
+4-minute time limit (job 41851312, killed in step 25 by the limit's
+SIGTERM) and resubmitted (job 41851314, resumed from the step-24
+checkpoint, 5 min): every field of the last step, its statistics and
+the final checkpoint are bitwise those of the uninterrupted run.
 
 ## 3. Phases and validation
 

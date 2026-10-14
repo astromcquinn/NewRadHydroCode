@@ -1155,6 +1155,30 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # amrex_balance = 1: the mapping rebalanced every RT step, byte-identical
+    # to the fixed mapping (the levels are mapping-independent), 2 and 3 ranks
+    # (min_gain = -1 remaps at every RT step whatever the gain; knapsack on 2
+    # ranks gives a mapping unlike the default's, sfc on 3)
+    foreach(np 2 3)
+      if(np EQUAL 2)
+        set(bm knapsack)
+      else()
+        set(bm sfc)
+      endif()
+      add_test(NAME amrex_balance_full_pair_r${np}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       ${amrex_runs}/balance_pair_r${np} $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "amrex_balance=0"
+                       "amrex_balance=1,amrex_balance_min_gain=-1,amrex_balance_method=${bm}"
+                       --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                       --set amrex_max_grid_size=8 --set movie_dz=0.5 --set movie_z0=25
+                       --set restart_every=1 --set restart_keep_latest=0)
+      set_tests_properties(amrex_balance_full_pair_r${np} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_state;full" ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS ${np})
+    endforeach()
     add_test(NAME amrex_state_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke

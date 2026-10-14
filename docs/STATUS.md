@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-13: a better Eddington tensor for OTVET (branch `otvet-closure`, PR #35)
 
@@ -94,7 +94,56 @@ Report: `docs/otvet_closure.md`. Decisions and choices: `docs/PLAN.md`,
   instructions that never reached the session. Only its point 1, the
   merge of `main`, is done.
 
-## In progress 2026-10-13: Stage E3, the state on the levels (branch `stage-e-state`)
+## Done 2026-10-13: Stage E4, load balancing and production runs on the backend (branch `stage-e-balance`, PR #37)
+
+**`docs/stage_e_state.md` §5.** `amrex_balance = 1` (with `amrex_state =
+1`): before every RT step the shared decomposition is rebuilt on the cost
+cells + `amrex_balance_ray_weight` × live rays per box (space-filling
+curve or knapsack) and, when the balance efficiency gains more than
+`amrex_balance_min_gain`, the gas, the RT cells and rays and the
+particles move onto it. The levels are mapping-independent, so the run
+is byte-identical to the fixed mapping: `amrex_balance_full_pair_r2/r3`
+(remapped at every RT step, knapsack and sfc) in `ctest -L amrex_state`,
+26/26 with the restart label on klone. The checkpoint's rays are now
+gathered box by box in a canonical order (sorted by home cell and bytes),
+so the file does not depend on the mapping or the rank count. Also
+fixed: `radray_amrex` links the threaded FFTW itself (its objects reach
+the PM level now), and `env.sh` prefers the threaded float FFTW over a
+stale `RADRAY_FFTW` in the login environment.
+- **klone:** the RT step at 512³ is 4 % faster on 2 nodes, 13 % on
+  4 and 10 % on 5 nodes, the whole allocation (936, 470 and 398 s
+  against 974, 538 and 444 s), at 256³ 11 % and 12 % (74 and 42.5 s),
+  all bitwise identical to the fixed mapping; 512³ on 5 nodes: the step
+  506 s, 5.7× the serial code on one node (§4). One fixed-mapping run
+  at 256³ on 4 nodes hung inside the RT step with identical data up to
+  the hang; eight further runs of the case were clean and bitwise
+  identical (§5). For the next one the backend writes every rank's call
+  stack to `Backtrace.<rank>` on SIGTERM (`scancel`, the time limit),
+  `tools/hyak/backtrace_lines.py` resolves them, the job scripts run in
+  the run directory and the klone build keeps line tables.
+- **Stage E is complete** (hydro, PM, the state on the levels, load
+  balancing, scaling on the whole allocation, production runs). Left
+  over, none blocking: rank 0's restart transient for serial
+  checkpoints (the serial ray pool, ~100 GB at 512³; backend
+  checkpoints stream), the per-step mirror gathers and the host P(k)
+  and FoF on rank 0 (deferred by decision until round-off there is
+  accepted), `Luv`/`sfr` on every rank. Next: Stage F (AMR), which
+  needs the user's decisions (rays across levels, `photon_conserve`
+  under `legacy_physics = 0`, cooling in dense gas); and the group's
+  storage: `/gscratch/astro` is 96 % full, the timing runs of this and
+  the Stage D/E threads hold about 450 GB under
+  `runs/reion512_40mpc_f0.23/amrex_*` and 40 GB under
+  `runs/reion256_f0.2/amrex_*`, all one-step outputs that can go.
+- **Production runs on the backend** (`docs/stage_e_state.md` §6):
+  `make_production.py --backend amrex` writes the backend configuration
+  into `params.txt`, and `reion_production.slurm` launches MPI ranks
+  when it sees it there (24 × 8 per node, the module and UCX settings,
+  restart/`DONE`/post-processing unchanged). Validated at 128³ to z = 5
+  against the serial code (histories to 1 in the fifth digit, 20 %
+  less wall time on one node) and through a time-limit kill and
+  resubmission (bitwise the uninterrupted run).
+
+## Done 2026-10-13: Stage E3, the state on the levels (branch `stage-e-state`, PR #34, merged)
 
 **`docs/stage_e_state.md`.** `amrex_state = 1`: the gas lives in one
 MultiFab on a decomposition shared by the RT, hydro and PM levels, which
@@ -117,8 +166,9 @@ Needs the three backends, `hydro_scheme = unsplit`, `rt_method = rays`.
   serial code on the same node (Stage D needed 2 nodes, or 8 fat ranks
   at 3258 s), and **bitwise identical at 512³** to the 2-node run with
   the same backends and the host state; with phase 2 the other ranks
-  hold 24 GB. The 2- and 4-node runs with the state on the levels are
-  queued (jobs 41824738–9).
+  hold 24 GB. On 2 and 4 nodes: RT 974 s and 538 s (1.83× per doubling,
+  bitwise identical to the one-node run), the other ranks at 13 GB; the
+  step on 4 nodes 598 s, 4.8× the serial code on one node.
 - Costs to remove next: the per-step mirror gathers (60 B per cell, for
   bitwise statistics; a 128-bit on-level path where round-off is fine),
   rank 0's restart transient (the serial ray pool and list of the
