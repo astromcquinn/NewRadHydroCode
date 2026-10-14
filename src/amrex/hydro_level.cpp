@@ -634,7 +634,10 @@ class HydroLevel {
           auto ratio = [&](int m, double x) {
             const double o = co(ci, cj, ck, m), n = cn(ci, cj, ck, m);
             if (n == o) return x;
-            return o != 0 ? x * (n / o) : x + (n - o);
+            // the ratio only when the old value carries it (a species that
+            // was ~0 and grew: additive, or n/o overflows)
+            const double r = o != 0 ? n / o : 0.0;
+            return (o != 0 && std::fabs(r) < 1e6) ? x * r : x + (n - o);
           };
           const double rho_old = u(i, j, k, 0);
           const double rho_new = ratio(0, rho_old);
