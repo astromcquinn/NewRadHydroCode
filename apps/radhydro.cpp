@@ -145,6 +145,7 @@ struct RunParams {
   int tensor_dump = 0;
   int max_steps = 1000;     // the original's timing(1000) array
   int run_steps = 0;        // > 0: stop after this many steps of this invocation
+  int step_timers = 0;      // 1: print the backends' cumulative phase timers after every step (rank 0)
                             // (timing runs from a checkpoint; 0: run to the end)
   // hydro_scheme = legacy | unsplit and the unsplit parameters
   // (docs/hydro_unsplit.md), parsed by set_hydro_scheme_param
@@ -265,6 +266,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.max_steps = std::stoi(val);
   else if (key == "run_steps")
     P.run_steps = std::stoi(val);
+  else if (key == "step_timers")
+    P.step_timers = std::stoi(val);
   else if (set_rt_method_param(P.rtm, key, val)) {
     // moment RT (docs/rt_moments.md)
   } else if (set_rt_backend_param(P.rtm, key, val)) {
@@ -603,13 +606,15 @@ int main(int argc, char** argv) {
     init_variables(P.z_init, s.clk);                  // init_variables
     init_domain_gas(cfg, gdom);                        // init_domain_gas
     init_domain_rt(cfg, s.dom);                        // init_domain_rt
+    // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
+    // before any level; the host grids stay as rank 0's mirror only, and
+    // the other ranks never allocate the host PM arrays (at pm_refine = 2
+    // with 1024^3 particles they are 45 GB per rank)
+    const bool on_level = use_amrex_state(cfg);
     init_hydro(cfg, s.gas, hs);                        // init_hydro
-    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom);    // init_pm
+    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && !io));  // init_pm
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
-    // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
-    // before any level; the host grids stay as rank 0's mirror only
-    const bool on_level = use_amrex_state(cfg);
     if (on_level) {
       amrex_state_init(s);
       if (!io) {
@@ -652,7 +657,7 @@ int main(int argc, char** argv) {
     int& idata2 = dst.idata2;
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
-    fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
+    if (!(on_level && !io)) fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     if (on_level && !io) {
       // amrex_state = 1: the particles live on the level; rank 0 keeps the
       // host PM arrays as the mirror (the halo finder, P(k), the outputs)
@@ -1182,6 +1187,14 @@ int main(int argc, char** argv) {
           std::printf(" step %4d  z = %9.5f  nstep_rt = %5d  Nsource = %5lld  %.3f s\n",
                       s.clk.istep, s.clk.redshift, s.clk.nstep_rt,
                       static_cast<long long>(s.Nsource), tstep);
+          std::fflush(stdout);
+        }
+        // the backends' phase timers so far (cumulative; per step by difference)
+        if (P.step_timers && io) {
+          std::printf(" step %4d timers:", s.clk.istep);
+          if (use_amrex_pm(cfg)) std::printf(" %s;", amrex_pm_timers(pm).c_str());
+          if (use_amrex_hydro(cfg)) std::printf(" %s;", amrex_hydro_timers().c_str());
+          std::printf(" halos %.3f, P(k) %.3f\n", T.halos, T.pk);
           std::fflush(stdout);
         }
       }

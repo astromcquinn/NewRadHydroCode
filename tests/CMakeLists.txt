@@ -1201,6 +1201,15 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${amrex_runs}/full64 ${PROJECT_SOURCE_DIR}/tools)
     set_tests_properties(amrex_full64_vs_serial PROPERTIES TIMEOUT 14400 LABELS "amrex;full;nightly"
                          ENVIRONMENT OMP_NUM_THREADS=4 RUN_SERIAL TRUE DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+    # nightly: the same with today's production defaults (unsplit) and the
+    # three backends with the state on the levels (amrex_state = 1), against
+    # the serial code (docs/stage_e_pm.md section 3.1)
+    add_test(NAME amrex_state_full64_vs_serial
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/amrex_full64_check.py
+                     $<TARGET_FILE:radhydro> ${amrex_runs}/state_full64 ${PROJECT_SOURCE_DIR}/tools state)
+    set_tests_properties(amrex_state_full64_vs_serial PROPERTIES TIMEOUT 14400
+                         LABELS "amrex;amrex_state;full;nightly"
+                         ENVIRONMENT OMP_NUM_THREADS=4 RUN_SERIAL TRUE DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
 
     # ---- the PM backend (pm_backend = amrex, docs/stage_e_pm.md; label amrex_pm) ----
     # The dark matter, the CIC deposit, the Poisson solve and the kicks on
