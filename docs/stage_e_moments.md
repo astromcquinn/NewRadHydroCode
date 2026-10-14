@@ -104,8 +104,8 @@ ranks, for example 4 nodes × 16 ranks × 12 threads with nz = 16.
   slabs: `amrex_state_init` builds them, the hydro and PM levels take
   them, and `pm_refine` refines them as it refines cubes. The hydro
   needs nz ≥ its ghost width (checked).
-- Stage E4's `amrex_balance` (branch `stage-e-balance`, not in `main`)
-  stays off for moments. A plane-contiguous rebalance (variable nz from
+- Stage E4's `amrex_balance` (PR #37, in `main`) is refused with
+  moments for now and stays off for moments. A plane-contiguous rebalance (variable nz from
   measured cost) is possible later without breaking exactness.
 
 ## 3. The per-substep pieces on the level
@@ -388,6 +388,14 @@ The references and the tests:
     on one node ≈ 59 h, so about 16–20 h on 4 nodes at 75–90 %
     efficiency, plus the tensor (1–2 h) and the hydro, PM, FoF and I/O
     (~1–2 h).
+  - Nodes: every `ckpt-g2` node has at least 1.5 TB (sinfo
+    2026-10-14: 68 × 192-core cpu-g2, the rest GPU nodes with 128
+    cores); request `--constraint` on the 192-core nodes.
+  - Disk, scaled ×8 from the 512³ cone run (Gas 23 GB, movie 38 GB,
+    restart 2 × 50 GB): about 190 GB of snapshots, 150 GB of movie
+    slices (×4: N² per frame) and 800 GB of checkpoints, about 1.2 TB.
+    `/gscratch/astro` had 2.0 TB free (95 % full) on 2026-10-14 and
+    `/gscratch/scrubbed` is over its quota.
   - Then the comparison with the 512³ cone: `gamma_power.py`,
     `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`.
 

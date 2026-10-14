@@ -855,3 +855,11 @@ policy on klone, and deleting the merged branches.
     (0.70 s against 21.8 s). A distributed pencil FFT would be no faster
     at 4 nodes (its transposes) and is not bitwise. Proposed: threaded
     plans on the component ranks, with a once-per-run bitwise guard.
+* **User decisions (2026-10-14):** follow every recommendation:
+  - threaded serial 3-D FFTW plans on the component ranks, with the
+    once-per-run bitwise guard (threaded against single-threaded forward
+    transform; stop on a mismatch) and a ctest at small sizes; no
+    distributed FFT;
+  - the base: Stage E4 (PR #37) had already merged into `main`, so
+    `moments-amrex` was rebased onto `origin/main` (`b243df9`);
+  - `amrex_balance = 1` with moments is refused for now.
