@@ -365,6 +365,26 @@ is the box; at 256³ on 4 nodes, 512 boxes of 32³ over 96 ranks, the
 balance is limited by 5 boxes per rank and finer boxes would be the next
 lever).
 
+## 6. Production runs on the backend
+
+`tools/production/make_production.py --backend amrex` writes the backend
+configuration into `params.txt` (`rt_backend`, `hydro_backend`,
+`pm_backend = amrex`, `amrex_max_grid_size = 32`,
+`amrex_hydro_max_grid_size = 0`, `amrex_state = 1`, `amrex_balance = 1`,
+`deterministic_parallel = 0`; it needs `--hydro-scheme unsplit` and no
+recombination-radiation transport), so that every restart runs the same
+configuration. `tools/hyak/reion_production.slurm` sees `rt_backend =
+amrex` there and launches the ranks with `srun` (24 × 8 per node, the
+module and UCX settings of `amrex_scaling.slurm`, the run directory as
+the working directory); its restart, `DONE` and post-processing logic is
+unchanged, since rank 0 writes every file the serial code writes
+(`docs/cluster.md` §5). Validation: a 128³ production problem at 0.1c
+run to z = 5 on the serial code (192 threads) and on the backend (24 × 8
+on one node) from the same ICs; the reionization histories agree to the
+round-off noise of the ray order (the backend is not the serial
+continuation: `docs/stage_d.md` §4). The runs are recorded below when
+they finish.
+
 ## 3. Phases and validation
 
 | Phase | Work | Test |
