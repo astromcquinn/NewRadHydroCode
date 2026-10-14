@@ -3,7 +3,10 @@
 // check of docs/otvet_closure.md, against the rays' true tensor and the
 // numpy prototypes of tools/analysis/tensor_compare.py.
 //
-// usage: otvet_tensor STEPDIR OUTDIR --box BOX [--set key=value ...]
+// usage: otvet_tensor STEPDIR OUTDIR --box BOX [--set key=value ...] [--repeat n]
+//
+// --repeat n computes the tensor n times and prints each wall time (the
+// FFT kernel spectra are cached after the first call, as in a run).
 //
 // Reads STEPDIR/{sources.txt, rhog.bin, fHI.bin, tensor.bin}; the
 // solution's photons N are the rays' S0 (Gamma-weighted, the units of the
@@ -11,6 +14,7 @@
 // dump's layout (10 float32 per cell: S0, S1 = 0, S2 = S0 h), with
 // otvet_split = 1 applied to the Gamma-weighted S0
 // (P = S0 I/3 + min(S0, N_dir)(h - I/3)), for tensor_compare.py --moment.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -54,10 +58,13 @@ int main(int argc, char** argv) {
     cfg.rt_method = RTMethod::OTVET;
     std::vector<std::pair<std::string, std::string>> sets;
     int method = 0;
+    int repeat = 1;
     for (int a = 3; a < argc; ++a) {
       const std::string s = argv[a];
       if (s == "--box" && a + 1 < argc) {
         box = std::stod(argv[++a]);
+      } else if (s == "--repeat" && a + 1 < argc) {
+        repeat = std::max(1, std::stoi(argv[++a]));
       } else if (s == "--set" && a + 1 < argc) {
         const std::string kv = argv[++a];
         const auto eq = kv.find('=');
@@ -134,7 +141,10 @@ int main(int argc, char** argv) {
     in.xion = xion.data();
 
     OtvetClosureOut out;
-    otvet_closure_tensor(p, method, in, out);
+    for (int it = 0; it < repeat; ++it) {
+      otvet_closure_tensor(p, method, in, out);
+      if (repeat > 1) std::printf("call %d: %.2f s\n", it + 1, out.seconds);
+    }
     double qw = 0;
     for (int g = 0; g < kNfreq; ++g) qw += in.q[g] * in.sigma18[g];
     std::printf("z = %.3f N = %d sources = %zu: %s; lambda %.1f lambda_x %.1f N_dir/N %.3f, %.1f s\n",

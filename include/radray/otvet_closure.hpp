@@ -119,9 +119,15 @@ std::vector<std::array<double, 3>> otvet_healpix_dirs(int nside);
 // kfill(m, K) on the N^3 grid of minimum-image separations (K[i + N(j + N k)]
 // for d = (mi(i), mi(j), mi(k))), single-precision FFTW; P[m][c] in double.
 // fill must be a pure function of the separation (it runs in parallel).
+// cache_tag (with cache_param): the kernel's spectra are kept for the next
+// call with the same tag, N and parameter (a few entries, 6 N^2(N/2+1)
+// complex floats each: 3.2 GB at 512^3); null: not cached. The six
+// components are transformed in parallel; the result is the same for any
+// thread count and with or without the cache.
 using OtvetKernelFill = void (*)(int N, int m, const void* ctx, float* K);
 void otvet_fft_convolve_kernel(int N, const std::vector<double>& rho, OtvetKernelFill fill,
-                               const void* ctx, std::array<std::vector<double>, 6>& P);
+                               const void* ctx, std::array<std::vector<double>, 6>& P,
+                               const char* cache_tag = nullptr, double cache_param = 0);
 // Smallest eigenvalue of the symmetric tensor (xx, yy, zz, xy, xz, yz).
 double otvet_min_eigenvalue(const double h[6]);
 

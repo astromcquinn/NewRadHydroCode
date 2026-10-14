@@ -834,13 +834,29 @@ after the October 13 maintenance.
 | screen | 4.77 h | 4.27 h | 39 s, 0.39 h | 145 GB |
 | cone | 5.22 h | 4.69 h | 85 s, 0.83 h | 146 GB |
 
-The tensors are dominated by the single-threaded FFTs: 13 for thin and
+The tensors were dominated by the single-threaded FFTs: 13 for thin and
 split, 26 for the cone, which needs both the thin and the near-field
-convolutions. The thin kernel's fill is now parallel (38 s against 44 s);
-the cone's march itself is a few seconds. Caching the kernels' transforms
-across hydro steps (they depend only on N, λ and r_c) and running the six
-components' FFTs in parallel would cut this several-fold, with
-byte-identical results.
+convolutions. The thin kernel's fill was already parallel (38 s against
+44 s), and the cone's march itself takes a few seconds.
+
+**Faster tensor (branch `otvet-fft-speed`, after these runs).**
+- The kernels' transforms are kept across hydro steps (the thin and
+  near-field kernels depend only on N and r_c; the screened one is kept
+  only for a fixed λ).
+- The six components are transformed in parallel, each by one thread with
+  the same FFTW plans, and the per-cell loops around them are parallel.
+- The tensors are byte-identical to before: smoke runs of every closure,
+  `lognormal_16src` with 1 and 8 threads, and the 256³ tensors.
+- At 256³ on 192 threads, per hydro step after the first:
+
+  | closure | before | after | speedup |
+  |---|---|---|---|
+  | thin + split | 3.6 s | 0.70 s | 5.1× |
+  | screen | 3.7 s | 1.2 s | 3.1× |
+  | cone | 8.8 s | 3.2 s | 2.8× |
+
+- Memory: the cached spectra take 3.2 GB per kernel at 512³ (thin, and
+  the cone's near field).
 
 **Reionization history** (z at which x_V reaches 10 / 50 / 75 / 90 / 99 %):
 
@@ -925,6 +941,37 @@ k ≲ 6 h/Mpc is meaningful, `docs/rt_methods_512.md` §6):
   its large-scale excess is gone. At z = 5.91 the cone has the longest low
   tail of the moment methods, the closest to the rays (the shadowed
   edges of the last islands).
+
+**After overlap, at the epochs of `docs/rt_methods_512.md` §6** (z = 5.44
+and 5.01, with the case-B rays as the rays' own spread):
+
+![P_Gamma after overlap](figures/otvet_closure_512_gamma_pk_after.png)
+
+*As `figures/rt_methods_512_gamma_pk.png`, with the closures. Table:
+[`figures/otvet_closure_512_gamma_pk_after.txt`](figures/otvet_closure_512_gamma_pk_after.txt).*
+
+P_Γ relative to the rays (r(k) with the rays in brackets), z = 5.44 / 5.01:
+
+| k [h/Mpc] | M1 | OTVET | split | cone | screen | rays B |
+|---|---|---|---|---|---|---|
+| 0.29 | 0.32 / 0.25 | 4.3 / 8.9 | 1.84 / 1.76 | 1.05 / 1.01 | 1.28 / 1.41 | 1.10 / 1.14 |
+| 0.49 | 0.31 / 0.12 | 2.3 / 3.8 | 0.94 / 0.79 | 0.54 / 0.47 | 0.79 / 0.70 | 1.10 / 1.08 |
+| 0.84 | 0.42 / 0.09 | 2.7 / 4.7 | 1.06 / 1.02 | 0.78 / 0.72 | 1.08 / 1.02 | 1.11 / 1.05 |
+| 1.4 | 0.21 / 0.07 | 2.4 / 4.2 | 0.77 / 0.92 | 0.98 / 0.74 | 1.18 / 1.05 | 1.10 / 1.04 |
+| 2.3 | 0.21 / 0.10 | 2.6 / 4.3 | 0.99 / 0.85 | 1.01 / 0.81 | 1.24 / 1.09 | 1.12 / 1.05 |
+| 3.8 | 0.34 / 0.20 | 2.7 / 4.4 | 1.02 / 0.95 | 1.13 / 0.90 | 1.33 / 1.13 | 1.13 / 1.06 |
+| 6.4 | 0.36 / 0.27 | 2.5 / 3.9 | 0.95 / 0.85 | 1.16 / 0.90 | 1.32 / 1.11 | 1.16 / 1.08 |
+
+r(k) is 0.90–0.98 for every closure at k ≤ 6 h/Mpc, as for OTVET.
+- The case-B rays (different rays, same sources) differ from the rays by
+  4–16 %, which sets the scale of agreement.
+- The split is within 0.77–1.06 except on the box scale (1.8×).
+- The cone is within 0.72–1.16 except at k ≈ 0.5 h/Mpc (0.5×), and is
+  right on the box scale.
+
+**Movie:** `$RUNS/otvet_closure_512/compare.mp4`. It shows rays | M1 |
+OTVET | split | cone | screen, slices of x_HII, T and Γ_HI from z = 15 to
+5, with the histories.
 
 **Verdict.**
 1. **The cone (`otvet_closure = cone`, defaults)** is the best closure at
