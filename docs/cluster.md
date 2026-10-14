@@ -80,6 +80,23 @@ sbatch --time=24:00:00 --export=ALL,CMAKE_EXTRA=-DRADRAY_NIGHTLY_TESTS=ON,CTEST_
 needs it) and builds with the default flags only (`-O2`, `-ffp-contract=off`,
 no fast-math, no `-march`).
 
+### `srun --mpi=pmix` (2026-10-14)
+
+`ompi/4.1.6-2` launched by `srun` with Slurm's default PMI-1 plugin has a
+use-after-free inside `MPI_Init` (`opal_pmix_base_partial_commit_packed`
+reads a buffer it just reallocated; found with an address-sanitizer build
+of `rt_driver`, `tools/hyak/build_amrex.sh` with `RADRAY_SANITIZE`). In a
+production build it corrupts the heap and kills a run at start-up now and
+then ("Segfault" and a `malloc.c` assertion before the first substep;
+seen in the klone regression and once by hand, absent in several
+reruns). `--mpi=pmi2` has the same fault; `--mpi=pmix` does not. The test
+launcher (`build_amrex.sh`: `RADRAY_MPIEXEC_FLAGS` "--overlap;--mpi=pmix")
+and the production and scaling job scripts now pass `--mpi=pmix`. A
+sanitizer run of the backend with 2 ranks also stopped at step 8 with the
+backend's own "a ray reached outside the ghost region" check, which the
+production build does not reproduce (1 and 2 ranks, with and without
+`photon_conserve`): noted, not chased.
+
 ### Test results on klone (2026-10-08, `main` at d3651cb + this branch)
 
 | suite | result |

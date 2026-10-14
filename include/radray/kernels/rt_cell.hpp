@@ -295,6 +295,10 @@ struct PhysCtx {
   // kPhotonIterMax iterations), not only until ne converges (at most 5, the
   // original). false is the original.
   bool photon_conserve = false;
+  // Config::cool_suppress_overdensity: the overdensity above which the
+  // cooling and SN heating are suppressed ((x0/x)^2, (x0/x)^1.5); 200 is
+  // the original, 0 switches the suppression off.
+  double cool_suppress = 200.0;
   // recomb_case = A: ia = 0 (alpha_rec(1:3), coef_cool(1:3)); B (the
   // original): 3. The host lowers it to 3 for cells on the spot
   // (recomb_rad). want_nrab: count the ground-state recombinations
@@ -569,12 +573,14 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
                 rs.cool[15] * ne * nHeI;
   }
 
-  // Prevent overcooling/overheating
+  // Prevent overcooling/overheating (above 200 x the mean density in the
+  // original; cool_suppress_overdensity, 0 = off)
   {
     const double x = rhog / u.rhob_avg;
-    if (x > 200) {
-      cool_rate = cool_rate * rrf::pow2(200 / x);
-      sn_rate = sn_rate * std::pow(200 / x, 1.5);
+    const double x0 = X.cool_suppress;
+    if (x0 > 0 && x > x0) {
+      cool_rate = cool_rate * rrf::pow2(x0 / x);
+      sn_rate = sn_rate * std::pow(x0 / x, 1.5);
     }
   }
   const double net_rate = heat_rate + sn_rate - cool_rate;

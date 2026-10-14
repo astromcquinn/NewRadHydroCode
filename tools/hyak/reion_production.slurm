@@ -99,7 +99,7 @@ if [ "$BACKEND" = 1 ]; then
   # one rank per CCD, threads pinned inside it; a rank that dies (OOM) ends
   # the step instead of leaving the others in MPI; the run directory as the
   # working directory for the Backtrace files of a hung run
-  /usr/bin/time -v srun --ntasks="$RANKS" --cpus-per-task="$OMP_NUM_THREADS" --cpu-bind=cores \
+  /usr/bin/time -v srun --mpi=pmix --ntasks="$RANKS" --cpus-per-task="$OMP_NUM_THREADS" --cpu-bind=cores \
     --kill-on-bad-exit=1 --chdir="$RUN" ${LAUNCH:-} "$EXE" "${args[@]}" ${EXTRA:-} >> "$RUN.log" 2>&1
 else
   /usr/bin/time -v ${LAUNCH:-} "$EXE" "${args[@]}" ${EXTRA:-} >> "$RUN.log" 2>&1

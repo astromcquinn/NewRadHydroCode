@@ -150,10 +150,24 @@ struct Config {
   // B17 fix (docs/port_notes.md, docs/rt_multicell.md): photo_cell's photon
   // limit is iterated to convergence (at most rrk::kPhotonIterMax
   // iterations) instead of ending with ne after at most 5 iterations, which
-  // lets photon-starved front cells ionise without the photons. false
-  // (default) is the original. Independent of legacy_physics (whose fixes
-  // the Fortran harnesses mirror); rays and the moment RT.
+  // lets photon-starved front cells ionise without the photons. false is
+  // the original; part of legacy_physics = 0 since 2026-10-14 (mirrored in
+  // the Fortran harnesses, PATCHES.md 14); rays and the moment RT.
   bool photon_conserve = false;
+  // The params.txt key photon_conserve: -1 (default) follows legacy_physics
+  // (B17 is part of legacy_physics = 0 since 2026-10-14), 0 | 1 override.
+  static bool photon_conserve_effective(int key, bool legacy_physics) {
+    return key < 0 ? !legacy_physics : key == 1;
+  }
+
+  // params.txt cool_suppress_overdensity (Stage F, docs/stage_f.md section
+  // 2; docs/port_notes.md 5b "Other suspected physics issues"): above this
+  // gas overdensity x = rho/rho_avg the original multiplies the cooling rate
+  // by (200/x)^2 and the SN heating by (200/x)^1.5, an overcooling guard.
+  // 200 (default) is the original; 0 turns the suppression off (dense gas
+  // cools; the star-formation sink is then the guard). Not tied to
+  // legacy_physics; no Fortran mirror (a new flag).
+  double cool_suppress_overdensity = 200.0;
 
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
@@ -277,6 +291,29 @@ struct Config {
   //   amrex_hydro_max_grid_size: box size of the hydro level's decomposition.
   HydroBackend hydro_backend = HydroBackend::Serial;
   int amrex_hydro_max_grid_size = 32;
+  // Stage F (docs/stage_f.md): the gas hierarchy of hydro_backend = amrex.
+  //   amrex_max_level: refinement levels (0 = one level, the Stage E step);
+  //   amrex_refine_mass: a level-l cell is tagged when its gas mass exceeds
+  //                amrex_refine_mass times the mean base-cell mass, i.e.
+  //                rho/rho_avg > amrex_refine_mass * 8^l;
+  //   amrex_regrid_every: regrid every n hydro calls;
+  //   amrex_fine_max_grid_size, amrex_blocking_factor, amrex_n_error_buf,
+  //   amrex_grid_eff: the AMReX gridding parameters of the refined levels.
+  int amrex_max_level = 0;
+  double amrex_refine_mass = 8.0;
+  int amrex_regrid_every = 1;
+  int amrex_fine_max_grid_size = 32;
+  int amrex_blocking_factor = 8;
+  int amrex_n_error_buf = 1;
+  double amrex_grid_eff = 0.7;
+  // The star-formation sink (docs/stage_f.md section 2; hydro_backend =
+  // amrex): a cell above the gas overdensity sf_overdensity loses
+  // min(1, sf_efficiency dt/t_ff) of its mass per hydro call, at constant
+  // specific quantities, to a star particle (pm_backend = amrex with
+  // amrex_state = 1; a mass loss in the hydro-only drivers). 0 = off (the
+  // original).
+  double sf_overdensity = 0;
+  double sf_efficiency = 1;
   // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for

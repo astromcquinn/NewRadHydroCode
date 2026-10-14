@@ -22,7 +22,8 @@
 #                  --oversubscribe because an salloc/sbatch allocation with
 #                  --ntasks=1 gives OpenMPI a single slot; or srun, which the
 #                  test runners give --cpus-per-task per test)
-#   RADRAY_MPIEXEC_FLAGS  launcher flags (default "--bind-to;none;--oversubscribe"
+#   RADRAY_MPIEXEC_FLAGS  launcher flags (default "--bind-to;none;--oversubscribe";
+#                  srun: "--overlap;--mpi=pmix", see the note below;
 #                  for mpirun, "--overlap" for srun: the salloc shell is itself a
 #                  job step holding every cpu of the allocation)
 #
@@ -88,7 +89,10 @@ fi
 
 launcher="${RADRAY_MPIEXEC:-mpirun}"
 case "$launcher" in
-  *srun) default_flags="--overlap" ;;
+  # --mpi=pmix: ompi/4.1.6-2's PMI-1 path (srun's default) has a
+  # use-after-free in MPI_Init (opal_pmix_base_partial_commit_packed) that
+  # crashes a run at start-up now and then (docs/cluster.md section 3)
+  *srun) default_flags="--overlap;--mpi=pmix" ;;
   *)     default_flags="--bind-to;none;--oversubscribe" ;;
 esac
 # -g1: line tables for the Backtrace.<rank> files of a hung run (SIGTERM);

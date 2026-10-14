@@ -20,7 +20,9 @@ reference/harness/
   outputs/             stored reference outputs (subset, see below), legacy_rt = 1
   outputs_legacy_rt0/  the same with legacy_rt = 0 (RT bookkeeping fixes on)
   outputs_legacy_rt0_phys0/  legacy_rt = 0 and legacy_physics = 0 (also the
-                       atomic-physics fixes; the recommended configuration)
+                       atomic-physics fixes and B17; the recommended configuration)
+  outputs_c0.1_fixed/  the same two flags with c_reduced = 0.1 (two problems)
+  store_outputs.py     copy the stored subset of a run_all.sh output root
 ```
 
 ## Build
@@ -49,8 +51,15 @@ with a "rebuild with make N=.. NRF=.." message if not.
 ./run_problem.sh <problem_dir> <outdir> [nsteps] [exe] [--set key=value ...]
 ./run_all.sh [outroot=reference/harness/runs] [opt|debug]
 RT_SET=legacy_rt=0 ./run_all.sh <outroot>      # RT bookkeeping fixes on
-RT_SET="legacy_rt=0 legacy_physics=0" ./run_all.sh <outroot>   # + physics fixes
+RT_SET="legacy_rt=0 legacy_physics=0" ./run_all.sh <outroot>   # + physics fixes, B17
+python3 store_outputs.py <outroot> outputs_legacy_rt0_phys0      # keep the stored subset
 ```
+
+`photon_conserve` (B17, PATCHES.md 14) follows `legacy_physics` unless set:
+`--set photon_conserve=0` with `legacy_physics=0` gives the fixed physics
+with the original photon limit. The stored sets are regenerated on the CI
+platform by `.github/workflows/regen_references.yml` (docs/cluster.md
+section 3: klone's libm differs in the last place on some problems).
 
 The executable takes the same `--set key=value` arguments:
 `rt_harness.x <problem_dir> <outdir> [nsteps] [--set key=value ...]`. Each one

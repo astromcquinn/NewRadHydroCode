@@ -90,7 +90,7 @@ rm -rf "$AMREX_OUT"
 mkdir -p "$AMREX_OUT"
 # --chdir: a hung run cancelled or timed out leaves Backtrace.<rank>.<thread>
 # (where every rank was) in $AMREX_OUT, not in the checkout
-srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 --chdir="$AMREX_OUT" \
+srun --mpi=pmix --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 --chdir="$AMREX_OUT" \
   "$EXE" "$PROB" "$AMREX_OUT" "${common[@]}" --set rt_backend=amrex --set deterministic_parallel=0 \
   --set amrex_max_grid_size="$MGS" ${EXTRA:-} > "$AMREX_OUT.log" 2>&1
 echo "amrex rc=$?"; tail -3 "$AMREX_OUT.log"

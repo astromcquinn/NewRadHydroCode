@@ -248,6 +248,22 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/redshift_distance)
   set_tests_properties(redshift_distance_smoke PROPERTIES TIMEOUT 600 LABELS physics)
 
+  # cool_suppress_overdensity (Stage F, docs/stage_f.md section 2): 200 is
+  # the original (bitwise the default); 0 switches the dense-gas cooling
+  # suppression off and must run
+  add_test(NAME cool_suppress_default_identity
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/cool_suppress_pair $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                   "legacy_rt=0,legacy_physics=0" "legacy_rt=0,legacy_physics=0,cool_suppress_overdensity=200"
+                   --quiet --set fields_every=1 --set hydro_scheme=unsplit)
+  set_tests_properties(cool_suppress_default_identity PROPERTIES TIMEOUT 900 LABELS physics)
+  add_test(NAME cool_suppress_off_smoke
+           COMMAND radhydro ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                   ${CMAKE_CURRENT_BINARY_DIR}/cool_suppress_off --quiet --set legacy_rt=0
+                   --set legacy_physics=0 --set hydro_scheme=unsplit --set cool_suppress_overdensity=0)
+  set_tests_properties(cool_suppress_off_smoke PROPERTIES TIMEOUT 900 LABELS physics)
+
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
   foreach(p uniform_8src lognormal_16src_smallbuf)
@@ -932,16 +948,24 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
   set(amrex_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_runs)
   # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
   # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
+  # (ln16p0: the spike's rt_serial keeps the original photon limiter, so
+  # the rt_driver side runs the fixed physics with photon_conserve = 0, the
+  # pre-2026-10-14 meaning of legacy_physics = 0)
   foreach(case "u8;uniform_8src;-" "ln16;lognormal_16src_smallbuf;-"
-               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0")
+               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0;photon_conserve=0")
     list(GET case 0 tag)
     list(GET case 1 prob)
-    list(GET case 2 xs)  # one extra key=value, or -
+    list(GET case 2 xs)  # one extra key=value for both sides, or -
+    list(LENGTH case ncase)
     set(extra)
     set(xset "")
     if(NOT xs STREQUAL "-")
       set(extra --set ${xs})
       set(xset ",${xs}")
+    endif()
+    if(ncase GREATER 3)  # a key=value for the rt_driver side only
+      list(GET case 3 xs2)
+      set(xset "${xset},${xs2}")
     endif()
     add_test(NAME amrex_ref_${tag}
              COMMAND rt_serial ${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob} ${amrex_runs}/ref_${tag}
@@ -1114,6 +1138,90 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                              PROCESSORS ${np})
       endforeach()
     endforeach()
+    # Stage F1 (docs/stage_f.md): the refined hierarchy. The result must not
+    # depend on the rank count, the thread count or the box sizes (the fine
+    # grids are chopped per rank), and the conserved totals of every step
+    # must equal the uniform run's to round-off (periodic box, refluxing
+    # and average-down). Label amr inside amrex_hydro.
+    # random3d (density contrasts of 1e6) hits the dual-energy resets and the
+    # temperature floor millions of times, which are not conservative in
+    # energy by design: its energy is checked to 5e-3 only
+    foreach(cfg "sod_x;1;0.5;" "sound_x;1;0.99;" "random3d;2;8;--energy-rtol;5e-3")
+      list(GET cfg 0 p)
+      list(GET cfg 1 L)
+      list(GET cfg 2 M)
+      list(SUBLIST cfg 3 -1 etol)  # the rest: extra check arguments, if any
+      set(xtol "")
+      if(etol)
+        set(xtol ";${etol}")
+      endif()
+      set(amrset "hydro_scheme=unsplit,hydro_backend=amrex,amrex_max_level=${L},amrex_refine_mass=${M}")
+      math(EXPR Lp1 "${L} + 1")
+      add_test(NAME amrex_hydro_amr_ref_${p}_L${L}
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=1 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:hydro_driver>
+                 -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p}
+                 -DOUT=${amrex_runs}/amr_ref_${p}_L${L} -DREF=${amrex_runs}/hydro_ref_${p}
+                 "-DSET=${amrset},amrex_hydro_max_grid_size=16"
+                 -DEXTRA=--quiet
+                 -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/amr_conservation_check.py
+                 -DSTRICT=cons "-DEXTRA_TOL=--levels;${Lp1}${xtol}"
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+      set_tests_properties(amrex_hydro_amr_ref_${p}_L${L} PROPERTIES FIXTURES_REQUIRED amrex_hydro_ref_${p}
+                           FIXTURES_SETUP amrex_hydro_amr_ref_${p}_L${L} LABELS "amrex;amrex_hydro;amr"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 900)
+      foreach(rc "2;1;16" "4;2;8" "1;1;32")
+        list(GET rc 0 np)
+        list(GET rc 1 nt)
+        list(GET rc 2 mgs)
+        set(tname amrex_hydro_amr_bitwise_${p}_L${L}_r${np}t${nt}_mgs${mgs})
+        add_test(NAME ${tname}
+                 COMMAND ${CMAKE_COMMAND}
+                   -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                   -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=${np} -DNT=${nt}
+                   -DDRIVER=$<TARGET_FILE:hydro_driver>
+                   -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems_hydro/${p}
+                   -DOUT=${amrex_runs}/${tname} -DREF=${amrex_runs}/amr_ref_${p}_L${L}
+                   "-DSET=${amrset},amrex_hydro_max_grid_size=${mgs}"
+                   -DEXTRA=--quiet
+                   -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py
+                   -DSTRICT=1
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
+        set_tests_properties(${tname} PROPERTIES FIXTURES_REQUIRED amrex_hydro_amr_ref_${p}_L${L}
+                             LABELS "amrex;amrex_hydro;amr" ENVIRONMENT OMP_NUM_THREADS=${nt} TIMEOUT 900
+                             PROCESSORS ${np})
+      endforeach()
+    endforeach()
+    # The star-formation sink (docs/stage_f.md section 2, label sink): the
+    # smoke problem with the state on the levels and one refinement level,
+    # stars above 2 x the mean density (unphysically low: every step forms
+    # some). 1, 2 and 3 ranks byte-identical (the stars file is sorted by
+    # formation time and position), a bit-identical restart (checkpoint
+    # version 8 with the stars and the .amr levels), and the sink's
+    # bookkeeping (sink_check.py).
+    set(sink_sets --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                  --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                  --set pm_backend=amrex --set amrex_state=1 --set amrex_max_level=1 --set amrex_refine_mass=4
+                  --set sf_overdensity=2 --set sf_efficiency=1 --set movie_dz=0.5 --set movie_z0=25)
+    add_test(NAME amrex_sink_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/sink_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP}
+                     "1 2 3" $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet
+                     ${sink_sets} --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_sink_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;sink;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_sink_check_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/sink_check.py ${amrex_runs}/sink_ranks/np1
+                     --min-stars 1)
+    set_tests_properties(amrex_sink_check_smoke PROPERTIES DEPENDS amrex_sink_ranks_smoke LABELS "amrex;amrex_hydro;sink")
+    add_test(NAME amrex_sink_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/sink_restart 13 ${sink_sets})
+    set_tests_properties(amrex_sink_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;sink;restart"
+                         ENVIRONMENT OMP_NUM_THREADS=1)
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro
     add_test(NAME amrex_hydro_full_ranks_smoke
