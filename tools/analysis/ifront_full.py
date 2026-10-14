@@ -28,6 +28,8 @@ def radii(run, N):
         if x.size != N ** 3:
             raise SystemExit(f"{f}: {x.size} values, expected {N ** 3}")
         V = float(np.sum(1.0 - x.astype(np.float64)))
+        if V >= 0.999 * N ** 3:
+            continue  # before the RT starts the field is unset (x_HI = 0 everywhere)
         out[os.path.basename(d)] = (3 * V / (4 * np.pi)) ** (1 / 3)
     return out
 
