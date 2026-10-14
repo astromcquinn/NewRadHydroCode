@@ -660,6 +660,19 @@ class HydroLevel {
     T.pushdown += now() - t0;
   }
 
+  // prev0 from the state's level 0 (the RT hierarchy averaged the refined
+  // levels down itself)
+  void level0_is_current() {
+    if (max_level == 0 || !state) return;
+    for (ax::MFIter mfi(prev0); mfi.isValid(); ++mfi) {
+      auto p = prev0.array(mfi);
+      auto g = state->G.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        p(i, j, k, m) = static_cast<double>(g(i, j, k, m));
+      });
+    }
+    have_prev0 = true;
+  }
   void remember_level0() {
     if (max_level == 0) return;
     const ax::MultiFab& U0 = U(0);
@@ -1232,6 +1245,9 @@ std::string amrex_hydro_timers() { return g_level ? g_level->timers() : ""; }
 void amrex_hydro_release() { g_level.reset(); }
 void amrex_hydro_remap(const amrex::DistributionMapping& dm) {
   if (g_level) g_level->remap(dm);
+}
+void amrex_hydro_level0_is_current() {
+  if (g_level) g_level->level0_is_current();
 }
 int amrex_hydro_finest_level() { return g_level ? g_level->finest : 0; }
 void amrex_hydro_write_levels(const std::string& dir) {

@@ -110,5 +110,11 @@ void pm_remap(pm::PMState& p, const amrex::DistributionMapping& dm);
 // in from the gas state at every step; the refined levels keep their own
 // mapping); nothing without a hierarchy.
 void amrex_hydro_remap(const amrex::DistributionMapping& dm);
+// The hydro's level-0 reference for its push-down (docs/stage_f.md section
+// 1) set to the state's current level 0: called by the RT hierarchy after
+// its step, which changed the refined levels itself and averaged them down
+// (so that change is not pushed down again); the PM's later changes still
+// are.
+void amrex_hydro_level0_is_current();
 
 }  // namespace radray

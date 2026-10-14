@@ -2063,6 +2063,7 @@ struct Hierarchy : LevelBase {
     s.ngam_total_backend = ngam_total;
     s.rays.Nray = nray;
     average_down();
+    amrex_hydro_level0_is_current();  // the hydro must not push this change down again
   }
   void sync_fields(Simulation& s) override { base().sync_fields(s); }
   void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
