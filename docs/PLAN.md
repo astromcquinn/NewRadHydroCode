@@ -822,3 +822,24 @@ policy on klone, and deleting the merged branches.
   component-parallel transforms, byte-identical); movies of the 512³ runs
   and the after-overlap P_Γ figure as for OTVET and M1 (`docs/otvet_closure.md`
   §7, `$RUNS/otvet_closure_512/compare.mp4`).
+
+## Moments-on-AMReX thread (2026-10-13): the moment RT across nodes
+
+* **Request (user):** branch `moments-amrex` (worktree from `main` after
+  PR #36): run the moment RT (`rt_method = m1 | otvet`, with `otvet_split`
+  and `otvet_closure = screen | cone`) across nodes on the AMReX backend.
+  Design first and **show the plan before implementing**; then implement
+  behind a flag (serial defaults byte-identical); validate bitwise against
+  the serial moment RT on 1, 2 and 4 nodes for M1, thin, split, screen and
+  cone, with every sum in the serial order, plus amrex/thread/restart
+  tests; time 512³ on 1/2/4 nodes per part with peak memory per rank;
+  then a 1024³, 40 Mpc/h cone run (defaults) on four nodes with movie
+  slices, compared with the 512³ cone (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`). Check
+  `hyakalloc` before taking four nodes.
+* **Proposed** (`docs/stage_e_moments.md`, awaiting the user):
+  z-slab decomposition (`amrex_slab = 1`) shared by every level; a
+  separate `MomentLevel` reusing the `rrk::` cell kernels; the OTVET
+  FFTs on component ranks with the serial FFTW plans (no grid gather);
+  `amrex_moment_stats = exact | fixed` for the photochemistry statistics;
+  sparse per-rank sources as a prerequisite for 1024³.
