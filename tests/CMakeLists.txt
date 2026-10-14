@@ -948,16 +948,24 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
   set(amrex_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_runs)
   # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
   # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
+  # (ln16p0: the spike's rt_serial keeps the original photon limiter, so
+  # the rt_driver side runs the fixed physics with photon_conserve = 0, the
+  # pre-2026-10-14 meaning of legacy_physics = 0)
   foreach(case "u8;uniform_8src;-" "ln16;lognormal_16src_smallbuf;-"
-               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0")
+               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0;photon_conserve=0")
     list(GET case 0 tag)
     list(GET case 1 prob)
-    list(GET case 2 xs)  # one extra key=value, or -
+    list(GET case 2 xs)  # one extra key=value for both sides, or -
+    list(LENGTH case ncase)
     set(extra)
     set(xset "")
     if(NOT xs STREQUAL "-")
       set(extra --set ${xs})
       set(xset ",${xs}")
+    endif()
+    if(ncase GREATER 3)  # a key=value for the rt_driver side only
+      list(GET case 3 xs2)
+      set(xset "${xset},${xs2}")
     endif()
     add_test(NAME amrex_ref_${tag}
              COMMAND rt_serial ${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob} ${amrex_runs}/ref_${tag}
