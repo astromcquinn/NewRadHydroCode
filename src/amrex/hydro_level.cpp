@@ -719,11 +719,12 @@ class HydroLevel {
     return smax;
   }
 
-  // One substep of length dt (dtdx = dt on every level) on the
-  // ghost-filled U (Es selected and filled)
-  Counts substep(int lev, double dt, const rrh::DualEnergy& de, double rho_min, double Tmin, bool p_old) {
+  // One substep on the ghost-filled U (Es selected and filled). dtdx is the
+  // level-0 substep length: the kernel works in units of its own cell, and
+  // a level-l cell (dx = 2^-l) takes dt_0 2^-l, so dt_l / dx_l = dt_0 on
+  // every level (velocities and fluxes stay in level-0 cell units).
+  Counts substep(int lev, double dtdx, const rrh::DualEnergy& de, double rho_min, double Tmin, bool p_old) {
     LevelData& L = levels[static_cast<std::size_t>(lev)];
-    const double dtdx = dt;  // dx = 1 cell on every level
     // 1. predictor on the valid box plus one ghost layer
     double t0 = now();
     for (ax::MFIter mfi(L.U); mfi.isValid(); ++mfi) {
@@ -831,10 +832,16 @@ class HydroLevel {
     return c;
   }
 
-  // Level lev from t to t + dt, and its children twice by dt/2 (recursive)
+  // Level lev from t to t + dt (its own time step: dt_0 2^-lev), and its
+  // children twice by dt/2 (recursive). dtdx = dt 2^lev is the level-0
+  // substep, the same on every level (substep above); the flux register
+  // holds dt A F / V_c in level-0 cell units: -dtdx from the coarse side
+  // and dtdx/8 per fine face and fine substep (dt_f A_f / V_c with
+  // dt_f = dt_c/2, A_f = A_c/4, V_c = A_c dx_c).
   void advance(int lev, double t, double dt, const rrh::DualEnergy& de, double rho_min, double Tmin, bool p_old,
                Counts& total_c, bool prepared) {
     LevelData& L = levels[static_cast<std::size_t>(lev)];
+    const double dtdx = dt * (1 << lev);
     if (!prepared) {  // the CFL pass filled and selected every level at this time
       fill_U(lev, t);
       select(lev, t, de);
@@ -845,14 +852,14 @@ class HydroLevel {
       L.t_old = t;
       L.t_new = t + dt;
     }
-    const Counts sc = substep(lev, dt, de, rho_min, Tmin, p_old);
+    const Counts sc = substep(lev, dtdx, de, rho_min, Tmin, p_old);
     check(lev, "after substep", false);
     for (int m = 0; m < 5; ++m) total_c.v[m] += sc.v[m];
     if (lev < finest) {
       LevelData& F = levels[static_cast<std::size_t>(lev) + 1];
       const double t0 = now();
       F.fr->setVal(0.0);
-      for (int d = 0; d < 3; ++d) F.fr->CrseInit(L.flux[d], d, 0, 0, NC, -dt);
+      for (int d = 0; d < 3; ++d) F.fr->CrseInit(L.flux[d], d, 0, 0, NC, -dtdx);
       T.reflux += now() - t0;
       for (int n = 0; n < kRef; ++n)
         advance(lev + 1, t + n * (dt / kRef), dt / kRef, de, rho_min, Tmin, p_old, total_c, prepared && n == 0);
@@ -868,10 +875,10 @@ class HydroLevel {
       T.reflux += now() - t1;
     }
     if (lev > 0) {
-      // this level's fluxes into the register with its parent: dt_f A_f / V_c
-      // = dtdx / 8 per fine substep, in level-0 cell units
+      // this level's fluxes into the register with its parent: dtdx / 8 per
+      // fine face and fine substep (above)
       const double t0 = now();
-      for (int d = 0; d < 3; ++d) L.fr->FineAdd(L.flux[d], d, 0, 0, NC, dt / 8.0);
+      for (int d = 0; d < 3; ++d) L.fr->FineAdd(L.flux[d], d, 0, 0, NC, dtdx / 8.0);
       T.reflux += now() - t0;
     }
   }
