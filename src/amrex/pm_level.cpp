@@ -717,9 +717,13 @@ struct PMLevel {
     if (fft_kind == 1) {
       if (!afft) afft = std::make_unique<ax::FFT::R2C<float>>(domain);
       afft->forwardThenBackward(pot, pot, post);
-      // amrex::FFT sets FFTW's planner to its thread count: restore the
-      // serial plans of the host code (hydro, the serial PM)
-      fftwf_plan_with_nthreads(1);
+      // amrex::FFT sets FFTW's planner to its thread count when AMReX uses
+      // the threaded FFTW: restore the serial plans of the host code (hydro,
+      // the serial PM). Only then: AMReX built with AMReX_FFTW_IGNORE_OMP
+      // (klone) never initialises FFTW's threads, and plan_with_nthreads
+      // before init_threads runs fftwf_cleanup, which leaves the solver's
+      // plans undefined (their destruction crashed at 1024^3)
+      if (fftwf_planner_nthreads() > 1) fftwf_plan_with_nthreads(1);
     } else {
       if (!pfft) pfft = std::make_unique<PencilFFT>(Nm);
       pfft->forward_then_backward(pot, pot, post);

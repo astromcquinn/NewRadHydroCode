@@ -6,7 +6,8 @@
 # node, for every (amrex_pm_fft, amrex_max_grid_size) of CONFIGS; on one node
 # also the serial code on all 192 cores. Every backend run is compared
 # bitwise (tests/amrex_pm_check.py bitwise: every file of every step) with
-# the reference run REF, and every output file (steps, DM, Pk, halos) is
+# the reference run of its FFT (the two FFTs differ at round-off by design,
+# docs/stage_e_pm.md section 1.2), and every output file (steps, DM, Pk, halos) is
 # hashed into <run>/sha256.txt; the big files of the other runs are then
 # removed (KEEP=1 keeps them). The per-step timers are the "step NNNN
 # timers:" lines of <run>.log (radhydro --set step_timers=1, cumulative).
@@ -21,8 +22,8 @@
 #              $OUT/n<nodes>_<fft>_mgs<mgs>, the serial run in $OUT/serial
 #   STEPS      hydro steps (default 3)
 #   CONFIGS    "fft:mgs ..." (default "pencil:32 amrex:32 pencil:64 amrex:64")
-#   REF        the reference run (default $OUT/n1_pencil_mgs32, which the
-#              one-node job writes first and keeps)
+#   REF        the reference run (default $OUT/n1_<fft>_mgs32 for each FFT,
+#              which the one-node job writes first and keeps)
 #   ZDATA1     the output redshifts of the restart (default "15 5.5 5.35 4":
 #              one zdata1 output inside the 3 steps, for the P(k) time and
 #              the DM file, and the run continues past the original end)
@@ -55,7 +56,7 @@ NODES="${SLURM_JOB_NUM_NODES:-1}"
 RANKS="${RANKS:-${SLURM_NTASKS:-24}}"
 THREADS="${THREADS:-8}"
 CONFIGS="${CONFIGS:-pencil:32 amrex:32 pencil:64 amrex:64}"
-REF="${REF:-$OUT/n1_pencil_mgs32}"
+REF_SET="${REF:-}"
 ZDATA1="${ZDATA1:-15 5.5 5.35 4}"
 FIELDS="${FIELDS:-u_gas,e_gas,rhog}"
 EXE="${EXE:-$PWD/build-amrex/radhydro}"
@@ -86,6 +87,7 @@ export OMP_NUM_THREADS=$THREADS OMP_PLACES=cores OMP_PROC_BIND=close
 for cfg in $CONFIGS; do
   fft=${cfg%%:*}; mgs=${cfg##*:}
   run="$OUT/n${NODES}_${fft}_mgs${mgs}"
+  REF="${REF_SET:-$OUT/n1_${fft}_mgs32}"
   rm -rf "$run"
   t0=$(date +%s)
   srun --ntasks="$RANKS" --cpus-per-task="$THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
