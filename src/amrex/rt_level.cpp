@@ -59,6 +59,11 @@
 #include <AMReX_Scan.H>
 #ifdef AMREX_USE_OMP
 #include <omp.h>
+
+#include <csignal>
+#include <execinfo.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include "gas_state.hpp"
@@ -1461,6 +1466,28 @@ struct AmrexRT {
 namespace {
 bool g_initialized = false;
 
+// SIGTERM (scancel, the time limit, srun --kill-on-bad-exit): every rank
+// writes its call stack to Backtrace.<rank> in the working directory,
+// unbuffered, and dies by the signal. Where a hung run was
+// (docs/stage_e_state.md section 5; tools/hyak/backtrace_lines.py resolves
+// the addresses). AMReX's own handler goes through stdio and MPI_Abort,
+// and the first rank done killed the others before their files were
+// written.
+int g_sig_rank = 0;
+void sigterm_backtrace(int sig) {
+  void* frames[64];
+  const int n = backtrace(frames, 64);
+  char name[32];
+  std::snprintf(name, sizeof name, "Backtrace.%d", g_sig_rank);
+  const int fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd >= 0) {
+    backtrace_symbols_fd(frames, n, fd);
+    close(fd);
+  }
+  std::signal(sig, SIG_DFL);
+  raise(sig);
+}
+
 LevelBase& level_of(Simulation& s) {
   if (!s.amrex) {
     check_rt_backend_param(s.cfg);
@@ -1483,16 +1510,10 @@ void backend_init(int& argc, char**& argv) {
     amrex::ParmParse pp("amrex");
     pp.add("verbose", 0);
     pp.add("the_arena_is_managed", 0);
-    // a cancelled or timed-out job (SIGTERM from srun/scancel) writes
-    // Backtrace.<rank>.<thread> in the working directory: where every rank
-    // was when a run hung (tools/hyak/amrex_scaling.slurm runs in $OUT).
-    // Without addr2line (slow; the first rank done aborts the others, which
-    // would leave their files empty): tools/hyak/backtrace_lines.py resolves
-    // the addresses afterwards and groups the ranks by stack.
-    pp.add("handle_sigterm", 1);
-    pp.add("call_addr2line", 0);
   });
   g_initialized = true;
+  g_sig_rank = amrex::ParallelDescriptor::MyProc();
+  std::signal(SIGTERM, sigterm_backtrace);  // Backtrace.<rank> on scancel or the time limit
 }
 void backend_finalize() {
   if (!g_initialized) return;

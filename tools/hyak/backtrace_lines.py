@@ -2,12 +2,11 @@
 """Resolve AMReX Backtrace.<rank>.<thread> files to source lines.
 
 A hung or cancelled backend run (SIGTERM: scancel, the time limit) writes
-one file per rank into the run directory (amrex.handle_sigterm = 1 in
-src/amrex/rt_level.cpp) with raw addresses, since addr2line in the signal
-handler is too slow for the first rank's MPI_Abort to wait for. This
-script runs addr2line (-g1 line tables, tools/hyak/build_amrex.sh) on the
-executable and prints each distinct stack once with the ranks that share
-it, deepest frame first:
+one file per rank, Backtrace.<rank>, into the working directory
+(sigterm_backtrace in src/amrex/rt_level.cpp: backtrace_symbols_fd, raw
+addresses). This script runs addr2line (-g1 line tables,
+tools/hyak/build_amrex.sh) on the executable and prints each distinct
+stack once with the ranks that share it, deepest frame first:
 
     python3 tools/hyak/backtrace_lines.py build-amrex/radhydro $OUT/amrex_n4/Backtrace.*
 """
@@ -23,7 +22,9 @@ def main():
         sys.exit(__doc__)
     exe = sys.argv[1]
     base = os.path.basename(exe)
-    pat = re.compile(r"^\s*(\d+):\s+(\S+)\(([^)]*)\)\s+\[(0x[0-9a-f]+)\]")
+    # "exe[0xaddr]", "lib(sym+0x1)[0xaddr]" (backtrace_symbols_fd) or
+    # " 3: exe(sym) [0xaddr]" (AMReX's files)
+    pat = re.compile(r"^\s*(?:\d+:\s+)?([^\s(\[]+)(?:\(([^)]*)\))?\s*\[(0x[0-9a-f]+)\]")
     stacks = collections.OrderedDict()
     for f in sys.argv[2:]:
         m = re.search(r"Backtrace\.(?:prog\d+\.)?(\d+)(?:\.(\d+))?$", f)
@@ -33,11 +34,11 @@ def main():
             m = pat.match(line)
             if not m:
                 continue
-            path, sym, addr = m.group(2), m.group(3), m.group(4)
+            path, sym, addr = m.group(1), m.group(2), m.group(3)
             if os.path.basename(path) == base:
                 frames.append((addr, None))
             else:
-                frames.append((None, f"{os.path.basename(path)}({sym})"))
+                frames.append((None, f"{os.path.basename(path)}({sym or ''})"))
         addrs = [a for a, _ in frames if a]
         res = {}
         if addrs:

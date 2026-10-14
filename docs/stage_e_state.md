@@ -351,12 +351,21 @@ identical up to the hang. The same binary, checkpoint and parameters on
 four other nodes finished in 3 minutes, and the previous build did too,
 so it is not reproducible from the data (a transport-level or hardware
 event is the likeliest reading; UCX reported no error). To catch the
-next one: the backend sets `amrex.handle_sigterm = 1`, so the SIGTERM of
-`scancel` or of the time limit writes `Backtrace.<rank>.<thread>` with
-every rank's call stack; `amrex_scaling.slurm` runs the backend in the
-run directory, where those files land, and the klone build keeps line
-tables (`-g1`). Give short runs a short `--time`. Four repeats of the
-case are queued (jobs 41850991–41850994).
+next one: the backend installs a SIGTERM handler, so `scancel` or the
+time limit makes every rank write its call stack to `Backtrace.<rank>`
+(unbuffered, `backtrace_symbols_fd`, then the signal's default: AMReX's
+own handler, tried first, writes through stdio and aborts the other
+ranks from the first one done, which left their files empty);
+`amrex_scaling.slurm` and `reion_production.slurm` run the backend in
+the run directory, where those files land; the klone build keeps line
+tables (`-g1`); `tools/hyak/backtrace_lines.py <exe> Backtrace.*`
+resolves the addresses and groups the ranks by stack. Tested on a 24 × 8
+production leg killed by its time limit (job 41851905): 21 of the 24
+ranks wrote their stack (the substep's kernels, as expected), three
+files stayed empty (the signal caught those ranks where the unwinder
+could not run before Slurm's kill, 10 s later). Give short runs a short
+`--time`. Four repeats of the case are queued (jobs
+41850991–41850994).
 
 What this does not do yet: balance inside a step (rays migrate during the
 substeps, so the cost of a box changes while the step runs), weigh the
