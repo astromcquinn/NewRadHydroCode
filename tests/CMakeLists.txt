@@ -1222,6 +1222,25 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      ${amrex_runs}/sink_restart 13 ${sink_sets})
     set_tests_properties(amrex_sink_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;sink;restart"
                          ENVIRONMENT OMP_NUM_THREADS=1)
+    # Stage F3 (docs/stage_f.md section 3): the I-front of one source in
+    # uniform gas with a refined level over the central region, the front
+    # crossing the level boundary, against the uniform runs at the base and
+    # at twice the resolution (ifront_full.py --check). Nightly: ~2 minutes
+    # on 2 ranks.
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME amrex_rt_amr_ifront
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:radhydro> -DPYTHON=${Python3_EXECUTABLE}
+                 -DSRC=${PROJECT_SOURCE_DIR} -DOUT=${amrex_runs}/rt_amr_ifront -DN=32 -DHALF=4
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/rt_amr_ifront.cmake)
+      set_tests_properties(amrex_rt_amr_ifront PROPERTIES TIMEOUT 3600 LABELS "amrex;amr;nightly"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 2)
+      if(NOT RADRAY_NIGHTLY_TESTS)
+        set_tests_properties(amrex_rt_amr_ifront PROPERTIES DISABLED TRUE)
+      endif()
+    endif()
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro
     add_test(NAME amrex_hydro_full_ranks_smoke

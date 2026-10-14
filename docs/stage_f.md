@@ -13,7 +13,7 @@ cooling flag and the sink), F3 (the RT across levels).*
 |---|---|
 | F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
 | F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
-| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | built; the I-front validation passes with the front inside the refined region; the boundary-crossing run pending |
+| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | done 2026-10-15: the I-front validated inside the refined region and across its boundary (§3) |
 
 ## 1. The hierarchy (F1)
 
@@ -264,7 +264,14 @@ so that the front crosses the level boundary, overshot by 0.57 cells
 right after the crossing and had 8× the photons in flight: the kernels
 keep a ray's photons per RT-cell volume (`ray_source`: ngam / vol_rt /
 nH_avg), so a ray and the exchanged deposits must be rescaled by 8 across
-a level (now done). The rerun is below. Three more traps on the way: the
+a level (now done). The rerun (`rt_amr_ifront5`): the front crosses the
+level boundary between steps 8 and 10 without a jump and continues on
+the base level; refined 32³ against the 64³ reference, errors in base
+cells: 0.004, 0.014, 0.018, 0.044, 0.061, 0.080, 0.108, 0.140 (steps
+3–10; the uniform 32³ run: 0.022, 0.029, 0.031, 0.008, 0.010, 0.029,
+0.060, 0.087), i.e. the fine level's lag carried across, nothing from the
+crossing. CTest `amrex_rt_amr_ifront` (label `amr`, nightly) repeats the
+three runs on 2 ranks. Three more traps on the way: the
 refined levels' RT parameters must carry their own grid size for the
 periodic wrap (`nrtr`, `hrtr`: a source ray at x = 32.5 on level 1
 wrapped to cell 0); after the RT hierarchy's step the hydro's push-down
