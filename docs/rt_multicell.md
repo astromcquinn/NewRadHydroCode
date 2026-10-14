@@ -175,9 +175,10 @@ steps):
 | 2 | 0.1819 | 0.1700 | 0.0119 (6.5 %) | |
 | 4 | 0.1962 | 0.1640 | 0.0323 (16.5 %) | 5e-5 |
 
-**`photon_conserve = 1`** (default 0 = the original; independent of
-`legacy_rt` and `legacy_physics`, so the Fortran-mirrored modes are
-untouched; rays, moments and the AMReX backend) also iterates while any
+**`photon_conserve = 1`** (rays, moments and the AMReX backend; since
+2026-10-14 part of `legacy_physics = 0`, mirrored in the Fortran harnesses,
+with the key overriding in either mode; before that a separate flag,
+default 0, which is how the runs below were made) also iterates while any
 frequency group is limited by more than 1e-3, at most 1000 times. The
 budget then closes to 4e-5 per H atom; `radiative_physics` costs the same
 (1.99 s against 1.97 s on that run). CTest `photon_conserve`.
@@ -777,7 +778,7 @@ and printed in the summary line only when not the default):
 | key | default | meaning |
 |---|---|---|
 | `rt_cells_per_substep` | 1 (original) | k, 1–16; `legacy_rt = 0` and `rt_method = rays` only, refused otherwise; light should cross ≥ k cells per hydro step (§1.2; the ≥ 1 guard warns only without `rt_substep_carry`) |
-| `photon_conserve` | 0 (original) | iterate `photo_gas_cell` until no frequency group is photon-limited (B17, §2.1); any k, both legacy modes |
+| `photon_conserve` | −1 = follow `legacy_physics` (on with the fixed physics since 2026-10-14; 0 = original) | iterate `photo_gas_cell` until no frequency group is photon-limited (B17, §2.1); any k, both legacy modes |
 | `ray_deposit` | `share` (original) | `exposure`: §2.2; `legacy_rt = 0` |
 
 **Code:** `include/radray/kernels/ray_kernels.hpp` (`RTP::cells`,

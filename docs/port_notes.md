@@ -409,13 +409,17 @@ B1–B4, B8 and B9 are preserved only with `legacy_rt = 1` (the default). With
   x_HII,M; the excess grows with Γ_max·dt, which scales as k² with k RT
   cells per substep (6.5 % at k = 2, 16 % at k = 4). Uniform gas hardly
   shows it (the front cells are less starved). **Option
-  `photon_conserve = 1`** (default 0 = the original; params.txt /
-  `--set`, `radhydro`, `rt_driver`, the AMReX backend; independent of
-  `legacy_rt` and `legacy_physics`, so the Fortran-mirrored modes are
-  unchanged) also iterates while any frequency group is limited by more
-  than 1e-3, at most 1000 times (`rrk::kPhotonIterMax`). The budget then
-  closes to 4e-5 per H atom at negligible cost (`radiative_physics` time
-  unchanged). Effects and tests: `docs/rt_multicell.md`.
+  `photon_conserve = 1`** (params.txt / `--set`, `radhydro`, `rt_driver`,
+  the AMReX backend) also iterates while any frequency group is limited
+  by more than 1e-3, at most 1000 times (`rrk::kPhotonIterMax`). The
+  budget then closes to 4e-5 per H atom at negligible cost
+  (`radiative_physics` time unchanged). **Since 2026-10-14 (user
+  decision) the fix is part of `legacy_physics = 0`:** the key's default
+  (−1) follows `legacy_physics`, and an explicit 0 or 1 overrides it in
+  either mode. The Fortran harnesses mirror it (RT harness PATCHES.md
+  14), and the stored `legacy_physics = 0` references were regenerated
+  on the CI platform with it; the legacy references are unchanged.
+  Effects and tests: `docs/rt_multicell.md`.
 
 * **Redshift per time with a reduced speed of light** (not a quirk of the
   original, which hard-wires c: a consequence of the C++ `c_reduced`).
@@ -556,6 +560,7 @@ and 54.42 eV), as the existing fits do. These differ from HG97's 157807,
 | P7 | HeII case A recombination `alpha_rec(2)` and cooling `coef_cool(2)` used `2.78e-14 x^0.681` ("personal communication with Nick") | `3.0e-14 λ_HeI^0.654` (+ α_d, P6) and `3.0e-14 kT λ_HeI^0.654` | HG97 App. A (Burgess & Seaton fit; same source as case B) |
 | P8 | bremsstrahlung `coef_cool(13)` used a constant Gaunt factor 1.3 | `1.42e-27 T^0.5 g_ff`, `g_ff = 1.1 + 0.34 exp(−(5.5 − log10 T)²/3)` | Katz, Weinberg & Hernquist (1996, ApJS 105, 19), Table 1 (from Spitzer 1978; also Cen 1992) |
 | P9 | rates looked up at the nearest table node (`iT = 1 + nint(...)`, up to ±0.005 dex in T) | every tabulated rate and cooling coefficient interpolated linearly in ln R vs log T between the two enclosing nodes; edge node outside the table | numerical; see below |
+| B17 | `photo_cell`'s photon limit stops with `ne`, so photon-starved front cells ionise without the photons (§5, B17) | the limit iterated to convergence (`photon_conserve`, since 2026-10-14; the key overrides in either mode) | bookkeeping; `docs/rt_multicell.md` §2.1 |
 
 Reasoning for the less obvious choices:
 

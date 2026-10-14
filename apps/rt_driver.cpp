@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
-    s.cfg.photon_conserve = (P.photon_conserve == 1);      // B17 fix
+    s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     if (P.rt_substep_carry) {
       if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
@@ -144,7 +144,9 @@ int main(int argc, char** argv) {
                       ? " rt_cells   : " + std::to_string(P.rt_cells_per_substep) +
                             " per substep, substep carry " + std::to_string(P.rt_substep_carry) + "\n"
                       : std::string())
-              << (P.photon_conserve ? " photon_cons: 1 (B17 fix)\n" : "")
+              << (s.cfg.photon_conserve != !s.cfg.legacy_physics
+                      ? " photon_cons: " + std::to_string(int(s.cfg.photon_conserve)) + " (B17 fix; set explicitly)\n"
+                      : std::string())
               << (P.ray_deposit ? " ray_deposit: exposure\n" : "")
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
               << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"

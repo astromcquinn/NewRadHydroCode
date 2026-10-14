@@ -132,9 +132,10 @@ def main():
     ap.add_argument("--ray-deposit", default="share", choices=("share", "exposure"),
                     help="how rays deposit photons along their path (ray_deposit, "
                          "docs/rt_multicell.md); share: the original (default, no line)")
-    ap.add_argument("--photon-conserve", type=int, default=0, choices=(0, 1),
+    ap.add_argument("--photon-conserve", type=int, default=-1, choices=(-1, 0, 1),
                     help="iterate photo_cell's photon limit to convergence (photon_conserve, "
-                         "the B17 fix, docs/rt_multicell.md); 0: the original (default, no line)")
+                         "the B17 fix, docs/rt_multicell.md); -1 (default, no line written): "
+                         "follow legacy_physics, i.e. on in production (legacy_physics = 0)")
     ap.add_argument("--pm-refine", type=int, default=1,
                     help="PM mesh refinement (docs/pm_refine.md): writes pm_refine and "
                          "Ndm = pm_refine*N, and makes ICs with pm_refine*N particles per "
@@ -236,8 +237,8 @@ def main():
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")
-    if a.photon_conserve:
-        lines.append("photon_conserve = 1")
+    if a.photon_conserve >= 0:
+        lines.append(f"photon_conserve = {a.photon_conserve}")
     if a.ray_deposit != "share":
         lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.rt_cells_per_substep != 1:

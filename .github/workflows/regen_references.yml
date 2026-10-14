@@ -1,0 +1,86 @@
+# Regenerate stored reference outputs on the CI platform (Ubuntu 24.04,
+# gcc 13, glibc 2.39: the platform every stored RT reference was made on,
+# docs/cluster.md section 3) and upload them as an artifact. On demand only.
+#
+# The gfortran harnesses hold the specification (CLAUDE.md). Their stored
+# outputs change only when a mirrored flag's meaning changes on purpose,
+# e.g. B17 (photon_conserve) joining legacy_physics = 0 on 2026-10-14. The
+# legacy sets (reference/harness/outputs, outputs_legacy_rt0 and the
+# harness_full *_rt1 cases) must come back byte-identical; regenerate them
+# only to check that.
+#
+# Afterwards: gh run download <run id> -n references -D /tmp/refs, copy
+# the directories over reference/harness/outputs*/ and
+# reference/harness_full/outputs/, inspect the diff, commit.
+name: Regenerate references
+
+on:
+  workflow_dispatch:
+    inputs:
+      rt_sets:
+        description: "RT harness sets (space-separated): legacy rt0 fixed c01"
+        default: "fixed c01"
+      full_cases:
+        description: "full harness cases (space-separated), or none"
+        default: "smoke_rt0 legacy_rt0 onthefly_rt0"
+
+jobs:
+  regen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            g++ gfortran cmake ninja-build libfftw3-dev bc \
+            python3 python3-numpy
+          g++ --version | head -1
+          gfortran --version | head -1
+          ldd --version | head -1
+
+      - name: Build the C++ (the full harness's on-the-fly halo finder)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: RT harness sets
+        run: |
+          ulimit -s unlimited
+          cd reference/harness
+          for s in ${{ inputs.rt_sets }}; do
+            case "$s" in
+              legacy) set=""; out=outputs; probs="";;
+              rt0)    set="legacy_rt=0"; out=outputs_legacy_rt0; probs="";;
+              fixed)  set="legacy_rt=0 legacy_physics=0"; out=outputs_legacy_rt0_phys0; probs="";;
+              c01)    set="legacy_rt=0 legacy_physics=0 c_reduced=0.1"; out=outputs_c0.1_fixed
+                      probs="uniform_8src lognormal_16src_smallbuf";;
+              *) echo "unknown set $s"; exit 1;;
+            esac
+            RT_SET="$set" PROBLEMS="$probs" ./run_all.sh /tmp/rt_runs/$s
+            python3 store_outputs.py /tmp/rt_runs/$s $PWD/$out
+          done
+
+      - name: Full harness cases
+        if: inputs.full_cases != 'none'
+        run: |
+          ulimit -s unlimited
+          cd reference/harness_full
+          CASES="${{ inputs.full_cases }}" ./run_all.sh /tmp/full_runs --store --jobs 2
+
+      - name: What changed
+        run: git status --short reference/ | head -100
+
+      - name: Upload the regenerated sets
+        uses: actions/upload-artifact@v4
+        with:
+          name: references
+          path: |
+            reference/harness/outputs
+            reference/harness/outputs_legacy_rt0
+            reference/harness/outputs_legacy_rt0_phys0
+            reference/harness/outputs_c0.1_fixed
+            reference/harness_full/outputs
+          retention-days: 7

@@ -137,18 +137,24 @@ T, I-front positions and the photon budget. Measure them on the Iliev et al.
   - Port the hydro update to the framework's patches.
   - Refine on overdensity, e.g. a Lagrangian criterion with a mass per cell
     of about 8× the base level.
-  - Keep the original's overcooling suppression (no cooling above 200× mean
+  - ~~Keep the original's overcooling suppression (no cooling above 200× mean
     density), or switch to an explicit star-formation sink, as the user
-    suggested. This avoids needing a full ISM model.
+    suggested.~~ **Decided 2026-10-14:** cooling stays on in dense gas (the
+    original's (200/x)² suppression becomes a flag), with an aggressive
+    star-formation sink above an overdensity of a few thousand for most
+    runs (`docs/PLAN.md`, "Stage F decisions").
   - The original's directionally split TVD scheme with a moving frame does
     not carry over naturally to AMR. Expect to move to an unsplit Godunov
     scheme (MUSCL-Hancock + HLLC, as in Ramses/Athena) and validate it with
     the hydro test suite now being built.
 - **RT on AMR:**
-  - Rays move one local cell per substep, so fine levels need substeps
-    sub-cycled within the coarse step. The alternative, a coarse substep
-    in which rays cross 2^l fine cells, was tested on the uniform grid
-    (`docs/rt_multicell.md`; §9 recommends a mixture of the two).
+  - ~~Rays move one local cell per substep, so fine levels need substeps
+    sub-cycled within the coarse step.~~ **Decided 2026-10-14:** one coarse
+    substep everywhere; rays cross 2^l fine cells per substep in level-l
+    patches (the uniform-grid test of this is `docs/rt_multicell.md`),
+    with the exposure deposit and `photon_conserve`. No time sub-cycling of
+    the transport: the fronts move much slower than light except around
+    quasars, which are not modelled (`docs/PLAN.md`, "Stage F decisions").
   - Angular resolution (`ray_per_cell`) is set relative to the local cell
     size, and splitting continues into fine levels.
   - Merging happens within cells at the ray's current level.

@@ -150,10 +150,15 @@ struct Config {
   // B17 fix (docs/port_notes.md, docs/rt_multicell.md): photo_cell's photon
   // limit is iterated to convergence (at most rrk::kPhotonIterMax
   // iterations) instead of ending with ne after at most 5 iterations, which
-  // lets photon-starved front cells ionise without the photons. false
-  // (default) is the original. Independent of legacy_physics (whose fixes
-  // the Fortran harnesses mirror); rays and the moment RT.
+  // lets photon-starved front cells ionise without the photons. false is
+  // the original; part of legacy_physics = 0 since 2026-10-14 (mirrored in
+  // the Fortran harnesses, PATCHES.md 14); rays and the moment RT.
   bool photon_conserve = false;
+  // The params.txt key photon_conserve: -1 (default) follows legacy_physics
+  // (B17 is part of legacy_physics = 0 since 2026-10-14), 0 | 1 override.
+  static bool photon_conserve_effective(int key, bool legacy_physics) {
+    return key < 0 ? !legacy_physics : key == 1;
+  }
 
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
