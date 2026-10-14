@@ -272,6 +272,7 @@ class HydroLevel {
   // the hierarchy (amrex_max_level > 0)
   int max_level = 0;
   int finest = 0;
+  int finest_ever = 0;  // the deepest level used so far (the timers line)
   double refine_mass = 8;
   int regrid_every = 1;
   std::unique_ptr<Mesh> mesh;
@@ -517,6 +518,7 @@ class HydroLevel {
       mesh->ClearDistributionMap(lev);
     }
     finest = new_finest;
+    finest_ever = std::max(finest_ever, finest);
     mesh->SetFinestLevel(finest);
     for (int lev = 1; lev <= finest; ++lev) check(lev, "after regrid", false);
     if (debug && ax::ParallelDescriptor::IOProcessor())
@@ -1088,7 +1090,8 @@ class HydroLevel {
                   T.copyin, T.fill, T.select, T.cfl, T.predict, T.flux, T.update, T.finalize, T.reduce, T.copyout,
                   T.allgather, static_cast<long long>(T.substeps), static_cast<long long>(T.calls),
                   static_cast<int>(levels[0].ba.size()),
-                  max_level > 0 ? (", levels " + std::to_string(finest + 1) + " regrid " + std::to_string(T.regrid) +
+                  max_level > 0 ? (", levels " + std::to_string(finest_ever + 1) + " (now " + std::to_string(finest + 1) +
+                                   ") regrid " + std::to_string(T.regrid) +
                                    " reflux " + std::to_string(T.reflux) + " pushdown " + std::to_string(T.pushdown))
                                       .c_str()
                                 : "");
