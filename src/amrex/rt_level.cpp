@@ -481,6 +481,8 @@ struct Level : LevelBase {
     rrk::RTP P = rt_params(s);
     if (lev == 0) return P;
     P.N = N;
+    P.nrtr = static_cast<double>(N);  // the kernels wrap positions with it
+    P.hrtr = static_cast<double>(N) / 2;
     P.cells = cells;
     P.nseg = rrk::nseg_for(s.cfg.legacy_rt, cells);
     P.vol_rt = units_of(s).vol_rt;
