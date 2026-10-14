@@ -30,6 +30,7 @@
 namespace radray {
 
 struct Simulation;
+struct Units;
 
 // Parses recomb_case, recomb_rad, recomb_rad_lines, recomb_rad_nside,
 // recomb_rad_block and recomb_rad_pool; false for any other key.
@@ -92,6 +93,11 @@ inline bool recomb_onspot(const RecombState& Rc, std::int64_t c) { return Rc.mod
 // recombinations nrB[3].
 void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], const double nrB[3],
                   double T, double vol_gas);
+// The same for one cell's buffers wherever they live (the moment level's
+// slabs): group g at ngam[g * stride], egam[g * stride], the on-the-spot
+// count at *ots. Rc: its tables (dE, fBC, line_n, line_e) only.
+void recomb_count_cell(const RecombState& Rc, const Units& u, bool onspot, const double nrab[3], const double nrB[3],
+                       double T, double vol_gas, float* ngam, float* egam, std::int64_t stride, float* ots);
 // Mean photon energy above threshold chi [eV] of radiative recombination at
 // temperature T, from the Milne relation: photons per unit energy
 // ~ E^2 sigma(E) exp(-(E - chi)/kT), with sigma the code's photoionisation

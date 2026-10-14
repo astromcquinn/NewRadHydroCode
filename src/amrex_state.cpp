@@ -80,7 +80,8 @@ void check_amrex_state_param(const Config& c) {
     throw std::runtime_error("amrex_state = 1 needs hydro_scheme = unsplit");
   if (c.rt_method != RTMethod::Rays && !c.amrex_slab)
     throw std::runtime_error("amrex_state = 1 with rt_method = m1 | otvet needs amrex_slab = 1");
-  if (c.recomb_rad) throw std::runtime_error("amrex_state = 1 does not support recomb_rad = 1");
+  if (c.recomb_rad && c.rt_method == RTMethod::Rays)
+    throw std::runtime_error("amrex_state = 1 does not support recomb_rad = 1 with the rays");
   if (c.N_rt_gas != 1) throw std::runtime_error("amrex_state = 1 needs N_rt_gas = 1 (Nrt = Ngas)");
   // one decomposition: the hydro and PM levels on the RT level's boxes
   if (c.amrex_hydro_max_grid_size != 0 && c.amrex_hydro_max_grid_size != c.amrex_max_grid_size)

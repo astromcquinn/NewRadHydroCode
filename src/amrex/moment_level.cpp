@@ -36,8 +36,12 @@
 //               receiver layer; the blend's Gaussian along x and y on the
 //               slabs and along z on y-slabs (a transpose).
 //
-// recomb_rad = 1 and the checkpoint come in the next phases and are refused
-// until then.
+//   * recomb    recomb_rad = 1: every cell in launch mode (case A) counts
+//               its ground-state recombinations (recomb_count_cell) into a
+//               buffer on the slabs and emits them at the next substep, the
+//               emitted total by plane.
+//
+// The checkpoint comes in the next phase and is refused until then.
 #include <mpi.h>
 
 #include <algorithm>
@@ -59,6 +63,7 @@
 #include "radray/cosmology.hpp"
 #include "radray/kernels/moment_cell.hpp"
 #include "radray/otvet_closure.hpp"
+#include "radray/recomb_rad.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_moments.hpp"
@@ -126,6 +131,12 @@ struct MomentLevel : CellLevel {
   bool split = false;      // otvet_split = 1 (Nd defined)
   bool split_now = false;  // the transport uses N_dir this hydro step (not with the cone)
   std::unique_ptr<OtvetConvolver> conv;  // the FFT tasks of this rank
+  // recomb_rad = 1: the ground-state recombination photons of the last
+  // substep per cell, ngam (5) and egam (5), emitted at the next substep
+  // (RecombState::ngam / egam on the slabs; every cell in launch mode)
+  FFab RB;
+  bool recomb = false;
+  double launched = 0;
   std::int64_t nsrc = 0;
   // the photon budget (MomentState's, rank 0's values on every rank)
   double injected = 0, absorbed = 0, lost = 0;
@@ -134,7 +145,6 @@ struct MomentLevel : CellLevel {
   MomentLevel(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
     if (!cfg.amrex_slab)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
-    if (cfg.recomb_rad) throw std::runtime_error("rt_backend = amrex: recomb_rad = 1 with the moment RT is not implemented yet");
     stats_mode = cfg.amrex_moment_stats;
     // whole planes per box, and the ranks in z order (the chains)
     for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
@@ -157,6 +167,11 @@ struct MomentLevel : CellLevel {
       return ba[C.IndexArray()[a]].smallEnd(2) < ba[C.IndexArray()[b]].smallEnd(2);
     });
     phys.resize(nloc);
+    if (cfg.recomb_rad) {
+      recomb = true;
+      RB.define(ba, dm, 2 * kNfreq, 0);
+      RB.setVal(0.0f);
+    }
     if (cfg.rt_method == RTMethod::OTVET) {
       H.define(ba, dm, 6, 1);
       split = otvet_closure_params(cfg).split != 0;
@@ -840,6 +855,40 @@ struct MomentLevel : CellLevel {
       MPI_Bcast(&inj, 1, MPI_DOUBLE, 0, comm());
     }
     injected += inj / s.cfg.nrtcr;
+    // recomb_rad = 1: the ground-state recombination photons photo_cell
+    // counted in the last substep, emitted isotropically where they were
+    // made; the photons added by plane (moment_step_1's plane_sum)
+    if (recomb) {
+      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+      for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
+        auto m = M.array(mfi);
+        auto rb = RB.array(mfi);
+        const ax::Box bx = mfi.validbox();
+#pragma omp parallel for schedule(static)
+        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+          double t = 0;
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i)
+              for (int g = 0; g < kNfreq; ++g) {
+                float& rn = rb(i, j, k, g);
+                float& re = rb(i, j, k, kNfreq + g);
+                if (!(rn > 0)) continue;
+                float& n = m(i, j, k, 5 * g);
+                float& e = m(i, j, k, 5 * g + 4);
+                const float n0 = n;
+                n = static_cast<float>(static_cast<double>(n0) + static_cast<double>(rn));
+                e = static_cast<float>(static_cast<double>(e) + static_cast<double>(re));
+                t += static_cast<double>(n) - static_cast<double>(n0);
+                rn = 0;
+                re = 0;
+              }
+          part[static_cast<std::size_t>(k)] = t;
+        }
+      }
+      const double rec = plane_total(part);
+      injected += rec / s.cfg.nrtcr;
+      launched += rec / s.cfg.nrtcr;
+    }
     T.inject += now() - t0;
   }
 
@@ -1010,7 +1059,10 @@ struct MomentLevel : CellLevel {
     X.cells = s.cfg.rt_cells_per_substep;
     X.photon_conserve = s.cfg.photon_conserve;
     X.ia = s.cfg.recomb_case_A ? 0 : 3;
-    X.want_nrab = false;
+    X.want_nrab = recomb;
+    const RecombState* Rc = recomb ? s.recomb.get() : nullptr;
+    if (recomb && !Rc) throw std::runtime_error("recomb_rad = 1: recomb_init was not called");
+    const bool lines = s.cfg.recomb_rad_lines;
     const bool he = has_e;
     const Units u = s.units;
     const double dtsec_rt = s.clk.dtsec_rt;
@@ -1020,6 +1072,8 @@ struct MomentLevel : CellLevel {
       const int ncb = static_cast<int>(bx.numPts());
       const auto lo = ax::lbound(bx), len = ax::length(bx);
       auto c = C.array(mfi);
+      ax::Array4<float> rb = recomb ? RB.array(mfi) : ax::Array4<float>{};
+      const std::int64_t rstride = recomb ? comp_stride(rb) : 0;
       std::vector<CellPhys>& ph = phys[mfi.LocalIndex()];
       ph.resize(ncb);
       CellPhys* pp = ph.data();
@@ -1032,6 +1086,11 @@ struct MomentLevel : CellLevel {
         bool processed = false;
         double ngam_tot = 0;
         cp_.err = rrk::physics_cell(d, X, &cp_.st, he, &processed, &ngam_tot);
+        if (processed && Rc && !cp_.err) {
+          float ots = 0;
+          recomb_count_cell(*Rc, u, false, cp_.st.nrab, lines ? cp_.st.nrB : nullptr, cp_.st.T_in, u.vol_gas,
+                            &rb(i, j, k, 0), &rb(i, j, k, kNfreq), rstride, &ots);
+        }
         if (processed) {
           cp_.flags |= 1;
           if (ngam_tot > u.ngam_min) cp_.flags |= 2;
@@ -1170,6 +1229,8 @@ struct MomentLevel : CellLevel {
       *s.raylog << " Moments    : in flight " << static_cast<float>(tot / s.cfg.nrtcr) << " injected "
                 << static_cast<float>(injected) << " absorbed " << static_cast<float>(absorbed) << " lost "
                 << static_cast<float>(lost) << "\n";
+    if (s.raylog && recomb)
+      *s.raylog << " Recomb     : emitted " << static_cast<float>(launched) << " (included in injected)\n";
     // calc_rt_f
     const Units u = s.units;
     const bool he = has_e;

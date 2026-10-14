@@ -1010,7 +1010,10 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                 "cone2;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=cone,otvet_cone_nside=2;cone"
                 "cone;uniform_8src;rt_method=otvet,otvet_closure=cone;cone"
                 "conenoblend;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=cone,otvet_cone_blend=0;cone"
-                "conelamx;lognormal_16src;rt_method=otvet,otvet_closure=cone,otvet_cone_rc=1,otvet_cone_coarse=2;cone2")
+                "conelamx;lognormal_16src;rt_method=otvet,otvet_closure=cone,otvet_cone_rc=1,otvet_cone_coarse=2;cone2"
+                "m1recomb;lognormal_16src;rt_method=m1,nsteps=4,recomb_case=A,recomb_rad=1,recomb_rad_lines=1;few"
+                "m1recombinj;lognormal_16src;rt_method=m1,nsteps=4,moment_inject=1,recomb_case=A,recomb_rad=1;few"
+                "conerecomb;uniform_8src;rt_method=otvet,otvet_closure=cone,recomb_case=A,recomb_rad=1;cone")
     list(GET mcase 0 mtag)
     list(GET mcase 1 prob)
     list(GET mcase 2 xs)
@@ -1278,7 +1281,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
     # slabs, byte-identical to the serial moment RT with the hydro and PM
     # backends (fields, stats, movie frames)
     foreach(rt "m1 1 1 0" "m1 2 1 4" "m1 3 2 4" "otvet 3 2 4" "split 2 2 2" "screensplit 3 1 4" "cone 2 2 4"
-               "cone 4 1 4")
+               "cone 4 1 4" "conerecomb 3 2 4")
       separate_arguments(rt)
       list(GET rt 0 mc)
       list(GET rt 1 np)
@@ -1292,6 +1295,9 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
         set(margs --set rt_method=otvet --set otvet_split=1)
       elseif(mc STREQUAL "cone")
         set(margs --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2)
+      elseif(mc STREQUAL "conerecomb")
+        set(margs --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2 --set recomb_case=A
+                  --set recomb_rad=1)
       else()
         set(margs --set rt_method=otvet --set otvet_closure=screen --set otvet_split=1)
       endif()
