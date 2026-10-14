@@ -1854,7 +1854,7 @@ struct Hierarchy : LevelBase {
         u(i, j, k, m) = sum;
       });
     }
-    P.A.ParallelAdd(up, 0, 0, ND, ax::IntVect(0), ax::IntVect(0), P.period);
+    P.A.ParallelCopy(up, 0, 0, ND, 0, 0, P.period, ax::FabArrayBase::ADD);
     // parent cells under the level -> the children
     const ax::BoxArray cba = ax::coarsen(F.ba, 2);
     LFab down(cba, F.dm, ND, 0);
