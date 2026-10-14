@@ -837,9 +837,21 @@ policy on klone, and deleting the merged branches.
   slices, compared with the 512³ cone (`gamma_power.py`,
   `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`). Check
   `hyakalloc` before taking four nodes.
-* **Proposed** (`docs/stage_e_moments.md`, awaiting the user):
+* **Proposed** (`docs/stage_e_moments.md`):
   z-slab decomposition (`amrex_slab = 1`) shared by every level; a
   separate `MomentLevel` reusing the `rrk::` cell kernels; the OTVET
   FFTs on component ranks with the serial FFTW plans (no grid gather);
   `amrex_moment_stats = exact | fixed` for the photochemistry statistics;
   sparse per-rank sources as a prerequisite for 1024³.
+* **User decisions (2026-10-13):**
+  - the z-slab decomposition (`amrex_slab = 1`): yes;
+  - `amrex_moment_stats = exact` by default, `fixed` for production: yes;
+  - the 1024³ run on the preemptible `ckpt-g2` partition;
+  - `recomb_rad = 1` must work with moments on AMReX eventually: phase 3b.
+  - Asked how much faster a distributed FFT would be. Measured
+    (`docs/stage_e_moments.md` §4.1): the serial 3-D FFTW plan with
+    FFTW's threads is bitwise the single-threaded plan at 256³, 512³ and
+    1024³ (8 and 32 threads), and 31× faster at 1024³ on 32 threads
+    (0.70 s against 21.8 s). A distributed pencil FFT would be no faster
+    at 4 nodes (its transposes) and is not bitwise. Proposed: threaded
+    plans on the component ranks, with a once-per-run bitwise guard.

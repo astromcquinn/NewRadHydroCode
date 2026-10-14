@@ -157,8 +157,13 @@ Step by step:
    - `post_cell`, and the gas written back (E3) or `sync_fields`
      (`amrex_state = 0`).
 
-`tensor_dump` and `recomb_rad = 1` with moments are refused at first
-(clear errors); both are per cell and can follow.
+`tensor_dump` is refused at first. `recomb_rad = 1` (the user wants it
+eventually) is phase 3b, §9. It needs:
+- the recombination buffers `ngam`, `egam` per cell and group on the
+  level, filled by the photochemistry;
+- the injection into the moments per cell, with `launched` in plane
+  partials;
+- the buffers in the checkpoint through the slabs.
 
 ## 4. The OTVET tensor (once per hydro step)
 
@@ -207,24 +212,41 @@ arrays; that is what makes it thread-independent. The plan:
    kernel is filled on the slabs, a pure function of the separation,
    and `ParallelCopy`'d to the component ranks. That is 4 GB per
    component.
-6. **Cost at 1024³:** a single-threaded 1024³ float FFT takes an
-   estimated 20–40 s, to be measured. A convolution is then about two FFT
-   times, since the forward and inverse transforms run in sequence on
-   each task. So:
-   - thin, split, screen: about 1 min per hydro step;
-   - cone: the same, with 12 tasks running at once.
-   - The serial code has the same 6-way limit today.
-   - Transfers: 4.3 GB per task output, 26–52 GB per step in all, a few
-     seconds.
-   - Against an RT hydro step of roughly 20–30 min at 1024³ on 4 nodes,
-     this is a few %.
-7. **Options not taken now:**
-   - a distributed FFT (AMReX FFT / pencils). Its arithmetic differs,
-     so h would differ at float round-off, and it would need its own
-     flag;
-   - threaded FFTW plans. Bitwise equality with the serial plan is
-     likely but not guaranteed; it can be tested on klone and adopted
-     later if it holds.
+6. **Measured on klone** (2026-10-13, one `cpu-g2` node, FFTW 3.3.10
+   float, a standalone benchmark in
+   `/gscratch/astro/mcquinn/radhydro/scratch/fftbench`): one 3-D
+   transform of the serial code's plan, and the alternatives.
+
+   | N | serial plan, 1 thread (r2c / c2r) | the same 3-D plan with FFTW threads | bitwise = serial? | line-by-line (as the PM pencil FFT), one node, no transposes | its difference from the serial plan |
+   |---|---|---|---|---|---|
+   | 256 | 0.24 / 0.23 s | 0.03 / 0.03 s (8 threads) | yes, both | 0.02 s | 2.9e-9 of the max |
+   | 512 | 2.69 / 2.62 s | 0.09 / 0.09 s (32 threads) | yes, both | 0.06 s | 1.1e-9 |
+   | 1024 | 21.8 / 21.6 s | 0.70 / 0.72 s (32 threads) | yes, both | 0.48 s | 3.6e-10 |
+
+   - **Decision: the component ranks run the serial 3-D plans with
+     FFTW's threads** (the rank's `SLURM_CPUS_PER_TASK`). At every size
+     and thread count tried they are bitwise the single-threaded plan.
+     FFTW does not promise that, so the backend checks it: once per run,
+     at the first tensor, one task compares the threaded and the
+     single-threaded forward transform of its rho. It throws on a
+     mismatch, with a key to fall back to one thread. A ctest does the
+     same at 64³ and 128³.
+   - **Cost at 1024³:** about 0.7 s per transform on 32 threads, about
+     2 s on 12. That is a few seconds per convolution plus the transfers
+     (4.3 GB per task output, 26–52 GB per step in all), so roughly
+     5–10 s per hydro step for the cone. The single-threaded plans would
+     take about 45 s per convolution.
+7. **Not taken: a distributed FFT** (the PM's pencil transform, or
+   `amrex::FFT`).
+   - The line work alone is 0.48 s per node at 1024³, so over 4 nodes
+     about 0.1 s. Its two all-to-all transposes (4.3 GB of complex data
+     each, three quarters of it across the network) take an estimated
+     1–2 s per transform.
+   - So it would be no faster than the threaded component ranks, and it
+     differs from the serial plan at about 1e-9 of the maximum.
+   - It stays an option if the tensor's transfers ever dominate.
+8. Side result: the serial code could thread its FFTs the same way,
+   byte-identically. This is not part of this thread.
 
 The thin direct sum (`otvet_tensor = direct`, or auto when
 N_src × N³ ≤ 2.7·10⁸) is per cell over the source list on the slabs:
@@ -354,7 +376,14 @@ The references and the tests:
   - movie slices (`movie_slab`, `movie_dz` ≤ 0.05);
   - ICs from `tools/ics` at 1024³;
   - the same f_esc as 512³ unless the user says otherwise;
-  - checkpoints often enough for the 24 h restart cadence.
+  - on the preemptible `ckpt-g2` partition (user decision 2026-10-13):
+    `PreemptMode = REQUEUE` with no grace time, so a preemption kills the
+    job at once. The job script therefore restarts from the newest
+    complete checkpoint. With `restart_every` = 2–3 hydro steps (about
+    1 h of wall time at 1024³) and the two newest checkpoints kept. At 1024³ a checkpoint is about 0.4 TB,
+    written by rank 0 through the slab gathers; its write time is
+    measured at 512³ first. If it is too slow, a per-rank checkpoint
+    is a separate decision.
   - Time estimate: 16 × (2.0 + 1.7) h of transport and photochemistry
     on one node ≈ 59 h, so about 16–20 h on 4 nodes at 75–90 %
     efficiency, plus the tensor (1–2 h) and the hydro, PM, FoF and I/O
@@ -370,6 +399,7 @@ The references and the tests:
 | 1 | `MomentLevel`: M1 (prep, calc_rt_1, injection, transport, deposit, physics, step 3, redshift, budgets, `amrex_moment_stats`) in `rt_driver` and `radhydro` | §7 for M1 |
 | 2 | OTVET: the FFT split into pieces (serial byte-identical), component ranks, thin direct and FFT, split, screen | §7 for thin, split, screen |
 | 3 | the cone (pyramids, march, chains, blend with the z-transpose) | §7 for the cone |
+| 3b | `recomb_rad = 1` with moments on the level (and case A, `recomb_rad_lines`) | §7 with `recomb_rad = 1` for M1 and the cone |
 | 4 | checkpoint and restart through the slabs | restart tests |
 | 5 | klone 256³ / 512³ validation and timing on 1/2/4 nodes | §7, §8 |
 | 6 | 1024³ cone run and the comparison | §8 |
