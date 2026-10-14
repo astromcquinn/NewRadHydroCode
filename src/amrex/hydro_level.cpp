@@ -56,6 +56,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -72,6 +73,7 @@
 #include <AMReX_FluxRegister.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_Interpolater.H>
+#include <AMReX_MFInterpolater.H>
 #include <AMReX_iMultiFab.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_MultiFabUtil.H>
@@ -281,6 +283,64 @@ class HydroLevel {
   double mass0 = 0;  // the gas mass of level 0 after the last call (double sum; diagnostic)
 
   const ax::Geometry& geom_of(int lev) const { return max_level > 0 ? mesh->Geom(lev) : geom; }
+  // The coarse-to-fine interpolation: cell-conservative linear with the
+  // slope vector limited so that no fine value leaves the range of the
+  // coarse neighbours (positivity in strongly contrasted fields; the
+  // per-direction limiters of cell_cons_interp / lincc_interp produced
+  // negative densities in random3d). FillPatch dispatches the MF
+  // interpolaters by the exact pointer type.
+  static ax::MFInterpolater* interpolater() { return &ax::mf_linear_slope_minmax_interp; }
+
+  // RADRAY_AMR_DEBUG=1: scan a level's U (valid cells, or with ghosts) for
+  // non-finite or non-positive densities after a phase and report the first
+  bool debug = std::getenv("RADRAY_AMR_DEBUG") != nullptr;
+  void check(int lev, const char* where, bool ghosts) {
+    if (!debug) return;
+    const ax::MultiFab& Ul = U(lev);
+    for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
+      auto u = Ul.const_array(mfi);
+      const ax::Box bx = ghosts ? ax::grow(mfi.validbox(), NG) : mfi.validbox();
+      const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+      for (int k = lo.z; k <= hi.z; ++k)
+        for (int j = lo.y; j <= hi.y; ++j)
+          for (int i = lo.x; i <= hi.x; ++i) {
+            bool bad = !(u(i, j, k, 0) > 0);
+            for (int m = 0; m < NC && !bad; ++m) bad = !std::isfinite(u(i, j, k, m));
+            if (bad) {
+              std::fprintf(stderr, "AMR debug: level %d %s: cell (%d,%d,%d)%s rho %g p (%g,%g,%g) E %g e %g w (%g,%g,%g,%g)\n",
+                           lev, where, i, j, k, mfi.validbox().contains(ax::IntVect(i, j, k)) ? "" : " [ghost]",
+                           u(i, j, k, 0), u(i, j, k, 1), u(i, j, k, 2), u(i, j, k, 3), u(i, j, k, 4), u(i, j, k, 5),
+                           u(i, j, k, 6), u(i, j, k, 7), u(i, j, k, 8), u(i, j, k, 9));
+              if (lev > 0) {  // the periodic image, its fine coverage and its parent cell (rank 0's data)
+                const int NL = N << lev;
+                const ax::IntVect im((i % NL + NL) % NL, (j % NL + NL) % NL, (k % NL + NL) % NL);
+                const ax::IntVect cc(im[0] >> 1, im[1] >> 1, im[2] >> 1);
+                const bool covered = levels[static_cast<std::size_t>(lev)].ba.contains(im);
+                std::fprintf(stderr, "  image (%d,%d,%d) covered by level %d: %d; parent (%d,%d,%d):", im[0], im[1],
+                             im[2], lev, covered ? 1 : 0, cc[0], cc[1], cc[2]);
+                const ax::MultiFab& Uc = U(lev - 1);
+                ax::MFIter::allowMultipleMFIters(true);
+                for (ax::MFIter cm(Uc); cm.isValid(); ++cm)
+                  if (ax::grow(cm.validbox(), NG).contains(cc)) {
+                    auto c = Uc.const_array(cm);
+                    const ax::Box gb = ax::grow(cm.validbox(), NG);
+                    for (int dk = -2; dk <= 2; ++dk) {
+                      const ax::IntVect q(cc[0], cc[1], cc[2] + dk);
+                      if (gb.contains(q))
+                        std::fprintf(stderr, " [k=%d rho %g E %g e %g]", q[2], c(q[0], q[1], q[2], 0), c(q[0], q[1], q[2], 4),
+                                     c(q[0], q[1], q[2], 5));
+                    }
+                    break;
+                  }
+                std::fprintf(stderr, "\n  fine column (%d,%d,k): ", i, j);
+                for (int kk = -2; kk <= 1; ++kk) std::fprintf(stderr, "[k=%d rho %g] ", kk, u(i, j, kk, 0));
+                std::fprintf(stderr, "\n");
+              }
+              return;
+            }
+          }
+    }
+  }
   ax::MultiFab& U(int lev) { return levels[static_cast<std::size_t>(lev)].U; }
 
   // ---- the gas state on the level (amrex_state = 1): local copies -----------
@@ -419,7 +479,7 @@ class HydroLevel {
     ax::PhysBCFunctNoOp cbc, fbc;
     ax::Vector<double> ft{t};
     ax::FillPatchTwoLevels(mf, ax::IntVect(nghost), t, cmf, ct, fmf, ft, scomp, 0, ncomp, geom_of(lev - 1),
-                           geom_of(lev), cbc, 0, fbc, 0, ax::IntVect(kRef), &ax::cell_cons_interp, bcs, 0);
+                           geom_of(lev), cbc, 0, fbc, 0, ax::IntVect(kRef), interpolater(), bcs, 0);
   }
 
   // Regrid levels 1..max_level from the tags (the data where a level
@@ -444,7 +504,7 @@ class HydroLevel {
       } else {
         ax::PhysBCFunctNoOp cbc, fbc;
         ax::InterpFromCoarseLevel(nU, ax::IntVect(0), 0.0, P, 0, 0, NC, geom_of(lev - 1), geom_of(lev), cbc, 0,
-                                  fbc, 0, ax::IntVect(kRef), &ax::cell_cons_interp, bcs, 0);
+                                  fbc, 0, ax::IntVect(kRef), interpolater(), bcs, 0);
       }
       L.define(nba, ndm, lev);
       ax::MultiFab::Copy(L.U, nU, 0, 0, NC, 0);
@@ -458,6 +518,17 @@ class HydroLevel {
     }
     finest = new_finest;
     mesh->SetFinestLevel(finest);
+    for (int lev = 1; lev <= finest; ++lev) check(lev, "after regrid", false);
+    if (debug && ax::ParallelDescriptor::IOProcessor())
+      std::fprintf(stderr, "AMR debug: regrid: finest %d, level boxes:%s\n", finest,
+                   [&] {
+                     std::string s;
+                     for (int lev = 0; lev <= finest; ++lev)
+                       s += " " + std::to_string(levels[static_cast<std::size_t>(lev)].ba.size()) + "(" +
+                            std::to_string(levels[static_cast<std::size_t>(lev)].ba.numPts()) + " cells)";
+                     return s;
+                   }()
+                       .c_str());
     T.regrid += now() - t0;
     T.regrids += 1;
   }
@@ -551,7 +622,30 @@ class HydroLevel {
         ct = {t};
       }
       ax::Vector<ax::MultiFab*> fmf{&L.U};
+      if (debug) tmp.setVal(-12345.0);  // mark untouched cells
       fill_patch(lev, tmp, NG, t, cmf, ct, fmf, 0, NC);
+      if (debug) {
+        const int NL = N << lev;
+        const ax::Box dom(ax::IntVect(0), ax::IntVect(NL - 1));
+        Long n_in = 0, n_out = 0, n_in_bad = 0, n_out_bad = 0, n_untouched_in = 0, n_untouched_out = 0;
+        for (ax::MFIter mfi(tmp); mfi.isValid(); ++mfi) {
+          auto u = tmp.const_array(mfi);
+          const ax::Box gb = ax::grow(mfi.validbox(), NG);
+          const auto lo = ax::lbound(gb), hi = ax::ubound(gb);
+          for (int k = lo.z; k <= hi.z; ++k)
+            for (int j = lo.y; j <= hi.y; ++j)
+              for (int i = lo.x; i <= hi.x; ++i) {
+                if (mfi.validbox().contains(ax::IntVect(i, j, k))) continue;
+                const bool in = dom.contains(ax::IntVect(i, j, k));
+                const double r = u(i, j, k, 0);
+                (in ? n_in : n_out) += 1;
+                if (r == -12345.0) (in ? n_untouched_in : n_untouched_out) += 1;
+                else if (!(r > 0)) (in ? n_in_bad : n_out_bad) += 1;
+              }
+        }
+        std::fprintf(stderr, "AMR debug: fill level %d t %g: ghosts inside the domain %lld (bad %lld, untouched %lld), outside %lld (bad %lld, untouched %lld)\n",
+                     lev, t, (long long)n_in, (long long)n_in_bad, (long long)n_untouched_in, (long long)n_out, (long long)n_out_bad, (long long)n_untouched_out);
+      }
       std::swap(L.U, tmp);
     }
     T.fill += now() - t0;
@@ -745,12 +839,14 @@ class HydroLevel {
       fill_U(lev, t);
       select(lev, t, de);
     }
+    check(lev, "before substep", true);
     if (lev < finest) {
       ax::MultiFab::Copy(L.Uold, L.U, 0, 0, NC, 0);
       L.t_old = t;
       L.t_new = t + dt;
     }
     const Counts sc = substep(lev, dt, de, rho_min, Tmin, p_old);
+    check(lev, "after substep", false);
     for (int m = 0; m < 5; ++m) total_c.v[m] += sc.v[m];
     if (lev < finest) {
       LevelData& F = levels[static_cast<std::size_t>(lev) + 1];
@@ -766,7 +862,9 @@ class HydroLevel {
       ax::MultiFab vol(L.ba, L.dm, 1, 0);
       vol.setVal(1.0);
       F.fr->Reflux(L.U, vol, 1.0, 0, 0, NC, geom_of(lev));
+      check(lev, "after reflux", false);
       ax::average_down(F.U, L.U, geom_of(lev + 1), geom_of(lev), 0, NC, kRef);
+      check(lev, "after average_down", false);
       T.reflux += now() - t1;
     }
     if (lev > 0) {
@@ -796,7 +894,8 @@ class HydroLevel {
     UnsplitCounters& C = hs.ucounters;
     Counts total_c;
     double remaining = dt;
-    double t = 0;
+    double t = 0;  // the time within this call: the levels' interpolation intervals start empty
+    for (LevelData& L : levels) L.t_old = L.t_new = 0;
     Long nsub_call = 0;
     while (remaining > 0) {
       // the CFL speed over every level (a level-l cell with signal s bounds
