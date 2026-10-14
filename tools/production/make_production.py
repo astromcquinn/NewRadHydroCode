@@ -140,6 +140,19 @@ def main():
                     help="overdensity above which cooling and SN heating are suppressed "
                          "(cool_suppress_overdensity, docs/stage_f.md); 200: the original (default, "
                          "no line written); 0: off (dense gas cools)")
+    ap.add_argument("--amrex-max-level", type=int, default=0,
+                    help="refinement levels of the gas hierarchy (amrex_max_level, docs/stage_f.md; "
+                         "--backend amrex only); 0: none (default, no line written)")
+    ap.add_argument("--amrex-refine-mass", type=float, default=8.0,
+                    help="a level-l cell is refined above amrex_refine_mass * 8^l times the mean gas "
+                         "density (default 8, no line written)")
+    ap.add_argument("--sf-overdensity", type=float, default=0.0,
+                    help="the star-formation sink: gas above this overdensity forms star particles "
+                         "(sf_overdensity, docs/stage_f.md section 2; --backend amrex only); 0: off "
+                         "(default, no line written); the user's production choice is a few thousand")
+    ap.add_argument("--sf-efficiency", type=float, default=1.0,
+                    help="fraction of a sink cell's mass turned into stars per free-fall time "
+                         "(sf_efficiency, default 1, no line written)")
     ap.add_argument("--pm-refine", type=int, default=1,
                     help="PM mesh refinement (docs/pm_refine.md): writes pm_refine and "
                          "Ndm = pm_refine*N, and makes ICs with pm_refine*N particles per "
@@ -247,6 +260,17 @@ def main():
         lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.cool_suppress_overdensity != 200.0:
         lines.append(f"cool_suppress_overdensity = {a.cool_suppress_overdensity:g}")
+    if a.amrex_max_level > 0 or a.sf_overdensity > 0:
+        if a.backend != "amrex":
+            sys.exit("--amrex-max-level and --sf-overdensity need --backend amrex")
+    if a.amrex_max_level > 0:
+        lines.append(f"amrex_max_level = {a.amrex_max_level}")
+        if a.amrex_refine_mass != 8.0:
+            lines.append(f"amrex_refine_mass = {a.amrex_refine_mass:g}")
+    if a.sf_overdensity > 0:
+        lines.append(f"sf_overdensity = {a.sf_overdensity:g}")
+        if a.sf_efficiency != 1.0:
+            lines.append(f"sf_efficiency = {a.sf_efficiency:g}")
     if a.rt_cells_per_substep != 1:
         lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
     if a.am_params:

@@ -75,9 +75,13 @@ using ax::Long;
 using FFab = ax::FabArray<ax::BaseFab<float>>;
 using LFab = ax::FabArray<ax::BaseFab<Long>>;
 using CFab = ax::FabArray<ax::BaseFab<ax::GpuComplex<float>>>;
-using PC = ax::ParticleContainerPureSoA<9, 0>;  // 3 positions + x(3) + v(3)
+// 3 positions (the home cell) + x(3) + v(3) + the star's mass and formation
+// scale factor (0 for dark matter); one int: the type (0 dark matter, 1 a
+// star of the sink, docs/stage_f.md section 2)
+using PC = ax::ParticleContainerPureSoA<11, 1>;
 using PTD = PC::ParticleTileType::ParticleTileDataType;
-constexpr int kX = 3, kV = 6;  // SoA real components
+constexpr int kX = 3, kV = 6, kM = 9, kA = 10;  // SoA real components
+constexpr int kType = 0;                       // SoA int component
 
 static_assert(std::is_same_v<ax::ParticleReal, float>, "build AMReX with AMReX_PARTICLES_PRECISION=SINGLE");
 static_assert(sizeof(Long) == 8, "int64 accumulators");
@@ -444,6 +448,9 @@ struct PMLevel {
             pd.m_rdata[kX + c][n_] = p[c];
             pd.m_rdata[kV + c][n_] = p[3 + c];
           }
+          pd.m_rdata[kM][n_] = 0.0f;
+          pd.m_rdata[kA][n_] = 0.0f;
+          pd.m_idata[kType][n_] = 0;
           pd.m_idcpu[n_] = ax::SetParticleIDandCPU(ip0 + L[q], myproc);
         }
         nmine += static_cast<Long>(L.size());
@@ -495,14 +502,17 @@ struct PMLevel {
       const PTD pd = pt.getParticleTileData();
       const std::size_t n0 = mine.size();
       mine.resize(n0 + np);
+      std::size_t nn = n0;
       for (int n = 0; n < np; ++n) {
-        Rec& r = mine[n0 + n];
+        if (pd.m_idata[kType][n] != 0) continue;  // the stars have no host mirror
+        Rec& r = mine[nn++];
         r.id = static_cast<Long>(ax::ParticleIDWrapper(pd.m_idcpu[n]));
         for (int c = 0; c < 3; ++c) {
           r.xv[c] = pd.m_rdata[kX + c][n];
           r.xv[3 + c] = pd.m_rdata[kV + c][n];
         }
       }
+      mine.resize(nn);
     }
     const bool io = ax::ParallelDescriptor::IOProcessor();
     if (io && static_cast<std::int64_t>(s.xv.size()) != 6 * Npart)
@@ -547,6 +557,174 @@ struct PMLevel {
 #endif
     }
     T.gather += now() - t0;
+  }
+
+  // ---- the star-formation sink's particles (docs/stage_f.md section 2) ------
+
+  // One star per sink event: x and v from level-0 gas-cell units to the
+  // particle's (DM grid) units (x ndmr/ngasr), the mass as given, the home
+  // cell, an id Npart + 1 + (the global count before) and a type 1; placed
+  // on this rank's first tile and moved by a Redistribute. Collective
+  // (the prefix count). Returns the global number added.
+  Long add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form) {
+    if (!state) throw std::runtime_error("the star-formation sink needs amrex_state = 1");
+    const double t0 = now();
+    const Long nmine = static_cast<Long>(ev.size());
+    // the ids are independent of the rank count: every rank gathers this
+    // call's event positions (one event per cell, so they are distinct),
+    // sorts them, and numbers its own events by their rank in that order
+    std::vector<float> pos(static_cast<std::size_t>(3 * nmine));
+    for (Long q = 0; q < nmine; ++q)
+      for (int c = 0; c < 3; ++c) pos[static_cast<std::size_t>(3 * q + c)] = ev[static_cast<std::size_t>(q)].x[c];
+    std::vector<float> all = pos;
+#ifdef AMREX_USE_MPI
+    if (ax::ParallelDescriptor::NProcs() > 1) {
+      const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+      const int nranks = ax::ParallelDescriptor::NProcs();
+      const int cnt = static_cast<int>(3 * nmine);
+      std::vector<int> counts(nranks), displs(nranks);
+      MPI_Allgather(&cnt, 1, MPI_INT, counts.data(), 1, MPI_INT, comm);
+      int off = 0;
+      for (int r = 0; r < nranks; ++r) {
+        displs[r] = off;
+        off += counts[r];
+      }
+      all.resize(static_cast<std::size_t>(off));
+      MPI_Allgatherv(pos.data(), cnt, MPI_FLOAT, all.data(), counts.data(), displs.data(), MPI_FLOAT, comm);
+    }
+#endif
+    const Long total = static_cast<Long>(all.size() / 3);
+    if (total == 0) return 0;
+    std::vector<Long> order(static_cast<std::size_t>(total));
+    for (Long q = 0; q < total; ++q) order[static_cast<std::size_t>(q)] = q;
+    auto less = [&](Long a, Long b) {
+      for (int c = 0; c < 3; ++c) {
+        const float xa = all[static_cast<std::size_t>(3 * a + c)], xb = all[static_cast<std::size_t>(3 * b + c)];
+        if (xa != xb) return xa < xb;
+      }
+      return false;
+    };
+    std::sort(order.begin(), order.end(), less);
+    std::vector<Long> rank_of(static_cast<std::size_t>(total));  // position in the sorted order
+    for (Long q = 0; q < total; ++q) rank_of[static_cast<std::size_t>(order[static_cast<std::size_t>(q)])] = q;
+    Long before = 0;  // this rank's events sit at [before, before + nmine) of `all`
+#ifdef AMREX_USE_MPI
+    if (ax::ParallelDescriptor::NProcs() > 1) {
+      MPI_Exscan(&nmine, &before, 1, MPI_LONG_LONG, MPI_SUM, ax::ParallelDescriptor::Communicator());
+      if (ax::ParallelDescriptor::MyProc() == 0) before = 0;
+    }
+#endif
+    const double scale = s.pc.ndmr / s.pc.ngasr;
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const double xdg = x_dm_m;
+    const int NN = Nm;
+    if (nmine > 0) {
+      ax::MFIter mfi(pot);
+      if (!mfi.isValid()) throw std::runtime_error("add_stars: a rank with events but no box");
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const std::size_t n0 = pt.numParticles();
+      pt.resize(n0 + static_cast<std::size_t>(nmine));
+      const PTD pd = pt.getParticleTileData();
+      for (Long q = 0; q < nmine; ++q) {
+        const SinkEvent& e = ev[static_cast<std::size_t>(q)];
+        const int n_ = static_cast<int>(n0 + static_cast<std::size_t>(q));
+        for (int c = 0; c < 3; ++c) {
+          const float x = static_cast<float>(f::mod(static_cast<double>(e.x[c]) * scale, s.pc.ndmr));
+          pd.m_rdata[kX + c][n_] = x;
+          pd.m_rdata[kV + c][n_] = static_cast<float>(static_cast<double>(e.v[c]) * scale);
+          pd.m_rdata[c][n_] = static_cast<float>(f::mod(f::int4(static_cast<double>(x) * xdg), NN)) + 0.5f;
+        }
+        pd.m_rdata[kM][n_] = e.mass;
+        pd.m_rdata[kA][n_] = static_cast<float>(a_form);
+        pd.m_idata[kType][n_] = 1;
+        pd.m_idcpu[n_] = ax::SetParticleIDandCPU(Npart + 1 + s.nstar + rank_of[static_cast<std::size_t>(before + q)], myproc);
+      }
+    }
+    s.nstar += total;
+    pc->Redistribute();
+    T.prep += now() - t0;
+    return total;
+  }
+
+  // Every star into rank 0's s.stars (sorted by id). Collective.
+  Long gather_stars(pm::PMState& s) {
+    std::vector<pm::Star> mine;
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+      for (int n = 0; n < np; ++n) {
+        if (pd.m_idata[kType][n] == 0) continue;
+        pm::Star st;
+        st.id = static_cast<Long>(ax::ParticleIDWrapper(pd.m_idcpu[n]));
+        for (int c = 0; c < 3; ++c) {
+          st.x[c] = pd.m_rdata[kX + c][n];
+          st.v[c] = pd.m_rdata[kV + c][n];
+        }
+        st.mass = pd.m_rdata[kM][n];
+        st.a_form = pd.m_rdata[kA][n];
+        mine.push_back(st);
+      }
+    }
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    const int nranks = ax::ParallelDescriptor::NProcs();
+    Long total = static_cast<Long>(mine.size());
+    if (nranks == 1) {
+      s.stars = std::move(mine);
+    } else {
+#ifdef AMREX_USE_MPI
+      const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+      const int root = ax::ParallelDescriptor::IOProcessorNumber();
+      const int cnt = static_cast<int>(mine.size() * sizeof(pm::Star));
+      std::vector<int> counts(nranks), displs(nranks);
+      MPI_Gather(&cnt, 1, MPI_INT, counts.data(), 1, MPI_INT, root, comm);
+      std::vector<pm::Star> all;
+      if (io) {
+        int off = 0;
+        for (int r = 0; r < nranks; ++r) {
+          displs[r] = off;
+          off += counts[r];
+        }
+        all.resize(static_cast<std::size_t>(off) / sizeof(pm::Star));
+      }
+      MPI_Gatherv(mine.data(), cnt, MPI_BYTE, all.data(), counts.data(), displs.data(), MPI_BYTE, root, comm);
+      if (io) s.stars = std::move(all);
+      MPI_Allreduce(MPI_IN_PLACE, &total, 1, MPI_LONG_LONG, MPI_SUM, comm);
+#endif
+    }
+    if (io) std::sort(s.stars.begin(), s.stars.end(), [](const pm::Star& a, const pm::Star& b) { return a.id < b.id; });
+    return total;
+  }
+
+  // s.stars (the same list on every rank) onto the level: each rank keeps
+  // the stars whose home cell lies in its boxes
+  void load_stars(const pm::PMState& s) {
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const auto assign = locator.getGridAssignor();
+    const double xdg = x_dm_m;
+    const int NN = Nm;
+    for (const pm::Star& st : s.stars) {
+      const int h[3] = {f::mod(f::int4(static_cast<double>(st.x[0]) * xdg), NN),
+                        f::mod(f::int4(static_cast<double>(st.x[1]) * xdg), NN),
+                        f::mod(f::int4(static_cast<double>(st.x[2]) * xdg), NN)};
+      const auto gt = assign(ax::IntVect(h[0], h[1], h[2]), ax::IntVect(0));
+      if (gt.first < 0) throw std::runtime_error("pm_backend = amrex: a star has no home box");
+      if (dm[gt.first] != myproc) continue;
+      auto& pt = pc->DefineAndReturnParticleTile(0, gt.first, 0);
+      const std::size_t n0 = pt.numParticles();
+      pt.resize(n0 + 1);
+      const PTD pd = pt.getParticleTileData();
+      const int n_ = static_cast<int>(n0);
+      for (int c = 0; c < 3; ++c) {
+        pd.m_rdata[c][n_] = static_cast<float>(h[c]) + 0.5f;
+        pd.m_rdata[kX + c][n_] = st.x[c];
+        pd.m_rdata[kV + c][n_] = st.v[c];
+      }
+      pd.m_rdata[kM][n_] = st.mass;
+      pd.m_rdata[kA][n_] = st.a_form;
+      pd.m_idata[kType][n_] = 1;
+      pd.m_idcpu[n_] = ax::SetParticleIDandCPU(st.id, myproc);
+    }
   }
 
   void prep(const pm::PMState& s, const float* u_gas, const float* v_gas, const float* e_gas, int kind) {
@@ -624,6 +802,9 @@ struct PMLevel {
             pd.m_rdata[kX + c][n_] = p[c];
             pd.m_rdata[kV + c][n_] = p[3 + c];
           }
+          pd.m_rdata[kM][n_] = 0.0f;
+          pd.m_rdata[kA][n_] = 0.0f;
+          pd.m_idata[kType][n_] = 0;
           pd.m_idcpu[n_] = ax::SetParticleIDandCPU(ip, myproc);
         }
         n0 += L.size();
@@ -660,6 +841,7 @@ struct PMLevel {
     const double t0 = now();
     acc.setVal(0);
     const int NN = Nm;
+    const double r3 = static_cast<double>(r) * r * r;
     const rpk::MeshGeom g = mg;
     Long bad = 0;
     for (ax::MFIter mfi(acc); mfi.isValid(); ++mfi) {
@@ -681,6 +863,10 @@ struct PMLevel {
           const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
           const int h[3] = {static_cast<int>(pd.m_rdata[0][n]), static_cast<int>(pd.m_rdata[1][n]),
                             static_cast<int>(pd.m_rdata[2][n])};
+          // dark matter: the particle mass; a star: its gas mass (mean-matter
+          // x level-0 gas-cell volumes) spread over the r^3 mesh cells of a
+          // gas cell, i.e. mass_gas r^3 per mesh cell of full weight
+          const double m = pd.m_idata[kType][n] == 0 ? mass : static_cast<double>(pd.m_rdata[kM][n]) * r3;
           const rpk::Cic c = rpk::cic_weights(g, x);
           rpk::cic_corners(c, [&](int i, int j, int k, double w) {
             const int ii = near_image(i - 1, h[0], NN), jj = near_image(j - 1, h[1], NN),
@@ -690,7 +876,7 @@ struct PMLevel {
               return;
             }
             mine[(ii - glo.x) + glen.x * ((jj - glo.y) + static_cast<Long>(glen.y) * (kk - glo.z))] +=
-                to_fx(w * mass, kDensBits);
+                to_fx(w * m, kDensBits);
           });
         }
       }
@@ -827,6 +1013,7 @@ struct PMLevel {
             v[m] = static_cast<float>(static_cast<double>(pd.m_rdata[kV + m][n]) + (fv[m] / xdg) * dt_sim);
             pd.m_rdata[kV + m][n] = v[m];
           }
+          if (pd.m_idata[kType][n] != 0) continue;  // the statistics are the dark matter's
           // arms = arms + sum(f**2); amax = max(amax,maxval(abs(f)))
           const double a2 = (0.0 + fv[0] * fv[0]) + fv[1] * fv[1] + fv[2] * fv[2];
           la += to_fx128(a2, kStatBits);
@@ -1118,6 +1305,11 @@ void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor) {
 }
 
 void amrex_pm_load_particles(pm::PMState& s) { level_of(s).load_particles(s); }
+std::int64_t amrex_pm_add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form) {
+  return level_of(s).add_stars(s, ev, a_form);
+}
+std::int64_t amrex_pm_gather_stars(pm::PMState& s) { return level_of(s).gather_stars(s); }
+void amrex_pm_load_stars(pm::PMState& s) { level_of(s).load_stars(s); }
 void pm_remap(pm::PMState& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_pm_gather_particles(pm::PMState& s) { level_of(s).gather_particles(s); }
 void amrex_pm_drift(pm::PMState& s, double dt_sim) { level_of(s).drift(dt_sim, s.pc.ndmr); }

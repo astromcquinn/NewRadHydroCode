@@ -14,7 +14,9 @@
 // and the I/O are distributed too.
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
@@ -37,7 +39,20 @@ inline bool use_amrex_hydro(const Config& c) { return c.hydro_backend == HydroBa
 // sub-cycled on its CFL condition exactly as hydro_step_unsplit, and
 // updates hs.ucounters; called by hydro_step_unsplit after fold_frame.
 // gas.u/w/e are the complete host arrays on every rank, in and out.
-void amrex_hydro_step(const Config& cfg, const Units& un, double dt, GasGrid& gas, HydroState& hs);
+// scalefactor: the sink's free-fall time (unused with sf_overdensity = 0).
+void amrex_hydro_step(const Config& cfg, const Units& un, double dt, double scalefactor, GasGrid& gas,
+                      HydroState& hs);
+// The star-formation sink (docs/stage_f.md section 2): one event per cell
+// and hydro call that lost mass. x: the cell centre in level-0 cell units;
+// v: the gas velocity (gas-cell units per code time); mass: the mass
+// removed, in units of the mean matter density times a level-0 cell
+// volume. take_sink_events moves this rank's events of the last call out
+// (empty with sf_overdensity = 0).
+struct SinkEvent {
+  float x[3], v[3];
+  float mass;
+};
+void amrex_hydro_take_sink_events(std::vector<SinkEvent>& out);
 // One line of the level's phase timers ("" without a level)
 std::string amrex_hydro_timers();
 // Frees the level (backend_finalize calls it before amrex::Finalize)

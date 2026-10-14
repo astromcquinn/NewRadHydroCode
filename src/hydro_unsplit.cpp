@@ -358,7 +358,7 @@ void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroS
 }
 
 void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& gas,
-                        HydroState& hs) {
+                        HydroState& hs, double scalefactor) {
   if (!gas.has_e()) throw std::runtime_error("hydro_step_unsplit: call init_unsplit_state first");
   if (!(cfg.unsplit_cfl > 0)) throw std::runtime_error("unsplit_cfl must be > 0");
   const int n = gas.N;
@@ -367,7 +367,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
   if (!cfg.amrex_state && fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   hs.dt_hy = dt;
   if (use_amrex_hydro(cfg)) {  // the same step on the AMReX level (hydro_backend.hpp)
-    amrex_hydro_step(cfg, un, dt, gas, hs);
+    amrex_hydro_step(cfg, un, dt, scalefactor, gas, hs);
     return;
   }
   Work& W = work(n);
@@ -435,7 +435,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
 void hydro_half_step(const Config& cfg, const Units& un, const SimClock& clk, HydroHalf half,
                      GasGrid& gas, HydroState& hs) {
   if (cfg.hydro_scheme == HydroScheme::Unsplit) {
-    hydro_step_unsplit(cfg, un, clk.dt_sim / 2, gas, hs);
+    hydro_step_unsplit(cfg, un, clk.dt_sim / 2, gas, hs, clk.scalefactor);
     return;
   }
   if (half == HydroHalf::First) {

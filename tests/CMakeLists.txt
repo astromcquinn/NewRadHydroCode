@@ -1178,6 +1178,34 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                              PROCESSORS ${np})
       endforeach()
     endforeach()
+    # The star-formation sink (docs/stage_f.md section 2, label sink): the
+    # smoke problem with the state on the levels and one refinement level,
+    # stars above 2 x the mean density (unphysically low: every step forms
+    # some). 1, 2 and 3 ranks byte-identical (the stars file is sorted by
+    # formation time and position), a bit-identical restart (checkpoint
+    # version 8 with the stars and the .amr levels), and the sink's
+    # bookkeeping (sink_check.py).
+    set(sink_sets --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                  --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                  --set pm_backend=amrex --set amrex_state=1 --set amrex_max_level=1 --set amrex_refine_mass=4
+                  --set sf_overdensity=2 --set sf_efficiency=1 --set movie_dz=0.5 --set movie_z0=25)
+    add_test(NAME amrex_sink_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/sink_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP}
+                     "1 2 3" $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet
+                     ${sink_sets} --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_sink_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;sink;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_sink_check_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/sink_check.py ${amrex_runs}/sink_ranks/np1
+                     --min-stars 1)
+    set_tests_properties(amrex_sink_check_smoke PROPERTIES DEPENDS amrex_sink_ranks_smoke LABELS "amrex;amrex_hydro;sink")
+    add_test(NAME amrex_sink_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/sink_restart 13 ${sink_sets})
+    set_tests_properties(amrex_sink_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;sink;restart"
+                         ENVIRONMENT OMP_NUM_THREADS=1)
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro
     add_test(NAME amrex_hydro_full_ranks_smoke

@@ -306,6 +306,14 @@ struct Config {
   int amrex_blocking_factor = 8;
   int amrex_n_error_buf = 1;
   double amrex_grid_eff = 0.7;
+  // The star-formation sink (docs/stage_f.md section 2; hydro_backend =
+  // amrex): a cell above the gas overdensity sf_overdensity loses
+  // min(1, sf_efficiency dt/t_ff) of its mass per hydro call, at constant
+  // specific quantities, to a star particle (pm_backend = amrex with
+  // amrex_state = 1; a mass loss in the hydro-only drivers). 0 = off (the
+  // original).
+  double sf_overdensity = 0;
+  double sf_efficiency = 1;
   // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for

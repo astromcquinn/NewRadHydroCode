@@ -72,6 +72,7 @@
 #include <AMReX_FluxRegister.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_Interpolater.H>
+#include <AMReX_iMultiFab.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_ParallelDescriptor.H>
@@ -116,8 +117,9 @@ double now() {
 
 struct Timers {
   double copyin = 0, fill = 0, select = 0, cfl = 0, predict = 0, flux = 0, update = 0, finalize = 0,
-         reduce = 0, copyout = 0, allgather = 0, regrid = 0, reflux = 0, pushdown = 0;
-  Long substeps = 0, calls = 0, regrids = 0;
+         reduce = 0, copyout = 0, allgather = 0, regrid = 0, reflux = 0, pushdown = 0, sink = 0;
+  Long substeps = 0, calls = 0, regrids = 0, sink_events = 0;
+  double sink_mass = 0;  // this rank's, in mean-matter x level-0 cell volumes
 };
 
 // FaceData in a face-centred FArrayBox: NF components
@@ -275,6 +277,7 @@ class HydroLevel {
   bool have_prev0 = false;
   ax::Vector<ax::BCRec> bcs;
   double rho_avg = 0;  // the mean gas density (tagging)
+  std::vector<SinkEvent> events;  // the sink's events of the last call (this rank)
 
   const ax::Geometry& geom_of(int lev) const { return max_level > 0 ? mesh->Geom(lev) : geom; }
   ax::MultiFab& U(int lev) { return levels[static_cast<std::size_t>(lev)].U; }
@@ -774,7 +777,8 @@ class HydroLevel {
     }
   }
 
-  void step(const Config& cfg, const Units& un, double dt, GasGrid& gas, HydroState& hs) {
+  void step(const Config& cfg, const Units& un, double dt, double scalefactor, GasGrid& gas, HydroState& hs) {
+    events.clear();
     if (state)
       copy_in(*state);
     else
@@ -831,11 +835,73 @@ class HydroLevel {
     C.max_substeps = std::max(C.max_substeps, static_cast<std::int64_t>(nsub_call));
     T.substeps += nsub_call;
     T.calls += 1;
+    sink(cfg, dt, scalefactor);
     remember_level0();
     if (state)
       copy_out(*const_cast<gs::GasState*>(state));
     else
       copy_out(gas);
+  }
+
+  // The star-formation sink (docs/stage_f.md section 2): on every level's
+  // cells not covered by a finer level, a cell with rho/rho_avg >
+  // sf_overdensity loses f = min(1, sf_efficiency dt/t_ff) of its mass at
+  // constant specific quantities (rho, the momenta, e and the species
+  // scale by 1 - f; E loses f (KE + e)), t_ff = (3 pi/4)/sqrt(a x_tot) in
+  // code time with x_tot = rho/Dgas_avg (the gas traces the total matter;
+  // 4 pi G rho_mean = 2a/3 in the PM's units, pm_level.cpp gravity). One
+  // event per cell; then the finer levels are averaged down.
+  void sink(const Config& cfg, double dt, double a) {
+    if (!(cfg.sf_overdensity > 0)) return;
+    const double t0 = now();
+    const double thr = rho_avg * cfg.sf_overdensity;
+    const double eff = cfg.sf_efficiency;
+    const double inv_avg = 1.0 / rho_avg;
+    for (int lev = finest; lev >= 0; --lev) {
+      LevelData& L = levels[static_cast<std::size_t>(lev)];
+      std::unique_ptr<ax::iMultiFab> mask;
+      if (lev < finest)
+        mask = std::make_unique<ax::iMultiFab>(
+            ax::makeFineMask(L.ba, L.dm, levels[static_cast<std::size_t>(lev) + 1].ba, ax::IntVect(kRef), 0, 1));
+      const double vol = std::ldexp(1.0, -3 * lev);  // level-0 cell volumes
+      const double h = std::ldexp(1.0, -lev);        // the cell size
+      for (ax::MFIter mfi(L.U); mfi.isValid(); ++mfi) {
+        auto u = L.U.array(mfi);
+        const ax::Box bx = mfi.validbox();
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+        ax::Array4<int const> mk;
+        if (mask) mk = mask->const_array(mfi);
+        for (int k = lo.z; k <= hi.z; ++k)
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i) {
+              if (mask && mk(i, j, k)) continue;  // covered by a finer level
+              const double rho = u(i, j, k, 0);
+              if (!(rho > thr)) continue;
+              const double xtot = rho * inv_avg;
+              const double tff = (3 * M_PI / 4) / std::sqrt(a * xtot);
+              const double f = std::min(1.0, eff * dt / tff);
+              if (!(f > 0)) continue;
+              const double keep = 1 - f;
+              const double ke = 0.5 * (u(i, j, k, 1) * u(i, j, k, 1) + u(i, j, k, 2) * u(i, j, k, 2) +
+                                       u(i, j, k, 3) * u(i, j, k, 3)) / rho;
+              SinkEvent ev;
+              for (int m = 0; m < 3; ++m) {
+                ev.x[m] = static_cast<float>(((m == 0 ? i : m == 1 ? j : k) + 0.5) * h);
+                ev.v[m] = static_cast<float>(u(i, j, k, 1 + m) / rho);
+              }
+              ev.mass = static_cast<float>(f * rho * vol);
+              u(i, j, k, 4) = u(i, j, k, 4) - f * (ke + u(i, j, k, NV));
+              for (int m = 0; m < NC; ++m)
+                if (m != 4) u(i, j, k, m) = u(i, j, k, m) * keep;
+              events.push_back(ev);
+              T.sink_events += 1;
+              T.sink_mass += f * rho * vol;
+            }
+      }
+    }
+    for (int lev = finest; lev > 0; --lev)
+      ax::average_down(U(lev), U(lev - 1), geom_of(lev), geom_of(lev - 1), 0, NC, kRef);
+    T.sink += now() - t0;
   }
 
   // Level 0 onto a new mapping (amrex_balance = 1): its data is copied in
@@ -918,6 +984,12 @@ class HydroLevel {
                                    " reflux " + std::to_string(T.reflux) + " pushdown " + std::to_string(T.pushdown))
                                       .c_str()
                                 : "");
+    if (T.sink_events > 0) {
+      char b2[160];
+      std::snprintf(b2, sizeof b2, "; sink %lld events, mass %.6g (this rank, %.3f s)",
+                    static_cast<long long>(T.sink_events), T.sink_mass, T.sink);
+      return std::string(buf) + b2;
+    }
     return buf;
   }
 };
@@ -943,9 +1015,14 @@ HydroLevel& level_of(const Config& cfg, int N) {
 
 }  // namespace
 
-void amrex_hydro_step(const Config& cfg, const Units& un, double dt, GasGrid& gas, HydroState& hs) {
+void amrex_hydro_step(const Config& cfg, const Units& un, double dt, double scalefactor, GasGrid& gas,
+                      HydroState& hs) {
   if (!gas.has_e()) throw std::runtime_error("amrex_hydro_step: call init_unsplit_state first");
-  level_of(cfg, gas.N).step(cfg, un, dt, gas, hs);
+  level_of(cfg, gas.N).step(cfg, un, dt, scalefactor, gas, hs);
+}
+void amrex_hydro_take_sink_events(std::vector<SinkEvent>& out) {
+  out.clear();
+  if (g_level) std::swap(out, g_level->events);
 }
 
 std::string amrex_hydro_timers() { return g_level ? g_level->timers() : ""; }

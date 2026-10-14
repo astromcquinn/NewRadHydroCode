@@ -80,6 +80,16 @@ struct PMConfig {
 
 // DM state and PM work arrays (radhydro_global.f90 "DM" arrays, density,
 // The amax/arms/vmax/vrms_dm globals live in SimClock.
+// A star particle of the star-formation sink (docs/stage_f.md section 2;
+// pm_backend = amrex with amrex_state = 1): id > Npart, x and v in the
+// particle's (DM grid) units, mass in mean-matter x level-0 gas-cell
+// volumes, a_form the scale factor of its formation.
+struct Star {
+  std::int64_t id = 0;
+  float x[3] = {0, 0, 0}, v[3] = {0, 0, 0};
+  float mass = 0, a_form = 0;
+};
+
 struct PMState {
   PMConfig pc;
   // domain_tools.f90 gas domains (init_domain_gas in hydro.hpp). With one
@@ -105,6 +115,11 @@ struct PMState {
   // pm_backend = amrex: gather the potential into density after the step
   // (pm_driver writes it); off by default, the host code always has it.
   bool gather_potential = false;
+  // The star particles (rank 0's mirror, refreshed by
+  // amrex_pm_gather_stars; every rank's after a checkpoint read); the
+  // running count of stars ever made (ids = Npart + 1 .. Npart + nstar)
+  std::vector<Star> stars;
+  std::int64_t nstar = 0;
 
   float* xv_p(std::int64_t ip) { return &xv[(ip - 1) * 6]; }
   const float* xv_p(std::int64_t ip) const { return &xv[(ip - 1) * 6]; }

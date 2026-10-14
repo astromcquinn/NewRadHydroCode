@@ -59,6 +59,17 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
     if (!(c.amrex_grid_eff > 0 && c.amrex_grid_eff <= 1)) throw std::runtime_error("amrex_grid_eff must be in (0, 1]");
     return true;
   }
+  // the star-formation sink (docs/stage_f.md section 2)
+  if (key == "sf_overdensity") {
+    c.sf_overdensity = std::stod(val);
+    if (!(c.sf_overdensity >= 0)) throw std::runtime_error("sf_overdensity must be >= 0 (0 = off)");
+    return true;
+  }
+  if (key == "sf_efficiency") {
+    c.sf_efficiency = std::stod(val);
+    if (!(c.sf_efficiency > 0 && c.sf_efficiency <= 1e6)) throw std::runtime_error("sf_efficiency must be > 0");
+    return true;
+  }
   return false;
 }
 
@@ -72,6 +83,8 @@ void copy_hydro_backend_param(const Config& from, Config& to) {
   to.amrex_blocking_factor = from.amrex_blocking_factor;
   to.amrex_n_error_buf = from.amrex_n_error_buf;
   to.amrex_grid_eff = from.amrex_grid_eff;
+  to.sf_overdensity = from.sf_overdensity;
+  to.sf_efficiency = from.sf_efficiency;
 }
 
 std::string hydro_backend_summary(const Config& c) {
@@ -82,10 +95,15 @@ std::string hydro_backend_summary(const Config& c) {
     s += ", max_level = " + std::to_string(c.amrex_max_level) + ", refine_mass = " + std::to_string(c.amrex_refine_mass) +
          ", regrid_every = " + std::to_string(c.amrex_regrid_every) + ", fine boxes " +
          std::to_string(c.amrex_fine_max_grid_size) + "/" + std::to_string(c.amrex_blocking_factor);
+  if (c.sf_overdensity > 0)
+    s += ", sink above " + std::to_string(c.sf_overdensity) + " x mean, efficiency " + std::to_string(c.sf_efficiency) +
+         " per t_ff";
   return s + ")";
 }
 
 void check_hydro_backend_param(const Config& c) {
+  if (c.sf_overdensity > 0 && !use_amrex_hydro(c))
+    throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs hydro_backend = amrex");
   if (!use_amrex_hydro(c)) return;
   if (!amrex_available())
     throw std::runtime_error("hydro_backend = amrex: this build has no AMReX (cmake -DRADRAY_AMREX=ON)");
