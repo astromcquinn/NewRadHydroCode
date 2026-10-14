@@ -28,7 +28,13 @@ import numpy as np
 
 TOL = {"xHII_V": 2e-2, "xHII_M": 2e-2, "T_V": 2e-2, "T_M": 2e-2, "tau": 1e-2,
        "fHI_rms": 5e-2, "T_rms": 5e-2}
-TOL_STATE = dict(TOL, rho_rms=5e-2)
+# measured on klone (2026-10-13, docs/stage_e_pm.md section 3.1): histories
+# <= 3.2e-5, tau_es 2e-7, at the last step (z = 5) rho 5.2e-5, T 7.1e-4 and
+# fHI 5.4e-2 rms. The fHI difference is the Gamma difference alone
+# (correlation -0.9998): the PM's 1e-4 density round-off reshuffles the
+# rays' per-cell sampling noise after overlap (the RT backend alone: 1.6e-4)
+TOL_STATE = {"xHII_V": 1e-3, "xHII_M": 1e-3, "T_V": 1e-3, "T_M": 1e-3, "tau": 1e-3,
+             "fHI_rms": 0.15, "T_rms": 1e-2, "rho_rms": 5e-4}
 
 
 def read_kv(path):
@@ -56,6 +62,7 @@ def main():
     tol = TOL if mode == "rt" else TOL_STATE
     launch = os.environ.get("RADRAY_MPIEXEC", "mpirun")
     flags = os.environ.get("RADRAY_MPIEXEC_FLAGS", "--oversubscribe --allow-run-as-root --bind-to none").split()
+    os.makedirs(work, exist_ok=True)
     prob = os.path.join(work, "prob")
     if not os.path.exists(os.path.join(prob, "params.txt")):
         # hydro_scheme and redshift_per_distance pinned to the configuration the tolerances were
@@ -107,9 +114,10 @@ def main():
     import reion  # noqa: E402
     taus = {}
     for name in ("serial", "amrex"):
-        fr = np.loadtxt(os.path.join(work, name, "movie", "frames.txt"))
-        z, tau = reion.tau_running(fr[:, 3], fr[:, 5])
-        taus[name] = tau[-1]
+        # (reion.read_frames: frames.txt has the Gamma columns since be49827,
+        # and the frames before the RT have x_M = nan)
+        _, z, _, xM = reion.read_frames(os.path.join(work, name))
+        taus[name] = reion.tau_history(z, xM)[1][-1]
     dtau = abs(taus["amrex"] / taus["serial"] - 1)
     print(f"  tau_es  serial {taus['serial']:.5f} amrex {taus['amrex']:.5f} rel diff {dtau:.3e} (tol {tol['tau']})")
     if dtau > tol["tau"]:
