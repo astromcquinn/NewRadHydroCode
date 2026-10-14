@@ -688,6 +688,46 @@ policy on klone, and deleting the merged branches.
     and the job scripts run in the run directory. Not pursued further
     without a second occurrence.
 
+## Stage E2 on klone (2026-10-13): the PM backend's validation and scaling
+
+* **Request (user):** on branch `stage-e-pm-klone`, build `main` with
+  AMReX 26.10 + FFT and run the `amrex_pm`, `amrex`, `amrex_state`, `pm`
+  labels and the fast suite; the 64³ production-configuration comparison
+  of the three backends with `amrex_state = 1` against the serial code
+  (`docs/stage_e_pm.md` §3), as a nightly test if it fits; the PM backend
+  at `pm_refine = 2` (`hmf512_40mpc_r2` restarted for 3 steps) on 1, 2, 4
+  cpu-g2 nodes against the serial code, both FFTs, box sizes 32 and 64,
+  bitwise across all of them; if the amrex FFT ever differs, say so and
+  keep `pencil` the default. Nothing may change results; the serial PM
+  stays byte-identical.
+* **Choices made in this thread** (open to revision; `docs/stage_e_pm.md`
+  §3.1, §4.1):
+  - The 64³ comparison is the nightly test `amrex_state_full64_vs_serial`
+    (95 s), compared as `amrex_full64_vs_serial` does for the RT, with
+    tolerances set from the klone measurement (histories and τ_es 1e-3,
+    per-cell fHI rms 0.15, T 1e-2, ρ 5e-4). The 5e-2 per-cell fHI
+    difference is the rays' Γ noise reshuffled by the PM's round-off
+    (fHI difference = Γ difference, correlation −0.9998), not an error.
+  - `--set step_timers=1` prints the backends' cumulative phase timers
+    after every step (output only); the PM level got a separate `drift`
+    timer.
+  - `pm::init_pm(..., host_arrays)`: with `amrex_state = 1` only the I/O
+    rank allocates the host PM arrays and runs the host initial FFT
+    (memory only; the 1024³ runs went OOM without it).
+  - The amrex FFT's planner reset is guarded by
+    `fftwf_planner_nthreads() > 1` (klone's AMReX never initialises
+    FFTW's threads; the unguarded reset crashed at exit). Results
+    unchanged.
+  - The scaling script compares each FFT against its own 1-node
+    reference; `pencil` stays the default (the amrex FFT was also bitwise
+    across nodes and boxes, but is slower on klone and has no guarantee
+    by construction).
+  - No new user decisions. Open for the user: the FoF and P(k) on rank 0
+    make the full step 3× slower than the serial code at this size
+    (§4.1); a distributed halo finder (E3's open item) or a less
+    frequent FoF is the remedy.
+
+
 ## Stage E3 (2026-10-13): the state on the levels
 
 * **Request (user):** merge the branches, understand the hydro threshold

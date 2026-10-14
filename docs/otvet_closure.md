@@ -969,6 +969,34 @@ r(k) is 0.90–0.98 for every closure at k ≤ 6 h/Mpc, as for OTVET.
 - The cone is within 0.72–1.16 except at k ≈ 0.5 h/Mpc (0.5×), and is
   right on the box scale.
 
+**Mean free path and the forest** (`igm_stats.py`/`igm_plot.py`, table
+`$RUNS/otvet_closure_512/igm_movie/igm/igm.txt`, figure `igm.png`). λ is
+the 912 Å mean free path in proper Mpc from an exponential fit to the
+transmission along sightlines started in ionised cells (`lam_fit_ion`); the
+box is 8.3–9.6 pMpc over this range. Observed: Becker+21 and Zhu+23 pooled.
+The snapshot redshifts differ by ≤ 0.03 between runs.
+
+| z | rays | M1 | OTVET | split | cone | screen | observed |
+|---|---|---|---|---|---|---|---|
+| 5.91 | 7.0 | 7.0 | 8.5 | 8.5 | 7.7 | 8.7 | 1.0 |
+| 5.44 | 23.4 | 20.7 | 26.0 | 25.0 | 24.8 | 25.1 | 4.6 |
+| 4.98 | 49.5 | 43.6 | 59.0 | 54.8 | 52.6 | 50.2 | |
+
+- **Every run's λ is far too long**: 5–9× the observed at z = 5.4–5.9, for
+  the rays as for the moment methods, and longer than the box after
+  overlap. Since the rays are as far off, this is probably the resolution
+  (too few self-shielded absorbers at 512³ in 40 Mpc/h) and the sources,
+  not the transport; Γ_HI after
+  overlap is likewise 2.4–2.7× Gaikwad+23 in every run.
+- **Between the methods:** OTVET's λ is 11–22 % longer than the rays',
+  the split 7–21 %, the cone 6–11 % (the closest OTVET variant at z = 5.91
+  and 5.44), the screen 1–25 % (closest at z = 4.98, farthest at 5.91);
+  M1's is 0–12 % shorter. The cone sits closest to the rays overall, consistent
+  with its P_Γ on the box scale.
+- Mean transmission ⟨F⟩ at z = 5.44: rays 0.215, cone 0.171, split 0.172,
+  screen 0.170, OTVET 0.161, M1 0.175; the moment methods' forest is a
+  little more opaque than the rays' at the same Γ_HI.
+
 **Movie:** `$RUNS/otvet_closure_512/compare.mp4`. It shows rays | M1 |
 OTVET | split | cone | screen, slices of x_HII, T and Γ_HI from z = 15 to
 5, with the histories.

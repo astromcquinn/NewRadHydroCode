@@ -138,8 +138,11 @@ struct PMState {
 };
 
 // pm_tools.f90: init_pm. Zeroes all arrays; takes the gas domains of
-// init_domain_gas (scaled to the mesh when pm_refine > 1).
-void init_pm(PMState& s, const PMConfig& pc, const Domains& dom);
+// init_domain_gas (scaled to the mesh when pm_refine > 1). host_arrays =
+// false leaves xv, ll, hoc, hoc_cpu and density unallocated: the ranks
+// other than 0 with amrex_state = 1, whose particles and mesh live on the
+// PM level (docs/stage_e_state.md), would free them right away.
+void init_pm(PMState& s, const PMConfig& pc, const Domains& dom, bool host_arrays = true);
 
 // pm_tools.f90 routines. u_gas is (5,Ngas^3), v_gas is (3,Ngas^3).
 void calc_drift(PMState& s, double dt_sim);
