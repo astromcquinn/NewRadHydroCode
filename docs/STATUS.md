@@ -2,14 +2,40 @@
 
 *Last updated: 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
-## In progress 2026-10-13: the moment RT on AMReX (branch `moments-amrex`)
+## In progress 2026-10-14: the moment RT on AMReX (branch `moments-amrex`)
 
-**`docs/stage_e_moments.md`** (design only; awaiting the user's review).
-`rt_backend = amrex` with `rt_method = m1 | otvet` on z-slabs, so that
-every plane-ordered and sequential sum of the serial moment RT is
-reproduced exactly; the OTVET FFTs on component ranks with the serial
-plans; the photochemistry statistics exact (chained replay) or 128-bit;
-the per-rank `Luv`/`sfr` and `calc_halo` lists made sparse before 1024³.
+Design: `docs/stage_e_moments.md` (approved 2026-10-14, PLAN
+"Moments-on-AMReX thread"). `rt_backend = amrex` with `rt_method = m1 |
+otvet` on z-slabs (`amrex_slab = 1`), every sum in the serial order.
+
+* **Phase 0, done** (`f6f971c`): `amrex_slab = 1` (z-slabs in z order, also
+  the shared decomposition of `amrex_state = 1`); sparse sources from
+  `calc_halo` (`RTGrid::src_*`, byte-identical; no N³ `Luv`/`sfr`/`per_cell`
+  on the ranks other than 0); `src/amrex/exact_sum.hpp`.
+* **Phase 1, M1, done** (`f6f971c`): `src/amrex/moment_level.cpp`, the
+  serial per-cell arithmetic shared through
+  `include/radray/kernels/moment_cell.hpp`; `amrex_moment_stats = exact |
+  fixed`.
+* **Phase 2, OTVET thin / split / screen, done** (`63af7ab`): the direct sum
+  per cell, or the serial FFT one component per task (`OtvetConvolver`).
+* **Phase 3, the cone, done** (`68233e5`): 12 FFT tasks, mip-maps per slab
+  with the finest level used gathered, the march per slab, the budget's
+  receiver sum as a chain, the Gaussian's z pass on y-slabs.
+* **Phase 3b, `recomb_rad = 1`, done** (`d25c694`). Needed for the 1024³
+  comparison: the 512³ cone run used `recomb_case = A`, `recomb_rad = 1`.
+* **Phase 4, checkpoints, done** (`098a9f9`): the format unchanged, streamed
+  through rank 0; a serial moment checkpoint restarts on the level
+  byte-identically (so the serial 256³/512³ checkpoints seed phase 5).
+* **Validation:** label `amrex_moments` (84 tests): `rt_driver` against the
+  serial moment RT for M1, thin (direct, FFT), split, screen (fixed and
+  budget λ), cone (λ_x from the budget, no blend), recomb_rad, on 1-4
+  ranks × 1-2 threads × slab planes; the full loop with the state on the
+  slabs against the serial moment RT; restarts. All bitwise.
+  The fast suite: only the 10 `platform_ref` tests fail, as on `main`
+  (outputs byte-identical to `main`'s).
+* **Next:** threaded FFTW plans with the bitwise guard; phase 5 (klone
+  256³ / 512³ validation and timing on 1, 2, 4 nodes); phase 6 (1024³ on
+  `ckpt-g2`).
 
 ## Done 2026-10-13: a better Eddington tensor for OTVET (branch `otvet-closure`, PR #35)
 

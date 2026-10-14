@@ -863,3 +863,8 @@ policy on klone, and deleting the merged branches.
   - the base: Stage E4 (PR #37) had already merged into `main`, so
     `moments-amrex` was rebased onto `origin/main` (`b243df9`);
   - `amrex_balance = 1` with moments is refused for now.
+* **Found 2026-10-14:** the 512³ cone run (`reion512_rays_otvet_cone`) used
+  `recomb_case = A`, `recomb_rad = 1` (block 4) and `rt_substep_carry = 1`.
+  A like-for-like 1024³ comparison therefore needs `recomb_rad = 1` with
+  moments on the level (phase 3b), done before phase 5;
+  `rt_substep_carry` is a clock setting, the same on every backend.

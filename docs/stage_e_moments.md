@@ -423,3 +423,20 @@ The references and the tests:
 | 4 | checkpoint and restart through the slabs | restart tests |
 | 5 | klone 256³ / 512³ validation and timing on 1/2/4 nodes | §7, §8 |
 | 6 | 1024³ cone run and the comparison | §8 |
+
+**Progress (2026-10-14):** phases 0-4 done, bitwise against the serial
+moment RT (label `amrex_moments`). As built, beyond the plan:
+
+- The sources needed no rank-0 `calc_halo` (§6).
+- The serial per-cell arithmetic of the moments, the FFT convolution and
+  the cone are shared code (`moment_cell.hpp`, `OtvetConvolver`,
+  `OtvetCone`, `otvet_mip_coarsen`, `otvet_cone_prolong`, the blend
+  helpers), the serial path calling the same functions (byte-identical,
+  checked against the previous build on 10 serial moment cases).
+- The cone gathers the finest mip level a march samples (`lmin`: 1 with
+  the defaults; 0 when r_c tan θ < 1, as with `otvet_cone_rc = 1`), not
+  always level 1.
+- `amrex_slab_planes` must be a multiple of `otvet_cone_coarse` and of
+  2^lmin for the cone (checked).
+- Checkpoints: the version-7 format unchanged; a serial moment checkpoint
+  restarts on the level byte-identically.
