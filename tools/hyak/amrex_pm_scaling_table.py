@@ -58,7 +58,7 @@ def rss(log):
 
 def main():
     out = sys.argv[1]
-    runs = sys.argv[2:] or sorted(d for d in glob.glob(os.path.join(out, "*"))
+    runs = [r for r in sys.argv[2:] if os.path.isdir(r)] or sorted(d for d in glob.glob(os.path.join(out, "*"))
                                   if os.path.isdir(d) and os.path.exists(d + ".log"))
     print("| run | step | PM [s] | " + " | ".join(PHASES) + " | FoF [s] | P(k) [s] | step [s] |")
     print("|" + "---|" * (len(PHASES) + 6))
