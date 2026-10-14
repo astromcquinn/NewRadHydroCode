@@ -104,8 +104,9 @@ off; `sf_efficiency` per free-fall time): gas above the threshold is
 converted to collisionless star particles in the PM container, with
 their mass.
 
-**The sink, design (F2b).** In every hydro call, on the finest level
-holding the cell, a cell with x = ρ_gas/ρ̄_gas > `sf_overdensity` loses
+**The sink (F2b, built 2026-10-14; tests label `sink`).** In every hydro
+call, on every level's cells not covered by a finer level, a cell with
+x = ρ_gas/ρ̄_gas > `sf_overdensity` loses
 the mass dm = min(1, `sf_efficiency` · dt/t_ff) · ρ V, with
 t_ff = √(3π/32Gρ_tot) and ρ_tot = ρ_gas Ω_m/Ω_b (the local total density
 of the PM mesh when it is available), at constant specific quantities:
@@ -120,12 +121,24 @@ component and a type flag; the CIC deposit weights particles by mass
 load balancing moves them with their boxes. They are not in rank 0's
 `xv` mirror: the FoF and the `xv_dm` files see dark matter only (the
 halo masses miss the stellar mass; documented), and the stars are
-gathered to rank 0 for a `stars.bin` file at every data output and for
-the checkpoint (a new block, version 8). The hydro drivers without a
-PM (`hydro_driver`, the suite) apply the sink as a mass loss (tests of
-the hydro part). The default `sf_overdensity = 0` keeps every stored
-reference; the production default will be of order a few thousand (user
-decision) once the full-loop tests are in.
+gathered to rank 0 for `DM/stars.<ztag>` (int64 n, then records
+{int64 id; float x[3], v[3], mass, a_form}, sorted by formation time and
+position) and `sink.txt` (the count and the total mass) at every data
+output and at the end, and for the checkpoint (version 8, loaded at a
+restart). Ids are `Npart + 1 + the running count`, numbered by a global
+sort of each call's event positions, so they do not depend on the rank
+count (the stars file and the checkpoint are byte-identical for 1, 2 and
+3 ranks: `amrex_sink_ranks_smoke`; a restart is bit-identical:
+`amrex_sink_restart_smoke`; `sink_check.py` checks the bookkeeping). The
+hydro drivers without a PM (`hydro_driver`, the suite) apply the sink as
+a mass loss (tests of the hydro part). The default `sf_overdensity = 0`
+keeps every stored reference; `make_production.py --sf-overdensity` (and
+`--amrex-max-level`, `--amrex-refine-mass`) write the production
+parameters; the production value is a few thousand (user decision), to
+be set with the first refined production run. Code: `hydro_level.cpp`
+`sink`, `pm_level.cpp` `add_stars` / `gather_stars` / `load_stars`,
+`pm_backend.hpp`, `radhydro.cpp` `write_stars` / `write_sink_summary`,
+`checkpoint.cpp`.
 
 ## 3. The RT across levels (F3)
 
