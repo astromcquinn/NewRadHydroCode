@@ -13,7 +13,7 @@ cooling flag and the sink), F3 (the RT across levels).*
 |---|---|
 | F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
 | F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
-| F3: rays across levels with the coarse substep (`rt_cells_per_substep` = 2^l on level l) | planned |
+| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | built; the I-front validation running |
 
 ## 1. The hierarchy (F1)
 
@@ -209,7 +209,35 @@ the level-0 changes the RT and PM make (§1) moves to the state, where it
 belongs. Nothing changes for `amrex_max_level = 0` (bitwise), and the
 level-0-only RT keeps working on refined runs as today.
 
-**F3b: rays on the levels.** Each level has its own RT cells (`RTCell`
+**Built (2026-10-14/15, branch `stage-f3`).** F3a as designed. F3b in
+`src/amrex/rt_level.cpp`: `Level` carries its refinement index, cells
+per coarse substep (`rt_cells_per_substep` 2^l), per-level units and RT
+parameters, a coverage mask (the cells under the finer level: no
+emission, no physics, no statistics), an in-patch mask (where a ray
+leaves the level) and the rays leaving it; the substep is split into
+four phases (tau, cast, phys, advance), and `Hierarchy` (one `Level`
+per level of the gas state, rebuilt at a regrid with its rays parked on
+the parent) interleaves the levels' phases: after the tau phase a
+refined level's ghost cells outside its grids take the parent's tau
+(halved) and after the physics the parent's fgam (1 − √(1 − f)); after
+the casts the deposits cross the boundary both ways (a level's ghost
+deposits beyond its grids summed into the parent's cells, the parent's
+deposits under the level shared among the 8 children exactly in the
+int64 fixed point); after the advance the rays migrate (`leaving` up,
+`collect_down` down, scaled to the other level's units with dr = rmax(nside)
+− r); the statistics are summed over the levels and published once; after
+`post` the finer levels' cells and gas are averaged down onto the
+parents. Sources: `apply_sources` records the catalogue's positions
+(`Simulation::rt_sources`) and the hierarchy puts a covered base cell's
+Luv/sfr on the finest cell holding each source. The checkpoint carries
+every level's rays in base units (a restart scatters them onto the base
+level and the first prep moves them down). `amrex_refine_box` refines a
+fixed region (tests). With `amrex_max_level = 0` the plain `Level` runs:
+bitwise Stage E (176/176 on klone), and the refined smoke runs are
+byte-identical across 1, 2 and 3 ranks and through a restart (the `sink`
+tests run with one level).
+
+**F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
 and ray container. A ray lives on the finest level covering its position;
 positions stay in level-0 cell units, so a migration between levels is a
