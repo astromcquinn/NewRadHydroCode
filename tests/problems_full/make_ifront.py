@@ -39,14 +39,14 @@ def main():
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools/ics/make_ics.py"),
                            os.path.join(out, "ics"), "--kind", "zeldovich", "--gas", "uniform",
                            "--growth", "frozen-gas", "--Ngas", str(a.N), "--Ndm", str(a.N // 2),
-                           "--z-init", "100", "--box", str(a.box), "--seed", "7"])
+                           "--z-init", "35", "--box", str(a.box), "--seed", "7"])
     with open(os.path.join(out, "params.txt"), "w") as f:
         f.write(f"""# One source in uniform gas (make_ifront.py): the RT with refinement
 N = {a.N}
 Ndm = {a.N // 2}
 box = {a.box}
 nray_max_factor = 16
-z_init = 100
+z_init = 35
 zdata1 = 30 28 26 24 22 20
 ics = ics
 source_mode = legacy

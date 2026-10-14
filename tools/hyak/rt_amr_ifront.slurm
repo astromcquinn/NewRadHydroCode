@@ -4,7 +4,7 @@
 # central half of the box, the front crossing its boundary) and uniform 2N,
 # then tools/analysis/ifront_full.py --check. One klone node.
 #
-#   sbatch --export=ALL,BUILD=$PWD/build-sink,OUT=$RUNS/rt_amr_ifront[,N=32][,STEPS=8][,RANKS=8] \
+#   sbatch --export=ALL,BUILD=$PWD/build-sink,OUT=$RUNS/rt_amr_ifront[,N=32][,STEPS=20][,RANKS=8] \
 #          tools/hyak/rt_amr_ifront.slurm
 #SBATCH --job-name=rt-amr-ifront
 #SBATCH --account=astro
@@ -25,7 +25,7 @@ radray_module_load ompi/4.1.6-2
 BUILD="${BUILD:-$src/build-sink}"
 OUT="${OUT:-$RUNS/rt_amr_ifront}"
 N="${N:-32}"
-STEPS="${STEPS:-8}"
+STEPS="${STEPS:-20}"
 RANKS="${RANKS:-8}"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 mkdir -p "$OUT"
