@@ -825,3 +825,8 @@ policy on klone, and deleting the merged branches.
     floor), and their eigenvalues are clamped to ≥ 0;
   - 512³ runs without `tensor_dump` (14 GB per snapshot); the 256³ runs
     keep it for the a posteriori tensor comparison.
+* **User decisions (2026-10-13):** merge PR #35 (done, `fd9d425`); speed up
+  the tensor FFTs (branch `otvet-fft-speed`: cached kernel spectra and
+  component-parallel transforms, byte-identical); movies of the 512³ runs
+  and the after-overlap P_Γ figure as for OTVET and M1 (`docs/otvet_closure.md`
+  §7, `$RUNS/otvet_closure_512/compare.mp4`).

@@ -453,6 +453,7 @@ void thin_tensor(const OtvetClosureIn& in, int method, std::vector<float>& h,
   const double Lmax = source_density(in, rho);
   std::array<std::vector<double>, 6> P;
   otvet_fft_convolve(N, rho, P);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
   for (std::int64_t c = 0; c < nc; ++c) {
     const double Pc[6] = {P[0][c], P[1][c], P[2][c], P[3][c], P[4][c], P[5][c]};
     normalise(Pc, &h[6 * c]);
@@ -511,7 +512,9 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
     out.lambda = lam;
     std::array<std::vector<double>, 6> P;
     const ScreenCtx ctx{lam};
-    otvet_fft_convolve_kernel(N, rho, screen_fill, &ctx, P);
+    // cached only for a fixed lambda (the budget's changes every step)
+    otvet_fft_convolve_kernel(N, rho, screen_fill, &ctx, P,
+                              p.screen_lambda > 0 ? "screen" : nullptr, lam);
     if (p.split) out.ndir.assign(nc, 0.0f);
     const double trmin = kNoiseFloor * total(rho.data(), N);
 #pragma omp parallel for schedule(static) if (par::worth(nc))
@@ -564,7 +567,7 @@ void otvet_closure_tensor(const OtvetClosureParams& p, int tensor_method, const 
   std::array<std::vector<double>, 6> Pn;
   {
     const NearCtx ctx{rc};
-    otvet_fft_convolve_kernel(N, rho, near_fill, &ctx, Pn);
+    otvet_fft_convolve_kernel(N, rho, near_fill, &ctx, Pn, "near", rc);
   }
   // mip-maps of the emissivity (L/Lmax per cell) and of the capped HI column
   std::vector<Level> R, C;

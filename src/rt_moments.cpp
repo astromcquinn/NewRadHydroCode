@@ -223,6 +223,7 @@ int compute_otvet_tensor(const RTGrid& G, const Units& u, int method, std::vecto
   for (const SrcCell& s : src) rho[G.cell(s.i + 1, s.j + 1, s.k + 1)] += s.L / Lmax;
   std::array<std::vector<double>, 6> P;
   otvet_fft_convolve(N, rho, P);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
   for (std::int64_t c = 0; c < nc; ++c) {
     const double Pc[6] = {P[0][c], P[1][c], P[2][c], P[3][c], P[4][c], P[5][c]};
     store(c, Pc);
