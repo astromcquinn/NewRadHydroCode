@@ -89,6 +89,7 @@ struct Timers {
   // the moment level: calc_rt_1, injection, transport (and its halo
   // exchange), deposit, step 3, the exact sums (chains, gathers)
   double rt1 = 0, inject = 0, trans = 0, halo = 0, deposit = 0, absorb = 0, sums = 0, tensor = 0, tflux = 0, tglf = 0, tcopy = 0;
+  double c_thin = 0, c_near = 0, c_mip = 0, c_march = 0, c_budget = 0, c_prolong = 0, c_blend = 0;
 };
 
 // The level as rt_level.cpp drives it

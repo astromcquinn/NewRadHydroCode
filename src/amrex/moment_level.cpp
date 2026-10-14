@@ -260,17 +260,28 @@ struct MomentLevel : CellLevel {
     fft_threads = nt;
   }
 
-  // The FFT convolution P[m] = (K_m * rho) / N^3 of the serial code onto the
-  // slabs (comp m of P6), one component per task (task base + m of ntask on
-  // rank (base + m) * nranks / ntask): rho = L / Lmax at the sources.
-  // Collective.
-  void fft_components(const std::vector<OtvetSource>& gs, double Lmax, OtvetKernelFill fill, const void* ctx,
-                      const char* tag, double param, FFab& P6, int base, int ntask) {
+  // The FFT convolutions P[m] = (K_m * rho) / N^3 of the serial code onto the
+  // slabs (comp m of a job's P6), one component per task (task base + m of
+  // ntask on rank (base + m) * nranks / ntask): rho = L / Lmax at the
+  // sources. Every rank first computes all its tasks (of all the jobs), then
+  // the components are copied onto the slabs. Collective.
+  struct FFTJob {
+    OtvetKernelFill fill;
+    const void* ctx;
+    const char* tag;
+    double param;
+    FFab* P6;
+    int base;
+  };
+  void fft_run(const std::vector<OtvetSource>& gs, double Lmax, const std::vector<FFTJob>& jobs, int ntask) {
     const int np = ax::ParallelDescriptor::NProcs(), me = ax::ParallelDescriptor::MyProc();
     const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
-    auto owner = [&](int m) { return static_cast<int>(static_cast<long long>(base + m) * np / ntask); };
+    auto owner = [&](const FFTJob& J, int m) {
+      return static_cast<int>(static_cast<long long>(J.base + m) * np / ntask);
+    };
     bool mine = false;
-    for (int m = 0; m < 6; ++m) mine = mine || owner(m) == me;
+    for (const FFTJob& J : jobs)
+      for (int m = 0; m < 6; ++m) mine = mine || owner(J, m) == me;
     if (mine) {
       if (!conv) make_convolver();
       float* r = conv->r();
@@ -283,11 +294,14 @@ struct MomentLevel : CellLevel {
       }
       conv->forward();
     }
-    for (int m = 0; m < 6; ++m) {
-      const ax::DistributionMapping dm1(ax::Vector<int>{owner(m)});
-      FFab one(ax::BoxArray(domain), dm1, 1, 0);
-      if (owner(m) == me) {
-        const void* ks = conv->kernel(m, fill, ctx, tag, param, conv->out());
+    // the tasks (one-box FabArrays on their owners)
+    std::vector<std::unique_ptr<FFab>> ones;
+    for (const FFTJob& J : jobs)
+      for (int m = 0; m < 6; ++m) {
+        const ax::DistributionMapping dm1(ax::Vector<int>{owner(J, m)});
+        ones.push_back(std::make_unique<FFab>(ax::BoxArray(domain), dm1, 1, 0));
+        if (owner(J, m) != me) continue;
+        const void* ks = conv->kernel(m, J.fill, J.ctx, J.tag, J.param, conv->out());
         if (fft_threads > 1 && !fft_checked) {
           // the guard: threaded plans bitwise the serial ones (docs/stage_e_moments.md 4.1)
           if (!conv->convolve_checked(ks, conv->out()))
@@ -300,21 +314,26 @@ struct MomentLevel : CellLevel {
           conv->convolve(ks, conv->out());
         }
         const float* o = conv->out();
-        auto a = one.array(0);
+        float* a = ones.back()->atLocalIdx(0).dataPtr();
 #pragma omp parallel for schedule(static)
-        for (int k = 0; k < N; ++k)
-          for (int j = 0; j < N; ++j)
-            for (int i = 0; i < N; ++i) a(i, j, k) = o[i + static_cast<std::int64_t>(N) * (j + static_cast<std::int64_t>(N) * k)];
+        for (std::int64_t c = 0; c < nc; ++c) a[c] = o[c];
       }
-      P6.ParallelCopy(one, 0, m, 1);
-    }
+    // onto the slabs
+    std::size_t t = 0;
+    for (const FFTJob& J : jobs)
+      for (int m = 0; m < 6; ++m) J.P6->ParallelCopy(*ones[t++], 0, m, 1);
+  }
+  void fft_components(const std::vector<OtvetSource>& gs, double Lmax, OtvetKernelFill fill, const void* ctx,
+                      const char* tag, double param, FFab& P6, int base, int ntask) {
+    fft_run(gs, Lmax, {FFTJob{fill, ctx, tag, param, &P6, base}}, ntask);
   }
 
   // The thin tensor h (6 comps of Hd) and N_dir = tr P / (4 pi) (NDd, may be
   // null) on the valid cells (compute_otvet_tensor / thin_tensor: the
-  // direct sum, method 1, or the FFT, method 2); gs not empty
+  // direct sum, method 1, or the FFT, method 2: P6 = the thin convolution
+  // when given, else computed here); gs not empty
   void thin_slabs(const std::vector<OtvetSource>& gs, double Lmax, int method, FFab& Hd, FFab* NDd, int base,
-                  int ntask) {
+                  int ntask, const FFab* P6given = nullptr) {
     const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
     if (method == 1) {
       for (ax::MFIter mfi(Hd); mfi.isValid(); ++mfi) {
@@ -345,8 +364,12 @@ struct MomentLevel : CellLevel {
       }
       return;
     }
-    FFab P6(ba, dm, 6, 0);
-    fft_components(gs, Lmax, otvet_thin_fill, nullptr, "thin", 0.0, P6, base, ntask);
+    FFab P6own;
+    if (!P6given) {
+      P6own.define(ba, dm, 6, 0);
+      fft_components(gs, Lmax, otvet_thin_fill, nullptr, "thin", 0.0, P6own, base, ntask);
+    }
+    const FFab& P6 = P6given ? *P6given : P6own;
     const double ncd = static_cast<double>(nc);
     for (ax::MFIter mfi(Hd); mfi.isValid(); ++mfi) {
       auto h = Hd.array(mfi);
@@ -543,12 +566,33 @@ struct MomentLevel : CellLevel {
       return 1.0f - c(i, j, k).fHI > 0.5f;
     };
 
+    double tq = now();
+    auto lapc = [&](double& t) {
+      const double tn = now();
+      t += tn - tq;
+      tq = tn;
+    };
+    // the FFTs: the blend's thin tensor (when by FFT) and the near field r <
+    // 2 r_c (in L/Lmax units), their 12 tasks at once
+    const int hs_method = p.cone_blend > 0 ? thin_method(s, gs.size()) : 0;
+    FFab PT, PN(ba, dm, 6, 0);
+    const OtvetNearCtx nctx{p.cone_rc};
+    {
+      std::vector<FFTJob> jobs;
+      if (hs_method == 2) {
+        PT.define(ba, dm, 6, 0);
+        jobs.push_back(FFTJob{otvet_thin_fill, nullptr, "thin", 0.0, &PT, 0});
+      }
+      jobs.push_back(FFTJob{otvet_near_fill, &nctx, "near", p.cone_rc, &PN, 6});
+      fft_run(gs, Lmax, jobs, 12);
+    }
+    lapc(T.c_near);
     // h_s: the split thin tensor (blend), from the Gamma-weighted N
     FFab HS;
     if (p.cone_blend > 0) {
       HS.define(ba, dm, 6, 0);
       FFab ND(ba, dm, 1, 0);
-      thin_slabs(gs, Lmax, thin_method(s, gs.size()), HS, &ND, 0, 12);
+      thin_slabs(gs, Lmax, hs_method, HS, &ND, 0, 12, hs_method == 2 ? &PT : nullptr);
       for (ax::MFIter mfi(HS); mfi.isValid(); ++mfi) {
         auto h = HS.array(mfi);
         auto nd = ND.const_array(mfi);
@@ -561,13 +605,8 @@ struct MomentLevel : CellLevel {
         });
       }
     }
-
-    // the near field r < 2 r_c (FFT), in L/Lmax units
-    FFab PN(ba, dm, 6, 0);
-    {
-      const OtvetNearCtx ctx{p.cone_rc};
-      fft_components(gs, Lmax, otvet_near_fill, &ctx, "near", p.cone_rc, PN, 6, 12);
-    }
+    PT.clear();
+    lapc(T.c_thin);
 
     // the mip-maps of the emissivity and of the capped HI column: each slab
     // builds its planes down to level lmin, which is gathered on every rank,
@@ -650,6 +689,7 @@ struct MomentLevel : CellLevel {
     }
     const double trmin = trmin_of(gs, Lmax);
 
+    lapc(T.c_mip);
     // the march of the local receivers (whole receivers per slab)
     std::vector<std::vector<float>> Pb(zorder.size());
     std::vector<std::array<int, 2>> rz(zorder.size());  // the receiver planes of each local box
@@ -670,6 +710,7 @@ struct MomentLevel : CellLevel {
     std::vector<OtvetMip>().swap(R);
     std::vector<OtvetMip>().swap(Cm);
 
+    lapc(T.c_march);
     // the budget (target_ion, near_tr by plane; tb in receiver order)
     std::vector<double> fac(nb, 1.0);
     double target_ion = 0;
@@ -734,6 +775,7 @@ struct MomentLevel : CellLevel {
       lam_x = cone.budget(p.cone_budget, tb, near_tr, target_ion, unit, fac, ratio);
     }
 
+    lapc(T.c_budget);
     // the receivers' P on the coarse slabs, one ghost receiver layer
     ax::BoxArray bac = ba;
     bac.coarsen(co);
@@ -791,6 +833,7 @@ struct MomentLevel : CellLevel {
         (void)NN;
       });
     }
+    lapc(T.c_prolong);
     if (!(p.cone_blend > 0)) return;
     for (ax::MFIter mfi(D); mfi.isValid(); ++mfi) {
       auto d = D.array(mfi);
@@ -855,6 +898,7 @@ struct MomentLevel : CellLevel {
         for (int m = 0; m < 6; ++m) h(i, j, k, m) = o[m];
       });
     }
+    lapc(T.c_blend);
   }
 
   // ---- one RT substep: moment_step_1, rt_step_2, rt_step_3 ----------------
@@ -1495,12 +1539,14 @@ struct MomentLevel : CellLevel {
   }
 
   std::string timers() const override {
-    char buf[512];
+    char buf[1024];
     std::snprintf(buf, sizeof buf,
                   "AMReX moment timers [s]: prep %.3f calc_rt_1 %.3f inject %.3f transport %.3f (halo %.3f) "
-                  "deposit %.3f phys %.3f step3 %.3f sums %.3f post %.3f sync %.3f tensor %.3f [flux %.3f glf %.3f copy %.3f]",
+                  "deposit %.3f phys %.3f step3 %.3f sums %.3f post %.3f sync %.3f tensor %.3f [flux %.3f glf %.3f copy %.3f] "
+                  "[cone: thin %.3f near %.3f mip %.3f march %.3f budget %.3f prolong %.3f blend %.3f]",
                   T.prep, T.rt1, T.inject, T.trans, T.halo, T.deposit, T.phys, T.absorb, T.sums, T.post, T.sync,
-                  T.tensor, T.tflux, T.tglf, T.tcopy);
+                  T.tensor, T.tflux, T.tglf, T.tcopy, T.c_thin, T.c_near, T.c_mip, T.c_march, T.c_budget, T.c_prolong,
+                  T.c_blend);
     return buf;
   }
 };
