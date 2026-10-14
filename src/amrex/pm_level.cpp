@@ -149,7 +149,7 @@ inline int thread_id() { return 0; }
 #endif
 
 struct Timers {
-  double prep = 0, deposit = 0, sumbnd = 0, fft = 0, force = 0, kick_dm = 0, kick_gas = 0, gather = 0;
+  double prep = 0, drift = 0, deposit = 0, sumbnd = 0, fft = 0, force = 0, kick_dm = 0, kick_gas = 0, gather = 0;
   double g_vwrite = 0, g_vred = 0, g_vcopy = 0, g_gas = 0, g_pot = 0, p_locate = 0, p_fill = 0;
   Long steps = 0;
 };
@@ -457,7 +457,7 @@ struct PMLevel {
       }
     }
     pc->Redistribute();
-    T.prep += now() - t0;
+    T.drift += now() - t0;
   }
 
   // The level's particles into rank 0's xv by id (the mirror): every rank
@@ -1050,12 +1050,12 @@ struct PMLevel {
   }
 
   std::string timers() const {
-    char buf[512];
+    char buf[768];
     std::snprintf(buf, sizeof buf,
-                  "AMReX PM timers [s]: prep %.3f (locate %.3f fill %.3f) deposit %.3f (SumBoundary %.3f) "
+                  "AMReX PM timers [s]: prep %.3f (locate %.3f fill %.3f) drift %.3f deposit %.3f (SumBoundary %.3f) "
                   "fft %.3f force %.3f kick_dm %.3f kick_gas %.3f gather %.3f (v write %.3f reduce %.3f "
                   "copy %.3f, gas %.3f, potential %.3f); steps %lld",
-                  T.prep, T.p_locate, T.p_fill, T.deposit, T.sumbnd, T.fft, T.force, T.kick_dm, T.kick_gas,
+                  T.prep, T.p_locate, T.p_fill, T.drift, T.deposit, T.sumbnd, T.fft, T.force, T.kick_dm, T.kick_gas,
                   T.gather, T.g_vwrite, T.g_vred, T.g_vcopy, T.g_gas, T.g_pot, static_cast<long long>(T.steps));
     return buf;
   }

@@ -145,6 +145,7 @@ struct RunParams {
   int tensor_dump = 0;
   int max_steps = 1000;     // the original's timing(1000) array
   int run_steps = 0;        // > 0: stop after this many steps of this invocation
+  int step_timers = 0;      // 1: print the backends' cumulative phase timers after every step (rank 0)
                             // (timing runs from a checkpoint; 0: run to the end)
   // hydro_scheme = legacy | unsplit and the unsplit parameters
   // (docs/hydro_unsplit.md), parsed by set_hydro_scheme_param
@@ -265,6 +266,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.max_steps = std::stoi(val);
   else if (key == "run_steps")
     P.run_steps = std::stoi(val);
+  else if (key == "step_timers")
+    P.step_timers = std::stoi(val);
   else if (set_rt_method_param(P.rtm, key, val)) {
     // moment RT (docs/rt_moments.md)
   } else if (set_rt_backend_param(P.rtm, key, val)) {
@@ -1166,6 +1169,14 @@ int main(int argc, char** argv) {
           std::printf(" step %4d  z = %9.5f  nstep_rt = %5d  Nsource = %5lld  %.3f s\n",
                       s.clk.istep, s.clk.redshift, s.clk.nstep_rt,
                       static_cast<long long>(s.Nsource), tstep);
+          std::fflush(stdout);
+        }
+        // the backends' phase timers so far (cumulative; per step by difference)
+        if (P.step_timers && io) {
+          std::printf(" step %4d timers:", s.clk.istep);
+          if (use_amrex_pm(cfg)) std::printf(" %s;", amrex_pm_timers(pm).c_str());
+          if (use_amrex_hydro(cfg)) std::printf(" %s;", amrex_hydro_timers().c_str());
+          std::printf(" halos %.3f, P(k) %.3f\n", T.halos, T.pk);
           std::fflush(stdout);
         }
       }
