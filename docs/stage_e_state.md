@@ -329,6 +329,7 @@ one remap):
 |---|---|---|---|
 | 2 nodes | 974.4 | 936.1 | 4 % |
 | 4 nodes | 538.3 | 470.0 | 13 % |
+| 5 nodes, 120 ranks (jobs 41851042–3, the whole allocation) | 444.4 | 398.1 | 10 % |
 
 **klone, 256³** (`reion256_f0.2`, step 49, 92 RT substeps, 24 × 8 per
 node, 512 boxes of 32³; jobs 41826697/41826699 rebalanced, 41840184
