@@ -52,6 +52,8 @@
 #include <AMReX_FabArray.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_GpuAtomic.H>
+#include <AMReX_iMultiFab.H>
+#include <AMReX_MultiFabUtil.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_ParmParse.H>
 #include <AMReX_Particles.H>
@@ -245,6 +247,25 @@ struct Level : LevelBase {
   using PTD = typename RayPC::ParticleTileType::ParticleTileDataType;
 
   int N = 0, ng = 2, redist_local = 3;
+  // Stage F3b (docs/stage_f.md section 3): the refinement level of this
+  // object (0 = the base grid), its cells per coarse substep (a level-l ray
+  // crosses rt_cells_per_substep 2^l of its cells: one base cell of light
+  // per substep) and its units (len_rt, vol_rt, len_gas, vol_gas scaled)
+  int lev = 0, cells = 1;
+  Units ul;
+  bool ul_set = false;
+  // In a Hierarchy: the statistics are left to it (no reduce/publish per
+  // level); covered marks the cells under the finer level (no emission, no
+  // physics, no statistics: the finer level has them); in_patch is 1 on
+  // this level's cells, ghosts included (0 outside the level's grids:
+  // where a ray leaves the level); leaving collects the rays that left
+  // the level's grids in the last substep, in the parent's units
+  bool in_hierarchy = false;
+  std::unique_ptr<ax::iMultiFab> covered, in_patch;
+  std::vector<RayP> leaving;
+  Long sv_loc[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+  Long cmax_loc[3] = {0, 0, 0};
+  i128 stats_loc[kSNstat] = {};
   bool has_e = false;
   gs::GasState* state = nullptr;  // amrex_state = 1 (gas_state.hpp)
   std::int64_t substep_count = 0;  // global RT substep counter (dithering keys)
@@ -288,14 +309,23 @@ struct Level : LevelBase {
     return v;
   }
 
-  Level(const Config& cfg, bool with_e) {
-    N = cfg.Nrt;
-    // The reach of one substep is k+1 cells for rt_cells_per_substep = k (a
+  // The base level (lev = 0): the decomposition of amrex_max_grid_size, or
+  // the gas state's
+  Level(const Config& cfg, bool with_e) { init(cfg, with_e, 0, nullptr, nullptr); }
+  // A refined level on the gas state's BoxArray and mapping of that level
+  Level(const Config& cfg, bool with_e, int lev_, const ax::BoxArray& ba_, const ax::DistributionMapping& dm_) {
+    init(cfg, with_e, lev_, &ba_, &dm_);
+  }
+  void init(const Config& cfg, bool with_e, int lev_, const ax::BoxArray* ba_, const ax::DistributionMapping* dm_) {
+    lev = lev_;
+    N = cfg.Nrt << lev;
+    cells = cfg.rt_cells_per_substep << lev;
+    // The reach of one substep is k+1 cells for k cells per substep (a
     // split moves a ray by up to one cell, then it is cast k cells; a ray
     // moves k cells, plus one at a cell face): the ghost layers and the
     // local Redistribute grow with k (docs/rt_multicell.md). k = 1: the
     // parameters as given.
-    const int reach = cfg.rt_cells_per_substep + 1;
+    const int reach = cells + 1;
     ng = std::max(cfg.amrex_ghosts, reach);
     redist_local = cfg.amrex_redist_local > 0 ? std::max(cfg.amrex_redist_local, reach) : 0;
     has_e = with_e;
@@ -304,17 +334,24 @@ struct Level : LevelBase {
     const ax::Array<int, 3> per{1, 1, 1};
     geom = ax::Geometry(domain, rb, ax::CoordSys::cartesian, per);
     period = geom.periodicity();
-    ba = ax::BoxArray(domain);
-    ba.maxSize(cfg.amrex_max_grid_size);
-    dm = ax::DistributionMapping(ba);
-    if (cfg.amrex_state) {
-      // the gas state's decomposition (gas_state.hpp): the gas is read and
-      // written locally
+    if (ba_) {
+      ba = *ba_;
+      dm = *dm_;
       state = gs::active();
-      if (!state) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
-      if (state->N != N) throw std::runtime_error("rt_backend = amrex: the gas state has another N");
-      ba = state->ba;
-      dm = state->dm;
+      if (!state) throw std::runtime_error("rt_backend = amrex: a refined level needs amrex_state = 1");
+    } else {
+      ba = ax::BoxArray(domain);
+      ba.maxSize(cfg.amrex_max_grid_size);
+      dm = ax::DistributionMapping(ba);
+      if (cfg.amrex_state) {
+        // the gas state's decomposition (gas_state.hpp): the gas is read and
+        // written locally
+        state = gs::active();
+        if (!state) throw std::runtime_error("amrex_state = 1: amrex_state_init was not called");
+        if (state->N != N) throw std::runtime_error("rt_backend = amrex: the gas state has another N");
+        ba = state->ba;
+        dm = state->dm;
+      }
     }
     C.define(ba, dm, 1, 0);
     if (state) {
@@ -337,6 +374,115 @@ struct Level : LevelBase {
     if (rrk::pdf_nbins() + 2 > rrk::kNpdfMax) throw std::runtime_error("rrk::kNpdfMax too small");
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
       pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    if (lev > 0) {
+      in_patch = std::make_unique<ax::iMultiFab>(ba, dm, 1, ng);
+      in_patch->setVal(0);
+      in_patch->setVal(1, 0, 1, 0);  // the valid cells
+      in_patch->FillBoundary(period);  // the ghosts covered by other boxes of the level
+    }
+  }
+
+  // ---- the hierarchy (F3b): rays between levels ------------------------------
+
+  // A ray in the units of another level: positions and the source distance
+  // scale with the cell size, dr = rmax(nside) - r (ray_kernels.hpp) follows
+  static RayP rescaled(RayP r, double f) {
+    for (int d = 0; d < 3; ++d) r.x[d] = static_cast<float>(r.x[d] * f);
+    r.r = static_cast<float>(r.r * f);
+    r.dr = static_cast<float>(rrk::rmax_from_nside(r.nside) - static_cast<double>(r.r));
+    return r;
+  }
+  // The cells of this level under the finer level's grids (fine_ba in the
+  // finer level's index space), or none
+  void set_covered(const ax::BoxArray* fine_ba) {
+    if (!fine_ba) {
+      covered.reset();
+      return;
+    }
+    covered = std::make_unique<ax::iMultiFab>(ax::makeFineMask(ba, dm, *fine_ba, ax::IntVect(2), 0, 1));
+  }
+  // Rays whose home cell is covered by the finer level, taken out of the
+  // tiles (invalidated; the next Redistribute drops them) and returned in
+  // the finer level's units
+  void collect_down(std::vector<RayP>& out) {
+    if (!covered) return;
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto cov = covered->const_array(mfi);
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD p = pt.getParticleTileData();
+      for (int n = 0; n < np; ++n) {
+        const int i = static_cast<int>(p.m_rdata[0][n]), j = static_cast<int>(p.m_rdata[1][n]),
+                  k = static_cast<int>(p.m_rdata[2][n]);
+        if (!cov(i, j, k)) continue;
+        out.push_back(rescaled(Enc::load(p, n, ectx), 2.0));
+        ax::ParticleIDWrapper(p.m_idcpu[n]).make_invalid();
+      }
+    }
+  }
+  // Rays (in this level's units) appended to this rank's first tile and
+  // moved to their owners (global; also drops the invalidated rays).
+  // Collective.
+  void add_rays(const std::vector<RayP>& in) {
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    if (!in.empty()) {
+      ax::MFIter mfi(C);
+      if (!mfi.isValid()) throw std::runtime_error("rt_backend = amrex: a rank with rays to add but no box");
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int old = pt.numParticles();
+      pt.resize(old + in.size());
+      const PTD p = pt.getParticleTileData();
+      const int myproc = ax::ParallelDescriptor::MyProc();
+      const int NN = N;
+      for (std::size_t n = 0; n < in.size(); ++n) {
+        const int h[3] = {rrk::cell_of(in[n].x[0], NN), rrk::cell_of(in[n].x[1], NN), rrk::cell_of(in[n].x[2], NN)};
+        store_ray(p, old + static_cast<int>(n), in[n], NN, myproc, h, ectx);
+      }
+    }
+    pc->Redistribute();
+  }
+  // Every ray of this level, in the parent's units (a level about to be
+  // rebuilt at a regrid); the tiles are emptied
+  void take_all(std::vector<RayP>& out) {
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD p = pt.getParticleTileData();
+      for (int n = 0; n < np; ++n) out.push_back(rescaled(Enc::load(p, n, ectx), 0.5));
+      pt.resize(0);
+    }
+  }
+
+  // The gas state's FabArray of this level (level 0: G; refined: fine[lev-1].G)
+  gs::FFab& state_G() const {
+    return lev == 0 ? state->G : state->fine[static_cast<std::size_t>(lev) - 1].G;
+  }
+  // The units of this level: the lengths and volumes of its cells (the
+  // base units for level 0: bitwise the single-level code)
+  const Units& units_of(const Simulation& s) {
+    if (lev == 0) return s.units;
+    if (!ul_set || ul.x_unit != s.units.x_unit || ul.sfr_min != s.units.sfr_min) {
+      ul = s.units;
+      const double f = std::ldexp(1.0, -lev);
+      ul.len_gas = s.units.len_gas * f;
+      ul.vol_gas = s.units.vol_gas * (f * f * f);
+      ul.len_rt = s.units.len_rt * f;
+      ul.vol_rt = s.units.vol_rt * (f * f * f);
+      ul_set = true;
+    }
+    return ul;
+  }
+  // The RT parameters of this level: its grid, its cells per substep
+  rrk::RTP params_of(const Simulation& s) {
+    rrk::RTP P = rt_params(s);
+    if (lev == 0) return P;
+    P.N = N;
+    P.cells = cells;
+    P.nseg = rrk::nseg_for(s.cfg.legacy_rt, cells);
+    P.vol_rt = units_of(s).vol_rt;
+    return P;
   }
 
   void check_err(const char* where) {
@@ -371,7 +517,7 @@ struct Level : LevelBase {
     if (has_e != s.gas.has_e()) throw std::runtime_error("rt_backend = amrex: the dual-energy field appeared after the level was built");
     const RTGrid& G = s.rt;
     const GasGrid& g = s.gas;
-    const Units u = s.units;
+    const Units u = units_of(s);
     const bool he = has_e;
     const int NN = N;
     if (state) {
@@ -381,18 +527,27 @@ struct Level : LevelBase {
       const float *gLuv = G.Luv.data(), *gsfr = G.sfr.data();
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         auto c = C.array(mfi);
-        auto ga = state->G.const_array(mfi);
+        auto ga = state_G().const_array(mfi);
         ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
           const std::int64_t gc = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
           RTCell d = c(i, j, k);
           for (int m = 0; m < 5; ++m) d.u[m] = ga(i, j, k, gs::kU + m);
           for (int m = 0; m < 4; ++m) d.w[m] = ga(i, j, k, gs::kW + m);
           d.e = he ? ga(i, j, k, gs::kE) : 0.0f;
-          d.Luv = gLuv[gc];
-          d.sfr = gsfr[gc];
+          d.Luv = lev == 0 ? gLuv[gc] : 0.0f;  // (the refined levels' sources: the hierarchy)
+          d.sfr = lev == 0 ? gsfr[gc] : 0.0f;
           rrk::prep_cell(d, u, he);
           c(i, j, k) = d;
         });
+      }
+      if (covered) {  // the finer level has the sources of the cells it covers
+        for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+          auto c = C.array(mfi);
+          auto cov = covered->const_array(mfi);
+          ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            if (cov(i, j, k)) c(i, j, k).Luv = c(i, j, k).sfr = 0.0f;
+          });
+        }
       }
       T.prep += now() - t0;
       s.timers.prep += now() - t0;
@@ -538,12 +693,12 @@ struct Level : LevelBase {
       RayStat& r = s.rays.stat;
       r.ncst1 = r.ncst2 = r.nmrg1 = r.nmrg2 = r.nspl1 = r.nspl2 = r.ndel1 = 0;
     }
-    const double sfr_min = s.units.sfr_min;
+    const double sfr_min = units_of(s).sfr_min;
 
     double t0 = now();
     // ---- 1a. calc_rt_1: reset and tau (legacy_rt = 0: B3, B4); tau -> TF ghosts ----
     {
-      const Units u = s.units;
+      const Units u = units_of(s);
       double sig[3][5];
       std::memcpy(sig, sig_init, sizeof sig);
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -685,7 +840,7 @@ struct Level : LevelBase {
                  s.rays.npool_forced, s.raylog,
                  rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
     }
-    const rrk::RTP P = rt_params(s);
+    const rrk::RTP P = params_of(s);
     double t2 = now();
     T.hist += t2 - t1b;
     s.timers.calc_ray1 += t2 - t1b;
@@ -887,18 +1042,19 @@ struct Level : LevelBase {
     Long nsfill = 0, ngfill = 0;
     {
       rrk::PhysCtx X;
-      X.u = s.units;
+      X.u = units_of(s);
       X.rates = rates_view(s);
       X.dtsec_rt = s.clk.dtsec_rt;
-      X.cells = s.cfg.rt_cells_per_substep;
+      X.cells = cells;  // the crossing speed of this level's path
       X.photon_conserve = s.cfg.photon_conserve;
       X.cool_suppress = s.cfg.cool_suppress_overdensity;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;
       const bool he = has_e;
-      const double Ncell = s.cfg.ncellr;
-      const double nrtcr = s.cfg.nrtcr;
-      const Units u = s.units;
+      // the box averages weight a cell by its volume: 8^-lev of a base cell
+      const double Ncell = s.cfg.ncellr * static_cast<double>(1 << (3 * lev));
+      const double nrtcr = s.cfg.nrtcr * static_cast<double>(1 << (3 * lev));
+      const Units u = units_of(s);
       const double dtsec_rt = s.clk.dtsec_rt;
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         BoxScratch& S = scratch[mfi.LocalIndex()];
@@ -908,11 +1064,19 @@ struct Level : LevelBase {
         auto c = C.array(mfi);
         auto tf = TF.array(mfi);
         auto acc = A.const_array(mfi);
+        ax::Array4<int const> cov;
+        if (covered) cov = covered->const_array(mfi);
+        const bool has_cov = static_cast<bool>(covered);
         S.phys.resize(ncb);
         CellPhys* ph = S.phys.data();
         par_for_dyn(ncb, [=] AMREX_GPU_DEVICE(int q) {
           const int i = lo.x + q % len.x, j = lo.y + (q / len.x) % len.y, k = lo.z + q / (len.x * len.y);
           RTCell& d = c(i, j, k);
+          if (has_cov && cov(i, j, k)) {  // under the finer level: its cells have the physics
+            ph[q] = CellPhys{};
+            for (int m = 0; m < 5; ++m) tf(i, j, k, 5 + m) = d.fgam[m];
+            return;
+          }
           for (int m = 0; m < 5; ++m) d.ngam[m] = static_cast<float>(rrk::from_fx(acc(i, j, k, m), rrk::kScaleNgam));
           for (int m = 0; m < 5; ++m) d.nu[m] = static_cast<float>(rrk::from_fx(acc(i, j, k, 5 + m), rrk::kScaleNu));
           for (int m = 0; m < 3; ++m) d.dx[m] = static_cast<float>(rrk::from_fx(acc(i, j, k, 10 + m), rrk::kScaleNgam));
@@ -1012,9 +1176,30 @@ struct Level : LevelBase {
     double t6 = now();
     T.cast3 += t6 - t5;
     // ---- write survivors back into the particle tiles ----
+    leaving.clear();
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       BoxScratch& S = scratch[mfi.LocalIndex()];
       const Long nout = S.nout;
+      if (lev > 0) {
+        // a ray whose new home cell lies outside this level's grids goes to
+        // the parent (in_patch: 1 on the level's cells, its ghosts included)
+        auto inp = in_patch->const_array(mfi);
+        const int* ocell = S.ocell.data();
+        RayP* out = S.out.data();
+        int* keep = S.keep.data();
+        const auto lo = ax::lbound(mfi.validbox()), len = ax::length(mfi.validbox());
+        for (Long r = 0; r < nout; ++r) {
+          if (!keep[r]) continue;
+          const int q = ocell[r];
+          const int h[3] = {lo.x + q % len.x, lo.y + (q / len.x) % len.y, lo.z + q / (len.x * len.y)};
+          int c3[3];
+          for (int d = 0; d < 3; ++d) c3[d] = near_image(rrk::cell_of(out[r].x[d], NN), h[d], NN);
+          if (!inp(c3[0], c3[1], c3[2])) {
+            leaving.push_back(rescaled(out[r], 0.5));
+            keep[r] = 0;
+          }
+        }
+      }
       const Long nkeep = ax::Scan::ExclusiveSum(nout + 1, S.keep.data(), S.wpos.data(), ax::Scan::retSum);
       nkeep_loc += nkeep;
       auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
@@ -1032,6 +1217,7 @@ struct Level : LevelBase {
         store_ray(p, wpos[r], out[r], NN, myproc, h, ectx);
       });
     }
+    nkeep_loc += static_cast<Long>(leaving.size());  // still live, on the parent
     // the output rays are in the tiles now
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       BoxScratch& S = scratch[mfi.LocalIndex()];
@@ -1065,6 +1251,21 @@ struct Level : LevelBase {
       sv[6] = nsfill;
       sv[7] = ngfill;
       sv[8] = 0;
+      for (int a = 0; a < 9; ++a) sv_loc[a] = sv[a];
+      for (int a = 0; a < 3; ++a) cmax_loc[a] = cmax[a];
+      for (int a = 0; a < kSNstat; ++a) stats_loc[a] = stats[a];
+      if (in_hierarchy) {  // the hierarchy sums the levels and publishes once
+        s.timers.sync += now() - t8;
+        return;
+      }
+      publish_stats(s, sv, cmax, stats);
+    }
+    s.timers.sync += now() - t8;
+  }
+
+  // The reduced statistics of a substep into s (every rank the same)
+  static void publish_stats(Simulation& s, Long sv[9], Long cmax[3], i128 stats[kSNstat]) {
+    {
       ax::ParallelDescriptor::ReduceLongSum(sv, 8);
       ax::ParallelDescriptor::ReduceLongMax(cmax, 3);
       allreduce_i128(stats, kSNstat);
@@ -1094,7 +1295,6 @@ struct Level : LevelBase {
       t.dtau = from_fx128(stats[kSDtau], kBitsTau);
       accumulate_rt_stats(s);
     }
-    s.timers.sync += now() - t8;
   }
 
   // ---- post_rt: redshift, calc_rt_f, photon total, fields back to s ------
@@ -1104,8 +1304,8 @@ struct Level : LevelBase {
     const RedshiftTable RT = make_redshift_table();
     // (a - da)/a, or per distance with redshift_per_distance (cosmology.hpp)
     const double fscale = redshift_fscale(s.cfg, s.clk);
-    const double ngam_min = s.units.ngam_min;
-    const Units u = s.units;
+    const double ngam_min = units_of(s).ngam_min;
+    const Units u = units_of(s);
     const bool he = has_e;
     double sig[3][5];
     std::memcpy(sig, sig_init, sizeof sig);
@@ -1146,7 +1346,7 @@ struct Level : LevelBase {
       const bool he2 = has_e;
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         auto c = C.const_array(mfi);
-        auto ga = state->G.array(mfi);
+        auto ga = state_G().array(mfi);
         ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
           const RTCell& d = c(i, j, k);
           for (int m = 0; m < 5; ++m) ga(i, j, k, gs::kU + m) = d.u[m];
@@ -1458,6 +1658,242 @@ struct Level : LevelBase {
   }
 };
 
+
+// ---------------------------------------------------------------------------
+// The hierarchy (Stage F3b, docs/stage_f.md section 3): one Level per
+// refinement level of the gas state, the base level first. Rays live on
+// the finest level covering their position and move between levels after
+// every substep; a level's cells under the finer level emit nothing and
+// have no physics (the finer level has them), and after the RT step the
+// finer levels are averaged down onto their parents (the gas state and the
+// RT cells), so level 0 is always the composite. The statistics of a
+// substep are the sum over the levels. With amrex_max_level = 0 the
+// factory below makes a plain Level: nothing here runs.
+// ---------------------------------------------------------------------------
+template <class Enc>
+struct Hierarchy : LevelBase {
+  using L = Level<Enc>;
+  Config cfg;
+  bool with_e = false;
+  gs::GasState* state = nullptr;
+  std::vector<std::unique_ptr<L>> levels;  // [0] the base level, always
+  int finest = 0;
+
+  Hierarchy(const Config& cfg_, bool with_e_) : cfg(cfg_), with_e(with_e_) {
+    state = gs::active();
+    if (!state) throw std::runtime_error("rt_backend = amrex with amrex_max_level > 0 needs amrex_state = 1");
+    levels.push_back(std::make_unique<L>(cfg, with_e));
+    levels[0]->in_hierarchy = true;
+  }
+  L& base() { return *levels[0]; }
+
+  // The levels follow the gas state's: a refined level whose grids changed
+  // (a regrid) is rebuilt, its rays parked on the parent meanwhile; then
+  // the coverage masks and a full migration. Collective.
+  void sync() {
+    const int nf = state->finest;
+    for (int l = 1; l <= nf; ++l) {
+      const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      const bool have = static_cast<int>(levels.size()) > l;
+      if (have && levels[static_cast<std::size_t>(l)]->ba == F.ba && levels[static_cast<std::size_t>(l)]->dm == F.dm)
+        continue;
+      std::vector<RayP> parked;
+      if (have) levels[static_cast<std::size_t>(l)]->take_all(parked);
+      auto nl = std::make_unique<L>(cfg, with_e, l, F.ba, F.dm);
+      nl->in_hierarchy = true;
+      nl->substep_count = base().substep_count;
+      if (have)
+        levels[static_cast<std::size_t>(l)] = std::move(nl);
+      else
+        levels.push_back(std::move(nl));
+      levels[static_cast<std::size_t>(l) - 1]->add_rays(parked);  // (empty on most ranks: collective)
+    }
+    while (static_cast<int>(levels.size()) > nf + 1) {
+      std::vector<RayP> parked;
+      levels.back()->take_all(parked);
+      levels.pop_back();
+      levels.back()->add_rays(parked);
+    }
+    finest = nf;
+    for (int l = 0; l <= finest; ++l)
+      levels[static_cast<std::size_t>(l)]->set_covered(l < finest ? &levels[static_cast<std::size_t>(l) + 1]->ba : nullptr);
+    migrate();
+  }
+
+  // Rays that left a refined level go up, rays under a finer level go down
+  // (collective: every level's add_rays is a Redistribute)
+  void migrate() {
+    for (int l = finest; l >= 1; --l) {
+      L& Ll = *levels[static_cast<std::size_t>(l)];
+      std::vector<RayP> up;
+      up.swap(Ll.leaving);
+      levels[static_cast<std::size_t>(l) - 1]->add_rays(up);
+    }
+    for (int l = 0; l < finest; ++l) {
+      std::vector<RayP> down;
+      levels[static_cast<std::size_t>(l)]->collect_down(down);
+      levels[static_cast<std::size_t>(l)]->pc->Redistribute();  // drops the invalidated rays
+      levels[static_cast<std::size_t>(l) + 1]->add_rays(down);
+    }
+  }
+
+  // The finer levels' cells and gas averaged down onto their parents
+  // (plain averages of the 8 children of every covered cell, in double,
+  // rounded once), finest first
+  void average_down() {
+    for (int l = finest; l >= 1; --l) {
+      L& F = *levels[static_cast<std::size_t>(l)];
+      L& P = *levels[static_cast<std::size_t>(l) - 1];
+      // the fine cells as floats, averaged onto the coarse grid of the fine
+      // boxes, then copied onto the parent's cells where covered
+      FFab Ff(F.ba, F.dm, NC, 0);
+      for (ax::MFIter mfi(F.C); mfi.isValid(); ++mfi) {
+        auto c = F.C.const_array(mfi);
+        auto f = Ff.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          f(i, j, k, m) = cf(c, i, j, k, m);
+        });
+      }
+      const ax::BoxArray cba = ax::coarsen(F.ba, 2);
+      FFab Fc(cba, F.dm, NC, 0);
+      for (ax::MFIter mfi(Fc); mfi.isValid(); ++mfi) {
+        auto f = Ff.const_array(mfi);
+        auto a = Fc.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          double sum = 0;
+          for (int kk = 0; kk < 2; ++kk)
+            for (int jj = 0; jj < 2; ++jj)
+              for (int ii = 0; ii < 2; ++ii) sum += f(2 * i + ii, 2 * j + jj, 2 * k + kk, m);
+          a(i, j, k, m) = static_cast<float>(sum / 8);
+        });
+      }
+      FFab Pf(P.ba, P.dm, NC, 0);
+      Pf.setVal(0.0f);
+      Pf.ParallelCopy(Fc, 0, 0, NC, 0, 0, P.period);
+      for (ax::MFIter mfi(P.C); mfi.isValid(); ++mfi) {
+        auto c = P.C.array(mfi);
+        auto f = Pf.const_array(mfi);
+        auto cov = P.covered->const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          if (!cov(i, j, k)) return;
+          float* dp = reinterpret_cast<float*>(&c(i, j, k));
+          for (int m = 0; m < NC; ++m) dp[m] = f(i, j, k, m);
+        });
+      }
+      // the gas state of the parent: the averaged u, w, e
+      gs::FFab& G = P.state_G();
+      for (ax::MFIter mfi(G); mfi.isValid(); ++mfi) {
+        auto g = G.array(mfi);
+        auto c = P.C.const_array(mfi);
+        auto cov = P.covered->const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          if (!cov(i, j, k)) return;
+          const RTCell& d = c(i, j, k);
+          for (int m = 0; m < 5; ++m) g(i, j, k, gs::kU + m) = d.u[m];
+          for (int m = 0; m < 4; ++m) g(i, j, k, gs::kW + m) = d.w[m];
+          g(i, j, k, gs::kE) = d.e;
+        });
+      }
+    }
+  }
+
+  void prep(Simulation& s) override {
+    sync();
+    for (auto& l : levels) l->prep(s);
+  }
+  void substep(Simulation& s) override {
+    for (auto& l : levels) l->substep(s);
+    migrate();
+    Long sv[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0}, cmax[3] = {0, 0, 0};
+    i128 stats[kSNstat] = {};
+    for (auto& l : levels) {
+      for (int a = 0; a < 9; ++a) sv[a] += l->sv_loc[a];
+      for (int a = 0; a < 3; ++a) cmax[a] = std::max(cmax[a], l->cmax_loc[a]);
+      for (int a = 0; a < kSNstat; ++a) stats[a] += l->stats_loc[a];
+    }
+    L::publish_stats(s, sv, cmax, stats);
+  }
+  void post(Simulation& s) override {
+    double ngam_total = 0;
+    std::int64_t nray = 0;
+    for (auto& l : levels) {
+      l->post(s);
+      ngam_total += s.ngam_total_backend;
+      nray += s.rays.Nray;
+    }
+    s.ngam_total_backend = ngam_total;
+    s.rays.Nray = nray;
+    average_down();
+  }
+  void sync_fields(Simulation& s) override { base().sync_fields(s); }
+  void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
+  void scatter_fields(Simulation& s) override { base().scatter_fields(s); }
+  // the live rays per base box: the base level's, plus every refined
+  // level's per fine box mapped to the base box holding its lower corner
+  void box_ray_counts(ax::Vector<ax::Real>& count) const override {
+    base_c().box_ray_counts(count);
+    for (int l = 1; l <= finest; ++l) {
+      const L& F = *levels[static_cast<std::size_t>(l)];
+      std::vector<Long> n(static_cast<std::size_t>(F.ba.size()), 0);
+      for (ax::MFIter mfi(F.C); mfi.isValid(); ++mfi)
+        n[static_cast<std::size_t>(mfi.index())] =
+            F.pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).numParticles();
+      ax::ParallelDescriptor::ReduceLongSum(n.data(), static_cast<int>(n.size()));
+      const ax::BoxArray& ba0 = base_c().ba;
+      for (int b = 0; b < static_cast<int>(F.ba.size()); ++b) {
+        if (n[static_cast<std::size_t>(b)] == 0) continue;
+        ax::IntVect lo = F.ba[b].smallEnd();
+        for (int d = 0; d < 3; ++d) lo[d] >>= l;
+        const auto isects = ba0.intersections(ax::Box(lo, lo));
+        if (!isects.empty()) count[isects[0].first] += static_cast<ax::Real>(n[static_cast<std::size_t>(b)]);
+      }
+    }
+  }
+  void remap(const ax::DistributionMapping& dm2) override { base().remap(dm2); }
+  std::int64_t nrays() const override {
+    std::int64_t n = 0;
+    for (auto& l : levels) n += l->nrays();
+    return n;
+  }
+  int bytes_per_ray() const override { return base_c().bytes_per_ray(); }
+  // the checkpoint: every level's rays in the base level's units (a restart
+  // scatters them onto the base level; the first prep moves them down)
+  void gather_rays(std::vector<RayP>& out) const override {
+    out.clear();
+    gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
+  }
+  void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
+    for (int l = 0; l <= finest; ++l) {
+      const double f = std::ldexp(1.0, -l);
+      levels[static_cast<std::size_t>(l)]->gather_rays_chunks([&](const std::vector<RayP>& chunk) {
+        if (l == 0) {
+          sink(chunk);
+          return;
+        }
+        std::vector<RayP> c2(chunk.size());
+        for (std::size_t n = 0; n < chunk.size(); ++n) c2[n] = L::rescaled(chunk[n], f);
+        sink(c2);
+      });
+    }
+  }
+  void scatter_rays(const std::vector<RayP>& in, bool first) override {
+    if (first)
+      for (int l = 1; l <= finest; ++l)
+        for (ax::MFIter mfi(levels[static_cast<std::size_t>(l)]->C); mfi.isValid(); ++mfi)
+          levels[static_cast<std::size_t>(l)]->pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex()).resize(0);
+    base().scatter_rays(in, first);
+  }
+  std::string timers() const override {
+    std::string s;
+    for (int l = 0; l <= finest; ++l) {
+      if (l) s += "\n level " + std::to_string(l) + ": ";
+      s += levels[static_cast<std::size_t>(l)]->timers();
+    }
+    return s;
+  }
+  const L& base_c() const { return *levels[0]; }
+};
+
 }  // namespace
 
 struct AmrexRT {
@@ -1494,10 +1930,13 @@ LevelBase& level_of(Simulation& s) {
     check_rt_backend_param(s.cfg);
     s.amrex = std::make_shared<AmrexRT>();
     const bool with_e = s.gas.has_e();
+    const bool hier = s.cfg.amrex_max_level > 0 && use_amrex_hydro(s.cfg);  // the hierarchy (F3b)
     if (s.cfg.ray_encoding == RayEncoding::RStruct)
-      s.amrex->level = std::make_unique<Level<amrex_enc::RStructEnc>>(s.cfg, with_e);
+      s.amrex->level = hier ? std::unique_ptr<LevelBase>(std::make_unique<Hierarchy<amrex_enc::RStructEnc>>(s.cfg, with_e))
+                            : std::unique_ptr<LevelBase>(std::make_unique<Level<amrex_enc::RStructEnc>>(s.cfg, with_e));
     else
-      s.amrex->level = std::make_unique<Level<amrex_enc::FloatEnc>>(s.cfg, with_e);
+      s.amrex->level = hier ? std::unique_ptr<LevelBase>(std::make_unique<Hierarchy<amrex_enc::FloatEnc>>(s.cfg, with_e))
+                            : std::unique_ptr<LevelBase>(std::make_unique<Level<amrex_enc::FloatEnc>>(s.cfg, with_e));
   }
   return *s.amrex->level;
 }
