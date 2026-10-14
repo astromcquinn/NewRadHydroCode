@@ -370,8 +370,9 @@ production leg killed by its time limit (job 41851905): 21 of the 24
 ranks wrote their stack (the substep's kernels, as expected), three
 files stayed empty (the signal caught those ranks where the unwinder
 could not run before Slurm's kill, 10 s later). Give short runs a short
-`--time`. Four repeats of the case are queued (jobs
-41850991–41850994).
+`--time`. Four more repeats of the case (jobs 41850991–41850994, two
+of them on the node set of the 5-node runs) finished in 3 minutes each,
+bitwise identical: nine runs of the case, one hang, nothing to read yet.
 
 What this does not do yet: balance inside a step (rays migrate during the
 substeps, so the cost of a box changes while the step runs), weigh the
