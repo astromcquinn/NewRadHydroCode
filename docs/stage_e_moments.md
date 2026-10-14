@@ -440,3 +440,54 @@ moment RT (label `amrex_moments`). As built, beyond the plan:
   2^lmin for the cone (checked).
 - Checkpoints: the version-7 format unchanged; a serial moment checkpoint
   restarts on the level byte-identically.
+
+
+## 10. Results on klone (2026-10-14)
+
+### Validation
+
+The serial production runs restarted from a checkpoint on the level
+(`tools/hyak/moments_validate.slurm`). MODE = host: the RT and the hydro on
+the level, the serial PM (the AMReX PM agrees with the serial PM to
+round-off only); every output file of the new steps compared byte for byte.
+
+| Run | Ranks × threads, nodes | Result |
+|---|---|---|
+| 256³ M1, thin, split, screen + split (`otvcl256_*`, step 40 → 41) | 8 × 8, 1 | bitwise the production run (19 files each) |
+| 256³ cone | 8 × 8, 1; 16 × 8, 2 | bitwise the current serial code (7 files, 12 movie frames); the production run predates the final cone code |
+| 512³ cone (`reion512_rays_otvet_cone`, step 52 → 54) | 16 × 12, 1 | bitwise the production run (8 files, 12 frames) |
+| 512³ cone | 32 × 12, 2 | bitwise (8 files, 12 frames) |
+
+The current serial code reproduces the 512³ production steps 53-54 byte
+for byte, so that run is the reference.
+
+### 512³ cone, two hydro steps (53, 54; 67 RT substeps)
+
+The production configuration (MODE = state: the three backends, the state
+on the slabs, `amrex_moment_stats = fixed`), exclusive `ckpt-g2` nodes, 16
+ranks × 12 threads per node; the serial run on one node, 192 threads.
+
+| Part [s] | serial, 1 node | level, 1 node |
+|---|---|---|
+| RT total | 495 | 293 |
+| transport | 178 | 112 (halo exchange 11) |
+| photochemistry | 224 | 71 |
+| tensor | 61 | 38 (near-field FFTs 9, march 24, blend 3) |
+| sums (fixed point, photons in flight) | - | 20 |
+| sync (movie frames, stats gathers) | 4 | 53 (before the frame-only gather, 44e431d) |
+| run total | 594 | 415 |
+| peak RSS | 150 GB | rank 0 93 GB (the mirror), others 13 GB |
+
+The 2-node host-mode run halves the transport (61 s) and the
+photochemistry (35 s).
+
+### The 1024³ run
+
+`runs/reion1024_otvet_cone`: the 512³ cone run's parameters at N = 1024
+(`movie_slab` 16, `restart_every` 2, `nray_max_factor` 1: the moment RT has
+no rays and 15 N³ overflows the int32 ray links), the AMReX backends with
+the state on z-slabs and fixed-point statistics. ICs: `make_ics.py
+--phases-from-ndm 512 --seed 7` (the 512³ ICs' large scales: the gas
+density correlates at 0.9997 on 4³-cell and 0.999996 on 16³-cell blocks).
+4 nodes × 16 ranks × 12 threads on `ckpt-g2` (`reion_production.slurm`,
+requeued on preemption, restarting from the newest checkpoint).
