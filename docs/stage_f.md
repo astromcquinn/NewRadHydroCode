@@ -195,10 +195,54 @@ be set with the first refined production run. Code: `hydro_level.cpp`
 
 ## 3. The RT across levels (F3)
 
-Rays live on the level of their cell and cross 2^l fine cells per coarse
-substep in level-l patches; deposits per level; the exposure deposit and
-`photon_conserve`; the angular resolution per level; no time
-sub-cycling of the transport (user decision). Design when F2 is done.
+The user's decision: one coarse substep everywhere, no time sub-cycling
+of the transport (the I-fronts in refined, dense gas move much slower
+than light; quasars are not modelled). Design (2026-10-14), in two steps.
+
+**F3a: the gas state on every level.** `GasState` grows one float
+MultiFab per refined level (`levels[l].G`, the hydro hierarchy's BoxArray
+and mapping of that level), so the gas lives in one place: the hydro
+copies every level in and out (as level 0 today), a regrid rebuilds the
+state's fine levels with the hydro's, the checkpoint writes them (the
+`.amr` directory moves from the hydro to the state), and the push-down of
+the level-0 changes the RT and PM make (§1) moves to the state, where it
+belongs. Nothing changes for `amrex_max_level = 0` (bitwise), and the
+level-0-only RT keeps working on refined runs as today.
+
+**F3b: rays on the levels.** Each level has its own RT cells (`RTCell`
+FabArray), deposit and optical-depth FabArrays with their ghost layers,
+and ray container. A ray lives on the finest level covering its position;
+positions stay in level-0 cell units, so a migration between levels is a
+re-indexing (the cell of the new level) and a `Redistribute` of that
+level's container. Per coarse substep a level-l ray crosses 2^l of its
+cells (`RTP::cells = 2^l`, the k-cell path of `docs/rt_multicell.md`, the
+rate's crossing speed `k len_rt/dtsec_rt`, the exposure deposit and
+`photon_conserve`, which the decision requires), then the level's
+deposits are summed in its ghosts and the cell physics runs on its cells
+with the level's `len_rt`. Coarse cells under fine grids see no rays and
+no physics: after the substep's physics the gas and the RT diagnostic
+fields of a refined level are averaged down onto the parent (as the hydro
+does), so the level-0 fields are always the composite. Splitting and
+merging stay per cell of the ray's level, so the angular resolution
+follows the local cell size (the split radius is measured in local
+cells); a ray entering a finer level splits at its next substep if the
+local criterion says so, and one entering a coarser level merges there.
+Sources emit on the finest level covering the source cell with the
+emission nside of that level (`rrk::emit_nside` for k = 2^l). The
+ray-weighted load balancing counts the rays of every level per level-0
+box (the fine levels' mapping is their own; the balancing moves level 0
+and the state's fine levels follow the hydro's regrid). The serial code
+and the moment solvers stay single-level (refused with
+`amrex_max_level > 0`).
+
+**Validation.** Refinement off: bitwise Stage E (every existing test).
+With refinement: `uniform_1src` and `uniform_8src` with a refined region
+(the I-front crossing a level boundary) against the uniform run at the
+matched finest resolution (the composite of §2) and the k = 2, 4 results
+of `docs/rt_multicell.md` §4; the Iliev tests of the suite with
+refinement; the full-loop smoke problem for rank/thread independence and
+restarts; a 128³ production-configuration run with two levels against the
+uniform 128³ and 256³ runs (x_HII(z), τ_es, T_M, the front positions).
 
 ## 4. Files and tests
 
