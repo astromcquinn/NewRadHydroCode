@@ -123,7 +123,11 @@ struct MomentLevel : CellLevel {
   ax::FabArray<ax::BaseFab<float>> Pf;  // the transport fluxes of one group, 1 ghost
   ax::FabArray<ax::BaseFab<float>> Wn;  // the new values of one group
   std::vector<int> zorder;              // the local boxes (local indices) in z order
-  std::vector<std::vector<CellPhys>> phys;  // per local box: the cell statistics
+  // per local box and rt_stat component (kSNgam + sp: kNfreq per cell, in
+  // the serial inu order; the others one per cell): the addends of
+  // radiative_physics in cell order, 0 where the serial code adds nothing
+  // (a sum starting at +0.0 never becomes -0.0, so adding +0.0 is exact)
+  std::vector<std::vector<std::vector<double>>> adds;
   // the local source cells: local box, cell (i, j, k), Luv, sfr (ascending
   // cell index)
   struct Src {
@@ -175,7 +179,7 @@ struct MomentLevel : CellLevel {
     std::sort(zorder.begin(), zorder.end(), [&](int a, int b) {
       return ba[C.IndexArray()[a]].smallEnd(2) < ba[C.IndexArray()[b]].smallEnd(2);
     });
-    phys.resize(nloc);
+    adds.assign(nloc, std::vector<std::vector<double>>(kSNstat));
     if (cfg.recomb_rad) {
       recomb = true;
       RB.define(ba, dm, 2 * kNfreq, 0);
@@ -1104,7 +1108,11 @@ struct MomentLevel : CellLevel {
     const bool he = has_e;
     const Units u = s.units;
     const double dtsec_rt = s.clk.dtsec_rt;
+    const double Ncell = s.cfg.ncellr;
+    const double nrtcr = s.cfg.nrtcr;
+    const double navg[3] = {u.nH_avg, u.nHe_avg, u.nHe_avg};
     int err = 0;
+    Long nsf = 0, ngf = 0;  // nsfill, ngfill
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       const ax::Box bx = mfi.validbox();
       const int ncb = static_cast<int>(bx.numPts());
@@ -1112,33 +1120,49 @@ struct MomentLevel : CellLevel {
       auto c = C.array(mfi);
       ax::Array4<float> rb = recomb ? RB.array(mfi) : ax::Array4<float>{};
       const std::int64_t rstride = recomb ? comp_stride(rb) : 0;
-      std::vector<CellPhys>& ph = phys[mfi.LocalIndex()];
-      ph.resize(ncb);
-      CellPhys* pp = ph.data();
-#pragma omp parallel for schedule(dynamic, 64)
+      std::vector<std::vector<double>>& ad = adds[mfi.LocalIndex()];
+      double* A[kSNstat];
+      for (int a2 = 0; a2 < kSNstat; ++a2) {
+        ad[a2].resize(static_cast<std::size_t>(a2 < kSNion ? kNfreq : 1) * ncb);
+        A[a2] = ad[a2].data();
+      }
+#pragma omp parallel for schedule(dynamic, 64) reduction(max : err) reduction(+ : nsf, ngf)
       for (int q = 0; q < ncb; ++q) {
         const int i = lo.x + q % len.x, j = lo.y + (q / len.x) % len.y, k = lo.z + q / (len.x * len.y);
         RTCell& d = c(i, j, k);
-        CellPhys& cp_ = pp[q];
-        cp_ = CellPhys{};
-        bool processed = false;
+        rrk::PhotoStats st;
+        double ngsrc[3][5] = {};
+        bool processed = false, source = false;
         double ngam_tot = 0;
-        cp_.err = rrk::physics_cell(d, X, &cp_.st, he, &processed, &ngam_tot);
-        if (processed && Rc && !cp_.err) {
-          float ots = 0;
-          recomb_count_cell(*Rc, u, false, cp_.st.nrab, lines ? cp_.st.nrB : nullptr, cp_.st.T_in, u.vol_gas,
-                            &rb(i, j, k, 0), &rb(i, j, k, kNfreq), rstride, &ots);
-        }
-        if (processed) {
-          cp_.flags |= 1;
-          if (ngam_tot > u.ngam_min) cp_.flags |= 2;
+        const int e = rrk::physics_cell(d, X, &st, he, &processed, &ngam_tot);
+        err = std::max(err, e);
+        if (processed && !e) {
+          if (Rc) {
+            float ots = 0;
+            recomb_count_cell(*Rc, u, false, st.nrab, lines ? st.nrB : nullptr, st.T_in, u.vol_gas, &rb(i, j, k, 0),
+                              &rb(i, j, k, kNfreq), rstride, &ots);
+          }
+          if (ngam_tot > u.ngam_min) ++ngf;
           if (static_cast<double>(d.sfr) > u.sfr_min) {
-            cp_.flags |= 4;
-            rrk::source_stats(d.Luv, dtsec_rt, u, cp_.ngam_src);
+            ++nsf;
+            source = true;
+            rrk::source_stats(d.Luv, dtsec_rt, u, ngsrc);
           }
         }
+        const bool on = processed && !e;
+        for (int sp = 0; sp < 3; ++sp) {
+          for (int inu = 0; inu < kNfreq; ++inu)
+            A[kSNgam + sp][static_cast<std::size_t>(q) * kNfreq + inu] =
+                (source && ngsrc[sp][inu] != 0) ? ngsrc[sp][inu] / nrtcr : 0.0;
+          A[kSNion + sp][q] = on ? st.nion[sp] / navg[sp] / Ncell : 0.0;
+          A[kSNcol + sp][q] = on ? st.ncol[sp] / navg[sp] / Ncell : 0.0;
+          A[kSNrec + sp][q] = on ? st.nrec[sp] / navg[sp] / Ncell : 0.0;
+          A[kSNrab + sp][q] = on ? st.nrab[sp] / navg[sp] / Ncell : 0.0;
+          A[kSGamma + sp][q] = on ? st.gam[sp] / Ncell : 0.0;
+          A[kSLambda + sp][q] = on ? st.lam[sp] / Ncell : 0.0;
+        }
+        A[kSDtau][q] = on ? st.dtau / Ncell : 0.0;
       }
-      for (int q = 0; q < ncb; ++q) err = std::max(err, pp[q].err);
     }
     ax::ParallelDescriptor::ReduceIntMax(err);
     if (err) throw std::runtime_error("radiative_physics: temperature index out of table");
@@ -1147,64 +1171,33 @@ struct MomentLevel : CellLevel {
     s.timers.physics += t1 - t0;
 
     // the sums
-    Long cnt[2] = {0, 0};  // nsfill, ngfill
-    for (const auto& ph : phys)
-      for (const CellPhys& cp_ : ph) {
-        if (!(cp_.flags & 1)) continue;
-        if (cp_.flags & 2) cnt[1] += 1;
-        if (cp_.flags & 4) cnt[0] += 1;
-      }
+    Long cnt[2] = {nsf, ngf};
     ax::ParallelDescriptor::ReduceLongSum(cnt, 2);
-    const double Ncell = s.cfg.ncellr;
-    const double nrtcr = s.cfg.nrtcr;
-    const double navg[3] = {u.nH_avg, u.nHe_avg, u.nHe_avg};
     double v[kSNstat] = {};
     if (stats_mode == 0) {
-      // exact: the addends of radiative_physics_plane, cell by cell in cell
-      // order (each component its own sequential sum, as RPSink)
+      // exact: each component's addends in cell order, a sequential sum as
+      // RPSink's (the components in parallel)
       chain(v, kSNstat, [&](double* a) {
-        for (int li : zorder)
-          for (const CellPhys& cp_ : phys[li]) {
-            if (!(cp_.flags & 1)) continue;
-            if (cp_.flags & 4)
-              for (int inu = 0; inu < kNfreq; ++inu)
-                for (int sp = 0; sp < 3; ++sp)
-                  if (cp_.ngam_src[sp][inu] != 0) a[kSNgam + sp] = a[kSNgam + sp] + cp_.ngam_src[sp][inu] / nrtcr;
-            const rrk::PhotoStats& st = cp_.st;
-            for (int sp = 0; sp < 3; ++sp) {
-              a[kSNion + sp] = a[kSNion + sp] + st.nion[sp] / navg[sp] / Ncell;
-              a[kSNcol + sp] = a[kSNcol + sp] + st.ncol[sp] / navg[sp] / Ncell;
-              a[kSNrec + sp] = a[kSNrec + sp] + st.nrec[sp] / navg[sp] / Ncell;
-              a[kSNrab + sp] = a[kSNrab + sp] + st.nrab[sp] / navg[sp] / Ncell;
-              a[kSGamma + sp] = a[kSGamma + sp] + st.gam[sp] / Ncell;
-              a[kSLambda + sp] = a[kSLambda + sp] + st.lam[sp] / Ncell;
-            }
-            a[kSDtau] = a[kSDtau] + st.dtau / Ncell;
-          }
+#pragma omp parallel for schedule(dynamic, 1)
+        for (int c2 = 0; c2 < kSNstat; ++c2) {
+          double x = a[c2];
+          for (int li : zorder)
+            for (double y : adds[li][c2]) x = x + y;
+          a[c2] = x;
+        }
       });
     } else {
       // fixed: 128-bit fixed point (associative), as the ray level
       i128 fx[kSNstat] = {};
-      for (const auto& ph : phys)
-        for (const CellPhys& cp_ : ph) {
-          if (!(cp_.flags & 1)) continue;
-          if (cp_.flags & 4)
-            for (int inu = 0; inu < kNfreq; ++inu)
-              for (int sp = 0; sp < 3; ++sp)
-                if (cp_.ngam_src[sp][inu] != 0) fx[kSNgam + sp] += to_fx128(cp_.ngam_src[sp][inu] / nrtcr, kBitsRate);
-          const rrk::PhotoStats& st = cp_.st;
-          for (int sp = 0; sp < 3; ++sp) {
-            fx[kSNion + sp] += to_fx128(st.nion[sp] / navg[sp] / Ncell, kBitsRate);
-            fx[kSNcol + sp] += to_fx128(st.ncol[sp] / navg[sp] / Ncell, kBitsRate);
-            fx[kSNrec + sp] += to_fx128(st.nrec[sp] / navg[sp] / Ncell, kBitsRate);
-            fx[kSNrab + sp] += to_fx128(st.nrab[sp] / navg[sp] / Ncell, kBitsRate);
-            fx[kSGamma + sp] += to_fx128(st.gam[sp] / Ncell, kBitsGamma);
-            fx[kSLambda + sp] += to_fx128(st.lam[sp] / Ncell, kBitsLambda);
-          }
-          fx[kSDtau] += to_fx128(st.dtau / Ncell, kBitsTau);
-        }
+#pragma omp parallel for schedule(dynamic, 1)
+      for (int c2 = 0; c2 < kSNstat; ++c2) {
+        i128 x = 0;
+        for (const auto& ad : adds)
+          for (double y : ad[c2]) x += to_fx128(y, stat_bits(c2));
+        fx[c2] = x;
+      }
       allreduce_i128(fx, kSNstat);
-      for (int a = 0; a < kSNstat; ++a) v[a] = from_fx128(fx[a], stat_bits(a));
+      for (int a2 = 0; a2 < kSNstat; ++a2) v[a2] = from_fx128(fx[a2], stat_bits(a2));
     }
     RTStat& t = s.rt_stat;
     t.nsfill = cnt[0];
