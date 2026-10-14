@@ -20,7 +20,12 @@
 #SBATCH --mem=64G
 #SBATCH --time=4:00:00
 set -euo pipefail
-src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# sbatch copies the script to the spool: the repository is the submit directory
+if [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -f "$SLURM_SUBMIT_DIR/tools/hyak/env.sh" ]; then
+  src="$SLURM_SUBMIT_DIR"
+else
+  src="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
 source "$src/tools/hyak/env.sh"
 BUILD="${BUILD:-$src/build-e4}"
 OUT="${OUT:-$RUNS/hydro_suite_amr}"

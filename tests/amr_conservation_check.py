@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Conservation of a refined hydro_driver run against its uniform twin.
 
-usage: amr_conservation_check.py REF_DIR NEW_DIR [--rtol 1e-7] [--levels n]
+usage: amr_conservation_check.py REF_DIR NEW_DIR [--rtol 1e-7] [--energy-rtol r]
+                                 [--levels n]
 
 REF_DIR and NEW_DIR are hydro_driver output directories (step_NNNN/stats.txt
 with the conserved totals of the level-0 state). With refinement
@@ -13,7 +14,10 @@ totals are sums of the float fields the driver writes, whose per-cell
 rounding differs between the runs (the refined run's level-0 cells are
 averages of fine cells), so they agree to ~1e-8 relative, not 1e-16: the
 default --rtol is 1e-7. (The hierarchy's own double-precision level-0 mass
-is in the AMReX hydro timers line, "mass0".)
+is in the AMReX hydro timers line, "mass0".) The energy is not conserved
+where the dual-energy formulation resets E := KE + e or the temperature
+floor acts (by design, in both runs, but in different cells); for a
+problem that hits them, random3d, --energy-rtol loosens the energy check.
 --levels n additionally requires the driver's stdout (NEW_DIR.stdout, as
 run_amrex.cmake writes it) to report that many levels in use.
 """
@@ -41,6 +45,7 @@ def main():
     ap.add_argument("ref")
     ap.add_argument("new")
     ap.add_argument("--rtol", type=float, default=1e-7)
+    ap.add_argument("--energy-rtol", type=float, default=None)
     ap.add_argument("--levels", type=int, default=0)
     a = ap.parse_args()
     steps = sorted(os.path.basename(d) for d in glob.glob(os.path.join(a.new, "step_*")))
@@ -56,9 +61,10 @@ def main():
             scale = max(abs(x) for x in r[k]) or 1.0
             if k == "momentum":
                 scale = max(scale, abs(r["mass"][0]) * 1e-3)  # momenta sum to ~0: relative to a velocity scale
+            tol = a.energy_rtol if (k == "energy" and a.energy_rtol is not None) else a.rtol
             for x, y in zip(r[k], n[k]):
-                if abs(x - y) > a.rtol * scale:
-                    print(f"{s}: {k} {x!r} vs {y!r} (diff {abs(x - y):.3e}, allowed {a.rtol * scale:.3e})")
+                if abs(x - y) > tol * scale:
+                    print(f"{s}: {k} {x!r} vs {y!r} (diff {abs(x - y):.3e}, allowed {tol * scale:.3e})")
                     bad += 1
     if a.levels > 0:
         out = a.new.rstrip("/") + ".stdout"

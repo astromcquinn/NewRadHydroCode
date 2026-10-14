@@ -1135,10 +1135,18 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
     # grids are chopped per rank), and the conserved totals of every step
     # must equal the uniform run's to round-off (periodic box, refluxing
     # and average-down). Label amr inside amrex_hydro.
-    foreach(cfg "sod_x;1;0.5" "sound_x;1;0.99" "random3d;2;8")
+    # random3d (density contrasts of 1e6) hits the dual-energy resets and the
+    # temperature floor millions of times, which are not conservative in
+    # energy by design: its energy is checked to 5e-3 only
+    foreach(cfg "sod_x;1;0.5;" "sound_x;1;0.99;" "random3d;2;8;--energy-rtol;5e-3")
       list(GET cfg 0 p)
       list(GET cfg 1 L)
       list(GET cfg 2 M)
+      list(SUBLIST cfg 3 -1 etol)  # the rest: extra check arguments, if any
+      set(xtol "")
+      if(etol)
+        set(xtol ";${etol}")
+      endif()
       set(amrset "hydro_scheme=unsplit,hydro_backend=amrex,amrex_max_level=${L},amrex_refine_mass=${M}")
       math(EXPR Lp1 "${L} + 1")
       add_test(NAME amrex_hydro_amr_ref_${p}_L${L}
@@ -1151,7 +1159,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                  "-DSET=${amrset},amrex_hydro_max_grid_size=16"
                  -DEXTRA=--quiet
                  -DPYTHON=${Python3_EXECUTABLE} -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/amr_conservation_check.py
-                 -DSTRICT=cons "-DEXTRA_TOL=--levels;${Lp1}"
+                 -DSTRICT=cons "-DEXTRA_TOL=--levels;${Lp1}${xtol}"
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_amrex.cmake)
       set_tests_properties(amrex_hydro_amr_ref_${p}_L${L} PROPERTIES FIXTURES_REQUIRED amrex_hydro_ref_${p}
                            FIXTURES_SETUP amrex_hydro_amr_ref_${p}_L${L} LABELS "amrex;amrex_hydro;amr"
