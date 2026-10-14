@@ -39,6 +39,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -493,7 +494,7 @@ struct Level : LevelBase {
     if (e)
       throw std::runtime_error(std::string("rt_backend = amrex: a ray reached outside the ghost region "
                                            "or a count mismatch in ") +
-                               where + " (raise amrex_ghosts?)");
+                               where + " on level " + std::to_string(lev) + " (raise amrex_ghosts?)");
   }
 
   // Full store of a ray: payload, valid id, and the AMReX position = centre
@@ -1008,6 +1009,8 @@ struct Level : LevelBase {
         std::fill(S.depbuf.begin(), S.depbuf.end(), Long(0));
       }
       Long* const dbuf = S.depbuf.data();
+      const bool dbg = std::getenv("RADRAY_RT_DEBUG") != nullptr;
+      const int lev_ = lev;
       ax::ParallelForOMP(S.nout, [=] AMREX_GPU_DEVICE(Long r) {
         const int q = ocell[r];
         const int hi = lo.x + q % len.x, hj = lo.y + (q / len.x) % len.y, hk = lo.z + q / (len.x * len.y);
@@ -1017,6 +1020,14 @@ struct Level : LevelBase {
           jj = near_image(j, hj, NN);
           kk = near_image(k, hk, NN);
           if (ii < glo.x || ii > ghi.x || jj < glo.y || jj > ghi.y || kk < glo.z || kk > ghi.z) {
+            if (!bad && dbg) {
+              const RayP& ry = out[r];
+              std::fprintf(stderr,
+                           "RT debug: level %d cast_1: ray at (%g,%g,%g) dx (%g,%g,%g) r %g dr %g nside %d home (%d,%d,%d) "
+                           "reached cell (%d,%d,%d) -> (%d,%d,%d) outside the grown box [%d,%d,%d]-[%d,%d,%d] (cells %d)\n",
+                           lev_, ry.x[0], ry.x[1], ry.x[2], ry.dx[0], ry.dx[1], ry.dx[2], ry.r, ry.dr, ry.nside, hi, hj,
+                           hk, i, j, k, ii, jj, kk, glo.x, glo.y, glo.z, ghi.x, ghi.y, ghi.z, P.cells);
+            }
             bad = true;
             ii = hi;
             jj = hj;
