@@ -178,9 +178,25 @@ sbatch --export=ALL,PROB=/gscratch/astro/$USER/radhydro/runs/reion128 tools/hyak
 sbatch --exclusive -c 192 --mem=256G --export=ALL,PROB=...,THREADS=192 tools/hyak/reion_production.slurm
 ```
 
+The AMReX backends over several nodes (`make_production.py --backend
+amrex` writes `rt_backend = amrex` and the rest of the backend configuration
+into `params.txt`; `docs/stage_e_state.md`; a build from
+`tools/hyak/build_amrex.sh`):
+
+```
+python3 tools/production/make_production.py $R/reion512 --N 512 --box 40 --backend amrex ...
+sbatch --exclusive --nodes=4 --ntasks=96 --cpus-per-task=8 --mem=1400G --time=2-00:00:00 \
+       --export=ALL,PROB=$R/reion512,EXE=build-amrex/radhydro,POST=sbatch tools/hyak/reion_production.slurm
+```
+
 `reion_production.slurm`:
 * sources `env.sh`, sets `OMP_PLACES=cores OMP_PROC_BIND=close` and
-  `ulimit -s unlimited`;
+  `ulimit -s unlimited`; when `params.txt` has `rt_backend = amrex` it loads
+  the MPI module, sets the UCX eager threshold (`radray_ucx_eager`) and
+  launches `RANKS` (the job's `--ntasks`) ranks of `THREADS` (the job's
+  `--cpus-per-task`) threads with `srun --cpu-bind=cores
+  --kill-on-bad-exit=1`, in the run directory (a hung run's SIGTERM
+  backtraces land there);
 * runs under `/usr/bin/time -v` (wall time and peak RSS in `$PROB/run.log`);
 * **restarts automatically**: if `$PROB/run/restart/checkpoint.bin` (or, with
   `restart_keep_latest = 0`, the newest `checkpoint_NNNN.bin`) exists it

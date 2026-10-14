@@ -16,5 +16,6 @@ void amrex_state_gather_gas(Simulation&) { no_amrex(); }
 void amrex_state_clamp_gas(Simulation&) { no_amrex(); }
 void amrex_state_add_metals(Simulation&, const std::vector<std::int64_t>&, const std::vector<double>&) { no_amrex(); }
 void amrex_state_release() {}
+bool amrex_balance_step(Simulation&, pm::PMState&, double&, double&) { no_amrex(); }
 
 }  // namespace radray

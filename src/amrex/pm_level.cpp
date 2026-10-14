@@ -373,6 +373,26 @@ struct PMLevel {
   // The particles of s.xv whose home cell (link_dm's cell) lies in a local
   // box, and the gas of the local gas boxes (e_gas: the dual-energy field in
   // place of v_gas when the kick is the unsplit one)
+  // ---- amrex_balance = 1: the particles onto a new mapping ------------------
+
+  // The persistent particles move by a Redistribute under the new mapping;
+  // the mesh and gas FabArrays are work arrays, rebuilt
+  void remap(const ax::DistributionMapping& dm2) {
+    const double t0 = now();
+    dm = dm2;
+    pot.define(ba, dm, 1, 3);
+    frc.define(ba, dm, 3, 1);
+    acc.define(ba, dm, 1, 1);
+    gas.define(bag, dm, 8, 0);
+    pc->SetParticleDistributionMap(0, dm);
+    pc->Redistribute();
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi)
+      pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    pfft.reset();
+    afft.reset();
+    T.prep += now() - t0;
+  }
+
   // ---- amrex_state = 1: the particles on the level between steps -----------
 
   // link_dm's home cell of a position (mesh units): int(x * x_dm_m) mod Nm
@@ -1102,6 +1122,7 @@ void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor) {
 }
 
 void amrex_pm_load_particles(pm::PMState& s) { level_of(s).load_particles(s); }
+void pm_remap(pm::PMState& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_pm_gather_particles(pm::PMState& s) { level_of(s).gather_particles(s); }
 void amrex_pm_drift(pm::PMState& s, double dt_sim) { level_of(s).drift(dt_sim, s.pc.ndmr); }
 

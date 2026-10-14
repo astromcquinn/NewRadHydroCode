@@ -24,8 +24,13 @@
 namespace radray {
 
 struct Simulation;
+namespace pm {
+struct PMState;
+}
 
-// Parameter: amrex_state (0 | 1); false for any other key.
+// Parameters: amrex_state (0 | 1), amrex_balance (0 | 1),
+// amrex_balance_ray_weight, amrex_balance_min_gain, amrex_balance_method
+// (sfc | knapsack); false for any other key.
 bool set_amrex_state_param(Config& c, const std::string& key, const std::string& val);
 void copy_amrex_state_param(const Config& from, Config& to);
 std::string amrex_state_summary(const Config& c);
@@ -60,6 +65,15 @@ void amrex_state_add_metals(Simulation& s, const std::vector<std::int64_t>& cell
 // rank 0's s.rt fields onto the level's cells.
 void amrex_state_gather_rt(Simulation& s, bool stats_only);
 void amrex_state_scatter_rt(Simulation& s);
+
+// amrex_balance = 1: rebalances the shared decomposition on the current
+// per-box cost (cells + amrex_balance_ray_weight * live rays) before an RT
+// step, moving the gas, the RT cells and rays and the particles when the
+// efficiency (mean over max rank cost) would gain more than
+// amrex_balance_min_gain. Collective. Returns whether it remapped; eff_old
+// and eff_new are the efficiencies before and after (the proposed one when
+// not remapped). The results are bitwise independent of the mapping.
+bool amrex_balance_step(Simulation& s, pm::PMState& pm, double& eff_old, double& eff_new);
 
 // Releases the state (backend_finalize)
 void amrex_state_release();

@@ -705,6 +705,15 @@ int main(int argc, char** argv) {
 
     Timers T;
     std::int64_t& Nhalo = dst.Nhalo;
+    // amrex_balance = 1: the balance efficiency of every RT step (mean over
+    // max rank cost) and whether the mapping was changed
+    std::int64_t balance_moves = 0;
+    auto balance_log = [&](bool moved, double e0, double e1) {
+      if (moved) ++balance_moves;
+      if (out)
+        *out << " balance: efficiency " << static_cast<float>(e0) << (moved ? " -> " : " (proposed ")
+             << static_cast<float>(e1) << (moved ? ", remapped" : ", kept)") << "\n";
+    };
     auto summaries = [&]() {
       const auto ts = Clock::now();
       if (on_level) {
@@ -1108,6 +1117,13 @@ int main(int argc, char** argv) {
         T.halos += std::chrono::duration<double>(Clock::now() - th).count();
         if (cat.Nsource > 0) {
           th = Clock::now();
+          if (on_level && cfg.amrex_balance) {
+            // amrex_balance = 1: the shared decomposition on this step's
+            // cost (docs/stage_e_state.md section 5)
+            double e0 = 0, e1 = 0;
+            const bool moved = amrex_balance_step(s, pm, e0, e1);
+            balance_log(moved, e0, e1);
+          }
           if (P.tensor_dump && data1_out) tensor_diag_begin(s);  // diagnostic
           radiative_transfer(s);
           T.rt += std::chrono::duration<double>(Clock::now() - th).count();
@@ -1237,6 +1253,8 @@ int main(int argc, char** argv) {
       if (use_amrex(cfg)) std::printf(" %s\n", amrex_rt_timers(s).c_str());
       if (use_amrex_pm(cfg)) std::printf(" %s\n", amrex_pm_timers(pm).c_str());
       if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
+      if (cfg.amrex_balance) std::printf(" balance: remapped in %lld of %lld RT steps\n",
+                                         static_cast<long long>(balance_moves), static_cast<long long>(s.clk.istep));
     }
     if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {
       const UnsplitCounters& U = hs.ucounters;

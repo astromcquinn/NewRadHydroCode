@@ -657,6 +657,37 @@ policy on klone, and deleting the merged branches.
   the ob1/TCP path (as fast, but a bus error at exit) was not pursued;
   512³ on one node with 8 fat ranks was not tried.
 
+## Stage E4 (2026-10-13): load balancing
+
+* Done after PR #34 (Stage E3) was merged; branch `stage-e-balance`.
+* **Choices made in this thread** (open to revision; `docs/stage_e_state.md` §5):
+  - The cost is cells + 10 × live rays per box (the measured ratio of a
+    ray-substep to a cell-substep at 512³); `amrex_balance_ray_weight`.
+  - The space-filling curve mapping by default (locality for the
+    exchanges), knapsack as an option; a remap only when the efficiency
+    gains 0.05 (`amrex_balance_min_gain`; negative remaps every step,
+    which the tests use).
+  - The mapping is rebuilt once per RT step before the step, on the ray
+    counts at that moment; not inside the step, and the hydro and PM
+    work is not weighed.
+  - The checkpoint's ray order became canonical (box order, cell, bytes)
+    so that a rebalanced run's checkpoints equal the fixed mapping's; the
+    on-disk format is unchanged.
+  - Production runs on the backend: `make_production.py --backend amrex`
+    puts the backend configuration into `params.txt` (so every restart
+    runs it), and `reion_production.slurm` launches MPI ranks when it
+    sees `rt_backend = amrex` there; the layout is the job's `--ntasks`
+    × `--cpus-per-task` (24 × 8 per node by the examples). Validated at
+    128³ against the serial code and through a time-limit kill and
+    resubmission (`docs/stage_e_state.md` §6).
+  - One 256³ run on 4 nodes hung inside the RT step with identical data
+    up to the hang and did not reproduce (five further runs of the case
+    on other nodes, all bitwise identical); the backend now writes every
+    rank's call stack on SIGTERM (`Backtrace.<rank>`, resolved by
+    `tools/hyak/backtrace_lines.py`) so that the next hang can be read,
+    and the job scripts run in the run directory. Not pursued further
+    without a second occurrence.
+
 ## Stage E2 on klone (2026-10-13): the PM backend's validation and scaling
 
 * **Request (user):** on branch `stage-e-pm-klone`, build `main` with
@@ -695,6 +726,7 @@ policy on klone, and deleting the merged branches.
     make the full step 3× slower than the serial code at this size
     (§4.1); a distributed halo finder (E3's open item) or a less
     frequent FoF is the remedy.
+
 
 ## Stage E3 (2026-10-13): the state on the levels
 
