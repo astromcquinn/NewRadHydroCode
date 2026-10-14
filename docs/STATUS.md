@@ -117,6 +117,14 @@ stale `RADRAY_FFTW` in the login environment.
   and did not reproduce on other nodes (§5); the backend now writes
   AMReX backtraces on SIGTERM into the run directory and four repeats
   are queued.
+- **Production runs on the backend** (`docs/stage_e_state.md` §6):
+  `make_production.py --backend amrex` writes the backend configuration
+  into `params.txt`, and `reion_production.slurm` launches MPI ranks
+  when it sees it there (24 × 8 per node, the module and UCX settings,
+  restart/`DONE`/post-processing unchanged). Validated at 128³ to z = 5
+  against the serial code (histories to 1 in the fifth digit, 20 %
+  less wall time on one node) and through a time-limit kill and
+  resubmission (bitwise the uninterrupted run).
 
 ## Done 2026-10-13: Stage E3, the state on the levels (branch `stage-e-state`, PR #34, merged)
 

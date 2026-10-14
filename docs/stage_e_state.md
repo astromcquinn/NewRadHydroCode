@@ -378,12 +378,30 @@ amrex` there and launches the ranks with `srun` (24 × 8 per node, the
 module and UCX settings of `amrex_scaling.slurm`, the run directory as
 the working directory); its restart, `DONE` and post-processing logic is
 unchanged, since rank 0 writes every file the serial code writes
-(`docs/cluster.md` §5). Validation: a 128³ production problem at 0.1c
-run to z = 5 on the serial code (192 threads) and on the backend (24 × 8
-on one node) from the same ICs; the reionization histories agree to the
-round-off noise of the ray order (the backend is not the serial
-continuation: `docs/stage_d.md` §4). The runs are recorded below when
-they finish.
+(`docs/cluster.md` §5).
+
+**Validation (klone, 2026-10-13):** a 128³ production problem at 0.1c
+(`make_production.py --N 128 --c-reduced 0.1 --f-esc 0.5`, the
+abundance-matched sources, movie frames every Δz = 0.05, a checkpoint
+every 4 steps) run to z = 5 from the same ICs by the serial code and by
+the backend:
+
+| 128³, 31 steps to z = 5, one node | wall [s] | RT [s] | hydro [s] | io [s] | peak RSS [GB] | z(x_HII = 0.5) | τ_es |
+|---|---|---|---|---|---|---|---|
+| serial, 192 threads (`prod128-serial`, job 41851096) | 605 | 534 | 35 | 22 | 5.6 | 7.831 | 0.06104 |
+| backend, 24 × 8 (`prod128-amrex`, job 41851097) | 484 | 442 | 1.4 | 7.7 | 3.2 (rank 0) | 7.831 | 0.06104 |
+
+The histories (`reion.txt`: x_HII by volume and mass, τ_es at every
+frame) agree to 1 in the fifth digit; the fields differ cell by cell
+from the first sourced step on, as the two ray orders do
+(`docs/stage_d.md` §4: the backend is not the serial continuation), with
+the global statistics (v_rms, c_max, the DM moments) to 2 × 10⁻⁵. The
+job wrote the checkpoints, `DONE`, the stills and the movie through the
+unchanged post-processing. **Restart:** the same problem under a
+4-minute time limit (job 41851312, killed in step 25 by the limit's
+SIGTERM) and resubmitted (job 41851314, resumed from the step-24
+checkpoint, 5 min): every field of the last step, its statistics and
+the final checkpoint are bitwise those of the uninterrupted run.
 
 ## 3. Phases and validation
 
