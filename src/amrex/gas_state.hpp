@@ -5,6 +5,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <AMReX_BoxArray.H>
 #include <AMReX_DistributionMapping.H>
@@ -33,6 +34,19 @@ struct GasState {
   ax::BoxArray ba;
   ax::DistributionMapping dm;
   FFab G;
+  // Stage F3a (docs/stage_f.md section 3): the refined levels of the
+  // hydro hierarchy (amrex_max_level > 0), float like G, on the
+  // hierarchy's BoxArray and mapping of each level; the hydro copies them
+  // in and out at every call and (re)defines them at a regrid, so the gas
+  // of every level lives here between steps (the RT of F3b reads them).
+  // fine[l - 1] is level l; finest is the deepest level in use.
+  struct FineLevel {
+    ax::BoxArray ba;
+    ax::DistributionMapping dm;
+    FFab G;
+  };
+  std::vector<FineLevel> fine;
+  int finest = 0;
 };
 
 // The active gas state (null unless amrex_state = 1 and amrex_state_init
