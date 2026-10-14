@@ -56,6 +56,9 @@
 #include <string>
 #include <vector>
 
+#include <fftw3.h>
+#include <omp.h>
+
 #include <AMReX_BoxList.H>
 #include <AMReX_FArrayBox.H>
 #include <AMReX_MultiFab.H>
@@ -133,6 +136,9 @@ struct MomentLevel : CellLevel {
   bool split = false;      // otvet_split = 1 (Nd defined)
   bool split_now = false;  // the transport uses N_dir this hydro step (not with the cone)
   std::unique_ptr<OtvetConvolver> conv;  // the FFT tasks of this rank
+  int fft_threads = 1;                   // of conv's plans
+  bool fft_checked = false;              // the guard has run
+  int fft_threads_cfg = 0;               // amrex_moment_fft_threads
   // recomb_rad = 1: the ground-state recombination photons of the last
   // substep per cell, ngam (5) and egam (5), emitted at the next substep
   // (RecombState::ngam / egam on the slabs; every cell in launch mode)
@@ -148,6 +154,7 @@ struct MomentLevel : CellLevel {
     if (!cfg.amrex_slab)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
     stats_mode = cfg.amrex_moment_stats;
+    fft_threads_cfg = cfg.amrex_moment_fft_threads;
     // whole planes per box, and the ranks in z order (the chains)
     for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
       const ax::Box& bx = ba[b];
@@ -232,6 +239,25 @@ struct MomentLevel : CellLevel {
     return cp::fResc * cp::pop2_init[g] * s.clk.dtsec_rt / s.units.vol_rt / s.units.nH_avg;
   }
 
+  // The convolver of this rank's FFT tasks: plans with amrex_moment_fft_threads
+  // threads (threaded FFTW), else the serial plans
+  void make_convolver() {
+    int nt = fft_threads_cfg > 0 ? fft_threads_cfg : omp_get_max_threads();
+#ifdef RADRAY_FFTW_OMP
+    if (nt > 1) {
+      static const bool init = fftwf_init_threads() != 0;
+      if (!init) throw std::runtime_error("fftwf_init_threads failed");
+      fftwf_plan_with_nthreads(nt);
+    }
+    conv = std::make_unique<OtvetConvolver>(N);
+    if (nt > 1) fftwf_plan_with_nthreads(1);
+#else
+    nt = 1;
+    conv = std::make_unique<OtvetConvolver>(N);
+#endif
+    fft_threads = nt;
+  }
+
   // The FFT convolution P[m] = (K_m * rho) / N^3 of the serial code onto the
   // slabs (comp m of P6), one component per task (task base + m of ntask on
   // rank (base + m) * nranks / ntask): rho = L / Lmax at the sources.
@@ -244,7 +270,7 @@ struct MomentLevel : CellLevel {
     bool mine = false;
     for (int m = 0; m < 6; ++m) mine = mine || owner(m) == me;
     if (mine) {
-      if (!conv) conv = std::make_unique<OtvetConvolver>(N);
+      if (!conv) make_convolver();
       float* r = conv->r();
 #pragma omp parallel for schedule(static)
       for (std::int64_t c = 0; c < nc; ++c) r[c] = 0.0f;
@@ -260,7 +286,17 @@ struct MomentLevel : CellLevel {
       FFab one(ax::BoxArray(domain), dm1, 1, 0);
       if (owner(m) == me) {
         const void* ks = conv->kernel(m, fill, ctx, tag, param, conv->out());
-        conv->convolve(ks, conv->out());
+        if (fft_threads > 1 && !fft_checked) {
+          // the guard: threaded plans bitwise the serial ones (docs/stage_e_moments.md 4.1)
+          if (!conv->convolve_checked(ks, conv->out()))
+            throw std::runtime_error("rt_backend = amrex: the threaded OTVET FFT plans differ from the serial "
+                                     "ones on this machine; set amrex_moment_fft_threads = 1");
+          fft_checked = true;
+          std::printf(" OTVET FFT task (rank %d): %d-thread plans bitwise the serial ones\n", me, fft_threads);
+          std::fflush(stdout);
+        } else {
+          conv->convolve(ks, conv->out());
+        }
         const float* o = conv->out();
         auto a = one.array(0);
 #pragma omp parallel for schedule(static)

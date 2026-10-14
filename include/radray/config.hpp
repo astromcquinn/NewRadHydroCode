@@ -263,7 +263,12 @@ struct Config {
   //                moment RT on the level: exact (default; the serial
   //                order, a chain over the ranks) | fixed (128-bit fixed
   //                point: exact and decomposition-independent, but not
-  //                the serial rounding; production runs).
+  //                the serial rounding; production runs);
+  //   amrex_moment_fft_threads: the threads of the OTVET FFT plans of a
+  //                component task (0 = the rank's OpenMP threads; 1 = the
+  //                serial plans). Threaded plans are checked bitwise against
+  //                the serial ones at their first use (the run stops on a
+  //                difference); without the threaded FFTW library: 1.
   RTBackend rt_backend = RTBackend::Serial;
   RayEncoding ray_encoding = RayEncoding::Float;
   int amrex_max_grid_size = 16;
@@ -272,6 +277,7 @@ struct Config {
   bool amrex_slab = false;
   int amrex_slab_planes = 0;
   int amrex_moment_stats = 0;  // 0 exact, 1 fixed
+  int amrex_moment_fft_threads = 0;  // threads of the OTVET FFT plans (0: OpenMP's)
 
   // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
   // in pm_backend.hpp; docs/stage_e_pm.md):

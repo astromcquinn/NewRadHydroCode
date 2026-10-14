@@ -2,6 +2,7 @@
 // precision when fftw3.h is available (CMakeLists.txt then links FFTW3f);
 // otherwise a stub, and the OTVET tensor is always summed directly.
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -242,6 +243,28 @@ void OtvetConvolver::convolve(const void* kspec, float* out) {
   fftwf_execute_dft_c2r(I.pb, I.scr, out);
 }
 
+bool OtvetConvolver::convolve_checked(const void* kspec, float* out) {
+  Impl& I = *impl_;
+  fftwf_complex* tk = fft_alloc<fftwf_complex>(I.nk);
+  float* to = fft_alloc<float>(I.nc);
+  // single-threaded plans of the same sizes and alignment (the r2c leaves
+  // r() as it was)
+  fftwf_plan pf1 = fftwf_plan_dft_r2c_3d(I.N, I.N, I.N, I.r, tk, FFTW_ESTIMATE);
+  fftwf_plan pb1 = fftwf_plan_dft_c2r_3d(I.N, I.N, I.N, tk, to, FFTW_ESTIMATE);
+  fftwf_execute_dft_r2c(pf1, I.r, tk);
+  bool same = std::memcmp(tk, I.rk, sizeof(fftwf_complex) * static_cast<std::size_t>(I.nk)) == 0;
+  spectrum_product(I.rk, static_cast<const fftwf_complex*>(kspec), I.scr, I.nk);
+  std::memcpy(tk, I.scr, sizeof(fftwf_complex) * static_cast<std::size_t>(I.nk));
+  fftwf_execute_dft_c2r(I.pb, I.scr, out);
+  fftwf_execute_dft_c2r(pb1, tk, to);
+  same = same && std::memcmp(to, out, sizeof(float) * static_cast<std::size_t>(I.nc)) == 0;
+  fftwf_destroy_plan(pf1);
+  fftwf_destroy_plan(pb1);
+  fftwf_free(tk);
+  fftwf_free(to);
+  return same;
+}
+
 }  // namespace radray
 
 #else
@@ -272,6 +295,7 @@ float* OtvetConvolver::out() { return nullptr; }
 void OtvetConvolver::forward() {}
 const void* OtvetConvolver::kernel(int, OtvetKernelFill, const void*, const char*, double, float*) { return nullptr; }
 void OtvetConvolver::convolve(const void*, float*) {}
+bool OtvetConvolver::convolve_checked(const void*, float*) { return false; }
 
 }  // namespace radray
 

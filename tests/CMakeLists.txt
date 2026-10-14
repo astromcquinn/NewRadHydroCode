@@ -302,6 +302,18 @@ if(RADRAY_HAVE_PM)
   target_link_libraries(test_fft_threads PRIVATE radray_fft)
   add_test(NAME fft_threads COMMAND test_fft_threads 64 1 2 3 4 8 16)
   set_tests_properties(fft_threads PROPERTIES LABELS "pm;threads")
+  # the moment level's threaded OTVET FFT plans: bitwise the serial ones
+  # (the guard, docs/stage_e_moments.md 4.1) at 64^3 and 128^3
+  if(FFTW3F_OMP_LIBRARY AND OpenMP_CXX_FOUND)
+    add_executable(test_otvet_fft_threads test_otvet_fft_threads.cpp)
+    target_include_directories(test_otvet_fft_threads PRIVATE ${FFTW3F_INCLUDE_DIR})
+    target_link_libraries(test_otvet_fft_threads PRIVATE radray ${FFTW3F_OMP_LIBRARY} ${FFTW3F_LIBRARY}
+                          OpenMP::OpenMP_CXX)
+    foreach(n 64 128)
+      add_test(NAME otvet_fft_threads_${n} COMMAND test_otvet_fft_threads ${n} 2 4 8)
+      set_tests_properties(otvet_fft_threads_${n} PROPERTIES LABELS "moments;threads")
+    endforeach()
+  endif()
 
   if(Python3_Interpreter_FOUND)
     set(PM_PROBLEMS zeldovich_3d growth_3d pancake_x pancake_z_nomf

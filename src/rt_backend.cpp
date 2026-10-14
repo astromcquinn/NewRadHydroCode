@@ -53,6 +53,11 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
       throw std::runtime_error("amrex_moment_stats must be exact or fixed");
     return true;
   }
+  if (key == "amrex_moment_fft_threads") {
+    c.amrex_moment_fft_threads = std::stoi(val);
+    if (c.amrex_moment_fft_threads < 0) throw std::runtime_error("amrex_moment_fft_threads must be >= 0");
+    return true;
+  }
   if (key == "amrex_slab_planes") {
     c.amrex_slab_planes = std::stoi(val);
     if (c.amrex_slab_planes < 0 || c.amrex_slab_planes % 2 != 0)
@@ -76,6 +81,7 @@ void copy_rt_backend_param(const Config& from, Config& to) {
   to.amrex_slab = from.amrex_slab;
   to.amrex_slab_planes = from.amrex_slab_planes;
   to.amrex_moment_stats = from.amrex_moment_stats;
+  to.amrex_moment_fft_threads = from.amrex_moment_fft_threads;
 }
 
 std::string rt_backend_summary(const Config& c) {

@@ -157,6 +157,12 @@ class OtvetConvolver {
   // The product with a kernel spectrum and the inverse transform into out
   // (N^3 floats, unnormalised: P = out / N^3 in double)
   void convolve(const void* kspec, float* out);
+  // The guard of threaded plans (the planner's thread count when the
+  // convolver was made): convolve(kspec, out), and the forward transform of
+  // r() and this inverse repeated with single-threaded plans; true if both
+  // are bitwise equal. Once per run: it needs N^2 (N/2+1) complex and N^3
+  // float scratch on top.
+  bool convolve_checked(const void* kspec, float* out);
 
  private:
   struct Impl;
