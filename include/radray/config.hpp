@@ -160,6 +160,15 @@ struct Config {
     return key < 0 ? !legacy_physics : key == 1;
   }
 
+  // params.txt cool_suppress_overdensity (Stage F, docs/stage_f.md section
+  // 2; docs/port_notes.md 5b "Other suspected physics issues"): above this
+  // gas overdensity x = rho/rho_avg the original multiplies the cooling rate
+  // by (200/x)^2 and the SN heating by (200/x)^1.5, an overcooling guard.
+  // 200 (default) is the original; 0 turns the suppression off (dense gas
+  // cools; the star-formation sink is then the guard). Not tied to
+  // legacy_physics; no Fortran mirror (a new flag).
+  double cool_suppress_overdensity = 200.0;
+
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
   // 1 = exposure, which keeps a ray's photons for the cells further along

@@ -136,6 +136,10 @@ def main():
                     help="iterate photo_cell's photon limit to convergence (photon_conserve, "
                          "the B17 fix, docs/rt_multicell.md); -1 (default, no line written): "
                          "follow legacy_physics, i.e. on in production (legacy_physics = 0)")
+    ap.add_argument("--cool-suppress-overdensity", type=float, default=200.0,
+                    help="overdensity above which cooling and SN heating are suppressed "
+                         "(cool_suppress_overdensity, docs/stage_f.md); 200: the original (default, "
+                         "no line written); 0: off (dense gas cools)")
     ap.add_argument("--pm-refine", type=int, default=1,
                     help="PM mesh refinement (docs/pm_refine.md): writes pm_refine and "
                          "Ndm = pm_refine*N, and makes ICs with pm_refine*N particles per "
@@ -241,6 +245,8 @@ def main():
         lines.append(f"photon_conserve = {a.photon_conserve}")
     if a.ray_deposit != "share":
         lines.append(f"ray_deposit = {a.ray_deposit}")
+    if a.cool_suppress_overdensity != 200.0:
+        lines.append(f"cool_suppress_overdensity = {a.cool_suppress_overdensity:g}")
     if a.rt_cells_per_substep != 1:
         lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
     if a.am_params:

@@ -94,12 +94,15 @@ analytic solutions and the uniform runs at the matched finest resolution
 pancake, Kelvin–Helmholtz. Plus the full-loop smoke problem with
 refinement for restarts and thread/rank independence.
 
-`cool_suppress_overdensity` (default 200 = the original: the cooling rate
-× (200/x)² and the SN heating × (200/x)^1.5 above x = ρ/ρ̄; 0 = no
-suppression). The sink (`sf_overdensity`, 0 = off; `sf_efficiency` per
-free-fall time): gas above the threshold is converted to collisionless
-star particles in the PM container, with their mass; design in §2 when
-built.
+`cool_suppress_overdensity` (done with F1: `params.txt` / `--set`, both
+drivers, `make_production.py --cool-suppress-overdensity`; default 200 =
+the original: the cooling rate × (200/x)² and the SN heating × (200/x)^1.5
+above x = ρ/ρ̄; 0 = no suppression; `rrk::PhysCtx::cool_suppress` in
+`rt_cell.hpp`; tests `cool_suppress_default_identity` (200 is bitwise the
+default) and `cool_suppress_off_smoke`). The sink (`sf_overdensity`, 0 =
+off; `sf_efficiency` per free-fall time): gas above the threshold is
+converted to collisionless star particles in the PM container, with
+their mass; design in §2 when built.
 
 ## 3. The RT across levels (F3)
 

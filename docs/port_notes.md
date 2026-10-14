@@ -842,7 +842,11 @@ These are deliberate modelling or numerical choices and stay as they are
 in both modes:
 
 * Some terms are ad hoc subgrid choices, not rate errors:
-  * cooling and SN heating are suppressed above 200 × the mean density;
+  * cooling and SN heating are suppressed above 200 × the mean density
+    (since 2026-10-14 the threshold is `cool_suppress_overdensity`, default
+    200 = the original, 0 = off; Stage F, `docs/stage_f.md` §2: dense gas
+    is allowed to cool under AMR, with the star-formation sink as the
+    guard);
   * the photon consumption factor applies above `rho_source`;
   * SN heating itself.
 * Recombination radiation stays disabled (`if (.false.)`).

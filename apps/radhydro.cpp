@@ -108,6 +108,7 @@ struct RunParams {
   int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
   int photon_conserve = -1;       // Config::photon_conserve (B17 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
+  double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -201,6 +202,10 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
       P.ray_deposit = 1;
     else
       throw std::runtime_error("ray_deposit must be share or exposure");
+  }
+  else if (key == "cool_suppress_overdensity") {
+    P.cool_suppress_overdensity = std::stod(val);
+    if (!(P.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
   }
   else if (key == "photon_conserve") {
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
@@ -567,6 +572,7 @@ int main(int argc, char** argv) {
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
+    s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
@@ -689,6 +695,9 @@ int main(int argc, char** argv) {
                                             (P.photon_conserve == int(!cfg.legacy_physics) ? "" : " (set explicitly)")
                                       : std::string())
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
+           << (P.cool_suppress_overdensity != 200.0
+                   ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
+                   : std::string())
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
            << ", " << pm_backend_summary(cfg) << (on_level ? ", " + amrex_state_summary(cfg) : std::string())

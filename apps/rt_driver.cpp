@@ -97,6 +97,7 @@ int main(int argc, char** argv) {
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
+    s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     if (P.rt_substep_carry) {
       if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
       s.cfg.rt_substep_carry = true;

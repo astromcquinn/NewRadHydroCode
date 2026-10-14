@@ -248,6 +248,22 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/redshift_distance)
   set_tests_properties(redshift_distance_smoke PROPERTIES TIMEOUT 600 LABELS physics)
 
+  # cool_suppress_overdensity (Stage F, docs/stage_f.md section 2): 200 is
+  # the original (bitwise the default); 0 switches the dense-gas cooling
+  # suppression off and must run
+  add_test(NAME cool_suppress_default_identity
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/cool_suppress_pair $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                   "legacy_rt=0,legacy_physics=0" "legacy_rt=0,legacy_physics=0,cool_suppress_overdensity=200"
+                   --quiet --set fields_every=1 --set hydro_scheme=unsplit)
+  set_tests_properties(cool_suppress_default_identity PROPERTIES TIMEOUT 900 LABELS physics)
+  add_test(NAME cool_suppress_off_smoke
+           COMMAND radhydro ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                   ${CMAKE_CURRENT_BINARY_DIR}/cool_suppress_off --quiet --set legacy_rt=0
+                   --set legacy_physics=0 --set hydro_scheme=unsplit --set cool_suppress_overdensity=0)
+  set_tests_properties(cool_suppress_off_smoke PROPERTIES TIMEOUT 900 LABELS physics)
+
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
   foreach(p uniform_8src lognormal_16src_smallbuf)
