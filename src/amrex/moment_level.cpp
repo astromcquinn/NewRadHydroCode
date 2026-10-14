@@ -20,8 +20,15 @@
 //               the statistics in 128-bit fixed point instead (exact and
 //               decomposition-independent, but not the serial rounding).
 //
-// Phase 1: M1. OTVET (thin, split, screen, cone), recomb_rad = 1 and the
-// checkpoint come in the next phases and are refused until then.
+//   * tensor    OTVET (thin, split, screen): the direct sum per local cell
+//               over the global source list (every rank holds it), or the
+//               FFT convolution of the serial code one component per task
+//               (OtvetConvolver: the same plans and arithmetic) on rank
+//               m * nranks / 6, copied onto the slabs (ParallelCopy) and
+//               normalised there; h and ndir with one ghost layer.
+//
+// The cone, recomb_rad = 1 and the checkpoint come in the next phases and
+// are refused until then.
 #include <mpi.h>
 
 #include <algorithm>
@@ -40,6 +47,7 @@
 #include "radray/constants.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/kernels/moment_cell.hpp"
+#include "radray/otvet_closure.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_moments.hpp"
@@ -95,6 +103,11 @@ struct MomentLevel : CellLevel {
     float Luv, sfr;
   };
   std::vector<Src> src;
+  // OTVET: the tensor h (6) and the split's ndir (1), one ghost layer
+  ax::FabArray<ax::BaseFab<float>> H, Nd;
+  bool split = false;
+  std::unique_ptr<OtvetConvolver> conv;  // the FFT tasks of this rank
+  std::int64_t nsrc = 0;
   // the photon budget (MomentState's, rank 0's values on every rank)
   double injected = 0, absorbed = 0, lost = 0;
   double sig_init[3][5];
@@ -102,8 +115,8 @@ struct MomentLevel : CellLevel {
   MomentLevel(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
     if (!cfg.amrex_slab)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
-    if (cfg.rt_method != RTMethod::M1)
-      throw std::runtime_error("rt_backend = amrex: rt_method = otvet is not implemented yet (M1 only)");
+    if (cfg.rt_method == RTMethod::OTVET && otvet_closure_params(cfg).closure == 2)
+      throw std::runtime_error("rt_backend = amrex: otvet_closure = cone is not implemented yet");
     if (cfg.recomb_rad) throw std::runtime_error("rt_backend = amrex: recomb_rad = 1 with the moment RT is not implemented yet");
     stats_mode = cfg.amrex_moment_stats;
     // whole planes per box, and the ranks in z order (the chains)
@@ -127,6 +140,11 @@ struct MomentLevel : CellLevel {
       return ba[C.IndexArray()[a]].smallEnd(2) < ba[C.IndexArray()[b]].smallEnd(2);
     });
     phys.resize(nloc);
+    if (cfg.rt_method == RTMethod::OTVET) {
+      H.define(ba, dm, 6, 1);
+      split = otvet_closure_params(cfg).split != 0;
+      if (split) Nd.define(ba, dm, 1, 1);
+    }
     double nu[5];
     for (int n = 0; n < 5; ++n) nu[n] = cp::freq_init[n];
     rrk::photoion_sigma(nu, sig_init);
@@ -170,6 +188,239 @@ struct MomentLevel : CellLevel {
     }
     T.prep += now() - t0;
     s.timers.prep += now() - t0;
+    if (s.cfg.rt_method == RTMethod::OTVET) tensor(s);
+  }
+
+  // ---- the OTVET tensor (once per hydro step) -------------------------------
+
+  // Photons injected into group g per unit Luv per substep, in the units of N
+  static double inject_per_L(const Simulation& s, int g) {
+    return cp::fResc * cp::pop2_init[g] * s.clk.dtsec_rt / s.units.vol_rt / s.units.nH_avg;
+  }
+
+  // The FFT convolution P[m] = (K_m * rho) / N^3 of the serial code onto the
+  // slabs (comp m of P6), one component per task: rho = L / Lmax at the
+  // sources. Collective.
+  void fft_components(const std::vector<OtvetSource>& gs, double Lmax, OtvetKernelFill fill, const void* ctx,
+                      const char* tag, double param, ax::FabArray<ax::BaseFab<float>>& P6) {
+    const int np = ax::ParallelDescriptor::NProcs(), me = ax::ParallelDescriptor::MyProc();
+    const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
+    auto owner = [&](int m) { return static_cast<int>(static_cast<long long>(m) * np / 6); };
+    bool mine = false;
+    for (int m = 0; m < 6; ++m) mine = mine || owner(m) == me;
+    if (mine) {
+      if (!conv) conv = std::make_unique<OtvetConvolver>(N);
+      float* r = conv->r();
+#pragma omp parallel for schedule(static)
+      for (std::int64_t c = 0; c < nc; ++c) r[c] = 0.0f;
+      for (const OtvetSource& q : gs) {
+        double rho = 0.0;
+        rho += q.L / Lmax;  // (the serial rho[c] += L / Lmax on a zero grid)
+        r[q.i + static_cast<std::int64_t>(N) * (q.j + static_cast<std::int64_t>(N) * q.k)] = static_cast<float>(rho);
+      }
+      conv->forward();
+    }
+    for (int m = 0; m < 6; ++m) {
+      const ax::DistributionMapping dm1(ax::Vector<int>{owner(m)});
+      ax::FabArray<ax::BaseFab<float>> one(ax::BoxArray(domain), dm1, 1, 0);
+      if (owner(m) == me) {
+        const void* ks = conv->kernel(m, fill, ctx, tag, param, conv->out());
+        conv->convolve(ks, conv->out());
+        const float* o = conv->out();
+        auto a = one.array(0);
+#pragma omp parallel for schedule(static)
+        for (int k = 0; k < N; ++k)
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i) a(i, j, k) = o[i + static_cast<std::int64_t>(N) * (j + static_cast<std::int64_t>(N) * k)];
+      }
+      P6.ParallelCopy(one, 0, m, 1);
+    }
+  }
+
+  // rt_moments otvet_update_tensor / compute_otvet_tensor /
+  // otvet_closure_tensor (thin, split, screen) on the slabs
+  void tensor(Simulation& s) {
+    const double t0 = now();
+    const OtvetClosureParams p = otvet_closure_params(s.cfg);
+    const Units& u = s.units;
+    const RTGrid& G = s.rt;
+    const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
+    // the sources in cell order (source_cells: sfr > sfr_min and Luv > 0)
+    std::vector<OtvetSource> gs;
+    for (std::size_t n = 0; n < G.src_cell.size(); ++n) {
+      if (!(static_cast<double>(G.src_sfr[n]) > u.sfr_min && G.src_Luv[n] > 0)) continue;
+      const std::int64_t c = G.src_cell[n];
+      gs.push_back({static_cast<int>(c % N), static_cast<int>((c / N) % N),
+                    static_cast<int>(c / (static_cast<std::int64_t>(N) * N)), static_cast<double>(G.src_Luv[n])});
+    }
+    nsrc = static_cast<std::int64_t>(gs.size());
+    const SigmaTable sig = photoion_sigma(cp::freq_init);
+    std::array<double, kNfreq> q{}, sigma18{};
+    for (int g = 0; g < kNfreq; ++g) {
+      q[g] = inject_per_L(s, g);
+      sigma18[g] = sig[0][g] * 1e18;
+    }
+    double qw = 0;
+    for (int g = 0; g < kNfreq; ++g) qw += q[g] * sigma18[g];
+    // the budget: the Gamma-weighted photons of the solution, by plane
+    double target = 0;
+    if (p.active()) {
+      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+      for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
+        auto m = M.const_array(mfi);
+        const ax::Box bx = mfi.validbox();
+#pragma omp parallel for schedule(static)
+        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+          double t = 0;
+          for (int j = 0; j < N; ++j)
+            for (int i = 0; i < N; ++i) {
+              double w = 0;
+              for (int g = 0; g < kNfreq; ++g) w += sigma18[g] * static_cast<double>(m(i, j, k, 5 * g));
+              t += w;
+            }
+          part[static_cast<std::size_t>(k)] = t;
+        }
+      }
+      target = plane_total(part);
+    }
+    double Lsum = 0, Lmax = 0;
+    for (const OtvetSource& q2 : gs) Lsum += q2.L;
+    for (const OtvetSource& q2 : gs) Lmax = std::max(Lmax, q2.L);
+    double lam = 0, ratio = 0;
+
+    auto iso = [&]() {
+      H.setVal(0.0f);
+      H.setVal(static_cast<float>(1.0 / 3), 0, 3, H.nGrow());
+      if (split) Nd.setVal(0.0f);
+    };
+    // thin, or thin + split (compute_otvet_tensor / thin_tensor)
+    if (p.closure == 0) {
+      int method = s.cfg.otvet_tensor;
+      if (method == 0)
+        method = (!otvet_fft_available() || static_cast<double>(gs.size()) * static_cast<double>(nc) <= 2.7e8) ? 1 : 2;
+      if (method == 2 && !otvet_fft_available()) throw std::runtime_error("otvet_tensor = fft: built without FFTW3f");
+      if (gs.empty()) {
+        iso();
+      } else if (method == 1) {
+        for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
+          auto h = H.array(mfi);
+          ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
+          const bool sp = split;
+          const int NN = N;
+          const OtvetSource* sv = gs.data();
+          const std::size_t ns = gs.size();
+          ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+            double P[6] = {0, 0, 0, 0, 0, 0}, K[6];
+            for (std::size_t n = 0; n < ns; ++n) {
+              const OtvetSource& q2 = sv[n];
+              auto mimg = [NN](int d) {
+                d %= NN;
+                if (d < 0) d += NN;
+                if (2 * d > NN) d -= NN;
+                return d;
+              };
+              otvet_kernel(NN, mimg(i - q2.i), mimg(j - q2.j), mimg(k - q2.k), K);
+              for (int m = 0; m < 6; ++m) P[m] += q2.L * K[m];
+            }
+            float hc[6];
+            otvet_normalise(P, hc);
+            for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+            if (sp) nd(i, j, k) = static_cast<float>(((P[0] + P[1]) + P[2]) / (4 * M_PI));
+          });
+        }
+      } else {
+        ax::FabArray<ax::BaseFab<float>> P6(ba, dm, 6, 0);
+        fft_components(gs, Lmax, otvet_thin_fill, nullptr, "thin", 0.0, P6);
+        const double ncd = static_cast<double>(nc);
+        for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
+          auto h = H.array(mfi);
+          auto pp = P6.const_array(mfi);
+          ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
+          const bool sp = split;
+          ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+            double Pc[6];
+            for (int m = 0; m < 6; ++m) Pc[m] = static_cast<double>(pp(i, j, k, m)) / ncd;
+            float hc[6];
+            otvet_normalise(Pc, hc);
+            for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+            if (sp) nd(i, j, k) = static_cast<float>(std::max(0.0, (Pc[0] + Pc[1]) + Pc[2]) * Lmax / (4 * M_PI));
+          });
+        }
+      }
+      if (split && target > 0 && !gs.empty()) {
+        std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+        for (ax::MFIter mfi(Nd); mfi.isValid(); ++mfi) {
+          auto nd = Nd.const_array(mfi);
+          const ax::Box bx = mfi.validbox();
+          for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+            double t = 0;
+            for (int j = 0; j < N; ++j)
+              for (int i = 0; i < N; ++i) t += static_cast<double>(nd(i, j, k));
+            part[static_cast<std::size_t>(k)] = t;
+          }
+        }
+        ratio = qw * plane_total(part) / target;
+      }
+    } else {
+      // screen (otvet_closure_tensor closure 1)
+      if (!otvet_fft_available()) throw std::runtime_error("otvet_closure = screen | cone need FFTW3f");
+      if (gs.empty() || !(Lsum > 0)) {
+        iso();
+      } else {
+        lam = p.screen_lambda;
+        if (!(lam > 0)) lam = (target > 0 && qw > 0) ? target / (qw * Lsum) : 1.0;
+        lam = std::max(lam, 1.0);
+        const OtvetScreenCtx ctx{lam};
+        ax::FabArray<ax::BaseFab<float>> P6(ba, dm, 6, 0);
+        fft_components(gs, Lmax, otvet_screen_fill, &ctx, p.screen_lambda > 0 ? "screen" : nullptr, lam, P6);
+        // trmin = 1e-6 sum rho, by plane in cell order (the empty cells add 0)
+        double trmin = 0;
+        {
+          std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+          for (const OtvetSource& q2 : gs) {
+            double rho = 0.0;
+            rho += q2.L / Lmax;
+            part[static_cast<std::size_t>(q2.k)] += rho;
+          }
+          double t = 0;
+          for (double pk : part) t = t + pk;
+          trmin = kOtvetNoiseFloor * t;
+        }
+        const double ncd = static_cast<double>(nc);
+        std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+        for (ax::MFIter mfi(H); mfi.isValid(); ++mfi) {
+          auto h = H.array(mfi);
+          auto pp = P6.const_array(mfi);
+          ax::Array4<float> nd = split ? Nd.array(mfi) : ax::Array4<float>{};
+          const bool sp = split;
+          const ax::Box bx = mfi.validbox();
+#pragma omp parallel for schedule(static)
+          for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+            double t = 0;
+            for (int j = 0; j < N; ++j)
+              for (int i = 0; i < N; ++i) {
+                double Pc[6];
+                for (int m = 0; m < 6; ++m) Pc[m] = static_cast<double>(pp(i, j, k, m)) / ncd;
+                float hc[6];
+                otvet_normalise_safe(Pc, trmin, hc);
+                for (int m = 0; m < 6; ++m) h(i, j, k, m) = hc[m];
+                if (sp) nd(i, j, k) = static_cast<float>(std::max(0.0, (Pc[0] + Pc[1]) + Pc[2]) * Lmax / (4 * M_PI));
+                t += (Pc[0] + Pc[1]) + Pc[2];
+              }
+            part[static_cast<std::size_t>(k)] = t;
+          }
+        }
+        if (target > 0) ratio = qw * plane_total(part) * Lmax / (4 * M_PI) / target;
+      }
+    }
+    H.FillBoundary(period);
+    if (split) Nd.FillBoundary(period);
+    const double secs = now() - t0;
+    T.tensor += secs;
+    if (p.active() && s.raylog)
+      *s.raylog << " OTVET      : " << otvet_closure_summary(s.cfg) << "; lambda " << static_cast<float>(lam)
+                << " lambda_x " << 0.0f << " N_dir/N " << static_cast<float>(ratio) << " sources " << nsrc << " "
+                << static_cast<float>(secs) << " s\n";
   }
 
   // ---- one RT substep: moment_step_1, rt_step_2, rt_step_3 ----------------
@@ -214,7 +465,7 @@ struct MomentLevel : CellLevel {
   }
 
   // One GLF subcycle of group g (rt_moments transport_group)
-  void transport_group(int g, mk::Closure cl, double C) {
+  void transport_group(int g, mk::Closure cl, double C, double qg) {
     double t0 = now();
     M.FillBoundary(5 * g, 5, period);
     T.halo += now() - t0;
@@ -222,10 +473,14 @@ struct MomentLevel : CellLevel {
       auto m = M.const_array(mfi, 5 * g);
       auto P = Pf.array(mfi);
       const ax::Box gbx = ax::grow(mfi.validbox(), 1);
+      ax::Array4<float const> h = cl != mk::Closure::M1 ? H.const_array(mfi) : ax::Array4<float const>{};
+      ax::Array4<float const> nd = cl == mk::Closure::Split ? Nd.const_array(mfi) : ax::Array4<float const>{};
       ax::ParallelForOMP(gbx, [=](int i, int j, int k) {
-        float Pc[9];
-        mk::flux_cell(cl, m(i, j, k, 0), m(i, j, k, 1), m(i, j, k, 2), m(i, j, k, 3), m(i, j, k, 4), nullptr, 0.0,
-                      Pc);
+        float Pc[9], hc[6];
+        if (cl != mk::Closure::M1)
+          for (int q = 0; q < 6; ++q) hc[q] = h(i, j, k, q);
+        const double ndc = cl == mk::Closure::Split ? qg * static_cast<double>(nd(i, j, k)) : 0.0;
+        mk::flux_cell(cl, m(i, j, k, 0), m(i, j, k, 1), m(i, j, k, 2), m(i, j, k, 3), m(i, j, k, 4), hc, ndc, Pc);
         for (int q = 0; q < 9; ++q) P(i, j, k, q) = Pc[q];
       });
       auto w = Wn.array(mfi);
@@ -289,6 +544,11 @@ struct MomentLevel : CellLevel {
       const double t0 = now();
       const int nsub = s.cfg.moment_nsub;
       const double Cn = 1.0 / nsub;
+      const bool otvet = s.cfg.rt_method == RTMethod::OTVET;
+      const mk::Closure cl = !otvet ? mk::Closure::M1 : split ? mk::Closure::Split : mk::Closure::Otvet;
+      // otvet_split = 1: N_dir,g = q_g ndir
+      std::array<double, kNfreq> qg{};
+      for (int g = 0; g < kNfreq; ++g) qg[g] = cl == mk::Closure::Split ? inject_per_L(s, g) : 0.0;
       for (int g = 0; g < kNfreq; ++g) {
         bool any = false;
         for (ax::MFIter mfi(M); mfi.isValid() && !any; ++mfi) {
@@ -305,7 +565,7 @@ struct MomentLevel : CellLevel {
         }
         ax::ParallelDescriptor::ReduceBoolOr(any);
         if (!any) continue;
-        for (int it = 0; it < nsub; ++it) transport_group(g, mk::Closure::M1, Cn);
+        for (int it = 0; it < nsub; ++it) transport_group(g, cl, Cn, qg[g]);
       }
       T.trans += now() - t0;
     }
@@ -571,8 +831,9 @@ struct MomentLevel : CellLevel {
     char buf[512];
     std::snprintf(buf, sizeof buf,
                   "AMReX moment timers [s]: prep %.3f calc_rt_1 %.3f inject %.3f transport %.3f (halo %.3f) "
-                  "deposit %.3f phys %.3f step3 %.3f sums %.3f post %.3f sync %.3f",
-                  T.prep, T.rt1, T.inject, T.trans, T.halo, T.deposit, T.phys, T.absorb, T.sums, T.post, T.sync);
+                  "deposit %.3f phys %.3f step3 %.3f sums %.3f post %.3f sync %.3f tensor %.3f",
+                  T.prep, T.rt1, T.inject, T.trans, T.halo, T.deposit, T.phys, T.absorb, T.sums, T.post, T.sync,
+                  T.tensor);
     return buf;
   }
 };

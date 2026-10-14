@@ -997,14 +997,21 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
   # with every sum in the serial order (amrex_moment_stats = exact); with
   # amrex_moment_stats = fixed the fields stay bitwise and the rt_stat sums
   # agree to round-off. N = 32: 3 ranks hold 3, 3, 2 slabs of 4.
-  foreach(mcase "m1;lognormal_16src;-" "m1;uniform_8src;-" "m1inj;lognormal_16src;moment_inject=1,moment_nsub=4")
+  # (case; problem; settings; configurations: all, or the short list "few")
+  foreach(mcase "m1;lognormal_16src;rt_method=m1,nsteps=4;all"
+                "m1;uniform_8src;rt_method=m1,nsteps=4;all"
+                "m1inj;lognormal_16src;rt_method=m1,nsteps=4,moment_inject=1,moment_nsub=4;all"
+                "otvet;lognormal_16src;rt_method=otvet,nsteps=4;all"
+                "otvetfft;lognormal_16src;rt_method=otvet,nsteps=4,otvet_tensor=fft;few"
+                "split;lognormal_16src;rt_method=otvet,nsteps=4,otvet_split=1;few"
+                "splitfft;lognormal_16src;rt_method=otvet,nsteps=4,otvet_split=1,otvet_tensor=fft;few"
+                "screenfix;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=screen,otvet_screen_lambda=6;few"
+                "screensplit;uniform_8src;rt_method=otvet,otvet_closure=screen,otvet_split=1;few")
     list(GET mcase 0 mtag)
     list(GET mcase 1 prob)
     list(GET mcase 2 xs)
-    set(mset "legacy_rt=0,legacy_physics=0,nsteps=4,rt_method=m1")
-    if(NOT xs STREQUAL "-")
-      set(mset "${mset},${xs}")
-    endif()
+    list(GET mcase 3 which)
+    set(mset "legacy_rt=0,legacy_physics=0,${xs}")
     string(REPLACE "," ";" mset_list "${mset}")
     set(mref_args)
     foreach(kv IN LISTS mset_list)
@@ -1015,7 +1022,13 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
              COMMAND rt_driver ${CMAKE_CURRENT_SOURCE_DIR}/problems/${prob} ${amrex_runs}/${mref} ${mref_args})
     set_tests_properties(${mref} PROPERTIES FIXTURES_SETUP ${mref} LABELS "amrex;moments"
                          ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800)
-    foreach(cfg "1;1;0;exact" "2;1;8;exact" "3;2;4;exact" "4;1;2;exact" "4;2;0;exact" "3;1;4;fixed")
+    if(which STREQUAL "all")
+      set(mcfgs "1:1:0:exact" "2:1:8:exact" "3:2:4:exact" "4:1:2:exact" "4:2:0:exact" "3:1:4:fixed")
+    else()
+      set(mcfgs "1:1:0:exact" "3:2:4:exact" "4:1:2:exact" "2:2:8:fixed")
+    endif()
+    foreach(cfg IN LISTS mcfgs)
+      string(REPLACE ":" ";" cfg "${cfg}")
       list(GET cfg 0 np)
       list(GET cfg 1 nt)
       list(GET cfg 2 planes)
@@ -1253,21 +1266,32 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
     # the full loop with the moment RT on the level and the state on the
     # slabs, byte-identical to the serial moment RT with the hydro and PM
     # backends (fields, stats, movie frames)
-    foreach(rt "1 1 0" "2 1 4" "3 2 4")
+    foreach(rt "m1 1 1 0" "m1 2 1 4" "m1 3 2 4" "otvet 3 2 4" "split 2 2 2" "screensplit 3 1 4")
       separate_arguments(rt)
-      list(GET rt 0 np)
-      list(GET rt 1 nt)
-      list(GET rt 2 planes)
-      add_test(NAME amrex_moment_full_pair_m1_r${np}t${nt}_p${planes}
+      list(GET rt 0 mc)
+      list(GET rt 1 np)
+      list(GET rt 2 nt)
+      list(GET rt 3 planes)
+      if(mc STREQUAL "m1")
+        set(margs --set rt_method=m1)
+      elseif(mc STREQUAL "otvet")
+        set(margs --set rt_method=otvet)
+      elseif(mc STREQUAL "split")
+        set(margs --set rt_method=otvet --set otvet_split=1)
+      else()
+        set(margs --set rt_method=otvet --set otvet_closure=screen --set otvet_split=1)
+      endif()
+      set(tname amrex_moment_full_pair_${mc}_r${np}t${nt}_p${planes})
+      add_test(NAME ${tname}
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
                        --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
-                       ${amrex_runs}/moment_pair_m1_r${np}t${nt}_p${planes} $<TARGET_FILE:radhydro>
+                       ${amrex_runs}/moment_pair_${mc}_r${np}t${nt}_p${planes} $<TARGET_FILE:radhydro>
                        ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "rt_backend=serial,amrex_state=0"
                        "rt_backend=amrex,amrex_state=1,amrex_slab=1,amrex_slab_planes=${planes}"
-                       --quiet --set rt_method=m1 --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --quiet ${margs} --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
                        --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
                        --set pm_backend=amrex --set movie_dz=0.5 --set movie_z0=25 --set restart_every=0)
-      set_tests_properties(amrex_moment_full_pair_m1_r${np}t${nt}_p${planes} PROPERTIES TIMEOUT 1800
+      set_tests_properties(${tname} PROPERTIES TIMEOUT 1800
                            LABELS "amrex;amrex_state;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()

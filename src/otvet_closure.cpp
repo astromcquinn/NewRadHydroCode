@@ -196,9 +196,7 @@ constexpr int kComp[6][2] = {{0, 0}, {1, 1}, {2, 2}, {0, 1}, {0, 2}, {1, 2}};
 // Screened kernel over the 27 images of the minimum-image separation, plus
 // the isotropic continuum of the images beyond (tensor_compare.py
 // thin_kernel(images=True, lam)); the source cell is an isotropic 4/3 I.
-struct ScreenCtx {
-  double lam;
-};
+using ScreenCtx = OtvetScreenCtx;
 void screen_fill(int N, int m, const void* ctx, float* K) {
   const double lam = static_cast<const ScreenCtx*>(ctx)->lam;
   const double R = 3.0 * N * std::cbrt(3 / (4 * M_PI));
@@ -230,9 +228,7 @@ void screen_fill(int N, int m, const void* ctx, float* K) {
 
 // Thin kernel (otvet_kernel) inside r < 2 r_c, weight 1 - smoothstep(r, r_c,
 // 2 r_c) (the near field of the cones; cone_tensor.py Kn)
-struct NearCtx {
-  double rc;
-};
+using NearCtx = OtvetNearCtx;
 void near_fill(int N, int m, const void* ctx, float* K) {
   const double rc = static_cast<const NearCtx*>(ctx)->rc;
 #pragma omp parallel for schedule(static) if (par::worth(static_cast<long long>(N) * N * N))
@@ -373,7 +369,7 @@ inline void normalise_safe(const double P[6], double trmin, float* hout) {
   for (int m = 0; m < 6; ++m) hout[m] = static_cast<float>(h[m]);
 }
 // FFT noise floor of tr P for sources rho (normalised units)
-constexpr double kNoiseFloor = 1e-6;
+constexpr double kNoiseFloor = kOtvetNoiseFloor;
 
 // Sum in plane order (thread-count independent)
 template <class F>
@@ -462,6 +458,11 @@ void thin_tensor(const OtvetClosureIn& in, int method, std::vector<float>& h,
 }
 
 }  // namespace
+
+void otvet_screen_fill(int N, int m, const void* ctx, float* K) { screen_fill(N, m, ctx, K); }
+void otvet_near_fill(int N, int m, const void* ctx, float* K) { near_fill(N, m, ctx, K); }
+void otvet_normalise(const double P[6], float* h) { normalise(P, h); }
+void otvet_normalise_safe(const double P[6], double trmin, float* h) { normalise_safe(P, trmin, h); }
 
 // ---------------------------------------------------------------------------
 // The closures

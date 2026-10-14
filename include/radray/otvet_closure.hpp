@@ -131,4 +131,54 @@ void otvet_fft_convolve_kernel(int N, const std::vector<double>& rho, OtvetKerne
 // Smallest eigenvalue of the symmetric tensor (xx, yy, zz, xy, xz, yz).
 double otvet_min_eigenvalue(const double h[6]);
 
+// The pieces of otvet_fft_convolve_kernel (src/rt_moments_fft.cpp), for a
+// caller that computes some components only (the moment level's component
+// tasks, docs/stage_e_moments.md section 4.1): the same FFTW plans and
+// buffers (fftwf_malloc), the same arithmetic, so every component is
+// bitwise the one otvet_fft_convolve_kernel returns. Needs FFTW3f.
+class OtvetConvolver {
+ public:
+  explicit OtvetConvolver(int N);
+  ~OtvetConvolver();
+  OtvetConvolver(const OtvetConvolver&) = delete;
+  OtvetConvolver& operator=(const OtvetConvolver&) = delete;
+  // N^3 float buffers (fftwf-aligned): the input of forward() and an output
+  float* r();
+  float* out();
+  // rho (in r()) -> its spectrum, kept for convolve()
+  void forward();
+  // The spectrum of kernel component m: cached as otvet_fft_convolve_kernel
+  // does (tag, N, param; tag null: this convolver's own copy, recomputed
+  // every call); buf: an N^3 float scratch for the fill (fftwf-aligned).
+  // Returns an opaque pointer for convolve().
+  const void* kernel(int m, OtvetKernelFill fill, const void* ctx, const char* tag, double param, float* buf);
+  // The product with a kernel spectrum and the inverse transform into out
+  // (N^3 floats, unnormalised: P = out / N^3 in double)
+  void convolve(const void* kspec, float* out);
+
+ private:
+  struct Impl;
+  Impl* impl_;
+};
+
+// The kernels of the thin, screened and near-field tensors (fills of
+// otvet_fft_convolve_kernel)
+void otvet_thin_fill(int N, int m, const void* ctx, float* K);
+struct OtvetScreenCtx {
+  double lam;
+};
+void otvet_screen_fill(int N, int m, const void* ctx, float* K);
+struct OtvetNearCtx {
+  double rc;
+};
+void otvet_near_fill(int N, int m, const void* ctx, float* K);
+// h = P / tr P (isotropic where tr P <= 0; compute_otvet_tensor's store),
+// and the screened / cone version: isotropic where tr P <= trmin, the
+// eigenvalues clamped to >= 0
+void otvet_normalise(const double P[6], float* h);
+void otvet_normalise_safe(const double P[6], double trmin, float* h);
+// The FFT noise floor of tr P for sources rho (normalised units): trmin =
+// kOtvetNoiseFloor * sum rho
+constexpr double kOtvetNoiseFloor = 1e-6;
+
 }  // namespace radray
