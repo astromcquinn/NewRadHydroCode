@@ -263,8 +263,13 @@ field and `stats.txt`.
 | 1 node (job 41824737) | 1783.2 | 1837.5 | 1 | 293.0 / 23.8 |
 | 2 nodes (job 41824738) | 974.4 | 1034.5 | 1.83 | 293.0 / 13.1 |
 | 4 nodes (job 41824739) | 538.3 | 598.4 | 3.31 | 143.8 / 13.0 |
+| 5 nodes, 120 ranks, the whole allocation (job 41851042, the E4 build) | 444.4 | 506.0 | 4.01 | 143.4 / 13.0 |
 
-The fields of every node count are bitwise identical. Phases, 1 → 2 → 4
+The fields of every node count are bitwise identical (the 5-node run
+against the 4-node runs too). From 4 to 5 nodes the RT speeds up 1.21×
+for 1.25× the ranks (`SumBoundary` 22.7 → 40.1 s is the part that does
+not: the deposit exchange grows with the rank count); 4.0× the one-node
+RT on 5 nodes, 5.7× the serial step. Phases, 1 → 2 → 4
 nodes: `step1` 275.6 → 165.5 → 94.3, `cast1` 532.1 → 268.2 → 154.3
 (`SumBoundary` 99.9 → 80.5 → 22.7), `phys` 277.3 → 140.1 → 70.3, `cast3`
 390.2 → 221.9 → 123.7, `sort` 163.9 → 84.4 → 46.2, `migrate` 71.0 → 43.6
