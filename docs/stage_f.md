@@ -102,7 +102,30 @@ above x = ρ/ρ̄; 0 = no suppression; `rrk::PhysCtx::cool_suppress` in
 default) and `cool_suppress_off_smoke`). The sink (`sf_overdensity`, 0 =
 off; `sf_efficiency` per free-fall time): gas above the threshold is
 converted to collisionless star particles in the PM container, with
-their mass; design in §2 when built.
+their mass.
+
+**The sink, design (F2b).** In every hydro call, on the finest level
+holding the cell, a cell with x = ρ_gas/ρ̄_gas > `sf_overdensity` loses
+the mass dm = min(1, `sf_efficiency` · dt/t_ff) · ρ V, with
+t_ff = √(3π/32Gρ_tot) and ρ_tot = ρ_gas Ω_m/Ω_b (the local total density
+of the PM mesh when it is available), at constant specific quantities:
+ρ, the momenta, the species densities and e scale by (1 − dm/ρV), E
+loses dm (½v² + e/ρ)/V. The removed mass becomes one star particle per
+cell and call at the cell centre with the cell's velocity, its mass in
+units of the dark-matter particle mass, its formation time, and an id
+above the dark-matter range. Stars live in the PM container
+(`pm_backend = amrex`, `amrex_state = 1`: production) with a mass
+component and a type flag; the CIC deposit weights particles by mass
+(dark matter 1), the kick and drift treat them as dark matter, the
+load balancing moves them with their boxes. They are not in rank 0's
+`xv` mirror: the FoF and the `xv_dm` files see dark matter only (the
+halo masses miss the stellar mass; documented), and the stars are
+gathered to rank 0 for a `stars.bin` file at every data output and for
+the checkpoint (a new block, version 8). The hydro drivers without a
+PM (`hydro_driver`, the suite) apply the sink as a mass loss (tests of
+the hydro part). The default `sf_overdensity = 0` keeps every stored
+reference; the production default will be of order a few thousand (user
+decision) once the full-loop tests are in.
 
 ## 3. The RT across levels (F3)
 
@@ -113,4 +136,22 @@ sub-cycling of the transport (user decision). Design when F2 is done.
 
 ## 4. Files and tests
 
-(filled in as the work lands)
+| File | What |
+|---|---|
+| `include/radray/hydro_backend.hpp`, `src/hydro_backend.cpp` | the hierarchy's parameters (§1) and checks, `amrex_hydro_finest_level`, `amrex_hydro_write_levels` / `read_levels` (AMReX-free) |
+| `src/amrex/hydro_level.cpp` | the hierarchy: `LevelData`, `Mesh` (AmrMesh, `ErrorEst` = `tag`), `regrid`, `fill_U` / `select` / `substep` per level, `advance` (recursive sub-cycling, flux register, average-down), `push_down`, `remap`, the VisMF files |
+| `src/amrex/gas_state.hpp/.cpp` | the balancing calls `amrex_hydro_remap` (the refined levels survive a remap) |
+| `apps/radhydro.cpp` | `<checkpoint>.amr/` written with every checkpoint and read at a restart; removed with its checkpoint |
+| `include/radray/config.hpp`, `src/io.cpp`, `apps/rt_driver.cpp`, `apps/radhydro.cpp`, `include/radray/kernels/rt_cell.hpp` | `cool_suppress_overdensity` (§2) |
+| `tests/hydro_suite/suite_driver.cpp`, `run_suite.py` | the backend keys and `backend_init`; `--amr L --refine-mass M` |
+| `tools/hyak/hydro_suite_amr.slurm`, `tools/analysis/hydro_suite_amr.py` | the suite with refinement on klone and its tables |
+| `tests/amr_conservation_check.py`, `tests/run_amrex.cmake` (`STRICT=cons`) | the conserved totals of a refined run against the uniform run |
+| `tools/production/make_production.py` | `--cool-suppress-overdensity` |
+
+Tests: `ctest -L amrex_hydro` (27, refinement off: bitwise the serial
+step), `ctest -L amr` (the label matches `amrex` too; the new tests are
+`amrex_hydro_amr_ref_<p>_L<L>` (conservation, the level count) and
+`amrex_hydro_amr_bitwise_<p>_L<L>_r<np>t<nt>_mgs<m>` (layout independence)
+for sod_x (1 level, refine_mass 0.5), sound_x (1, 0.99) and random3d (2
+levels, 8)), `cool_suppress_default_identity`, `cool_suppress_off_smoke`
+(label physics).
