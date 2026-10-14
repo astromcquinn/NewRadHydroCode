@@ -64,6 +64,9 @@ void amrex_state_add_metals(Simulation& s, const std::vector<std::int64_t>& cell
 // fHeII, temp (write_stats of every step). And the reverse (a restart):
 // rank 0's s.rt fields onto the level's cells.
 void amrex_state_gather_rt(Simulation& s, bool stats_only);
+// A movie frame's fields only (rhog, fHI, fHeI, fHeII, temp, gamma(1)) into
+// rank 0's s.rt (collective)
+void amrex_state_gather_rt_movie(Simulation& s);
 void amrex_state_scatter_rt(Simulation& s);
 
 // amrex_balance = 1: rebalances the shared decomposition on the current

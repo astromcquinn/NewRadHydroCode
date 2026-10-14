@@ -1162,6 +1162,7 @@ void backend_bcast_bytes(void* p, std::size_t n) {
   }
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
+void amrex_state_gather_rt_movie(Simulation& s) { level_of(s).gather_movie(s); }
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }

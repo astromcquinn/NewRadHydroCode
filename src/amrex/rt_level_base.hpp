@@ -102,6 +102,8 @@ struct LevelBase {
   // amrex_state = 1: the cells into rank 0's mirror (all fields, or the
   // five of write_stats), and rank 0's RT grid onto the cells (a restart)
   virtual void gather_fields(Simulation& s, bool stats_only) = 0;
+  // a movie frame: rhog, fHI, fHeI, fHeII, temp and gamma(1) only
+  virtual void gather_movie(Simulation& s) = 0;
   virtual void scatter_fields(Simulation& s) = 0;
   // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
   // and rays moved onto a new mapping of the same BoxArray
@@ -346,6 +348,42 @@ struct CellLevel : LevelBase {
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
   // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)
+  // A movie frame's fields (rhog, fHI, fHeI, fHeII, temp, gamma(1): the
+  // slabs and the whole-box statistics of write_frame) into rank 0's s.rt
+  // (the other components of gamma are not refreshed)
+  void gather_movie(Simulation& s) override {
+    const double t0 = now();
+    constexpr int kGamma = offsetof(RTCell, gamma) / sizeof(float);
+    FFab Cf(ba, dm, 6, 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      auto f = Cf.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), 6, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        f(i, j, k, m) = cf(c, i, j, k, m < 5 ? m : kGamma);
+      });
+    }
+    RTGrid& G = s.rt;
+    const int NN = N;
+    gs::gather_slabs(Cf, N, 6, [&](int k0, int nk, ax::Array4<float const> const& a) {
+      if (static_cast<std::int64_t>(G.rhog.size()) != G.ncell)
+        throw std::runtime_error("amrex_state = 1: rank 0's RT grid is not allocated");
+#pragma omp parallel for schedule(static) collapse(2)
+      for (int k = k0; k < k0 + nk; ++k)
+        for (int j = 0; j < NN; ++j)
+          for (int i = 0; i < NN; ++i) {
+            const std::int64_t c = i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k);
+            G.rhog[c] = a(i, j, k, 0);
+            G.fHI[c] = a(i, j, k, 1);
+            G.fHeI[c] = a(i, j, k, 2);
+            G.fHeII[c] = a(i, j, k, 3);
+            G.temp[c] = a(i, j, k, 4);
+            G.gamma[c * 3] = a(i, j, k, 5);
+          }
+    });
+    T.sync += now() - t0;
+    s.timers.sync += now() - t0;
+  }
+
   void gather_fields(Simulation& s, bool stats_only) override {
     const double t0 = now();
     const int nc = stats_only ? 5 : NC;
