@@ -1768,11 +1768,36 @@ differ on klone are skipped there (label `platform_ref`).
    - framework spike (AMReX vs Parthenon): done, AMReX recommended
      (`docs/framework_decision.md`), **approved 2026-10-10**; Hyak CPU and GPU
      benchmarks done (H200 ≈ 5 nodes on the RT; no ACCESS proposal yet);
-   - ray data-structure rewrite;
-   - MPI;
-   - AMR for gas, then RT;
-   - multigrid/tree gravity;
+   - ray data-structure rewrite: done (Stage D, `docs/stage_d.md`);
+   - MPI: done through the AMReX backends (Stage E, `docs/stage_e_*.md`);
+   - AMR for gas, then RT: built (Stage F1–F3, `docs/stage_f.md`); what
+     is left is item 9;
+   - multigrid/tree gravity (Stage G);
    - adaptive RT.
+9. **Before AMR is ready for science** (2026-10-15, after PR #41):
+   - **Gravity on the refined levels (Stage G).** The PM acts on level 0
+     only and its kick reaches the fine cells through the interim
+     push-down (`docs/stage_f.md` §1), so the fine gas feels level-0
+     gravity. Multigrid Poisson on the hierarchy first, TreePM optional.
+   - **Hydro validation with refinement (F2):** the pancake and KH cases,
+     the full tier, and the composite of the finest data for comparisons
+     at the matched finest resolution.
+   - **RT validation with refinement (F3):** `uniform_8src` with a refined
+     region, the Iliev tests with refinement, a 128³
+     production-configuration run with two levels against uniform 128³
+     and 256³ (x_HII(z), τ_es, T_M, front positions). Only the
+     one-source I-front is done (`amrex_rt_amr_ifront`).
+   - **Production:** the sink's production threshold (`sf_overdensity`,
+     "a few thousand"), a first refined production run, profiling the
+     flux-register and FillPatch overheads (`reflux`, `fill` timers), the
+     distributed FoF and P(k) (rank 0 today, the bottleneck at 1024³
+     particles).
+   - **Limits:** only the AMReX backends refine; M1/OTVET exist only in
+     the serial RT (`rt_backend = amrex` needs `rt_method = rays`), so
+     with refinement they could act on level 0 at best, untested and not
+     refused; the coarse substep lags the fine-level
+     fronts (1.5 % with the whole box on level 1) and fails light-limited
+     fronts at k = 4 (two levels at 0.1c, `docs/rt_multicell.md` §7–8).
 
 ## Open questions for the user
 
