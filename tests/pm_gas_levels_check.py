@@ -126,7 +126,7 @@ def main():
                                                "amrex_refine_mass=1e9", "amrex_refine_box=0,0,0,15,15,15"),
             log, env)
         vals = [(int(m.group(1)), float(m.group(2))) for m in
-                re.finditer(r"PM momentum check: levels (\d+), \S+ / \S+ = (\S+)", open(log).read())]
+                re.finditer(r"PM momentum check: levels (\d+), .*? = (\S+) ", open(log).read())]
         two = [v for lev, v in vals if lev == 2]
         worst = max(two) if two else float("nan")
         print(f"momentum, pm_refine = {r}: {len(two)} PM steps with two levels, worst {worst:.3e}")
