@@ -45,10 +45,26 @@ otvet` on z-slabs (`amrex_slab = 1`), every sum in the serial order.
   on 1 and 2 nodes (7 files, 12 movie frames). The cone production run
   itself predates the final cone code (its step 41 differs from today's
   serial code, λ_x 760.865 vs 760.866).
-* **Transport:** rewritten on raw indices (`5a4f5d4`), GLF 3× faster.
-* **Next:** 512³ cone on 1, 2, 4 nodes (bitwise against the current serial
-  code from checkpoint 52; timings in the production configuration);
-  phase 6 (1024³ on `ckpt-g2`).
+* **Transport:** rewritten on raw indices (`5a4f5d4`), GLF 3× faster;
+  the FFT tasks of all kernels computed at once (`9637d0e`; the cone tensor
+  107 → 38 s at 512³ on one node); a movie frame gathers only its 6 fields
+  (`44e431d`).
+* **Phase 5, 512³ cone on klone:** bitwise the production run (steps 53-54,
+  8 files, 12 movie frames) on 1 and 2 nodes (host mode; the current serial
+  code reproduces those steps too). Production configuration on 1 node: RT
+  293 s against the serial 495 s for the two steps, run 415 against 594 s
+  (`docs/stage_e_moments.md` section 10). Pending (ckpt-g2 queue, frequent
+  preemptions): 4 nodes bitwise; 2 and 4 nodes timed.
+* **Fast suite on the final code (`44e431d`):** 411/422; the 10
+  `platform_ref` tests as on `main`, and `end_to_end_legacy0`, which hung
+  in MPI_Finalize (a Slurm PMI barrier of a singleton run inside an srun
+  step) and passes alone (13.5 s).
+* **Phase 6:** `runs/reion1024_otvet_cone` (ICs with the 512³ run's large
+  scales), job 41889599 queued on ckpt-g2 (4 nodes × 16 × 12, binary
+  `scratch/moments_bin/radhydro_44e431d`). Disk: ~1.4 TB expected
+  (0.85 TB of checkpoints), 2.0 TB free on 2026-10-14.
+* **Then:** the comparison with the 512³ cone (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`).
 
 ## Done 2026-10-13: a better Eddington tensor for OTVET (branch `otvet-closure`, PR #35)
 
