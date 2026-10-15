@@ -1876,6 +1876,44 @@ struct Hierarchy : LevelBase {
     }
   }
 
+  // The parent's cells under a refined level take the mean of their 8
+  // children's fgam (TF components 5-9, this substep's physics), so that a
+  // parent ray crossing a covered cell in cast_3 loses what the children
+  // absorb of the deposit it gave them (each child takes the parent's value
+  // per volume, exchange_deposits, and absorbs 1 - fgam of it). Without
+  // this, the covered cells kept the fgam of the last average_down (one
+  // step old): rays entering the refined level through gas ionised since
+  // then lost too many photons. Collective.
+  void fill_covered_fgam(int l) {
+    L& F = *levels[static_cast<std::size_t>(l)];
+    L& P = *levels[static_cast<std::size_t>(l) - 1];
+    const ax::BoxArray cba = ax::coarsen(F.ba, 2);
+    FFab Fc(cba, F.dm, 5, 0);
+    for (ax::MFIter mfi(Fc); mfi.isValid(); ++mfi) {
+      auto f = F.TF.const_array(mfi);
+      auto a = Fc.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        double sum = 0;
+        for (int kk = 0; kk < 2; ++kk)
+          for (int jj = 0; jj < 2; ++jj)
+            for (int ii = 0; ii < 2; ++ii) sum += f(2 * i + ii, 2 * j + jj, 2 * k + kk, 5 + m);
+        a(i, j, k, m) = static_cast<float>(sum / 8);
+      });
+    }
+    FFab Pf(P.ba, P.dm, 5, 0);
+    Pf.setVal(0.0f);
+    Pf.ParallelCopy(Fc, 0, 0, 5, 0, 0, P.period);
+    for (ax::MFIter mfi(P.TF); mfi.isValid(); ++mfi) {
+      auto tf = P.TF.array(mfi);
+      auto f = Pf.const_array(mfi);
+      auto cov = P.covered->const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        if (cov(i, j, k)) tf(i, j, k, 5 + m) = f(i, j, k, m);
+      });
+    }
+    P.TF.FillBoundary(5, 5, P.period);  // the level's ghosts, as after its physics
+  }
+
   // The deposits of a refined level's rays beyond its grids (in its ghost
   // cells outside the level) summed into the parent's cells, and the
   // parent's deposits under the level (rays that entered it from outside)
@@ -2054,6 +2092,7 @@ struct Hierarchy : LevelBase {
     for (int l = finest; l >= 1; --l) exchange_deposits(l);
     for (auto& l : levels) l->substep_phys(s);
     for (auto& l : levels) l->check_cells("after phys");
+    for (int l = finest; l >= 1; --l) fill_covered_fgam(l);  // the children's fgam under a level
     for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 5, 5);  // the parent's fgam likewise
     for (auto& l : levels) l->substep_advance(s);
     migrate();
