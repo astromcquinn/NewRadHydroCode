@@ -402,6 +402,15 @@ container with AMReX 26.10 fetched, OpenMPI 4.1.6):
    `amrex_pm_gas_levels_restart_smoke` (bit-identical restart), two levels,
    `pm_refine = 4`.
 
+**The first refined production run** (`tools/hyak/amr512_runs.sh`, set up
+2026-10-15, to launch on klone after the cost probe): `fesc512_b2.5_amr`
+(40 Mpc/h, gas 512³ + two levels, 1024³ particles on the 2048³ mesh, 0.1c,
+case B, f_esc(z) = 0.135 ((1+z)/7)^2.5 from the f_esc thread, the exposure
+deposit, cooling in dense gas with the sink at 3000× the mean, FoF every
+30 Myr, the ICs of `hmf512_40mpc_r2`) and its control `fesc512_b2.5_uniform`
+(the same without refinement), 5 nodes each. Estimated 4–8 h for the
+refined run (to be replaced by the probe's numbers).
+
 **Not done (Stage G):** the particles still see one uniform mesh, so the
 force resolution is the mesh's everywhere; a level finer than the mesh
 gets the mesh resolution; the cost and memory of the uniform 2048³ mesh
@@ -425,6 +434,7 @@ Poisson on the hierarchy remains the long-term route.
 | `tools/hyak/amr_cost_probe.slurm` | the cost of 0 and 2 levels, and of 2 levels on the 2048³ mesh, on a 512³ checkpoint, 5 nodes (§3, "Next") |
 | `src/amrex/pm_level.cpp` (`composite_density`, `kick_fine`, `momentum`), `src/pm_backend.cpp`, `include/radray/pm.hpp`, `config.hpp` | `pm_gas_levels` (§4) |
 | `tests/pm_gas_levels_check.py` | the equivalence and momentum tests of §4 |
+| `tools/hyak/amr512_runs.sh` | the refined 512³ production run and its unrefined control (§4) |
 
 Tests: `ctest -L amrex_hydro` (27, refinement off: bitwise the serial
 step), `ctest -L amr` (the label matches `amrex` too; the new tests are
