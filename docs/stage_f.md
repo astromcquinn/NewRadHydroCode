@@ -281,6 +281,23 @@ again, and a species that had grown from ~0 overflowed in the ratio rule,
 now guarded); and `fgam` is the transmitted fraction, so a half cell's is
 √fgam.
 
+**Next: the production configuration (scripts ready 2026-10-15, not yet
+run).** `tools/hyak/amr_validate_runs.sh` sets up and submits three
+10 Mpc/h, 0.1c runs with the abundance-matched sources on the backends:
+`u128` (gas 128³, pm_refine = 2), `amr128` (the same ICs, two levels,
+`amrex_refine_mass` 8) and `u256` (gas 256³, pm_refine = 1, the DM ICs of
+`u128` byte for byte), so all three share the dark matter and the 256³ PM
+mesh; `tools/analysis/amr_validate_compare.py` compares x_HII(z), τ_es,
+T_M and the zdata1 fields (the reference averaged onto 128³) with `u256`.
+`tools/hyak/amr_cost_probe.slurm` restarts the 512³ checkpoint of
+`reion512_40mpc_f0.23` on 5 nodes for two steps with 0 and 2 levels and
+reports the per-step times, the cells per level (`RADRAY_AMR_DEBUG`) and
+the memory: the cost of the hierarchy at the target size before a
+refined 512³ production run (whose PM at pm_refine = 2 adds FoF and P(k)
+on rank 0, `docs/stage_e_pm.md` §4.1). Gravity is the level-0 PM in all
+of these (§1, "Coupling"): the fine gas feels the force averaged over its
+level-0 cell.
+
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
 and ray container. A ray lives on the finest level covering its position;
@@ -329,6 +346,8 @@ uniform 128³ and 256³ runs (x_HII(z), τ_es, T_M, the front positions).
 | `tools/hyak/hydro_suite_amr.slurm`, `tools/analysis/hydro_suite_amr.py` | the suite with refinement on klone and its tables |
 | `tests/amr_conservation_check.py`, `tests/run_amrex.cmake` (`STRICT=cons`) | the conserved totals of a refined run against the uniform run (to 1e-7: the driver's float fields; the hierarchy's double level-0 mass is `mass0` in its timers line) |
 | `tools/production/make_production.py` | `--cool-suppress-overdensity` |
+| `tools/hyak/amr_validate_runs.sh`, `tools/analysis/amr_validate_compare.py` | the 128³ two-level production configuration against uniform 128³ and 256³ (§3, "Next") |
+| `tools/hyak/amr_cost_probe.slurm` | the cost of 0 and 2 levels on a 512³ checkpoint, 5 nodes (§3, "Next") |
 
 Tests: `ctest -L amrex_hydro` (27, refinement off: bitwise the serial
 step), `ctest -L amr` (the label matches `amrex` too; the new tests are

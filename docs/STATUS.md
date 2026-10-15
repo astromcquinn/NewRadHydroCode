@@ -1786,7 +1786,18 @@ differ on klone are skipped there (label `platform_ref`).
      region, the Iliev tests with refinement, a 128³
      production-configuration run with two levels against uniform 128³
      and 256³ (x_HII(z), τ_es, T_M, front positions). Only the
-     one-source I-front is done (`amrex_rt_amr_ifront`).
+     one-source I-front is done (`amrex_rt_amr_ifront`). Scripts for the
+     128³ runs and a 512³ cost probe (0 vs 2 levels on 5 nodes) are
+     ready, not yet run (`docs/stage_f.md` §3, "Next").
+   - **pm_refine and the refined gas:** the gas force is the PM mesh
+     force averaged over each level-0 gas cell (`docs/pm_refine.md` §1)
+     and the gas mass on the mesh is the level-0 gas, so a finer PM mesh
+     (pm_refine = 4: 2048³ at 512³ gas) sharpens the DM only. Feeding the
+     fine levels' gas to the mesh and the mesh force to each level's
+     cells would give the refined gas gravity at the PM resolution
+     without multigrid. pm_refine = 4 is untested; with Ndm = pm_refine·N
+     (`make_production.py`) it means 2048³ particles, which needs the
+     distributed FoF/P(k) first; the code also allows Ndm < pm_refine·N.
    - **Production:** the sink's production threshold (`sf_overdensity`,
      "a few thousand"), a first refined production run, profiling the
      flux-register and FillPatch overheads (`reflux`, `fill` timers), the
