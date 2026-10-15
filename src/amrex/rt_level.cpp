@@ -887,8 +887,15 @@ struct Level : LevelBase {
       std::int64_t L = 0;
       for (int n = 1; n <= Np; ++n) L += ngam_pdf[n];
       const double ngam_avg = h[2 * rrk::kNpdfMax] > 0 ? from_fx128(ngam_sum, kBitsNgam) : 0.0;
-      calc_ngam_ray(ngam_pdf.data(), Np, ngam_avg, L > 0 ? L : 1, s.rays.Nray_max, false,
-                    s.rays.ngam_ray, s.raylog);
+      // the level's ray pool: Nray_max = nray_max_factor x its cells (the
+      // base level's is the global one); with the base pool a refined level
+      // got the base grid's ray budget, its split/merge thresholds and pool
+      // guard throttling it to the base resolution's angular sampling
+      const std::int64_t nray_max =
+          lev == 0 ? s.rays.Nray_max
+                   : static_cast<std::int64_t>(static_cast<double>(s.rays.Nray_max) * static_cast<double>(ba.numPts()) /
+                                               std::pow(static_cast<double>(s.cfg.Nrt), 3));
+      calc_ngam_ray(ngam_pdf.data(), Np, ngam_avg, L > 0 ? L : 1, nray_max, false, s.rays.ngam_ray, s.raylog);
       // F3 pool guard: source cells (stellar) of the level
       std::int64_t nsrc = 0;
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -901,9 +908,8 @@ struct Level : LevelBase {
               if (static_cast<double>(cf(c, i, j, k, kSfr)) > sfr_min) ++nsrc;
       }
       ax::ParallelDescriptor::ReduceLongSum(nsrc);
-      pool_guard(spl_pdf.data(), Np, L, nsrc, 0, s.rays.Nray_max, s.rays.ngam_ray, s.rays.npool_limited,
-                 s.rays.npool_forced, s.raylog,
-                 rrk::nray_from_nside(rrk::emit_nside(s.cfg.rt_cells_per_substep)));
+      pool_guard(spl_pdf.data(), Np, L, nsrc, 0, nray_max, s.rays.ngam_ray, s.rays.npool_limited,
+                 s.rays.npool_forced, s.raylog, rrk::nray_from_nside(rrk::emit_nside(cells)));
     }
     const rrk::RTP P = params_of(s);
     double t2 = now();
@@ -2061,11 +2067,13 @@ struct Hierarchy : LevelBase {
     L::publish_stats(s, sv, cmax, stats);
   }
   void post(Simulation& s) override {
+    // the photons in flight in base units: a ray's ngam is per RT-cell volume
+    // (ray_source: ngam / vol_rt / nH_avg), 8^l times the base value on level l
     double ngam_total = 0;
     std::int64_t nray = 0;
-    for (auto& l : levels) {
-      l->post(s);
-      ngam_total += s.ngam_total_backend;
+    for (std::size_t l = 0; l < levels.size(); ++l) {
+      levels[l]->post(s);
+      ngam_total += s.ngam_total_backend / std::ldexp(1.0, 3 * static_cast<int>(l));
       nray += s.rays.Nray;
     }
     s.ngam_total_backend = ngam_total;

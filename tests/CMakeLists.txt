@@ -1240,6 +1240,22 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       if(NOT RADRAY_NIGHTLY_TESTS)
         set_tests_properties(amrex_rt_amr_ifront PROPERTIES DISABLED TRUE)
       endif()
+      # the 8 sources of uniform_8src, one level over a box where fronts
+      # cross the level boundary and overlap there (rt_amr_ifront8.slurm's
+      # BOX1), against uniform 32^3 and 64^3 (ifront_multi.py --check)
+      add_test(NAME amrex_rt_amr_ifront8
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:radhydro> -DPYTHON=${Python3_EXECUTABLE}
+                 -DSRC=${PROJECT_SOURCE_DIR} -DOUT=${amrex_runs}/rt_amr_ifront8 -DN=32
+                 -DSOURCES=8src -DBOX=0,4,4,15,19,19 -DLEVEL=1
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/rt_amr_ifront.cmake)
+      set_tests_properties(amrex_rt_amr_ifront8 PROPERTIES TIMEOUT 3600 LABELS "amrex;amr;nightly"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 2)
+      if(NOT RADRAY_NIGHTLY_TESTS)
+        set_tests_properties(amrex_rt_amr_ifront8 PROPERTIES DISABLED TRUE)
+      endif()
     endif()
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro
