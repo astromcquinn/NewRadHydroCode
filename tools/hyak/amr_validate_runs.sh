@@ -6,16 +6,22 @@
 # tools/production/make_production.py (10 Mpc/h, 0.1c, the abundance-matched
 # sources of data/uv_lf/am_params_st_fof.txt, the AMReX backends):
 #
-#   u128    gas 128^3, pm_refine = 2 (PM mesh and DM 256^3)
+#   u128    gas 128^3, pm_refine = PM_REFINE (default 4: the 512^3 mesh),
+#           256^3 particles
 #   amr128  the same ICs and parameters, plus amrex_max_level = LEVELS
 #           (default 2) with amrex_refine_mass = REFINE_MASS (default 8:
-#           a level-l cell refines above 8 * 8^l times the mean gas density)
-#   u256    gas 256^3, pm_refine = 1 (PM mesh and DM 256^3): the DM ICs are
-#           those of u128 byte for byte (make_ics.py --phases-from-ndm 128),
-#           the gas holds the modes the 128^3 grid cannot
+#           a level-l cell refines above 8 * 8^l times the mean gas density);
+#           the refined gas enters the PM on its own cells (pm_gas_levels =
+#           1, docs/stage_f.md section 4; PM_GAS_LEVELS=0 for the level-0
+#           coupling)
+#   u256    gas 256^3, pm_refine = PM_REFINE/2 (the same mesh), the DM ICs
+#           of u128 byte for byte (make_ics.py --phases-from-ndm 128), the
+#           gas holding the modes the 128^3 grid cannot
 #
 # so the three runs share the dark matter and the PM mesh and differ only in
 # the gas and RT resolution: amr128 should approach u256 where it refines.
+# The defaults are the 512^3 target (gas 512^3, two levels, the 2048^3 mesh,
+# 1024^3 particles) at a quarter of the size.
 # Then submits tools/hyak/reion_production.slurm for each (one whole node
 # each, 24 ranks x 8 threads, POST=0). Compare when all three are done:
 #
@@ -25,7 +31,8 @@
 # tools/hyak/build_amrex.sh has built build-amrex/radhydro from main):
 #   tools/hyak/amr_validate_runs.sh
 # Environment: ROOT (default $RUNS/amr_val128), RUNS (default
-# /gscratch/astro/$USER/radhydro/runs), LEVELS (2), REFINE_MASS (8), F_ESC
+# /gscratch/astro/$USER/radhydro/runs), LEVELS (2), REFINE_MASS (8),
+# PM_REFINE (4; even), PM_GAS_LEVELS (1), F_ESC
 # (0.2), COOL (cool_suppress_overdensity, default 200 = the original; 0: dense
 # gas cools), SF (sf_overdensity, default 0 = no sink; the user's production
 # choice is "a few thousand"), RUNS_TO_SUBMIT (default "u128 amr128 u256"),
@@ -39,6 +46,9 @@ RUNS="${RUNS:-/gscratch/astro/$USER/radhydro/runs}"
 ROOT="${ROOT:-$RUNS/amr_val128}"
 LEVELS="${LEVELS:-2}"
 REFINE_MASS="${REFINE_MASS:-8}"
+PM_REFINE="${PM_REFINE:-4}"
+PM_GAS_LEVELS="${PM_GAS_LEVELS:-1}"
+[ $((PM_REFINE % 2)) = 0 ] || { echo "PM_REFINE must be even (u256 uses PM_REFINE/2)"; exit 1; }
 F_ESC="${F_ESC:-0.2}"
 COOL="${COOL:-200}"
 SF="${SF:-0}"
@@ -52,16 +62,16 @@ common=(--box 10 --c-reduced 0.1 --am-params data/uv_lf/am_params_st_fof.txt --f
 mp=(python3 tools/production/make_production.py)
 
 # u128: the ICs (gas 128^3, DM 256^3 with the large scales of the 128^3 ICs)
-[ -f "$ROOT/u128/params.txt" ] || "${mp[@]}" "$ROOT/u128" --N 128 --pm-refine 2 "${common[@]}"
+[ -f "$ROOT/u128/params.txt" ] || "${mp[@]}" "$ROOT/u128" --N 128 --pm-refine "$PM_REFINE" --ndm 256 "${common[@]}"
 # amr128: the same ICs
 if [ ! -f "$ROOT/amr128/params.txt" ]; then
-  "${mp[@]}" "$ROOT/amr128" --N 128 --pm-refine 2 --no-ics "${common[@]}" \
-    --amrex-max-level "$LEVELS" --amrex-refine-mass "$REFINE_MASS"
+  "${mp[@]}" "$ROOT/amr128" --N 128 --pm-refine "$PM_REFINE" --ndm 256 --no-ics "${common[@]}" \
+    --amrex-max-level "$LEVELS" --amrex-refine-mass "$REFINE_MASS" --pm-gas-levels "$PM_GAS_LEVELS"
 fi
 [ -e "$ROOT/amr128/ics" ] || ln -s ../u128/ics "$ROOT/amr128/ics"
 # u256: the DM of u128 (same seed, Ndm 256, phases from the 128^3 draws)
 if [ ! -f "$ROOT/u256/params.txt" ]; then
-  "${mp[@]}" "$ROOT/u256" --N 256 --pm-refine 1 --no-ics "${common[@]}"
+  "${mp[@]}" "$ROOT/u256" --N 256 --pm-refine $((PM_REFINE / 2)) --ndm 256 --no-ics "${common[@]}"
 fi
 if [ ! -f "$ROOT/u256/ics/u_gas.init" ]; then
   python3 tools/ics/make_ics.py "$ROOT/u256/ics" --kind zeldovich --Ngas 256 --Ndm 256 \

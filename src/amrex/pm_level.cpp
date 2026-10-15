@@ -38,6 +38,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -154,6 +155,7 @@ inline int thread_id() { return 0; }
 
 struct Timers {
   double prep = 0, drift = 0, deposit = 0, sumbnd = 0, fft = 0, force = 0, kick_dm = 0, kick_gas = 0, gather = 0;
+  double d_fine = 0, k_fine = 0;  // pm_gas_levels: the refined levels' deposit and kick (+ average-down)
   double g_vwrite = 0, g_vred = 0, g_vcopy = 0, g_gas = 0, g_pot = 0, p_locate = 0, p_fill = 0;
   Long steps = 0;
 };
@@ -314,6 +316,7 @@ struct PMLevel {
   int fft_kind = 0;
   rpk::MeshGeom mg;
   double x_dm_m = 1;
+  double x_dm_gas = 1;  // Ngas/Ndm (DM to gas grid velocity units)
   ax::Box domain;
   ax::Geometry geom;
   ax::Periodicity period;
@@ -327,6 +330,8 @@ struct PMLevel {
   std::unique_ptr<ax::FFT::R2C<float>> afft;
   gs::GasState* state = nullptr;  // amrex_state = 1: the gas on the level (gas_state.hpp)
   bool loaded = false;            // amrex_state = 1: the particles live on the level
+  bool gas_levels = false;        // pm_gas_levels: the state's refined levels enter the PM
+  int lr = 0;                     // log2(pm_refine) (a power of 2 with gas_levels)
   Timers T;
 
   explicit PMLevel(const pm::PMConfig& pc_) {
@@ -339,6 +344,7 @@ struct PMLevel {
     fft_kind = pc_.amrex_fft;
     mg = rpk::MeshGeom{pc_.Nm, pc_.nmr, pc_.x_dm_m};
     x_dm_m = pc_.x_dm_m;
+    x_dm_gas = pc_.x_dm_gas;
     if (mgs < 4 || mgs % r != 0 || Nm % mgs != 0)
       throw std::runtime_error("pm_backend = amrex: the box size must be a multiple of pm_refine and divide the mesh");
     domain = ax::Box(ax::IntVect(0), ax::IntVect(Nm - 1));
@@ -361,6 +367,10 @@ struct PMLevel {
       ba = state->ba;
       ba.refine(r);
       dm = state->dm;
+      gas_levels = pc_.gas_levels;
+      if (gas_levels && (r & (r - 1)) != 0)
+        throw std::runtime_error("pm_gas_levels = 1 needs pm_refine a power of 2");
+      while ((1 << lr) < r) ++lr;
     }
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
@@ -895,6 +905,23 @@ struct PMLevel {
     // DM mass (the original: float, added particle by particle; here one
     // rounding of the exact sum)
     const int rr = r;
+    if (fine_levels() > 0) {
+      // pm_gas_levels: the gas cell is the finest level's cell holding the
+      // mesh cell (composite_density), the same rounding of the sum
+      FFab gm(ba, dm, 1, 0);
+      composite_density(gm);
+      for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+        auto p = pot.array(mfi);
+        auto a = acc.const_array(mfi);
+        auto gc = gm.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          const double rho = gc(i, j, k);
+          p(i, j, k) = static_cast<float>(rho + std::ldexp(static_cast<double>(a(i, j, k)), -kDensBits));
+        });
+      }
+      T.deposit += now() - t0;
+      return;
+    }
     for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
       auto p = pot.array(mfi);
       auto a = acc.const_array(mfi);
@@ -905,6 +932,183 @@ struct PMLevel {
       });
     }
     T.deposit += now() - t0;
+  }
+
+  // ---- pm_gas_levels: the refined levels of the gas state -------------------
+  //
+  // A level-l cell spans q = r / 2^l mesh cells per dimension when l <= lr
+  // (log2 r), or lies inside one mesh cell (2^(l - lr) level cells per mesh
+  // cell) when l > lr. The deposit gives every mesh cell the density of
+  // the finest level with l <= lr covering it: a level finer than the mesh
+  // is already in its average-down onto level lr (the hydro and the sink
+  // average every step down, and the RT and the PM do the same after
+  // changing the fine cells). The force on a level-l cell is the mean mesh
+  // force over its q^3 mesh cells, or the force of the mesh cell holding
+  // it, divided by r (mesh to level-0 cell units, the units of every
+  // level's velocities). Spread and average are again transposes of each
+  // other, so the gas-DM forces stay pairwise antisymmetric (total momentum
+  // conserved to round-off, docs/pm_refine.md section 1). Afterwards the
+  // kicked levels are averaged down onto their parents (momenta and E),
+  // so level 0 is the composite and the hydro's push-down sees no change.
+
+  // The refined levels in use (0 without pm_gas_levels)
+  int fine_levels() const { return gas_levels && state ? state->finest : 0; }
+
+  // gm (mesh layout, 1 component): the gas density of the finest level
+  // (<= lr) covering each mesh cell
+  void composite_density(FFab& gm) {
+    const double t0 = now();
+    const int rr = r;
+    for (ax::MFIter mfi(gm); mfi.isValid(); ++mfi) {
+      auto o = gm.array(mfi);
+      auto gs = gas.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) { o(i, j, k) = gs(i / rr, j / rr, k / rr, 0); });
+    }
+    const int nl = std::min(fine_levels(), lr);
+    for (int l = 1; l <= nl; ++l) {
+      const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      const int q = r >> l;
+      ax::BoxArray bq = F.ba;
+      bq.refine(q);
+      FFab t(bq, F.dm, 1, 0);
+      for (ax::MFIter mfi(t); mfi.isValid(); ++mfi) {
+        auto o = t.array(mfi);
+        auto g = F.G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) { o(i, j, k) = g(i / q, j / q, k / q, gs::kU); });
+      }
+      gm.ParallelCopy(t, 0, 0, 1);  // the finer level last: it overwrites its parent
+    }
+    T.d_fine += now() - t0;
+  }
+
+  // The unsplit kick of the refined levels by the mesh force over their own
+  // cells (kind 2 of kick_gas), then the average-down of u(2:5) onto the
+  // parents, finest first. After gather (level 0's own kick is in the
+  // state). Collective.
+  void kick_fine(double dt_sim, const Units& u, double eta1) {
+    const double t0 = now();
+    const int nf = fine_levels();
+    const double Dmin = u.Dgas_min;
+    for (int l = 1; l <= nf; ++l) {
+      gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      const bool spans = l <= lr;
+      const int q = spans ? r >> l : 1;           // mesh cells per level cell (l <= lr)
+      const int sh = spans ? 0 : l - lr;          // level cells per mesh cell 2^sh (l > lr)
+      ax::BoxArray bq = F.ba;
+      if (spans)
+        bq.refine(q);
+      else
+        bq.coarsen(1 << sh);
+      FFab ft(bq, F.dm, 3, 0);
+      ft.ParallelCopy(frc, 0, 0, 3);
+      const double norm = static_cast<double>(q) * q * q * r;
+      for (ax::MFIter mfi(F.G); mfi.isValid(); ++mfi) {
+        auto g = F.G.array(mfi);
+        auto fa = ft.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          double Fc[3] = {0, 0, 0};
+          if (spans) {
+            for (int kk = k * q; kk < (k + 1) * q; ++kk)
+              for (int jj = j * q; jj < (j + 1) * q; ++jj)
+                for (int ii = i * q; ii < (i + 1) * q; ++ii)
+                  for (int m = 0; m < 3; ++m) Fc[m] += static_cast<double>(fa(ii, jj, kk, m));
+          } else {
+            for (int m = 0; m < 3; ++m) Fc[m] = fa(i >> sh, j >> sh, k >> sh, m);
+          }
+          for (int m = 0; m < 3; ++m) Fc[m] /= norm;
+          double U[5];
+          for (int m = 0; m < 5; ++m) U[m] = g(i, j, k, gs::kU + m);
+          const double eD = g(i, j, k, gs::kE);
+          const double eth = rrh::thermal_energy(U, eD, eta1);
+          const double rho = f::max(U[0], Dmin);
+          for (int m = 0; m < 3; ++m) U[1 + m] = U[1 + m] + rho * Fc[m] * dt_sim;
+          U[4] = rrh::kinetic_energy(U) + eth;
+          for (int m = 1; m < 5; ++m) g(i, j, k, gs::kU + m) = static_cast<float>(U[m]);
+        });
+      }
+    }
+    // u(2:5) of every refined level averaged onto its parent's covered
+    // cells (the plain mean of the 8 children in double, rounded once, as
+    // the RT hierarchy's average_down)
+    constexpr int nc = 4;  // u(2:5)
+    for (int l = nf; l >= 1; --l) {
+      const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      FFab& PG = l == 1 ? state->G : state->fine[static_cast<std::size_t>(l) - 2].G;
+      const ax::BoxArray& pba = l == 1 ? state->ba : state->fine[static_cast<std::size_t>(l) - 2].ba;
+      const ax::DistributionMapping& pdm = l == 1 ? state->dm : state->fine[static_cast<std::size_t>(l) - 2].dm;
+      FFab Fc(ax::coarsen(F.ba, 2), F.dm, nc + 1, 0);  // the averages and a "covered" flag
+      for (ax::MFIter mfi(Fc); mfi.isValid(); ++mfi) {
+        auto a = Fc.array(mfi);
+        auto g = F.G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          for (int m = 0; m < nc; ++m) {
+            double sum = 0;
+            for (int kk = 0; kk < 2; ++kk)
+              for (int jj = 0; jj < 2; ++jj)
+                for (int ii = 0; ii < 2; ++ii) sum += g(2 * i + ii, 2 * j + jj, 2 * k + kk, gs::kU + 1 + m);
+            a(i, j, k, m) = static_cast<float>(sum / 8);
+          }
+          a(i, j, k, nc) = 1.0f;
+        });
+      }
+      FFab Pc(pba, pdm, nc + 1, 0);
+      Pc.setVal(0.0f);
+      Pc.ParallelCopy(Fc, 0, 0, nc + 1);
+      for (ax::MFIter mfi(PG); mfi.isValid(); ++mfi) {
+        auto g = PG.array(mfi);
+        auto a = Pc.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          if (a(i, j, k, nc) == 0.0f) return;
+          for (int m = 0; m < nc; ++m) g(i, j, k, gs::kU + 1 + m) = a(i, j, k, m);
+        });
+      }
+    }
+    amrex_hydro_level0_is_current();  // the hydro must not push the level-0 kick down again
+    T.k_fine += now() - t0;
+  }
+
+  // RADRAY_PM_MOMENTUM_CHECK=1 (amrex_state = 1; a diagnostic for the tests):
+  // the total momentum of the particles and of the gas before and after the
+  // kicks, in mesh-cell masses x gas-grid velocities. The gas total is level
+  // 0's, the composite (every refined level is averaged down onto it before
+  // and after the PM). The DM-gas and self forces are pairwise
+  // antisymmetric, so the change must vanish to the float round-off of the
+  // stored velocities; a deposit and a kick that do not use the same cells
+  // break it. Printed by the I/O rank: the change relative to the summed
+  // |change| of the gas cells. Order-dependent sums: not bitwise.
+  void momentum(double out[6], double mass) {
+    for (int m = 0; m < 6; ++m) out[m] = 0;
+    const double xg = x_dm_gas, r3 = static_cast<double>(r) * r * r;
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+      for (int n = 0; n < np; ++n) {
+        const double mp = pd.m_idata[kType][n] == 0 ? mass : static_cast<double>(pd.m_rdata[kM][n]) * r3;
+        for (int m = 0; m < 3; ++m) out[m] += mp * xg * pd.m_rdata[kV + m][n];
+      }
+    }
+    for (ax::MFIter mfi(state->G); mfi.isValid(); ++mfi) {
+      auto g = state->G.const_array(mfi);
+      const ax::Box bx = mfi.validbox();
+      ax::LoopOnCpu(bx, [&](int i, int j, int k) {
+        for (int m = 0; m < 3; ++m) out[3 + m] += r3 * g(i, j, k, gs::kU + 1 + m);
+      });
+    }
+    ax::ParallelDescriptor::ReduceRealSum(out, 6);
+  }
+  double gas_change_abs(const FFab& before) const {
+    double s = 0;
+    const double r3 = static_cast<double>(r) * r * r;
+    for (ax::MFIter mfi(state->G); mfi.isValid(); ++mfi) {
+      auto g = state->G.const_array(mfi);
+      auto b = before.const_array(mfi);
+      ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+        for (int m = 0; m < 3; ++m) s += r3 * std::fabs(static_cast<double>(g(i, j, k, gs::kU + 1 + m)) - b(i, j, k, m));
+      });
+    }
+    ax::ParallelDescriptor::ReduceRealSum(s);
+    return s;
   }
 
   // ---- calc_gravity_field: the Poisson solve --------------------------------
@@ -1243,6 +1447,14 @@ struct PMLevel {
   void step(pm::PMState& s, float* u_gas, float* v_gas, const float* e_gas, int kind, double eta1,
             SimClock& clk, const Units& u) {
     const double mass = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;  // dm_mass of src/pm.cpp
+    const bool pcheck = state && std::getenv("RADRAY_PM_MOMENTUM_CHECK") != nullptr;
+    double P0[6];
+    FFab before;
+    if (pcheck) {
+      momentum(P0, mass);
+      before.define(state->ba, state->dm, 3, 0);
+      before.ParallelCopy(state->G, gs::kU + 1, 0, 3);
+    }
     prep(s, u_gas, v_gas, e_gas, kind);
     density(mass);
     gravity(clk.scalefactor);
@@ -1251,6 +1463,20 @@ struct PMLevel {
     kick_dm(clk.dt_sim, amax, arms, vmax, vrms);
     kick_gas(kind, clk.dt_sim, u, eta1);
     gather(s, u_gas, v_gas, kind);
+    if (fine_levels() > 0) kick_fine(clk.dt_sim, u, eta1);
+    if (pcheck) {
+      double P1[6];
+      momentum(P1, mass);
+      const double sabs = gas_change_abs(before);
+      double rel = 0;
+      for (int m = 0; m < 3; ++m) {
+        const double d = (P1[m] - P0[m]) + (P1[3 + m] - P0[3 + m]);
+        rel = std::max(rel, sabs > 0 ? std::fabs(d) / sabs : 0.0);
+      }
+      if (ax::ParallelDescriptor::IOProcessor())
+        std::fprintf(stderr, "PM momentum check: levels %d, |dP_dm + dP_gas| / sum|dp_gas| = %.3e (sum|dp_gas| %.6e)\n",
+                     fine_levels(), rel, sabs);
+    }
     // set_kick_globals (PM grid units)
     const double npart = static_cast<double>(s.pc.Npart);
     clk.amax_dm = amax;
@@ -1268,7 +1494,10 @@ struct PMLevel {
                   "copy %.3f, gas %.3f, potential %.3f); steps %lld",
                   T.prep, T.p_locate, T.p_fill, T.drift, T.deposit, T.sumbnd, T.fft, T.force, T.kick_dm, T.kick_gas,
                   T.gather, T.g_vwrite, T.g_vred, T.g_vcopy, T.g_gas, T.g_pot, static_cast<long long>(T.steps));
-    return buf;
+    if (!gas_levels) return buf;
+    char b2[128];
+    std::snprintf(b2, sizeof b2, "; gas levels: deposit %.3f kick %.3f", T.d_fine, T.k_fine);
+    return std::string(buf) + b2;
   }
 };
 

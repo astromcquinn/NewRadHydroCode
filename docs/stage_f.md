@@ -14,6 +14,7 @@ cooling flag and the sink), F3 (the RT across levels).*
 | F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
 | F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
 | F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | done 2026-10-15: the I-front validated inside the refined region and across its boundary (§3) |
+| F4: the PM on the refined gas levels (`pm_gas_levels`, default 1): the deposit from the finest level, every level kicked on its own cells; `make_production.py --ndm` (e.g. `pm_refine = 4` with 2× particles) | done 2026-10-15 (§4; on klone: pending) |
 
 ## 1. The hierarchy (F1)
 
@@ -92,7 +93,8 @@ first call. Level 0's grids never change here (the balancing of Stage E4
 moves them; the refined levels are then rebuilt at the next regrid).
 
 **Coupling to the RT and PM before F3 and Stage G** (interim, approximate,
-documented so it can be removed): the RT and the PM act on level 0 only.
+documented so it can be removed; the RT acts on every level since F3, the
+PM since §4 with `pm_gas_levels = 1`): the RT and the PM act on level 0 only.
 Between hydro calls they change the level-0 gas (w, u(5), e by the RT;
 the momenta and E by the PM kick; the metals). At the start of a hydro
 call the hierarchy compares the level-0 state with what it wrote out last
@@ -290,13 +292,14 @@ run).** `tools/hyak/amr_validate_runs.sh` sets up and submits three
 mesh; `tools/analysis/amr_validate_compare.py` compares x_HII(z), τ_es,
 T_M and the zdata1 fields (the reference averaged onto 128³) with `u256`.
 `tools/hyak/amr_cost_probe.slurm` restarts the 512³ checkpoint of
-`reion512_40mpc_f0.23` on 5 nodes for two steps with 0 and 2 levels and
+`reion512_40mpc_f0.23` on 5 nodes for two steps with 0 levels, 2 levels,
+and 2 levels on the 2048³ mesh (`pm_refine = 4` at the restart) and
 reports the per-step times, the cells per level (`RADRAY_AMR_DEBUG`) and
 the memory: the cost of the hierarchy at the target size before a
 refined 512³ production run (whose PM at pm_refine = 2 adds FoF and P(k)
-on rank 0, `docs/stage_e_pm.md` §4.1). Gravity is the level-0 PM in all
-of these (§1, "Coupling"): the fine gas feels the force averaged over its
-level-0 cell.
+on rank 0, `docs/stage_e_pm.md` §4.1). The 128³ runs default to the
+512³ target's PM, `pm_refine = 4` with 2× particles (the 512³ mesh, 256³
+particles), and the refined gas in the PM (`pm_gas_levels = 1`, §4).
 
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
@@ -333,7 +336,79 @@ refinement; the full-loop smoke problem for rank/thread independence and
 restarts; a 128³ production-configuration run with two levels against the
 uniform 128³ and 256³ runs (x_HII(z), τ_es, T_M, the front positions).
 
-## 4. Files and tests
+## 4. The PM on the refined levels (`pm_gas_levels`)
+
+*2026-10-15, branch `claude/pensive-goodall-kvpwgz`; the cheaper step
+before multigrid gravity (Stage G), on the user's request, with
+`pm_refine = 4` as the target.*
+
+**Before** (§1, "Coupling"): the PM saw only level 0. The mesh took the
+density of the level-0 gas cell each mesh cell lies in, the level-0 cell
+was kicked by the mean mesh force over its r³ mesh cells, and the hydro's
+push-down gave every fine cell its parent's velocity change. A finer PM
+mesh (`pm_refine`) therefore sharpened the dark matter only: the refined
+gas felt, and sourced, gravity at the level-0 resolution.
+
+**Now** (`pm_gas_levels = 1`, the default; needs `pm_backend = amrex` and
+`amrex_state = 1`, no effect without refinement, `pm_refine` a power of
+2), in `src/amrex/pm_level.cpp`:
+
+* **Deposit** (`composite_density`): every mesh cell takes the gas density
+  of the finest level l ≤ log₂ r covering it (each level's cells spread
+  over their q³ = (r/2^l)³ mesh cells; ParallelCopy of the levels in
+  order, the finer overwriting). A level finer than the mesh is already
+  in its average-down onto level log₂ r (the hydro, the sink, the RT and
+  this kick all average down).
+* **Kick** (`kick_fine`, after level 0's own kick): every refined cell is
+  kicked (the unsplit kick of `kick_gas`) by the mean mesh force over its
+  q³ mesh cells, or, for a level finer than the mesh, by the force of the
+  mesh cell holding it; divided by r (velocities of every level are in
+  level-0 cell units). Spread and average are transposes, so the gas-DM
+  forces stay pairwise antisymmetric.
+* **Average-down**: the kicked u(2:5) of every level onto its parent's
+  covered cells (finest first, the mean of the 8 children in double), so
+  level 0 is the composite; then `amrex_hydro_level0_is_current()`, so
+  the hydro does not push the kick down again.
+* `pm_gas_levels = 0` keeps the level-0 coupling (for comparison).
+* `RADRAY_PM_MOMENTUM_CHECK=1` prints the DM + gas momentum change of every
+  PM step relative to the summed |change| of the gas cells (a diagnostic).
+* `make_production.py --ndm` sets the particle count apart from the mesh:
+  `--N 512 --pm-refine 4 --ndm 1024` is the 2048³ mesh with 1024³
+  particles (the ICs of the `pm_refine = 2` runs), and `--pm-gas-levels`.
+
+**Tests** (`tests/pm_gas_levels_check.py`, CTest
+`amrex_pm_gas_levels_check`, label `amr`, ~30 s on 2 ranks; run in a cloud
+container with AMReX 26.10 fetched, OpenMPI 4.1.6):
+
+1. *Equivalence.* Uniform gas, the same 16³ particles, z = 100 → 4.9,
+   against the uniform 32³ run on the same 32³ mesh (B), the composite
+   averaged onto 16³:
+
+   | run | gas ρ rms | gas momentum rms | particle positions rms [cells] |
+   |---|---|---|---|
+   | 16³, no refinement, `pm_refine = 2` | 1.7e-1 | 1.7e-1 | 6.0e-3 |
+   | 16³ + level 1 everywhere, `pm_gas_levels = 0` | 8.8e-2 | 1.7e-1 | 7.7e-3 |
+   | 16³ + level 1 everywhere, `pm_gas_levels = 1` | **2.7e-3** | **7.5e-3** | **1.0e-4** |
+
+   With the level coupling the refined run reproduces the uniform run at
+   its resolution (what is left is the hierarchy's time stepping); with
+   the level-0 coupling the particles were no better than without
+   refinement.
+2. *Momentum.* The smoke problem with two levels over the whole box:
+   |ΔP_DM + ΔP_gas| / Σ|Δp_gas| per PM step ≤ 1e-7 at `pm_refine` = 1
+   (both levels finer than the mesh), 2 (mixed) and 4 (both spanning mesh
+   cells); the test requires < 1e-5.
+3. `amrex_pm_gas_levels_ranks_smoke` (1, 2, 3 ranks byte-identical) and
+   `amrex_pm_gas_levels_restart_smoke` (bit-identical restart), two levels,
+   `pm_refine = 4`.
+
+**Not done (Stage G):** the particles still see one uniform mesh, so the
+force resolution is the mesh's everywhere; a level finer than the mesh
+gets the mesh resolution; the cost and memory of the uniform 2048³ mesh
+at 512³ gas (`pm_refine = 4`) are to be measured on klone. Multigrid
+Poisson on the hierarchy remains the long-term route.
+
+## 5. Files and tests
 
 | File | What |
 |---|---|
@@ -347,7 +422,9 @@ uniform 128³ and 256³ runs (x_HII(z), τ_es, T_M, the front positions).
 | `tests/amr_conservation_check.py`, `tests/run_amrex.cmake` (`STRICT=cons`) | the conserved totals of a refined run against the uniform run (to 1e-7: the driver's float fields; the hierarchy's double level-0 mass is `mass0` in its timers line) |
 | `tools/production/make_production.py` | `--cool-suppress-overdensity` |
 | `tools/hyak/amr_validate_runs.sh`, `tools/analysis/amr_validate_compare.py` | the 128³ two-level production configuration against uniform 128³ and 256³ (§3, "Next") |
-| `tools/hyak/amr_cost_probe.slurm` | the cost of 0 and 2 levels on a 512³ checkpoint, 5 nodes (§3, "Next") |
+| `tools/hyak/amr_cost_probe.slurm` | the cost of 0 and 2 levels, and of 2 levels on the 2048³ mesh, on a 512³ checkpoint, 5 nodes (§3, "Next") |
+| `src/amrex/pm_level.cpp` (`composite_density`, `kick_fine`, `momentum`), `src/pm_backend.cpp`, `include/radray/pm.hpp`, `config.hpp` | `pm_gas_levels` (§4) |
+| `tests/pm_gas_levels_check.py` | the equivalence and momentum tests of §4 |
 
 Tests: `ctest -L amrex_hydro` (27, refinement off: bitwise the serial
 step), `ctest -L amr` (the label matches `amrex` too; the new tests are

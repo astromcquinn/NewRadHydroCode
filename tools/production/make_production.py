@@ -6,7 +6,7 @@
                        [--hydro-scheme unsplit] [--redshift-per-distance 1]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
-Ngas = N, Ndm = pm_refine*N) in OUTDIR/ics. Run with
+Ngas = N, Ndm = pm_refine*N or --ndm) in OUTDIR/ics. Run with
 
     OMP_NUM_THREADS=4 build/radhydro OUTDIR OUTDIR/run --quiet
 
@@ -160,6 +160,14 @@ def main():
                          "seed (--phases-from-ndm N); 1: the original, Ndm = N. The abundance matching (any box, "
                          "any pm_refine): --am-params data/uv_lf/am_params_st_fof.txt "
                          "(docs/pm_refine.md section 6)")
+    ap.add_argument("--ndm", type=int, default=0,
+                    help="dark-matter particles per dimension (default 0: pm_refine*N); must divide "
+                         "the mesh pm_refine*N, e.g. --pm-refine 4 --ndm 1024 at N = 512 (the 2048^3 "
+                         "mesh with 1024^3 particles; ICs with --phases-from-ndm N when ndm > N)")
+    ap.add_argument("--pm-gas-levels", type=int, default=1, choices=(0, 1),
+                    help="with --amrex-max-level > 0: the refined gas levels enter the PM deposit and "
+                         "kick (pm_gas_levels, docs/stage_f.md section 4; default 1, no line written); "
+                         "0: the level-0 coupling")
     ap.add_argument("--backend", default="serial", choices=("serial", "amrex"),
                     help="amrex: the AMReX RT, hydro and PM backends with the state on the levels "
                          "and load balancing (rt/hydro/pm_backend = amrex, amrex_state = 1, "
@@ -171,7 +179,9 @@ def main():
                          "in between (docs/pm_refine.md, FoF cadence); 0: every hydro step "
                          "(the original, no line written)")
     a = ap.parse_args()
-    ndm = a.pm_refine * a.N
+    ndm = a.ndm if a.ndm > 0 else a.pm_refine * a.N
+    if (a.pm_refine * a.N) % ndm:
+        sys.exit(f"--ndm {ndm} must divide the PM mesh pm_refine*N = {a.pm_refine * a.N}")
     if a.backend == "amrex":
         if a.hydro_scheme != "unsplit":
             sys.exit("--backend amrex needs --hydro-scheme unsplit")
@@ -191,7 +201,7 @@ def main():
         cmd = [sys.executable, os.path.join(here, "..", "ics", "make_ics.py"), ics,
                "--kind", "zeldovich", "--Ngas", str(a.N), "--Ndm", str(ndm),
                "--z-init", str(a.z_init), "--box", str(a.box), "--seed", str(a.seed)]
-        if a.pm_refine > 1:
+        if ndm > a.N:
             cmd += ["--phases-from-ndm", str(a.N)]
         subprocess.run(cmd, check=True)
     lines = [
@@ -267,6 +277,8 @@ def main():
         lines.append(f"amrex_max_level = {a.amrex_max_level}")
         if a.amrex_refine_mass != 8.0:
             lines.append(f"amrex_refine_mass = {a.amrex_refine_mass:g}")
+        if a.pm_gas_levels != 1:
+            lines.append(f"pm_gas_levels = {a.pm_gas_levels}")
     if a.sf_overdensity > 0:
         lines.append(f"sf_overdensity = {a.sf_overdensity:g}")
         if a.sf_efficiency != 1.0:

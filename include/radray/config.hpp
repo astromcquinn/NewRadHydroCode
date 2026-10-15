@@ -281,9 +281,18 @@ struct Config {
   //   amrex_pm_fft: fft of the Poisson solve: pencil (default; 1-D FFTW
   //                transforms per pencil, bitwise rank- and thread-
   //                independent) | amrex (the amrex::FFT::R2C solver).
+  //   pm_gas_levels: with a refined gas hierarchy (amrex_max_level > 0,
+  //                amrex_state = 1) the gas of every level enters the PM:
+  //                1 (default) the mesh takes the density of the finest
+  //                level covering each mesh cell and every level's cells
+  //                are kicked by the mesh force over their own volume
+  //                (docs/stage_f.md section 4); 0 the level-0 coupling of
+  //                Stage F1 (the fine cells get the level-0 kick through
+  //                the hydro's push-down). No effect without refinement.
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
+  int pm_gas_levels = 1;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in

@@ -63,6 +63,9 @@ struct PMConfig {
   // amrex_state = 1 (amrex_state.hpp): the gas on the shared decomposition,
   // the mesh boxes pm_refine times the gas boxes
   bool amrex_state = false;
+  // pm_gas_levels with amrex_state = 1 (config.hpp): the refined levels of
+  // the gas state enter the deposit and are kicked on their own cells
+  bool gas_levels = false;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
@@ -72,6 +75,7 @@ struct PMConfig {
                                                            : cfg.amrex_max_grid_size;
     c.amrex_fft = cfg.amrex_pm_fft;
     c.amrex_state = cfg.amrex_state;
+    c.gas_levels = cfg.amrex_state && cfg.pm_gas_levels != 0 && cfg.amrex_max_level > 0;
     if (cfg.amrex_state && cfg.amrex_pm_max_grid_size == 0)
       c.amrex_max_grid_size = cfg.pm_refine * cfg.amrex_max_grid_size;
     return c;

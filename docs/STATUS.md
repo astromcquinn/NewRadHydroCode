@@ -1775,10 +1775,11 @@ differ on klone are skipped there (label `platform_ref`).
    - multigrid/tree gravity (Stage G);
    - adaptive RT.
 9. **Before AMR is ready for science** (2026-10-15, after PR #41):
-   - **Gravity on the refined levels (Stage G).** The PM acts on level 0
-     only and its kick reaches the fine cells through the interim
-     push-down (`docs/stage_f.md` §1), so the fine gas feels level-0
-     gravity. Multigrid Poisson on the hierarchy first, TreePM optional.
+   - **Gravity on the refined levels (Stage G).** Since `pm_gas_levels`
+     (below) every level gets the force of the uniform PM mesh over its
+     own cells; the force resolution is still the mesh's everywhere.
+     Multigrid Poisson on the hierarchy (adaptive resolution, no huge
+     uniform mesh) remains Stage G, TreePM optional.
    - **Hydro validation with refinement (F2):** the pancake and KH cases,
      the full tier, and the composite of the finest data for comparisons
      at the matched finest resolution.
@@ -1789,15 +1790,15 @@ differ on klone are skipped there (label `platform_ref`).
      one-source I-front is done (`amrex_rt_amr_ifront`). Scripts for the
      128³ runs and a 512³ cost probe (0 vs 2 levels on 5 nodes) are
      ready, not yet run (`docs/stage_f.md` §3, "Next").
-   - **pm_refine and the refined gas:** the gas force is the PM mesh
-     force averaged over each level-0 gas cell (`docs/pm_refine.md` §1)
-     and the gas mass on the mesh is the level-0 gas, so a finer PM mesh
-     (pm_refine = 4: 2048³ at 512³ gas) sharpens the DM only. Feeding the
-     fine levels' gas to the mesh and the mesh force to each level's
-     cells would give the refined gas gravity at the PM resolution
-     without multigrid. pm_refine = 4 is untested; with Ndm = pm_refine·N
-     (`make_production.py`) it means 2048³ particles, which needs the
-     distributed FoF/P(k) first; the code also allows Ndm < pm_refine·N.
+   - **pm_refine and the refined gas: done 2026-10-15** (`pm_gas_levels
+     = 1`, default; `docs/stage_f.md` §4): the PM deposit takes the gas
+     of the finest level covering each mesh cell and every level is
+     kicked on its own cells, so with `pm_refine = 4` both levels of a
+     512³ run get gravity at the 2048³ mesh. A 16³ run refined everywhere
+     now matches the uniform 32³ run on the same mesh to 0.3 % (gas) and
+     1e-4 cells (particles), against 9 % and 8e-3 with the level-0
+     coupling. `make_production.py --ndm` allows 1024³ particles on the
+     2048³ mesh. To measure on klone: the 2048³ mesh's cost and memory.
    - **Production:** the sink's production threshold (`sf_overdensity`,
      "a few thousand"), a first refined production run, profiling the
      flux-register and FillPatch overheads (`reflux`, `fill` timers), the

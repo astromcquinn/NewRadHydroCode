@@ -913,3 +913,19 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
 * **Order (agreed):** (1) gas AMR with refinement off, bitwise identical
   to Stage E; (2) refined hydro on the hydro test suite, with the cooling
   flag and the sink; (3) the RT coarse substep across levels.
+
+## Gravity on the refined levels (2026-10-15)
+
+* **User:** do the cheaper intermediate step before multigrid gravity:
+  feed the refined gas levels to the uniform PM mesh and kick every level
+  from the mesh, with `pm_refine = 4` as the target (512³ gas, two
+  levels, the 2048³ mesh).
+* **Implementer's choices:** the parameter `pm_gas_levels`, default 1
+  (the level-0 coupling of F1 was documented as interim, and refinement
+  has no original behaviour to keep; without refinement the flag does
+  nothing, so every existing result is unchanged), 0 for comparison;
+  `pm_refine` a power of 2 with it; the particle count apart from the
+  mesh (`make_production.py --ndm`), so `pm_refine = 4` runs can use
+  1024³ particles rather than 2048³ (whose FoF and P(k) on rank 0 would
+  not fit). Multigrid Poisson on the hierarchy stays Stage G.
+
