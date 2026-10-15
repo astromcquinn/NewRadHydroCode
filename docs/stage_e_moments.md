@@ -478,8 +478,15 @@ ranks × 12 threads per node; the serial run on one node, 192 threads.
 | run total | 594 | 415 |
 | peak RSS | 150 GB | rank 0 93 GB (the mirror), others 13 GB |
 
-The 2-node host-mode run halves the transport (61 s) and the
-photochemistry (35 s).
+Two nodes (32 ranks × 12 threads, production configuration, binary
+`9637d0e`, before the frame-only gather): RT 236 s (1.24× one node):
+transport 66 s (1.7×), photochemistry 44 s (1.6×), tensor 26 s (march 13,
+near-field FFTs 8), sums 12 s, sync 53 → 48 s (the movie frames and stats
+gathered onto rank 0: they do not scale, hence the small overall gain;
+`44e431d` gathers 6 of 46 floats per frame). Peak RSS: rank 0 65 GB, the
+others 12 GB. (The 2-node host-mode run, which keeps the serial PM and
+broadcasts the fields to every rank, also halves the transport, 61 s, and
+the photochemistry, 35 s.)
 
 ### The 1024³ run
 
