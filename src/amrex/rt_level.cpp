@@ -39,6 +39,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -429,10 +430,47 @@ struct Level : LevelBase {
     }
   }
   // Rays (in this level's units) appended to this rank's first tile and
-  // moved to their owners (global; also drops the invalidated rays).
-  // Collective.
-  void add_rays(const std::vector<RayP>& in) {
+  // moved to their owners (global; also drops the invalidated rays). A rank
+  // without a box of this level (a refined level with fewer boxes than
+  // ranks: rays parked or leaving from a finer level) hands its rays to the
+  // owner of box 0 first. Collective.
+  void add_rays(const std::vector<RayP>& in_) {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const std::vector<RayP>* inp = &in_;
+    std::vector<RayP> gathered;
+    {
+      const bool have_box = ax::MFIter(C).isValid();
+      int need = (!in_.empty() && !have_box) ? 1 : 0;
+      ax::ParallelDescriptor::ReduceIntMax(need);
+      if (need) {
+        const int nproc = ax::ParallelDescriptor::NProcs();
+        const int owner = dm[0];
+        const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+        const int nsend = have_box ? 0 : static_cast<int>(in_.size() * sizeof(RayP));
+        std::vector<int> counts(static_cast<std::size_t>(nproc), 0), displ(static_cast<std::size_t>(nproc), 0);
+        MPI_Gather(&nsend, 1, MPI_INT, counts.data(), 1, MPI_INT, owner, comm);
+        std::size_t total = 0;
+        if (ax::ParallelDescriptor::MyProc() == owner)
+          for (int r = 0; r < nproc; ++r) {
+            displ[static_cast<std::size_t>(r)] = static_cast<int>(total);
+            total += static_cast<std::size_t>(counts[static_cast<std::size_t>(r)]);
+          }
+        if (total > static_cast<std::size_t>(INT32_MAX))
+          throw std::runtime_error("rt_backend = amrex: add_rays: more than 2 GB of rays to hand over");
+        if (ax::ParallelDescriptor::MyProc() == owner) {
+          gathered = in_;
+          gathered.resize(in_.size() + total / sizeof(RayP));
+        }
+        char* recv = ax::ParallelDescriptor::MyProc() == owner
+                         ? reinterpret_cast<char*>(gathered.data() + in_.size())
+                         : nullptr;
+        MPI_Gatherv(have_box ? nullptr : in_.data(), nsend, MPI_BYTE, recv, counts.data(), displ.data(), MPI_BYTE,
+                    owner, comm);
+        static const std::vector<RayP> none;
+        inp = ax::ParallelDescriptor::MyProc() == owner ? &gathered : (have_box ? &in_ : &none);
+      }
+    }
+    const std::vector<RayP>& in = *inp;
     if (!in.empty()) {
       ax::MFIter mfi(C);
       if (!mfi.isValid()) throw std::runtime_error("rt_backend = amrex: a rank with rays to add but no box");
