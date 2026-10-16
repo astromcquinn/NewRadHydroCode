@@ -1140,6 +1140,10 @@ void backend_finalize() {
 bool io_rank() { return !g_initialized || amrex::ParallelDescriptor::IOProcessor(); }
 int backend_rank() { return g_initialized ? amrex::ParallelDescriptor::MyProc() : 0; }
 int backend_nranks() { return g_initialized ? amrex::ParallelDescriptor::NProcs() : 1; }
+void backend_abort(int code) {
+  if (amrex::Initialized() && amrex::ParallelDescriptor::NProcs() > 1) amrex::ParallelDescriptor::Abort(code, false);
+}
+
 void backend_barrier() {
   if (g_initialized) amrex::ParallelDescriptor::Barrier();
 }

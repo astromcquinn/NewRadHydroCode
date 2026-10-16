@@ -24,6 +24,7 @@ void amrex_state_scatter_rt(Simulation&) { no_amrex(); }
 bool io_rank() { return true; }
 int backend_rank() { return 0; }
 int backend_nranks() { return 1; }
+void backend_abort(int) {}
 void backend_barrier() {}
 void backend_reduce_minmax(double&, double&) {}
 void amrex_rt_prep(Simulation&) { no_amrex(); }

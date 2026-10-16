@@ -1282,6 +1282,8 @@ int main(int argc, char** argv) {
              << " reused " << s.fof.nreuse << "\n";
   } catch (const std::exception& e) {
     std::fprintf(stderr, "radhydro: error: %s (peak RSS %.1f MB)\n", e.what(), peak_rss_mb());
+    std::fflush(stderr);
+    backend_abort(1);  // MPI: end every rank (a rank's error would hang the others)
     return 1;
   }
   return 0;

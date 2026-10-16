@@ -38,6 +38,10 @@ bool amrex_available();
 // every rank runs the whole driver and only io_rank() writes files.
 void backend_init(int& argc, char**& argv);
 void backend_finalize();
+// A fatal error on one rank of an MPI run: abort every rank (MPI_Abort),
+// instead of the others waiting in a collective and this one in
+// MPI_Finalize. No-op without AMReX or with one rank.
+void backend_abort(int code);
 bool io_rank();
 int backend_rank();
 int backend_nranks();
