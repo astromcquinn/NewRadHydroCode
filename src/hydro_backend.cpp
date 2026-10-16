@@ -3,6 +3,8 @@
 
 #include <cstdio>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "radray/rt_backend.hpp"
 
@@ -61,10 +63,24 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
     return true;
   }
   if (key == "amrex_refine_box") {
-    int v[6];
-    if (std::sscanf(val.c_str(), "%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6)
-      throw std::runtime_error("amrex_refine_box must be i0,j0,k0,i1,j1,k1 (level-0 cells, inclusive)");
-    for (int m = 0; m < 6; ++m) c.amrex_refine_box[m] = v[m];
+    // i0,j0,k0,i1,j1,k1[,i0,...] (level-0 cells, inclusive): one box per level
+    std::vector<int> v;
+    std::size_t pos = 0;
+    try {
+      while (pos <= val.size()) {
+        const std::size_t e = val.find(',', pos);
+        v.push_back(std::stoi(val.substr(pos, e == std::string::npos ? std::string::npos : e - pos)));
+        if (e == std::string::npos) break;
+        pos = e + 1;
+      }
+    } catch (const std::exception&) {
+      v.clear();
+    }
+    if (v.empty() || v.size() % 6 != 0 || v.size() > 24)
+      throw std::runtime_error(
+          "amrex_refine_box must be i0,j0,k0,i1,j1,k1 (level-0 cells, inclusive), up to 4 boxes (one per level)");
+    for (std::size_t m = 0; m < v.size(); ++m) c.amrex_refine_box[m] = v[m];
+    c.amrex_refine_nbox = static_cast<int>(v.size() / 6);
     return true;
   }
   // the star-formation sink (docs/stage_f.md section 2)
@@ -91,7 +107,8 @@ void copy_hydro_backend_param(const Config& from, Config& to) {
   to.amrex_blocking_factor = from.amrex_blocking_factor;
   to.amrex_n_error_buf = from.amrex_n_error_buf;
   to.amrex_grid_eff = from.amrex_grid_eff;
-  for (int m = 0; m < 6; ++m) to.amrex_refine_box[m] = from.amrex_refine_box[m];
+  for (int m = 0; m < 24; ++m) to.amrex_refine_box[m] = from.amrex_refine_box[m];
+  to.amrex_refine_nbox = from.amrex_refine_nbox;
   to.sf_overdensity = from.sf_overdensity;
   to.sf_efficiency = from.sf_efficiency;
 }
