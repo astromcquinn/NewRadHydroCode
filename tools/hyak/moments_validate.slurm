@@ -59,7 +59,7 @@ case "${MODE:-host}" in
   *) echo "MODE must be host or state"; exit 1 ;;
 esac
 echo "$(date) MODE ${MODE:-host}: $SRC step $STEP + $NSTEPS on $RANKS ranks x $OMP_NUM_THREADS threads, ${SLURM_JOB_NUM_NODES:-1} nodes (${SLURM_JOB_NODELIST:-})"
-/usr/bin/time -v srun --ntasks="$RANKS" --cpus-per-task="$OMP_NUM_THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
+/usr/bin/time -v srun --mpi=pmix --ntasks="$RANKS" --cpus-per-task="$OMP_NUM_THREADS" --cpu-bind=cores --kill-on-bad-exit=1 \
   --chdir="$OUT" "$EXE" "$SRC" "$OUT" --quiet --restart "$CK" \
   --set run_steps="$NSTEPS" --set restart_every=0 \
   --set rt_backend=amrex --set hydro_backend=amrex $backends --set amrex_slab=1 --set amrex_slab_planes="${PLANES:-0}" \
