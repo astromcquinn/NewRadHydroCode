@@ -1853,18 +1853,53 @@ struct Hierarchy : LevelBase {
         levels[static_cast<std::size_t>(l)] = std::move(nl);
       else
         levels.push_back(std::move(nl));
-      levels[static_cast<std::size_t>(l) - 1]->add_rays(parked);  // (empty on most ranks: collective)
+      place_rays(l - 1, parked);  // (empty on most ranks: collective)
     }
     while (static_cast<int>(levels.size()) > nf + 1) {
       std::vector<RayP> parked;
       levels.back()->take_all(parked);
       levels.pop_back();
-      levels.back()->add_rays(parked);
+      place_rays(static_cast<int>(levels.size()) - 1, parked);
     }
     finest = nf;
     for (int l = 0; l <= finest; ++l)
       levels[static_cast<std::size_t>(l)]->set_covered(l < finest ? &levels[static_cast<std::size_t>(l) + 1]->ba : nullptr);
     migrate();
+  }
+
+  // Rays (in level-l units) onto level l, or, where level l has no grid
+  // there, onto the next coarser level that has one (level 0 covers the
+  // domain): a regrid can park rays where the rebuilt parent has no grid,
+  // and a ray leaving a deep level moves up to 2^l + 1 of its cells, which
+  // can carry it past a thin nesting margin (AMReX aborts on a particle
+  // outside every box of its level: fesc512_b2.5_amr, 2026-10-17). The
+  // rays that go down again do so at the next migration's collect_down.
+  // Collective; the coarser levels are visited only when some rank has a
+  // ray for them.
+  void place_rays(int l, std::vector<RayP> rays) {
+    for (int k = l;; --k) {
+      std::vector<RayP> up;
+      if (k > 0) {
+        const L& Lk = *levels[static_cast<std::size_t>(k)];
+        const int Nk = Lk.N;
+        std::vector<RayP> keep;
+        keep.reserve(rays.size());
+        for (const RayP& r : rays) {
+          const ax::IntVect iv(rrk::cell_of(r.x[0], Nk), rrk::cell_of(r.x[1], Nk), rrk::cell_of(r.x[2], Nk));
+          if (Lk.ba.contains(iv))
+            keep.push_back(r);
+          else
+            up.push_back(L::rescaled(r, 0.5));
+        }
+        rays.swap(keep);
+      }
+      levels[static_cast<std::size_t>(k)]->add_rays(rays);
+      if (k == 0) break;
+      Long nup = static_cast<Long>(up.size());
+      ax::ParallelDescriptor::ReduceLongSum(nup);
+      if (nup == 0) break;
+      rays.swap(up);
+    }
   }
 
   // Rays that left a refined level go up, rays under a finer level go down
@@ -1874,7 +1909,7 @@ struct Hierarchy : LevelBase {
       L& Ll = *levels[static_cast<std::size_t>(l)];
       std::vector<RayP> up;
       up.swap(Ll.leaving);
-      levels[static_cast<std::size_t>(l) - 1]->add_rays(up);
+      place_rays(l - 1, up);
     }
     for (int l = 0; l < finest; ++l) {
       std::vector<RayP> down;
