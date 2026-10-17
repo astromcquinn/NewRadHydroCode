@@ -160,6 +160,165 @@ since the 40 Mpc/h box ends 0.18 later at fixed f_esc. That is the late end
 of the 5.3–5.5 target. β = 3 would end at ≈ 5.4 but leaves Γ and ⟨F⟩ 30 %
 low. β = 2 ends at ≈ 5.6 with Γ 1.2–1.5× high.
 
-## 4. 512³
+## 4. 512³: `fesc512_b2.5`
 
-*(in progress)*
+`$RUNS/fesc512_b2.5`: the parameters of `reion512_rays` (40 Mpc/h, 512³ gas
+and DM, ĉ = 0.2c constant, case A + RR, ICs of `reion512_40mpc_f0.1`) with
+`f_esc = 0.135`, `f_esc_beta = 2.5`, `f_esc_z0 = 6`, and two changes:
+`recomb_rad_cell_onspot = 1` (user decision; `reion512_rays` predates the
+fix of the block-emission clumps) and the snapshot list of the closure runs
+(15 7 6.5 6.25 6 5.75 5.5 5.25 5). One cpu-g2 node, 192 threads: 14 h of
+compute (z = 15 → 8.7 in 5.4 h, then 8.2 h after a node failure and a
+restart from the step-28 checkpoint; the restart is bit-exact by
+construction). Analysis: `tools/hyak/fesc_post.slurm` (IGM statistics, P_Γ,
+maps, movie).
+
+![512^3](figures/fesc_evolution_512.png)
+
+*As the 256³ figure. Blue: `reion512_rays`; orange: this run; green, for
+reference only: the other thread's `fesc512_b2.5_uniform` with the same
+f_esc(z) but 0.1c, case B, `pm_refine = 4` (1024³ DM), the Sheth–Tormen
+L(M) and the star-formation sink, so it differs in several ways at once.
+Tables: [`figures/fesc_evolution_512.md`](figures/fesc_evolution_512.md).*
+
+**History.**
+
+| run | z10 | z25 | z50 | z75 | z90 | z99 | z99.9 | τ_es |
+|---|---|---|---|---|---|---|---|---|
+| `reion512_rays` (0.23) | 8.58 | 7.68 | 6.96 | 6.47 | 6.17 | 5.82 | 5.65 | 0.0532 |
+| `fesc512_b2.5` | 9.59 | 8.10 | 7.11 | 6.42 | 5.99 | **5.51** | 5.33 | 0.0561 |
+
+The 256³ prediction (z99 ≈ 5.5) holds: the box ends 0.20 later than at 256³
+(5.51 against 5.71), as at constant f_esc (5.82 against 6.00). τ_es = 0.056,
++0.3σ from Planck.
+
+**IGM** (ratio to the data in brackets):
+
+| z | run | x_V | Γ_HI [10⁻¹²] | λ_mfp [pMpc] | ⟨F⟩ | A |
+|---|---|---|---|---|---|---|
+| 5.9 | `reion512_rays` | 0.979 | 0.495 (3.3×) | 7.1 (6.6×) | 0.082 (7.2×) | 3.49 |
+| | `fesc512_b2.5` | 0.924 | 0.237 (1.6×) | 3.2 (2.9×) | 0.022 (1.9×) | 1.40 |
+| 5.7 | `reion512_rays` | 0.998 | 0.642 (2.9×) | 11.9 (4.2×) | 0.124 (4.8×) | 3.31 |
+| | `fesc512_b2.5` | 0.967 | 0.271 (1.2×) | 4.6 (1.6×) | 0.039 (1.5×) | 1.25 |
+| 5.4 | `reion512_rays` | 1 | 0.937 (2.5×) | 24.8 (5.1×) | 0.223 (2.8×) | 3.08 |
+| | `fesc512_b2.5` | 0.997 | 0.371 (1.00×) | 9.4 (1.9×) | 0.090 (1.1×) | 1.12 |
+| 5.1 | `reion512_rays` | 1 | 1.252 (2.5×) | 40.4 (4.4×) | 0.308 (2.2×) | 3.09 |
+| | `fesc512_b2.5` | 1 | 0.493 (0.97×) | 16.3 (1.8×) | 0.155 (1.1×) | 1.14 |
+
+- **Γ_HI and the forest are matched** at z = 5.1–5.4 (Γ 0.97–1.00×
+  Gaikwad+23, ⟨F⟩ 1.1× Bosman+22, A = 1.1), and within 1.2–1.6× / 1.5–1.9×
+  at z = 5.7–5.9, where the box is still finishing (x_V = 0.92–0.97).
+- **ṅ_ion** is 10^50.8–50.9 at z = 5–6, 0.4–0.7 dex below Becker+21 (as
+  intended) and at the Gaikwad-Γ + Zhu-λ estimate.
+- **λ fell with Γ** (λ ∝ Γ^≈1 between the two runs at fixed z, as at 256³):
+  from 4.2–6.6× the data to 1.6–2.9×.
+
+**P_Γ** (`gamma_power.py`, δ = Γ/⟨Γ⟩ − 1, against `reion512_rays` and its
+extra cubes, case-B rays as the rays' own spread):
+
+![P_Gamma](figures/fesc_evolution_512_gamma_pk.png)
+
+*Table: [`figures/fesc_evolution_512_gamma_pk.txt`](figures/fesc_evolution_512_gamma_pk.txt).*
+
+| k [h/Mpc] | z = 5.44 | z = 5.22 | z ≈ 5.0 | case-B rays |
+|---|---|---|---|---|
+| 0.16 (box) | 3.3 (0.99) | 1.7 (0.99) | 1.3–1.4 (1.00) | 1.0–1.1 |
+| 0.49 | 1.55 (0.95) | 1.25 (0.99) | 1.08 (0.99) | 1.0–1.1 |
+| 1.4 | 1.59 (0.98) | 1.35 (0.99) | 1.12–1.19 (1.00) | 1.0–1.1 |
+| 6.4 | 1.57 (0.94) | 1.36 (0.92) | 1.09–1.12 (0.87) | 1.1–1.2 |
+
+(P_Γ relative to the rays; r(k) in brackets. The z ≈ 5.0 snapshot of this
+run, z = 4.994, is compared with the rays' cubes at z = 5.03, 5.01 and 4.98.)
+
+- The relative fluctuations are larger while the run finishes reionizing
+  (z = 5.44, x_V = 0.994: the shadows of the last islands; 3.3× on the box
+  scale) and converge to the rays' within about 10–20 % by z = 5, with the
+  same pattern (r ≥ 0.99 at k ≲ 3 h/Mpc). Capped at 3⟨Γ⟩ (the source cells
+  removed) the ratios at k ≲ 1.5 h/Mpc are the same within ≈ 10 %; at
+  k ≈ 6 h/Mpc the capped excess is smaller (1.14 at z = 5.44, 1.04 at
+  z ≈ 5): there it sits in the source cells and proximity zones.
+- The absolute Γ is 2.5× lower, so the absolute power is about 6× lower;
+  the relative fluctuations, which the forest's UVB signal depends on, are
+  close to the constant-f_esc run once the box has been ionized for a few
+  hundred Myr.
+
+**Movie** ([`movies/fesc_evolution_512.mp4`](movies/fesc_evolution_512.mp4),
+0.9 MB, 1600×900; full resolution `$RUNS/fesc_evolution/512/compare.mp4`;
+each run's own `run/movie/cosmo.mp4`): x_HII, log T and log Γ_HI slices of
+`reion512_rays` | `fesc512_b2.5`, the histories and the median Γ_HI of the
+ionized cells.
+
+![z = 6.15](figures/fesc_evolution_512_z6.15.png)
+
+*z = 6.15: the falling f_esc leaves more and larger neutral islands (x_V =
+0.85 against 0.91) and a lower Γ in the ionized gas.*
+
+## 5. How much of λ's excess does ε remove?
+
+At the Γ that matches Gaikwad+23 and the forest, **λ_mfp is still
+1.6–1.9× the observed at z = 5.1–5.7** (16.3 against 9.1 ± 1.6 pMpc at
+z = 5.1, Becker+21; 9.4 against 4.9 at z = 5.4; 4.6 against 2.9 at 5.7),
+and 2.9× at z = 5.9 (where the observed λ ≈ 1 pMpc). Of the factor 4–6
+excess at constant f_esc, ε (with the later end of reionization it causes)
+removes a factor 2.5–2.7; a factor ≈ 1.8 remains.
+
+ε cannot remove the rest. Because λ ∝ Γ^≈1 here (optically thin
+absorbers), lowering ε further shortens λ and Γ together: matching λ
+would leave Γ ≈ 0.55× Gaikwad and the forest too opaque (A ≈ 0.6). The
+other thread's `fesc512_b2.5_uniform` shows this combination (λ 1.3–1.5×,
+Γ 0.5×, A 0.6), though for several reasons at once (0.1c, case B, `pm_refine
+= 4`, the sink). What is missing is opacity at fixed Γ: about 1.8× more
+absorption per unit length than the resolved gas gives, from self-shielding
+systems smaller than the 78 kpc/h cells (Lyman-limit systems, the
+self-shielded halo outskirts and minihalos).
+
+Caveats on the comparison: λ is the exponential fit to the 912 Å
+transmission from ionized starts in the simulation, and the box (8.9 pMpc at
+z = 5.4) is shorter than λ below z ≈ 5.3, so the long sightlines wrap the
+box; Becker+21 and Zhu+23 fit quasar spectra with their own models.
+
+## 6. Options for the remaining λ excess (to discuss; nothing implemented)
+
+1. **Resolution.** The sinks that set λ (self-shielded gas of 10²–10³ ρ̄,
+   tens of kpc) need much finer cells than 78 kpc/h.
+   - 1024³ in 40 Mpc/h on the uniform grid. The rays at 1024³ are 8× the
+     memory and more than 8× the time of 512³ (≈ 15 h on one node); this
+     needs the AMReX backends on several nodes (Stage E, done) or the
+     moment RT on AMReX. A cheap first data point exists:
+     `reion1024_otvet_cone` (other thread, in progress) against
+     `reion512_rays_otvet_cone`, λ at fixed Γ.
+   - AMR (Stage F, now on `main`) refines the dense gas where the sinks
+     are. `fesc512_b2.5_amr` (other thread) against `fesc512_b2.5_uniform`
+     is the direct test, same everything except the refinement.
+   - Expect convergence to be slow: the published λ convergence studies
+     need ≲ 10 kpc/h cells.
+2. **A subgrid Lyman-limit opacity, flag-gated** (default off; for
+   example `ll_opacity`). An extra absorption coefficient for the ionizing
+   photons, κ_LL = 1/λ_LL with λ_LL(z, Γ) ∝ Γ^η (η ≈ 2/3 for self-shielded
+   absorbers), calibrated so that the total λ matches Becker+21/Zhu+23 at
+   the Gaikwad Γ. Choices to discuss: uniform or tied to the local density;
+   whether the photons are removed (absorbed by unresolved gas, not
+   ionizing the resolved cell) or ionize the cell; and how to avoid double
+   counting at higher resolution (a resolution-dependent λ_LL, or only
+   below a cell column-density threshold). This is what CROC (Gnedin 2014)
+   does for its background, and it is the cheapest way to match λ and Γ
+   together; it is a model, though, not a prediction.
+3. **Accept the excess** and calibrate f_esc on Γ and the forest only (as
+   here), reporting λ as a resolution-limited check.
+
+**Also to note:** case A + RR leaves about 1.4–1.6× more residual HI than
+case B at the same Γ in the diffuse gas (α_A/α_B), which shortens λ; part
+of the λ difference between `reion512_rays` (case A + RR) and its case-B
+run (23 against 34 pMpc at z = 5.44, `docs/rt_methods_512.md` §7) is that,
+not only the block-emission clumps.
+
+## 7. The speed of light
+
+This calibration used ĉ = 0.2c throughout. On 2026-10-17 the user set a
+new production default, ĉ by ionization state (0.1c below x_HII,V = 0.3,
+0.2c to 0.8, 0.4c after; `c_reduced_schedule`, branch `c-schedule`,
+`docs/production_run.md` §1). After overlap the 0.4c ends reionization
+earlier and lets Γ relax faster, so (f6, β) must be recalibrated with it:
+with the speed-of-light runs (z99 is ≈ 0.1 later at 0.4c than at 1c, ≈ 0.3
+later at 0.2c), expect the same f6 and β to end reionization ≈ 0.15–0.2
+earlier and to raise Γ after overlap.

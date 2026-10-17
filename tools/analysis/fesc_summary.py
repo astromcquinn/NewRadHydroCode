@@ -239,7 +239,7 @@ def plot(runs, obs, path):
         a_.legend(frameon=False, fontsize=7.5, loc="best")
     for a_ in axs[1]:
         a_.set_xlabel("redshift")
-    af.legend(frameon=False, fontsize=8)
+    af.legend(frameon=False, fontsize=7.5, loc="upper right")
     fig.savefig(path, dpi=140)
     print("#", path)
 
