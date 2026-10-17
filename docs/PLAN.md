@@ -913,3 +913,213 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
 * **Order (agreed):** (1) gas AMR with refinement off, bitwise identical
   to Stage E; (2) refined hydro on the hydro test suite, with the cooling
   flag and the sink; (3) the RT coarse substep across levels.
+
+## Unified RT-methods suite (2026-10-17): one ĉ, 512³, one f_esc, AMR, and FLD
+
+*Assessment requested by the user on 2026-10-17 (session
+`sleepy-feynman`); no code changed. The tables and estimates come from
+`docs/rt_methods_512.md`, `docs/otvet_closure.md` §7,
+`docs/production_run.md` §8–9, `docs/stage_e_state.md`, `docs/stage_f.md`,
+`docs/fesc_evolution.md` (branch `fesc-evolution`) and the open PRs
+#42–#44.*
+
+* **Goal (user):** every RT method run with the same, motivated reduced
+  speed of light, at 512³, with the same f_esc, ideally with AMR; and a
+  flux-limited-diffusion method added to the comparison.
+* **Where each set stands today:**
+
+  | | rays, serial | rays, AMReX backend | M1 / OTVET / cone |
+  |---|---|---|---|
+  | MPI | no | yes (Stage E) | no |
+  | AMR | no | yes (Stage F3) | no: `rt_backend = amrex` refuses `rt_method ≠ rays`; the serial solvers are single-level |
+  | case A + recombination radiation | yes | no: the backend refuses `recomb_rad` (the emission kernel exists, the block and on-the-spot logic do not) | yes |
+  | 512³ runs so far | 0.2c, f_esc = 0.23, case A + RR (`reion512_rays`) | 0.1c, f_esc(z) β = 2.5, case B (`fesc512_b2.5_{amr,uniform}`, PR #43) | 0.2c, f_esc = 0.23, case A + RR |
+
+* **The gaps, in order of size:**
+  1. **The moment methods are serial-only.** Porting the explicit solver
+     to the AMReX level hierarchy is the largest piece of new work
+     (weeks): the 7-point stencil maps onto the ghost exchange; the OTVET
+     tensors need the global FFT the PM backend already has on AMReX, the
+     cone also its near-field march; on a level-l grid the explicit
+     transport needs 2^l × `moment_nsub` subcycles per coarse substep
+     (time sub-cycling, declined for rays in the Stage F decision but
+     cheap for a stencil) and refluxing of the moment fluxes.
+  2. **The backend has no recombination radiation**, while case A + RR
+     is the production default the method comparison used. Either port
+     `recomb_rad` to the backend or run the whole suite as case B.
+  3. **The existing ĉ study covers the history, not the post-overlap Γ.**
+     Measured: at 128³ in the 10 Mpc/h box with constant f_esc, 0.1c
+     delays the end of reionization by Δz = 0.4 and the midpoint by 0.15
+     against full c, 0.3c halves both, τ_es 2.5 % and 0.7 % low
+     (`docs/production_run.md` §9, runs `$RUNS/cal128{,_c03,_c10}`);
+     0.01c delays it by Δz ≈ 2 (`docs/cluster.md` §7). Not measured: Γ_HI,
+     its PDF and P_Γ after overlap against full c, in a box with the 512³
+     mean free path (the lag scales with λ_mfp, 5× longer at 40 Mpc/h
+     than the data), with the f_esc(z) sources. The 20 Mpc/h 256³ study
+     decided on 2026-10-11 (above, `runs/sol/`) never ran. `c_reduced` is
+     one constant: the schedule of `docs/plane_parallel.md` was never
+     built. Two physical limits: before overlap the fronts crossing the
+     last voids approach ĉ (the Δz lag above); after overlap Γ relaxes on
+     λ_mfp/ĉ, the regime of the Γ-fluctuation comparison:
+
+     | ĉ | λ_mfp/ĉ at z = 5.4 (λ = 23 pMpc) |
+     |---|---|
+     | 1c | 75 Myr |
+     | 0.2c | 375 Myr |
+     | 0.1c | 750 Myr, about the age of the universe then |
+
+     Cost is linear in ĉ for every method (one substep is one cell of
+     light travel). Rough 512³ costs at full c, scaled from the 0.2c
+     runs: rays on 5 backend nodes ≈ 10 h in case B; M1 or OTVET on one
+     node ≈ 22 h (143–146 GB). A constant ĉ of 0.5–1 is therefore
+     affordable. A higher ĉ also shrinks the AMR failure mode of
+     light-limited fronts at two levels (`docs/rt_multicell.md` §7–8).
+  4. **f_esc.** Constant 0.23 overshoots Γ by 2.5× and λ_mfp by 5× at
+     z ≈ 5.5; the falling law f_esc(z) = 0.135 ((1+z)/7)^2.5 lands on the
+     Γ and forest data at 256³ and awaits its 512³ confirmation
+     (`fesc-evolution`, unmerged). Whatever the law, it must be held fixed
+     across methods: a per-method forest calibration would move f_esc by
+     ≈ 30 % through ⟨F⟩ (`docs/rt_methods_512.md` §7) and defeat the
+     comparison.
+  5. **AMR readiness.** Two refined levels are not rank-independent
+     (1e-10, `fields-levels`); gravity on refined levels is at the PM-mesh
+     resolution only (Stage G); the flux-register and FillPatch overheads
+     are unprofiled; the 512³ cost probe has no usable checkpoint; PRs
+     #42–#44 are open. The first refined 512³ run is also the test of
+     whether refinement shortens λ_mfp, the physics reason for AMR here.
+* **FLD is not an isotropic Eddington tensor in the two-moment sense.**
+  It drops the flux equation: F = −ĉ λ(R) ∇N/κ with a limiter keeping
+  |F| ≤ ĉN (Levermore & Pomraning 1981, from memory: λ(R) = (2+R)/(6+3R+R²),
+  R = |∇N|/(κN); the paper is needed to confirm the coefficients,
+  CLAUDE.md's network rule). The pressure is isotropic in the diffusion
+  limit and the Eddington factor rises to 1 in free streaming, but the
+  defining feature is that the flux is slaved to ∇N: no shadows, no beams
+  (Wu et al. 2021 lump OTVET and FLD on this point,
+  `docs/otvet_closure_literature.md`). Two things can be built:
+  - **P1**: χ = 1/3 in the M1 pressure of the existing GLF solver, a few
+    lines and a new `rt_method` value. The telegraph approximation,
+    signal speed ĉ/√3, no beams. Not FLD; must not be labelled FLD.
+  - **FLD proper**: a new implicit solver per group (explicit diffusion is
+    unstable where κ → 0 with a smooth gradient, since D = ĉ/(3κ)
+    diverges). The 7-point system is SPD: PCG with OpenMP on the periodic
+    grid; AMReX MLMG on the backend, where FLD has no Courant limit and so
+    needs no sub-cycling on fine levels. Coupling reuses the moment path
+    (deposit N, absorption through `fgam`, 5 groups with the cell's
+    HI/HeI/HeII opacities, `redshift_spectrum`). Tests: the Iliev I-front,
+    a shadow test, photon conservation. One to two weeks in the serial
+    code, plus the backend port.
+  Recommendation: build FLD proper; P1 optional as a cheap extra point.
+* **Proposed order:**
+  1. Merge PRs #42–#44; finish the 512³ f_esc(z) run; extend the ĉ
+     study to the post-overlap Γ (thread A below: two runs). Decide ĉ,
+     the f_esc law, and case B against case A + RR.
+  2. Add FLD (and optionally P1) to the serial moment framework (thread B).
+     Run the uniform 512³ suite of all methods at the shared ĉ, f_esc and
+     recombination treatment, one node per run; every analysis tool
+     (`gamma_power.py`, `reion_power.py`, `igm_stats.py`,
+     `rt_methods_runs.py`, the movies) exists. This gives the consistent
+     comparison within weeks, without AMR.
+  3. Port the moment solvers and FLD to the AMReX hierarchy and
+     `recomb_rad` to the backend (thread C), then repeat with two levels.
+* **Decisions open for the user:** (a) ĉ after the study: one constant,
+  or a two-value schedule switched on x_HII,V; (b) case B for the whole
+  suite, or port recombination radiation to the backend first; (c) the
+  f_esc law once the 512³ run reports; (d) whether the uniform-grid suite
+  (step 2) is worth running before the moment methods have AMR; (e) FLD
+  proper alone, or P1 as well; (f) the paper for the FLD limiter.
+
+### Thread A: the speed of light after overlap (Hyak)
+
+An extension of `docs/production_run.md` §9, not a new study: the 0.2c
+base runs exist, so two siblings per base are needed.
+
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite"),
+> docs/STATUS.md, docs/production_run.md §9 (the existing 128³
+> convergence set: 0.1c lags the end of reionization by Δz = 0.4, 0.3c by
+> 0.14) and docs/cluster.md §7. You are on UW Hyak klone (docs/cluster.md:
+> `source tools/hyak/env.sh`, `RUNS=/gscratch/astro/$USER/radhydro/runs`).
+> Branch `c-study` off `main`; commit often and push.
+>
+> Goal: what the 128³ set did not measure, i.e. Γ_HI after overlap
+> against full c in a box with the 512³ mean free path, so that the
+> unified RT-methods suite can fix one ĉ. Base: the 20 Mpc/h, 256³,
+> 0.2c ray run with the f_esc(z) = 0.135 ((1+z)/7)^2.5 sources of the
+> `fesc-evolution` grid (the β = 2.5 run of `tools/hyak/fesc_runs.sh`; the
+> 512³ cell size, production flags, case A + RR with
+> `recomb_rad_cell_onspot = 1`), or `otvcl256` (constant f_esc = 0.23) if
+> docs/PLAN.md says the f_esc(z) law was dropped. Make two siblings that
+> differ only in `c_reduced` = 0.5 and 1.0 (same ICs, slab movie frames
+> with the Γ columns, snapshots at z = 15 7 6.5 6.25 6 5.75 5.5 5.25 5,
+> `restart_keep = 2`), one whole cpu-g2 node each, about 7 and 14 h (the
+> base took 2.7 h at 0.2c). Add a 0.1c sibling (1.4 h) only if the node
+> is otherwise idle.
+>
+> Measure each run against 1c: z at x_V = 0.1, 0.5, 0.9, 0.99, 0.999 and
+> τ_es (`reion_history.py`, to confirm the 128³ Δz lags in this box);
+> ⟨Γ⟩, its PDF in ionised cells and P_Γ with r(k) at every snapshot after
+> z = 6 (`rt_methods_runs.py`, `gamma_power.py`); λ_mfp and ⟨F⟩
+> (`igm_stats.py`, `tools/hyak/igm_diag.slurm`); and the lag time λ_mfp/ĉ
+> against the run's own λ_mfp(z). Deliverable: a new §10 of
+> docs/production_run.md (or docs/speed_of_light.md if it outgrows a
+> section) with the tables and figures and a recommendation: the smallest
+> ĉ with x_V(z) within 0.01 of 1c, Δz(99 %) ≤ 0.1, and ⟨Γ⟩ within 5 % and
+> P_Γ within 10 % of 1c at k ≤ 2 h/Mpc after overlap. Say also whether a
+> two-value schedule (ĉ before, an x_HII,V threshold, ĉ after) would save
+> a factor worth having; if so, implement it behind new keys whose
+> defaults reproduce the constant bitwise (a restart test and a thread
+> test; the schedule applies to the moment methods too, which read
+> `c_reduced`), run it as one more sibling, and report it. Update
+> docs/STATUS.md and record the result in docs/PLAN.md.
+
+### Thread B: flux-limited diffusion in the serial RT (cloud)
+
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite", "Moment RT
+> thread", "OTVET-closure thread"), docs/STATUS.md, docs/rt_moments.md,
+> docs/otvet_closure.md §5, then src/rt_moments.cpp and
+> include/radray/rt_moments.hpp. Branch `rt-fld` off `main`; commit often
+> and push; one PR.
+>
+> Add `rt_method = fld`: flux-limited diffusion per frequency group in the
+> serial RT, beside M1 and OTVET, sharing their injection, deposit
+> (`ngam`, `nu`, `dx`), `fgam` absorption, redshifting, tensor dump,
+> checkpoint and photon budget. Physics: F = −ĉ λ(R) ∇N/κ with the
+> Levermore–Pomraning limiter λ(R) = (2+R)/(6+3R+R²), R = |∇N|/(κ N),
+> where κ_g is the cell's absorption coefficient of group g from its HI,
+> HeI and HeII densities and the group cross sections (the same κ
+> `photo_cell` uses, `rrk::photoion_sigma`). The user supplies the paper
+> for the limiter: confirm the coefficients against it before relying on
+> them, and flag them until then. Solve N^{n+1} implicitly per RT substep
+> (the explicit form is unstable where κ → 0): a 7-point SPD system on
+> the periodic grid, PCG with a Jacobi preconditioner, OpenMP with
+> fixed-order reductions so the result is thread-independent, λ(R) lagged
+> from N^n, a tolerance parameter. Put the absorption either inside the
+> solve or in the `fgam` scaling the moments use: choose one, document
+> why, and conserve photons to float precision in the `ray.log` budget
+> line. Deposit N as the moments do; store F = −D ∇N for the `dx` deposit,
+> the flux diagnostics and the tensor dump (D from the LP Eddington factor
+> f = λ + λ²R², so the tensor tools can compare it). Optional and cheap:
+> `rt_method = p1`, the two-moment solver with χ = 1/3, labelled P1 and
+> never FLD.
+>
+> Tests (label `moments`): photon conservation; the Iliev test 1 I-front
+> against the finite-c solution as `ifront_rsla_m1`; a shadow test showing
+> FLD casts none (documented behaviour, not a failure); thread
+> independence for 1, 2 and 4 threads; a bit-identical restart; and the
+> whole fast suite unchanged, every existing method byte-identical. Then
+> `tools/analysis/rt_methods.py` at 32³ with FLD (and P1) added, and
+> docs/rt_fld.md: the method, the solver, the cost per substep against M1
+> at 128³, the caveats. Leave the AMReX port for thread C but write down
+> what it needs (MLMG on the hierarchy; no Courant limit on fine levels).
+> Update docs/STATUS.md and docs/PLAN.md.
+
+### Thread C (after A and B): the moment methods and FLD on the AMReX hierarchy
+
+Outline only; to be written when A and B are done. Scope: `rt_method =
+m1 | otvet | fld` with `rt_backend = amrex` on one level (bitwise against
+the serial solvers for the explicit methods, round-off for FLD's PCG
+against MLMG), then on the refined levels: 2^l × `moment_nsub` subcycles
+per coarse substep for the explicit transport with refluxing of the
+moment fluxes, MLMG for FLD, the OTVET tensors on the fine cells (the thin
+and screened kernels by the backend's FFT; the cone's near-field march to
+be designed); `recomb_rad` on the backend (block emission and
+`recomb_rad_cell_onspot`); then the 512³ suite with two levels.
