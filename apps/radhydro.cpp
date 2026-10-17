@@ -1361,6 +1361,7 @@ int main(int argc, char** argv) {
              << " reused " << s.fof.nreuse << "\n";
   } catch (const std::exception& e) {
     std::fprintf(stderr, "radhydro: error: %s (peak RSS %.1f MB)\n", e.what(), peak_rss_mb());
+    backend_abort(1);  // more than one rank: end the job (the others would wait)
     return 1;
   }
   return 0;

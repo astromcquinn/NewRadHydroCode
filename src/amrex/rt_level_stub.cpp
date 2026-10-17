@@ -16,6 +16,7 @@ namespace {
 bool amrex_available() { return false; }
 void backend_init(int&, char**&) {}
 void backend_finalize() {}
+void backend_abort(int) {}
 void backend_bcast(double*, int) {}
 void backend_bcast_bytes(void*, std::size_t) {}
 void amrex_state_gather_rt(Simulation&, bool) { no_amrex(); }

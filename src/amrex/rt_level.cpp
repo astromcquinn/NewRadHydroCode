@@ -2296,6 +2296,12 @@ void backend_finalize() {
   amrex::Finalize();
   g_initialized = false;
 }
+void backend_abort(int code) {
+  if (!g_initialized || amrex::ParallelDescriptor::NProcs() <= 1) return;
+  std::fflush(stdout);
+  std::fflush(stderr);
+  MPI_Abort(MPI_COMM_WORLD, code);
+}
 bool io_rank() { return !g_initialized || amrex::ParallelDescriptor::IOProcessor(); }
 int backend_rank() { return g_initialized ? amrex::ParallelDescriptor::MyProc() : 0; }
 int backend_nranks() { return g_initialized ? amrex::ParallelDescriptor::NProcs() : 1; }
