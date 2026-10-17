@@ -783,6 +783,20 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/unsplit 13 --set hydro_scheme=unsplit)
+    # c_reduced_schedule (docs/production_run.md section 1): restart from step
+    # 13, before the switches at steps 14 and 15 (x from the checkpoint's RT grid)
+    add_test(NAME restart_smoke_c_schedule
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/c_schedule 13 --set legacy_rt=0
+                     --set legacy_physics=0 --set c_reduced_schedule=0.3,0.005,0.6,0.01,1)
+    # the one-speed schedule is the constant c_reduced byte for byte; the
+    # switching rule, step by step
+    add_test(NAME c_schedule
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/c_schedule_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/c_schedule --set legacy_rt=0 --set legacy_physics=0)
+    set_tests_properties(c_schedule PROPERTIES TIMEOUT 600 LABELS physics)
     # ray_rotate = 3 (B16 fix): the per-substep rotation is keyed on the clock
     add_test(NAME restart_smoke_rotate
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py

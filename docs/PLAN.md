@@ -913,3 +913,17 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
 * **Order (agreed):** (1) gas AMR with refinement off, bitwise identical
   to Stage E; (2) refined hydro on the hydro test suite, with the cooling
   flag and the sink; (3) the RT coarse substep across levels.
+
+## Reduced speed of light by ionisation state (2026-10-17)
+
+* **User decision: production runs use ĉ = 0.1c for x_HII,V < 0.3, 0.2c
+  for 0.3 ≤ x < 0.8 and 0.4c for x ≥ 0.8.** Motivation: the runs of
+  different threads had used different constant speeds (0.1c, 0.2c,
+  0.1c → 0.3c), and the end of reionization and the post-overlap Γ_HI
+  depend on ĉ (`docs/production_run.md` §1).
+* Implemented as `c_reduced_schedule` (apps/radhydro; the C++ default is no
+  schedule, the original) and the `make_production.py` default
+  (`--c-schedule`). Choices of the implementing thread: x is the
+  volume-weighted x_HII of the box at the end of the previous hydro step;
+  x = 0 until the RT has written its grid; no hysteresis (stateless, so
+  restarts are exact without a checkpoint change).

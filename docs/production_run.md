@@ -243,6 +243,49 @@ updated only 9 times; if the hydrodynamics of the ionised gas matters, set
 only): the hydro is cheap (section 5), and with `rt_substep_carry` the
 RT substep total is unchanged.
 
+### By ionisation state (`c_reduced_schedule`)
+
+*User decision, 2026-10-17: the production default.* The light speed is
+chosen per hydro step from the box's volume-weighted ionised fraction x:
+
+```
+c_reduced_schedule = 0.1 0.3 0.2 0.8 0.4
+```
+
+means ĉ = 0.1c for x < 0.3, 0.2c for 0.3 ≤ x < 0.8 and 0.4c for x ≥ 0.8.
+The general form is `c0 x1 c1 x2 c2 ...` (spaces or commas, thresholds
+increasing in (0, 1]). x is the x_HII,V of the end of the previous hydro
+step (the `xHII_V` of its `stats.txt`, the same sum). Before the RT has
+written its grid (fHI is still all zero) x counts as 0, so c0 holds until
+the first RT step. ĉ therefore changes only at hydro-step boundaries, the
+same as a restart with a new `c_reduced`; the rule has no state of its own,
+so a restart from a checkpoint reproduces the run byte for byte (test
+`restart_smoke_c_schedule`). It overrides `c_reduced`. Each change is
+printed (`c_reduced_schedule: c_reduced = …`, also with `--quiet`), and
+`stats.txt` carries the step's `c_reduced` while a schedule is set. The
+default (no schedule) is the original; a one-speed schedule `C x C` is
+`c_reduced = C` byte for byte apart from that line (test `c_schedule`).
+
+`make_production.py` writes this schedule by default (`--c-schedule`;
+`--c-schedule none --c-reduced C`, or `--c-reduced C` alone, for a constant
+speed). `calibrate_fesc.py` and the stored-tolerance AMReX test keep their
+constant speeds.
+
+**Why.** The 20 Mpc/h, 256³ speed-of-light runs (`$RUNS/sol/b20_c*`, f_esc =
+0.23, case B; histories only) show that ĉ hardly matters before overlap but
+sets the end of reionization:
+
+| ĉ/c | 0.05 | 0.1 | 0.2 | 0.3 | 0.5 | 1 |
+|---|---|---|---|---|---|---|
+| z(x_V = 0.5) | 6.69 | 6.89 | 7.00 | 7.04 | 7.08 | 7.10 |
+| z(x_V = 0.99) | 5.31 | 5.70 | 5.96 | 6.06 | 6.16 | 6.26 |
+
+After overlap Γ_HI relaxes to its equilibrium in about λ_mfp/ĉ (≈ 160 Myr
+at λ = 10 pMpc and 0.2c, twice that at 0.1c), comparable to the 120 Myr
+from z = 5.5 to 5, where the Lyα forest is compared. The schedule spends
+the cheap 0.1c where it costs nothing in accuracy (x < 0.3), and the most
+light where the fronts sweep the voids and the background builds up.
+
 ## 2. Ray pool (F3) and ray memory
 
 The ray pool could overflow (F3): merging is triggered by thresholds on the

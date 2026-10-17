@@ -71,7 +71,8 @@ def main():
         if mode == "rt":
             run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
                  "--movie-dz", "0", "--hydro-scheme", "legacy", "--redshift-per-distance", "0",
-                 "--recomb-case", "B", "--recomb-rad", "0"],  # recomb_rad: serial RT only
+                 "--recomb-case", "B", "--recomb-rad", "0",  # recomb_rad: serial RT only
+                 "--c-schedule", "none"],  # the constant 0.01c of the measurement
                 os.path.join(work, "make.log"))
         else:
             # today's production defaults (unsplit, redshift_per_distance, case B
