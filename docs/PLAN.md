@@ -947,8 +947,8 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   2. **The backend has no recombination radiation**, while case A + RR
      is the production default the method comparison used. Either port
      `recomb_rad` to the backend or run the whole suite as case B.
-  3. **The existing ĉ study covers the history, not the post-overlap Γ.**
-     Measured: at 128³ in the 10 Mpc/h box with constant f_esc, 0.1c
+  3. **The existing ĉ study covers the history, not the post-overlap Γ**
+     (the ĉ itself is decided below: a three-stage schedule). Measured: at 128³ in the 10 Mpc/h box with constant f_esc, 0.1c
      delays the end of reionization by Δz = 0.4 and the midpoint by 0.15
      against full c, 0.3c halves both, τ_es 2.5 % and 0.7 % low
      (`docs/production_run.md` §9, runs `$RUNS/cal128{,_c03,_c10}`);
@@ -965,6 +965,7 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      | ĉ | λ_mfp/ĉ at z = 5.4 (λ = 23 pMpc) |
      |---|---|
      | 1c | 75 Myr |
+     | 0.4c | 190 Myr |
      | 0.2c | 375 Myr |
      | 0.1c | 750 Myr, about the age of the universe then |
 
@@ -987,6 +988,35 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      are unprofiled; the 512³ cost probe has no usable checkpoint; PRs
      #42–#44 are open. The first refined 512³ run is also the test of
      whether refinement shortens λ_mfp, the physics reason for AMR here.
+* **Decision (user, 2026-10-17): the default reduced speed of light is a
+  three-stage schedule on the ionized fraction,** given by the user to
+  another thread, which implements it (nothing of it is pushed as of this
+  entry):
+
+  | x_HII,V | ĉ |
+  |---|---|
+  | < 0.3 | 0.1c |
+  | 0.3 – 0.8 | 0.2c |
+  | > 0.8 | 0.4c |
+
+  It follows the 128³ measurements: at 0.1c the history is converged to
+  0.01 in x_V up to x_V ≈ 0.2 and the midpoint lags by Δz = 0.15, which
+  0.2c halves; the last fronts and the post-overlap Γ are where ĉ
+  matters, and 0.4c sits between 0.3c (end lag Δz = 0.14) and 1c. The
+  schedule applies to every RT method (the moment solvers read the same
+  ĉ), so it is the "same motivated ĉ" of the suite. Cost: roughly that
+  of a constant 0.2c run (a rough ∫ ĉ (1+z) dt count: the extra
+  substeps after x_V = 0.8 are paid for by the halved count before 0.3),
+  so the 512³ costs of `docs/rt_methods_512.md` §3 stand. Implementation
+  notes for whichever thread builds it: switch on the volume-weighted
+  x_HII of the statistics (a serial sum, identical on every rank), at a
+  hydro-step boundary only (the substep count of a step is set from ĉ at
+  its start), monotone (never back); the current stage goes into the
+  checkpoint so a restart is bit-identical; defaults must reproduce the
+  constant `c_reduced` bitwise; `redshift_per_distance = 1` keeps the
+  redshifting right as ĉ changes; `make_production.py` writes the
+  schedule by default once it exists. Thread A below checks the schedule
+  against full c.
 * **FLD is not an isotropic Eddington tensor in the two-moment sense.**
   It drops the flux equation: F = −ĉ λ(R) ∇N/κ with a limiter keeping
   |F| ≤ ĉN (Levermore & Pomraning 1981, from memory: λ(R) = (2+R)/(6+3R+R²),
@@ -1010,9 +1040,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
     code, plus the backend port.
   Recommendation: build FLD proper; P1 optional as a cheap extra point.
 * **Proposed order:**
-  1. Merge PRs #42–#44; finish the 512³ f_esc(z) run; extend the ĉ
-     study to the post-overlap Γ (thread A below: two runs). Decide ĉ,
-     the f_esc law, and case B against case A + RR.
+  1. Merge PRs #42–#44; finish the 512³ f_esc(z) run; land the ĉ
+     schedule (the other thread) and check it against full c on the
+     post-overlap Γ (thread A below: two runs). Decide the f_esc law and
+     case B against case A + RR.
   2. Add FLD (and optionally P1) to the serial moment framework (thread B).
      Run the uniform 512³ suite of all methods at the shared ĉ, f_esc and
      recombination treatment, one node per run; every analysis tool
@@ -1021,55 +1052,57 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      comparison within weeks, without AMR.
   3. Port the moment solvers and FLD to the AMReX hierarchy and
      `recomb_rad` to the backend (thread C), then repeat with two levels.
-* **Decisions open for the user:** (a) ĉ after the study: one constant,
-  or a two-value schedule switched on x_HII,V; (b) case B for the whole
+* **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
+  schedule above; (b) case B for the whole
   suite, or port recombination radiation to the backend first; (c) the
   f_esc law once the 512³ run reports; (d) whether the uniform-grid suite
   (step 2) is worth running before the moment methods have AMR; (e) FLD
   proper alone, or P1 as well; (f) the paper for the FLD limiter.
 
-### Thread A: the speed of light after overlap (Hyak)
+### Thread A: the ĉ schedule against full c (Hyak)
 
-An extension of `docs/production_run.md` §9, not a new study: the 0.2c
-base runs exist, so two siblings per base are needed.
+A check of the decided schedule, an extension of `docs/production_run.md`
+§9 to the post-overlap Γ. It needs the schedule in the code (the other
+thread's work merged into `main`) and two runs.
 
-> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite"),
-> docs/STATUS.md, docs/production_run.md §9 (the existing 128³
-> convergence set: 0.1c lags the end of reionization by Δz = 0.4, 0.3c by
-> 0.14) and docs/cluster.md §7. You are on UW Hyak klone (docs/cluster.md:
-> `source tools/hyak/env.sh`, `RUNS=/gscratch/astro/$USER/radhydro/runs`).
-> Branch `c-study` off `main`; commit often and push.
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite": the ĉ
+> schedule decision), docs/STATUS.md, docs/production_run.md §9 (the
+> 128³ convergence set: 0.1c lags the end of reionization by Δz = 0.4,
+> 0.3c by 0.14) and docs/cluster.md §7. You are on UW Hyak klone
+> (docs/cluster.md: `source tools/hyak/env.sh`,
+> `RUNS=/gscratch/astro/$USER/radhydro/runs`). Branch `c-schedule-check`
+> off `main`; commit often and push. Stop and report if `main` does not
+> yet have the ĉ schedule (0.1c below x_HII,V = 0.3, 0.2c to 0.8, 0.4c
+> after).
 >
-> Goal: what the 128³ set did not measure, i.e. Γ_HI after overlap
-> against full c in a box with the 512³ mean free path, so that the
-> unified RT-methods suite can fix one ĉ. Base: the 20 Mpc/h, 256³,
-> 0.2c ray run with the f_esc(z) = 0.135 ((1+z)/7)^2.5 sources of the
-> `fesc-evolution` grid (the β = 2.5 run of `tools/hyak/fesc_runs.sh`; the
-> 512³ cell size, production flags, case A + RR with
-> `recomb_rad_cell_onspot = 1`), or `otvcl256` (constant f_esc = 0.23) if
-> docs/PLAN.md says the f_esc(z) law was dropped. Make two siblings that
-> differ only in `c_reduced` = 0.5 and 1.0 (same ICs, slab movie frames
-> with the Γ columns, snapshots at z = 15 7 6.5 6.25 6 5.75 5.5 5.25 5,
-> `restart_keep = 2`), one whole cpu-g2 node each, about 7 and 14 h (the
-> base took 2.7 h at 0.2c). Add a 0.1c sibling (1.4 h) only if the node
-> is otherwise idle.
+> Goal: what the 128³ set did not measure, i.e. the history and Γ_HI
+> after overlap with the schedule against full c, in a box with the 512³
+> mean free path. Base: the 20 Mpc/h, 256³, 0.2c ray run with the
+> f_esc(z) = 0.135 ((1+z)/7)^2.5 sources of the `fesc-evolution` grid
+> (the β = 2.5 run of `tools/hyak/fesc_runs.sh`; the 512³ cell size,
+> production flags, case A + RR with `recomb_rad_cell_onspot = 1`), or
+> `otvcl256` (constant f_esc = 0.23) if docs/PLAN.md says the f_esc(z)
+> law was dropped. Make two siblings that differ only in the speed of
+> light: the schedule, and constant `c_reduced = 1` (same ICs, slab movie
+> frames with the Γ columns, snapshots at z = 15 7 6.5 6.25 6 5.75 5.5
+> 5.25 5, `restart_keep = 2`), one whole cpu-g2 node each, about 3 and
+> 14 h (the base took 2.7 h at 0.2c). The base itself is the constant
+> 0.2c point.
 >
-> Measure each run against 1c: z at x_V = 0.1, 0.5, 0.9, 0.99, 0.999 and
-> τ_es (`reion_history.py`, to confirm the 128³ Δz lags in this box);
-> ⟨Γ⟩, its PDF in ionised cells and P_Γ with r(k) at every snapshot after
-> z = 6 (`rt_methods_runs.py`, `gamma_power.py`); λ_mfp and ⟨F⟩
-> (`igm_stats.py`, `tools/hyak/igm_diag.slurm`); and the lag time λ_mfp/ĉ
-> against the run's own λ_mfp(z). Deliverable: a new §10 of
+> Measure the schedule and the 0.2c base against 1c: z at x_V = 0.1,
+> 0.5, 0.9, 0.99, 0.999 and τ_es (`reion_history.py`); ⟨Γ⟩, its PDF in
+> ionised cells and P_Γ with r(k) at every snapshot after z = 6
+> (`rt_methods_runs.py`, `gamma_power.py`); λ_mfp and ⟨F⟩
+> (`igm_stats.py`, `tools/hyak/igm_diag.slurm`); and the lag time
+> λ_mfp/ĉ against the run's own λ_mfp(z). Deliverable: a new §10 of
 > docs/production_run.md (or docs/speed_of_light.md if it outgrows a
-> section) with the tables and figures and a recommendation: the smallest
-> ĉ with x_V(z) within 0.01 of 1c, Δz(99 %) ≤ 0.1, and ⟨Γ⟩ within 5 % and
-> P_Γ within 10 % of 1c at k ≤ 2 h/Mpc after overlap. Say also whether a
-> two-value schedule (ĉ before, an x_HII,V threshold, ĉ after) would save
-> a factor worth having; if so, implement it behind new keys whose
-> defaults reproduce the constant bitwise (a restart test and a thread
-> test; the schedule applies to the moment methods too, which read
-> `c_reduced`), run it as one more sibling, and report it. Update
-> docs/STATUS.md and record the result in docs/PLAN.md.
+> section) with the tables and figures, and a verdict: the schedule
+> passes if x_V(z) is within 0.01 of 1c, Δz(99 %) ≤ 0.1, and ⟨Γ⟩ within
+> 5 % and P_Γ within 10 % of 1c at k ≤ 2 h/Mpc after overlap; if it
+> fails, say which stage is responsible and propose the smallest change
+> of its value or threshold, with the cost it adds. Also confirm the
+> restart through a stage switch is bit-identical. Update docs/STATUS.md
+> and record the result in docs/PLAN.md.
 
 ### Thread B: flux-limited diffusion in the serial RT (cloud)
 
