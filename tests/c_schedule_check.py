@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """c_reduced_schedule (apps/radhydro, docs/production_run.md section 1).
 
-usage: c_schedule_check.py RADHYDRO PROBLEM WORKDIR [--set key=value ...]
+usage: c_schedule_check.py [--launch LAUNCHER FLAGS NPFLAG NP] RADHYDRO PROBLEM WORKDIR
+                           [--set key=value ...]
+
+With --launch (as backend_pair_check.py) the runs go through MPI: on the
+AMReX backends every rank must take the speed rank 0 takes from x.
 
 1. Identity: a one-speed schedule ("C x C") gives the run of the constant
    c_reduced = C byte for byte: every file the same, except that stats.txt
@@ -58,12 +62,18 @@ def rule(x):
 
 
 def main():
-    exe, prob, work = sys.argv[1:4]
-    sets = sys.argv[4:]
+    args = sys.argv[1:]
+    launch = []
+    if args and args[0] == "--launch":
+        launcher, flags, npflag, np = args[1:5]
+        launch = [launcher] + [f for f in flags.split(";") if f] + [npflag, np]
+        args = args[5:]
+    exe, prob, work = args[:3]
+    sets = args[3:]
     if os.path.isdir(work):
         shutil.rmtree(work)
     os.makedirs(work)
-    common = [exe, prob]
+    common = launch + [exe, prob]
     opts = ["--quiet", "--set", "fields_every=1"] + sets
     a, b, c = (os.path.join(work, n) for n in ("const", "sched1", "sched"))
     run(common + [a] + opts + ["--set", "c_reduced=0.3"], a + ".log")
