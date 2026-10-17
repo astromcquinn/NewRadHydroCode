@@ -35,6 +35,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -106,8 +107,9 @@ struct RunParams {
   long long ray_rotate_seed = 0;
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
-  int photon_conserve = 0;        // Config::photon_conserve (0 = original; B17 fix)
+  int photon_conserve = -1;       // Config::photon_conserve (B17 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
+  double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -203,9 +205,13 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     else
       throw std::runtime_error("ray_deposit must be share or exposure");
   }
+  else if (key == "cool_suppress_overdensity") {
+    P.cool_suppress_overdensity = std::stod(val);
+    if (!(P.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
+  }
   else if (key == "photon_conserve") {
-    P.photon_conserve = std::stoi(val);
-    if (P.photon_conserve != 0 && P.photon_conserve != 1)
+    P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
+    if (P.photon_conserve < -1 || P.photon_conserve > 1)
       throw std::runtime_error("photon_conserve must be 0 or 1");
   }
   else if (key == "redshift_per_distance") {
@@ -347,6 +353,33 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
 // (the original writes all Nray_max entries; the rest are zeros and the
 // identity); D3D/zreion is not written (calc_gas_3 is not ported). The Ray
 // files are created empty when Nray = 0, as in the original.
+// The star-formation sink's particles (docs/stage_f.md section 2): DM/stars.<ztag>
+// holds int64 n, then n records {int64 id; float x[3], v[3], mass, a_form}
+// sorted by formation time and position (independent of the rank count);
+// sink.txt the count and the total mass
+void write_stars(const std::string& path, std::vector<pm::Star> st) {
+  std::sort(st.begin(), st.end(), [](const pm::Star& a, const pm::Star& b) {
+    if (a.a_form != b.a_form) return a.a_form < b.a_form;
+    for (int c = 0; c < 3; ++c)
+      if (a.x[c] != b.x[c]) return a.x[c] < b.x[c];
+    return a.id < b.id;
+  });
+  std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+  std::ofstream f(path, std::ios::binary);
+  if (!f) throw std::runtime_error("cannot write " + path);
+  const std::int64_t n = static_cast<std::int64_t>(st.size());
+  f.write(reinterpret_cast<const char*>(&n), sizeof n);
+  static_assert(sizeof(pm::Star) == 40, "Star must be 40 packed bytes");
+  f.write(reinterpret_cast<const char*>(st.data()), static_cast<std::streamsize>(st.size() * sizeof(pm::Star)));
+}
+void write_sink_summary(const std::string& path, const pm::PMState& pm) {
+  double mass = 0;
+  for (const pm::Star& st : pm.stars) mass += static_cast<double>(st.mass);
+  std::ofstream f(path);
+  f << "nstar = " << pm.stars.size() << "\nnstar_ever = " << pm.nstar << "\nmass = " << std::setprecision(17) << mass
+    << "\n";
+}
+
 void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
                       const std::vector<float>& xv, const std::vector<float>& vgas, bool data1,
                       const std::string& which) {
@@ -568,8 +601,9 @@ int main(int argc, char** argv) {
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
-    s.cfg.photon_conserve = (P.photon_conserve == 1);      // B17 fix
+    s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
+    s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
@@ -615,6 +649,8 @@ int main(int argc, char** argv) {
     pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && !io));  // init_pm
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
+    if (cfg.sf_overdensity > 0 && !on_level)
+      throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs amrex_state = 1 in radhydro");
     if (on_level) {
       amrex_state_init(s);
       if (!io) {
@@ -640,6 +676,16 @@ int main(int argc, char** argv) {
       amrex_state_gather_rt(s, false);
       amrex_state_gather_gas(s);
       sync_xv();
+      if (cfg.sf_overdensity > 0) amrex_pm_gather_stars(pm);
+    };
+    // the star-formation sink: the hydro's events of the last call become
+    // star particles on the PM level (collective)
+    std::int64_t nstar_step = 0;
+    auto sink_to_stars = [&]() {
+      if (!(cfg.sf_overdensity > 0)) return;
+      std::vector<SinkEvent> ev;
+      amrex_hydro_take_sink_events(ev);
+      nstar_step += amrex_pm_add_stars(pm, ev, s.clk.scalefactor);
     };
     ray_dump_enable(s, P.ray_dump);                    // (study only; off by default)
     s.ray_quant = P.ray_quant;                         // (research only; off by default)
@@ -690,8 +736,13 @@ int main(int argc, char** argv) {
            << (P.rt_cells_per_substep != 1
                    ? ", rt_cells_per_substep = " + std::to_string(P.rt_cells_per_substep)
                    : std::string())
-           << (P.photon_conserve ? ", photon_conserve = 1" : "")
+           << (P.photon_conserve >= 0 ? ", photon_conserve = " + std::to_string(P.photon_conserve) +
+                                            (P.photon_conserve == int(!cfg.legacy_physics) ? "" : " (set explicitly)")
+                                      : std::string())
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
+           << (P.cool_suppress_overdensity != 200.0
+                   ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
+                   : std::string())
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
            << ", " << pm_backend_summary(cfg) << (on_level ? ", " + amrex_state_summary(cfg) : std::string())
@@ -1027,7 +1078,12 @@ int main(int argc, char** argv) {
         amrex_state_scatter_gas(s);
         amrex_state_scatter_rt(s);
         amrex_pm_load_particles(pm);
+        if (cfg.sf_overdensity > 0) amrex_pm_load_stars(pm);  // the sink's stars (version 8)
       }
+      // Stage F: the refined hydro levels of the checkpoint (a checkpoint
+      // without them starts with level 0 only and regrids at the first step)
+      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr"))
+        amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
     } else {
       // Summarize the initial state
       calc_sim_var(cfg, s.clk, s.units);
@@ -1070,7 +1126,9 @@ int main(int argc, char** argv) {
       // radhydro: forward hydro step with transposes in between (legacy),
       // or one unsplit step over dt_sim/2 (hydro_scheme = unsplit)
       auto th = Clock::now();
+      nstar_step = 0;
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::First, s.gas, hs);
+      sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 
       s.clk.year = s.clk.year + s.clk.dt_yr / 2;
@@ -1092,6 +1150,7 @@ int main(int argc, char** argv) {
       // second unsplit step over dt_sim/2
       th = Clock::now();
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::Second, s.gas, hs);
+      sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 
       s.clk.year = s.clk.year + s.clk.dt_yr / 2;
@@ -1140,6 +1199,10 @@ int main(int argc, char** argv) {
       if (data2_out) {  // write_data_2 (F1 fix: all files)
         sync_mirror();
         if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
+        if (cfg.sf_overdensity > 0 && io) {
+          write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
+          write_sink_summary(odir + "/sink.txt", pm);
+        }
         idata2 = idata2 + 1;
         data2_out = false;
       }
@@ -1156,6 +1219,10 @@ int main(int argc, char** argv) {
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
         // write_data_1 (F1 fix: all files)
         if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
+        if (cfg.sf_overdensity > 0 && io) {
+          write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
+          write_sink_summary(odir + "/sink.txt", pm);
+        }
         idata1 = idata1 + 1;
         data1_out = false;
         if (P.fields_at_data1) fields = true;
@@ -1214,6 +1281,8 @@ int main(int argc, char** argv) {
         else
           std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
         write_checkpoint(odir + name, s, hs, pm, dst);
+        // Stage F: the refined hydro levels next to it (docs/stage_f.md)
+        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) amrex_hydro_write_levels(odir + name + ".amr");
         if (P.restart_keep > 0 && io) {
           // keep the newest restart_keep numbered checkpoints (names sort by step)
           std::vector<std::string> ck;
@@ -1224,7 +1293,10 @@ int main(int argc, char** argv) {
               ck.push_back(e.path().string());
           }
           std::sort(ck.begin(), ck.end());
-          for (std::size_t i = 0; i + P.restart_keep < ck.size(); ++i) std::filesystem::remove(ck[i]);
+          for (std::size_t i = 0; i + P.restart_keep < ck.size(); ++i) {
+            std::filesystem::remove(ck[i]);
+            std::filesystem::remove_all(ck[i] + ".amr");  // its refined levels, if any
+          }
         }
       }
 
@@ -1234,6 +1306,10 @@ int main(int argc, char** argv) {
     }
 
     backend_barrier();
+    if (cfg.sf_overdensity > 0) {  // the sink's final count and mass (sink.txt)
+      amrex_pm_gather_stars(pm);
+      if (io) write_sink_summary(odir + "/sink.txt", pm);
+    }
     const double total = std::chrono::duration<double>(Clock::now() - t0).count();
     // Peak RSS of this rank, and its range over the ranks of an MPI run
     const double rss = peak_rss_mb();

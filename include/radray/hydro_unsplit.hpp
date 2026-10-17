@@ -45,8 +45,9 @@ void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroS
 // Advances the gas by dt (code time) with the unsplit kernel, sub-cycled
 // on dt_cfl = unsplit_cfl / max_cells(sum_d |v_d| + 3 c) (dx = 1 cell).
 // Updates hs.ucounters and hs.dt_hy. Requires gas.e (init_unsplit_state).
+// scalefactor: only the AMReX backend's star-formation sink uses it
 void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& gas,
-                        HydroState& hs);
+                        HydroState& hs, double scalefactor = 1.0);
 
 // The two halves of the hydro part of radhydro.f90's radhydro, for either
 // scheme. Legacy: First = transposes + three forward sweeps, Second = three

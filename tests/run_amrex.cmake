@@ -4,7 +4,9 @@
 #            PYTHON COMPARE STRICT
 #   SET     params.txt overrides, comma-separated (--set key=value each)
 #   EXTRA   further driver arguments (list)
-#   STRICT  1: bitwise (--rtol 0 --atol-frac 0); 0: round-off against the
+#   STRICT  1: bitwise (--rtol 0 --atol-frac 0); cons: COMPARE is
+#           tests/amr_conservation_check.py (the conserved totals of every
+#           step, EXTRA_TOL e.g. --levels;2); 0: round-off against the
 #           serial port: rtol 1e-3 on the fields (single cells at the
 #           removal threshold or in I-fronts amplify the round-off of the
 #           deposit and merge order to 1e-4), dx excepted (dx=1: the
@@ -44,6 +46,13 @@ execute_process(COMMAND ${launch} ${DRIVER} ${PROBLEM} ${OUT} ${extra}
                 RESULT_VARIABLE rc)
 if(NOT rc EQUAL 0)
   message(FATAL_ERROR "rt_driver (amrex) failed (${rc}), see ${OUT}.stdout / ${OUT}.stderr")
+endif()
+if(STRICT STREQUAL "cons")
+  execute_process(COMMAND ${PYTHON} ${COMPARE} ${REF} ${OUT} ${EXTRA_TOL} RESULT_VARIABLE rc)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "conservation check against ${REF} failed")
+  endif()
+  return()
 endif()
 if(STRICT STREQUAL "1")
   set(tol --rtol 0 --atol-frac 0)

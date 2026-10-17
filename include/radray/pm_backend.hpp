@@ -11,8 +11,11 @@
 
 #include <string>
 
+#include <vector>
+
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
+#include "radray/hydro_backend.hpp"
 
 namespace radray {
 
@@ -57,5 +60,14 @@ std::string amrex_pm_timers(const pm::PMState& s);
 void amrex_pm_load_particles(pm::PMState& s);
 void amrex_pm_gather_particles(pm::PMState& s);
 void amrex_pm_drift(pm::PMState& s, double dt_sim);
+// The star-formation sink's particles (docs/stage_f.md section 2; needs
+// amrex_state = 1). add: this rank's sink events become star particles
+// (ids Npart + 1 + s.nstar ..., a global prefix count; collective), with
+// a_form; gather: every star into rank 0's s.stars (collective; returns
+// the count on every rank); load: s.stars (the same list on every rank, a
+// checkpoint read) onto the level, each rank keeping its own.
+std::int64_t amrex_pm_add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form);
+std::int64_t amrex_pm_gather_stars(pm::PMState& s);
+void amrex_pm_load_stars(pm::PMState& s);
 
 }  // namespace radray

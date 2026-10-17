@@ -6,6 +6,8 @@
  nray_max_factor                   64
  legacy_rt             0
  legacy_physics           0
+ photon_conserve           1
+ c_reduced     1.0000000000000000     
  Sources               1
            1           8           2          16          32
            1           1           1          16
@@ -32,7 +34,7 @@
            8           2          17          32
            8           2          17          32
            8           2          17          32
-    0.00  14:05:52  14:05:52  Called init domain gas
+    0.00  17:26:34  17:26:34  Called init domain gas
            1           8           2          16          32
            1           1           1          16
            1           1           1          16
@@ -58,22 +60,22 @@
            8           2          17          32
            8           2          17          32
            8           2          17          32
-    0.00  14:05:52  14:05:52  Called init domain rt
+    0.00  17:26:34  17:26:34  Called init domain rt
  Data 3d
            1           1          32          32
-    0.00  14:05:52  14:05:52  Called init data
+    0.00  17:26:34  17:26:34  Called init data
  Halo
            1                    1                    4                    4
-    0.00  14:05:52  14:05:52  Called init halos
-    0.00  14:05:52  14:05:52  Called calc atomic rates
+    0.00  17:26:34  17:26:34  Called init halos
+    0.00  17:26:34  17:26:34  Called calc atomic rates
  RT
            1           1          32          32
-    0.01  14:05:52  14:05:52  Called init radiative transfer
+    0.00  17:26:34  17:26:34  Called init radiative transfer
  Writing Log/nside_of_r.dat
  Writing Log/r_of_nside.dat
  Ray
            1                    1              2097152              2097152
-    0.19  14:05:52  14:05:52  Called init ray tracing
+    0.04  17:26:34  17:26:34  Called init ray tracing
  Source  :                     0                    0   0.00000000    
  RT      :                 32768                    0   0.00000000    
  Ray     :               2097152                    0   0.00000000    
@@ -87,7 +89,7 @@
  Gamma   :    0.00000000       0.00000000       0.00000000    
  Lambda  :    0.00000000       0.00000000       0.00000000    
  tau     :    0.00000000       0.00000000    
-    0.00  14:05:52  14:05:52  Called summarize RT
+    0.00  17:26:34  17:26:34  Called summarize RT
 
  Step number  :            1
  Redshift     :     10.0000000       9.98791313      -1.20867044E-02
@@ -97,27 +99,27 @@
  dt_sim,dt_rt :    5.4529348064154340E-003   4.5441123386795283E-004
  dt_sec,dtsec_rt:    25514730599289.176        2126227549940.7646     
 
-    0.00  14:05:52  14:05:52  Called ray buffer allocate
-    0.00  14:05:52  14:05:52  Called prep rt
-    0.03  14:05:52  14:05:52  Called ray buffer deallocate
-    0.04  14:05:52  14:05:53  Called ray redshifting
-    0.10  14:05:52  14:05:53  Called post rt
-    0.48  14:05:52  14:05:53  Called radiative transfer
+    0.00  17:26:34  17:26:34  Called ray buffer allocate
+    0.00  17:26:34  17:26:34  Called prep rt
+    0.02  17:26:35  17:26:35  Called ray buffer deallocate
+    0.01  17:26:35  17:26:35  Called ray redshifting
+    0.04  17:26:35  17:26:35  Called post rt
+    0.22  17:26:34  17:26:35  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  155   4.73022461E-03
  Ray     :               2097152                  400   1.90734863E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    8.02473165E-04   2.92103109E-03   5.48836761E-05
- nion    :    6.57844590E-04   8.07659118E-04   3.62591527E-05
- ncol    :    1.54400561E-06   7.31775973E-10   1.87287031E-14
- nrec    :    1.80145901E-06   3.38091331E-06   5.50978257E-07
+ nion    :    6.60396763E-04   8.09089630E-04   3.59156911E-05
+ ncol    :    1.87526427E-06   9.68653935E-10   5.24254949E-14
+ nrec    :    1.78671667E-06   3.36570292E-06   5.48445882E-07
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    1.76829309E-15   1.05701517E-15   2.53119005E-18
- Lambda  :    1.30935580E-26   1.26906812E-26   7.98917991E-29
- tau     :    4.95238588E-08   4.95238588E-08
-    0.00  14:05:53  14:05:53  Called summarize RT
- rt_harness: step    1 wall      0.550 s
+ Gamma   :    1.62968356E-15   1.06980568E-15   2.52030848E-18
+ Lambda  :    1.22126785E-26   1.27412083E-26   7.95483576E-29
+ tau     :    4.81277880E-08   4.81277880E-08
+    0.00  17:26:35  17:26:35  Called summarize RT
+ rt_harness: step    1 wall      0.243 s
 
  Step number  :            2
  Redshift     :     9.98791313       9.97585297      -1.20601719E-02
@@ -127,27 +129,27 @@
  dt_sim,dt_rt :    5.4439468763327961E-003   4.5366223969439966E-004
  dt_sec,dtsec_rt:    25528715214995.750        2127392934582.9790     
 
-    0.00  14:05:53  14:05:53  Called ray buffer allocate
-    0.00  14:05:53  14:05:53  Called prep rt
-    0.03  14:05:53  14:05:53  Called ray buffer deallocate
-    0.04  14:05:53  14:05:53  Called ray redshifting
-    0.10  14:05:53  14:05:53  Called post rt
-    0.54  14:05:53  14:05:53  Called radiative transfer
+    0.00  17:26:35  17:26:35  Called ray buffer allocate
+    0.00  17:26:35  17:26:35  Called prep rt
+    0.02  17:26:35  17:26:35  Called ray buffer deallocate
+    0.01  17:26:35  17:26:35  Called ray redshifting
+    0.04  17:26:35  17:26:35  Called post rt
+    0.22  17:26:35  17:26:35  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  187   5.70678711E-03
  Ray     :               2097152                  432   2.05993652E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    1.60538615E-03   5.84366359E-03   1.09797431E-04
- nion    :    1.35840627E-03   1.68465951E-03   8.01910646E-05
- ncol    :    4.45110800E-06   1.63300529E-09   1.00527320E-13
- nrec    :    2.49214349E-06   4.20976539E-06   8.71601571E-07
+ nion    :    1.35891291E-03   1.68025750E-03   7.96667955E-05
+ ncol    :    4.69411498E-06   1.88758720E-09   2.26606155E-13
+ nrec    :    2.45321280E-06   4.16774856E-06   8.61459853E-07
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    2.09330153E-15   1.22650138E-15   3.00264577E-18
- Lambda  :    1.50267572E-26   1.50235031E-26   9.47723825E-29
- tau     :    1.96245281E-07   1.46721433E-07
-    0.00  14:05:53  14:05:53  Called summarize RT
- rt_harness: step    2 wall      0.626 s
+ Gamma   :    2.08484370E-15   1.21312313E-15   2.99520735E-18
+ Lambda  :    1.49342755E-26   1.48798457E-26   9.45376056E-29
+ tau     :    1.91987212E-07   1.43859438E-07
+    0.00  17:26:35  17:26:35  Called summarize RT
+ rt_harness: step    2 wall      0.244 s
 
  Step number  :            3
  Redshift     :     9.97585297       9.96381950      -1.20337270E-02
@@ -157,27 +159,27 @@
  dt_sim,dt_rt :    5.4349835303584351E-003   4.5291529419653624E-004
  dt_sec,dtsec_rt:    25542691799510.379        2128557649959.1982     
 
-    0.00  14:05:53  14:05:53  Called ray buffer allocate
-    0.00  14:05:53  14:05:53  Called prep rt
-    0.03  14:05:54  14:05:54  Called ray buffer deallocate
-    0.02  14:05:54  14:05:54  Called ray redshifting
-    0.07  14:05:54  14:05:54  Called post rt
-    0.42  14:05:53  14:05:54  Called radiative transfer
+    0.00  17:26:35  17:26:35  Called ray buffer allocate
+    0.00  17:26:35  17:26:35  Called prep rt
+    0.02  17:26:35  17:26:35  Called ray buffer deallocate
+    0.01  17:26:35  17:26:35  Called ray redshifting
+    0.04  17:26:35  17:26:35  Called post rt
+    0.22  17:26:35  17:26:35  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  299   9.12475586E-03
  Ray     :               2097152                  512   2.44140625E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    2.40873871E-03   8.76789540E-03   1.64741257E-04
- nion    :    2.05736025E-03   2.48373230E-03   1.28234722E-04
- ncol    :    8.97166592E-06   2.87345148E-09   1.96663961E-13
- nrec    :    3.76447406E-06   5.67529014E-06   1.43269983E-06
+ nion    :    2.05955817E-03   2.47293198E-03   1.27602994E-04
+ ncol    :    9.42812039E-06   3.19602877E-09   4.19525498E-13
+ nrec    :    3.69572126E-06   5.60430044E-06   1.40997815E-06
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    2.84044876E-15   1.55591588E-15   3.29803259E-18
- Lambda  :    1.99443157E-26   1.87498417E-26   1.04095623E-28
- tau     :    4.42370435E-07   2.46125154E-07
-    0.00  14:05:54  14:05:54  Called summarize RT
- rt_harness: step    3 wall      0.517 s
+ Gamma   :    2.79533705E-15   1.54968807E-15   3.29509134E-18
+ Lambda  :    1.97661626E-26   1.86759892E-26   1.04002769E-28
+ tau     :    4.35045450E-07   2.43058224E-07
+    0.00  17:26:35  17:26:35  Called summarize RT
+ rt_harness: step    3 wall      0.245 s
 
  Step number  :            4
  Redshift     :     9.96381950       9.95181179      -1.20073687E-02
@@ -187,27 +189,27 @@
  dt_sim,dt_rt :    5.4260446743248638E-003   4.5217038952707200E-004
  dt_sec,dtsec_rt:    25556660365192.074        2129721697099.3398     
 
-    0.00  14:05:54  14:05:54  Called ray buffer allocate
-    0.00  14:05:54  14:05:54  Called prep rt
-    0.03  14:05:54  14:05:54  Called ray buffer deallocate
-    0.03  14:05:54  14:05:54  Called ray redshifting
-    0.08  14:05:54  14:05:54  Called post rt
-    0.48  14:05:54  14:05:54  Called radiative transfer
+    0.00  17:26:35  17:26:35  Called ray buffer allocate
+    0.00  17:26:35  17:26:35  Called prep rt
+    0.02  17:26:35  17:26:35  Called ray buffer deallocate
+    0.01  17:26:35  17:26:35  Called ray redshifting
+    0.04  17:26:35  17:26:35  Called post rt
+    0.23  17:26:35  17:26:35  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  307   9.36889648E-03
  Ray     :               2097152                  536   2.55584717E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    3.21253063E-03   1.16937272E-02   2.19715119E-04
- nion    :    2.77030980E-03   3.37988324E-03   1.77787791E-04
- ncol    :    1.25592042E-05   3.58420871E-09   2.97268557E-13
- nrec    :    5.53216523E-06   7.70132283E-06   2.24684527E-06
+ nion    :    2.77127326E-03   3.36977490E-03   1.77104128E-04
+ ncol    :    1.29157788E-05   3.88539778E-09   6.18860703E-13
+ nrec    :    5.43600754E-06   7.60148214E-06   2.20762877E-06
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    3.03549016E-15   1.66364820E-15   3.47367012E-18
- Lambda  :    2.13443790E-26   2.00541138E-26   1.09639352E-28
- tau     :    7.86014652E-07   3.43644246E-07
-    0.00  14:05:54  14:05:54  Called summarize RT
- rt_harness: step    4 wall      0.583 s
+ Gamma   :    3.03319237E-15   1.66112637E-15   3.47129735E-18
+ Lambda  :    2.13239102E-26   2.00168786E-26   1.09564457E-28
+ tau     :    7.75429839E-07   3.40384418E-07
+    0.00  17:26:35  17:26:35  Called summarize RT
+ rt_harness: step    4 wall      0.248 s
 
  Step number  :            5
  Redshift     :     9.95181179       9.93983078      -1.19810971E-02
@@ -217,27 +219,27 @@
  dt_sim,dt_rt :    5.4171302145278009E-003   4.5142751787731673E-004
  dt_sec,dtsec_rt:    25570620924364.449        2130885077030.3706     
 
-    0.00  14:05:54  14:05:54  Called ray buffer allocate
-    0.00  14:05:54  14:05:54  Called prep rt
-    0.03  14:05:55  14:05:55  Called ray buffer deallocate
-    0.02  14:05:55  14:05:55  Called ray redshifting
-    0.08  14:05:55  14:05:55  Called post rt
-    0.52  14:05:54  14:05:55  Called radiative transfer
+    0.00  17:26:35  17:26:35  Called ray buffer allocate
+    0.00  17:26:35  17:26:35  Called prep rt
+    0.02  17:26:36  17:26:36  Called ray buffer deallocate
+    0.01  17:26:36  17:26:36  Called ray redshifting
+    0.04  17:26:36  17:26:36  Called post rt
+    0.23  17:26:35  17:26:36  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  427   1.30310059E-02
- Ray     :               2097152                  632   3.01361084E-04
+ Ray     :               2097152                  624   2.97546387E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    4.01676167E-03   1.46211572E-02   2.74719030E-04
- nion    :    3.49807972E-03   4.18581069E-03   2.28491233E-04
- ncol    :    1.75485438E-05   4.49878357E-09   3.97264930E-13
- nrec    :    7.87245608E-06   1.03834000E-05   3.31980232E-06
+ nion    :    3.50014586E-03   4.17693239E-03   2.27761833E-04
+ ncol    :    1.79732069E-05   4.82851537E-09   8.16535695E-13
+ nrec    :    7.74379805E-06   1.02523863E-05   3.26039617E-06
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    3.25962503E-15   1.83142160E-15   3.61863725E-18
- Lambda  :    2.31170311E-26   2.20956735E-26   1.14214772E-28
- tau     :    1.22930317E-06   4.43288428E-07
-    0.00  14:05:55  14:05:55  Called summarize RT
- rt_harness: step    5 wall      0.646 s
+ Gamma   :    3.25425230E-15   1.82562663E-15   3.61680504E-18
+ Lambda  :    2.30422126E-26   2.20349620E-26   1.14156934E-28
+ tau     :    1.21540381E-06   4.39974002E-07
+    0.00  17:26:36  17:26:36  Called summarize RT
+ rt_harness: step    5 wall      0.252 s
 
  Step number  :            6
  Redshift     :     9.93983078       9.92787647      -1.19549120E-02
@@ -247,27 +249,27 @@
  dt_sim,dt_rt :    5.4082400577233503E-003   4.5068667147694588E-004
  dt_sec,dtsec_rt:    25584573489315.848        2132047790776.3208     
 
-    0.00  14:05:55  14:05:55  Called ray buffer allocate
-    0.00  14:05:55  14:05:55  Called prep rt
-    0.03  14:05:55  14:05:55  Called ray buffer deallocate
-    0.02  14:05:55  14:05:55  Called ray redshifting
-    0.08  14:05:55  14:05:55  Called post rt
-    0.51  14:05:55  14:05:55  Called radiative transfer
+    0.00  17:26:36  17:26:36  Called ray buffer allocate
+    0.00  17:26:36  17:26:36  Called prep rt
+    0.02  17:26:36  17:26:36  Called ray buffer deallocate
+    0.01  17:26:36  17:26:36  Called ray redshifting
+    0.04  17:26:36  17:26:36  Called post rt
+    0.23  17:26:36  17:26:36  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  443   1.35192871E-02
  Ray     :               2097152                  632   3.01361084E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    4.82143136E-03   1.75501835E-02   3.29752947E-04
- nion    :    4.20959853E-03   5.04021579E-03   2.79895758E-04
- ncol    :    2.14163665E-05   5.06917752E-09   4.95406071E-13
- nrec    :    1.08161612E-05   1.37047291E-05   4.65935727E-06
+ nion    :    4.21080226E-03   5.02911536E-03   2.79141648E-04
+ ncol    :    2.18134992E-05   5.39219558E-09   1.00925746E-12
+ nrec    :    1.06566176E-05   1.35434702E-05   4.57659871E-06
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    3.57776002E-15   1.94351689E-15   3.74171262E-18
- Lambda  :    2.50905593E-26   2.33030790E-26   1.18099384E-28
- tau     :    1.77038839E-06   5.41085228E-07
-    0.00  14:05:55  14:05:55  Called summarize RT
- rt_harness: step    6 wall      0.608 s
+ Gamma   :    3.57549167E-15   1.94187915E-15   3.74011658E-18
+ Lambda  :    2.50736712E-26   2.32804717E-26   1.18048997E-28
+ tau     :    1.75314290E-06   5.37739027E-07
+    0.00  17:26:36  17:26:36  Called summarize RT
+ rt_harness: step    6 wall      0.255 s
 
  Step number  :            7
  Redshift     :     9.92787647       9.91594696      -1.19288117E-02
@@ -277,27 +279,27 @@
  dt_sim,dt_rt :    5.3993741111252802E-003   4.4994784259377337E-004
  dt_sec,dtsec_rt:    25598518072299.496        2133209839358.2915     
 
-    0.00  14:05:56  14:05:56  Called ray buffer allocate
-    0.00  14:05:56  14:05:56  Called prep rt
-    0.04  14:05:56  14:05:56  Called ray buffer deallocate
-    0.03  14:05:56  14:05:56  Called ray redshifting
-    0.09  14:05:56  14:05:56  Called post rt
-    0.54  14:05:56  14:05:56  Called radiative transfer
+    0.00  17:26:36  17:26:36  Called ray buffer allocate
+    0.00  17:26:36  17:26:36  Called prep rt
+    0.02  17:26:36  17:26:36  Called ray buffer deallocate
+    0.01  17:26:36  17:26:36  Called ray redshifting
+    0.04  17:26:36  17:26:36  Called post rt
+    0.25  17:26:36  17:26:36  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
- RT      :                 32768                  483   1.47399902E-02
+ RT      :                 32768                  467   1.42517090E-02
  Ray     :               2097152                  672   3.20434570E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    5.62653970E-03   2.04808079E-02   3.84816842E-04
- nion    :    4.94403346E-03   5.85919013E-03   3.31803254E-04
- ncol    :    2.74772265E-05   6.00571148E-09   5.89245937E-13
- nrec    :    1.43580401E-05   1.77183138E-05   6.26715837E-06
+ nion    :    4.94477339E-03   5.85102942E-03   3.31023970E-04
+ ncol    :    2.78262578E-05   6.32841202E-09   1.19275477E-12
+ nrec    :    1.41631208E-05   1.75226633E-05   6.15825093E-06
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    3.63726493E-15   2.02545864E-15   3.85260777E-18
- Lambda  :    2.57045334E-26   2.43691583E-26   1.21599714E-28
- tau     :    2.40966688E-06   6.39278483E-07
-    0.00  14:05:56  14:05:56  Called summarize RT
- rt_harness: step    7 wall      0.634 s
+ Gamma   :    3.63163089E-15   2.01905190E-15   3.85102371E-18
+ Lambda  :    2.56514055E-26   2.42987833E-26   1.21549724E-28
+ tau     :    2.38893540E-06   6.35792446E-07
+    0.00  17:26:36  17:26:36  Called summarize RT
+ rt_harness: step    7 wall      0.267 s
 
  Step number  :            8
  Redshift     :     9.91594696       9.90404415      -1.19027970E-02
@@ -307,27 +309,27 @@
  dt_sim,dt_rt :    5.3905322824022483E-003   4.4921102353352071E-004
  dt_sec,dtsec_rt:    25612454685533.586        2134371223794.4658     
 
-    0.00  14:05:56  14:05:56  Called ray buffer allocate
-    0.00  14:05:56  14:05:56  Called prep rt
-    0.03  14:05:57  14:05:57  Called ray buffer deallocate
-    0.03  14:05:57  14:05:57  Called ray redshifting
-    0.08  14:05:57  14:05:57  Called post rt
-    0.53  14:05:56  14:05:57  Called radiative transfer
+    0.00  17:26:36  17:26:36  Called ray buffer allocate
+    0.00  17:26:36  17:26:36  Called prep rt
+    0.02  17:26:36  17:26:36  Called ray buffer deallocate
+    0.01  17:26:36  17:26:36  Called ray redshifting
+    0.04  17:26:36  17:26:36  Called post rt
+    0.23  17:26:36  17:26:36  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  563   1.71813965E-02
  Ray     :               2097152                  712   3.39508057E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    6.43208669E-03   2.34130267E-02   4.39910713E-04
- nion    :    5.67358918E-03   6.64392207E-03   3.84198647E-04
- ncol    :    3.36386001E-05   6.86828328E-09   6.77880441E-13
- nrec    :    1.86207362E-05   2.24867908E-05   8.14761370E-06
+ nion    :    5.67482598E-03   6.63426146E-03   3.83397972E-04
+ ncol    :    3.40387887E-05   7.19959248E-09   1.36478892E-12
+ nrec    :    1.83871471E-05   2.22562267E-05   8.00997259E-06
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    3.82813745E-15   2.12984232E-15   3.95618194E-18
- Lambda  :    2.71077351E-26   2.55864138E-26   1.24868691E-28
- tau     :    3.14743534E-06   7.37768630E-07
-    0.00  14:05:57  14:05:57  Called summarize RT
- rt_harness: step    8 wall      0.626 s
+ Gamma   :    3.81580719E-15   2.12601077E-15   3.95483364E-18
+ Lambda  :    2.70245719E-26   2.55391515E-26   1.24826140E-28
+ tau     :    3.12314455E-06   7.34209209E-07
+    0.00  17:26:36  17:26:36  Called summarize RT
+ rt_harness: step    8 wall      0.251 s
 
  Step number  :            9
  Redshift     :     9.90404415       9.89216709      -1.18768681E-02
@@ -337,27 +339,27 @@
  dt_sim,dt_rt :    5.3817144796750975E-003   4.4847620663959146E-004
  dt_sec,dtsec_rt:    25626383341201.508        2135531945100.1255     
 
-    0.00  14:05:57  14:05:57  Called ray buffer allocate
-    0.00  14:05:57  14:05:57  Called prep rt
-    0.03  14:05:57  14:05:57  Called ray buffer deallocate
-    0.03  14:05:57  14:05:57  Called ray redshifting
-    0.09  14:05:57  14:05:57  Called post rt
-    0.53  14:05:57  14:05:57  Called radiative transfer
+    0.00  17:26:36  17:26:36  Called ray buffer allocate
+    0.00  17:26:36  17:26:36  Called prep rt
+    0.02  17:26:37  17:26:37  Called ray buffer deallocate
+    0.01  17:26:37  17:26:37  Called ray redshifting
+    0.04  17:26:37  17:26:37  Called post rt
+    0.23  17:26:36  17:26:37  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  603   1.84020996E-02
- Ray     :               2097152                  800   3.81469727E-04
+ Ray     :               2097152                  784   3.73840332E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    7.23807141E-03   2.63468400E-02   4.95034561E-04
- nion    :    6.39684824E-03   7.46931648E-03   4.36979666E-04
- ncol    :    3.83208971E-05   7.46324158E-09   7.60493773E-13
- nrec    :    2.35921307E-05   2.79677697E-05   1.03045631E-05
+ nion    :    6.39820378E-03   7.45792594E-03   4.36162722E-04
+ ncol    :    3.87920263E-05   7.80741249E-09   1.52369393E-12
+ nrec    :    2.33210012E-05   2.77037416E-05   1.01359255E-05
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    4.05124212E-15   2.24792401E-15   4.05053596E-18
- Lambda  :    2.86329946E-26   2.69204361E-26   1.27846865E-28
- tau     :    3.98220982E-06   8.34774482E-07
-    0.00  14:05:57  14:05:57  Called summarize RT
- rt_harness: step    9 wall      0.671 s
+ Gamma   :    4.03900249E-15   2.24438235E-15   4.04951687E-18
+ Lambda  :    2.85488207E-26   2.68822534E-26   1.27814702E-28
+ tau     :    3.95427833E-06   8.31133718E-07
+    0.00  17:26:37  17:26:37  Called summarize RT
+ rt_harness: step    9 wall      0.255 s
 
  Step number  :           10
  Redshift     :     9.89216709       9.88031673      -1.18510230E-02
@@ -367,25 +369,25 @@
  dt_sim,dt_rt :    5.3729206115141447E-003   4.4774338429284539E-004
  dt_sec,dtsec_rt:    25640304051451.863        2136692004287.6553     
 
-    0.00  14:05:58  14:05:58  Called ray buffer allocate
-    0.00  14:05:58  14:05:58  Called prep rt
-    0.03  14:05:58  14:05:58  Called ray buffer deallocate
-    0.03  14:05:58  14:05:58  Called ray redshifting
-    0.09  14:05:58  14:05:58  Called post rt
-    0.54  14:05:58  14:05:58  Called radiative transfer
+    0.00  17:26:37  17:26:37  Called ray buffer allocate
+    0.00  17:26:37  17:26:37  Called prep rt
+    0.02  17:26:37  17:26:37  Called ray buffer deallocate
+    0.01  17:26:37  17:26:37  Called ray redshifting
+    0.04  17:26:37  17:26:37  Called post rt
+    0.24  17:26:37  17:26:37  Called radiative transfer
  Source  :                     1                    1   3.05175781E-05
  RT      :                 32768                  675   2.05993652E-02
  Ray     :               2097152                  816   3.89099121E-04
  Luv     :    5.48799952E+25
  SFR     :    2.74399994E-03
  ngam    :    8.04449432E-03   2.92822476E-02   5.50188357E-04
- nion    :    7.11710332E-03   8.32844339E-03   4.89991973E-04
- ncol    :    4.20781507E-05   7.90942511E-09   8.36622655E-13
- nrec    :    2.91766301E-05   3.40981896E-05   1.27397225E-05
+ nion    :    7.11855618E-03   8.31564236E-03   4.89162980E-04
+ ncol    :    4.25522485E-05   8.25611579E-09   1.66859517E-12
+ nrec    :    2.88709489E-05   3.38017489E-05   1.25381266E-05
  nrab    :    0.00000000       0.00000000       0.00000000    
- Gamma   :    4.25077344E-15   2.31334523E-15   4.13706401E-18
- Lambda  :    2.98570602E-26   2.76743807E-26   1.30578086E-28
- tau     :    4.91309811E-06   9.30888234E-07
-    0.00  14:05:58  14:05:58  Called summarize RT
- rt_harness: step   10 wall      0.653 s
- rt_harness: total wall time      6.319 s
+ Gamma   :    4.24496914E-15   2.31169013E-15   4.13623848E-18
+ Lambda  :    2.98185663E-26   2.76517564E-26   1.30552026E-28
+ tau     :    4.88143860E-06   9.27160499E-07
+    0.00  17:26:37  17:26:37  Called summarize RT
+ rt_harness: step   10 wall      0.262 s
+ rt_harness: total wall time      2.567 s

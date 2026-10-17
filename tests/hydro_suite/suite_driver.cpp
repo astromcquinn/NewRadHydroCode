@@ -53,7 +53,9 @@
 #include "radray/cosmology.hpp"
 #include "radray/fft.hpp"
 #include "radray/hydro.hpp"
+#include "radray/hydro_backend.hpp"
 #include "radray/hydro_unsplit.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/io.hpp"
 #include "radray/pm.hpp"
 
@@ -113,6 +115,7 @@ void set_param(Params& p, const std::string& k, const std::string& v) {
   else if (k == "write_fields") p.write_fields = std::stoi(v);
   else if (k == "pk") p.pk = std::stoi(v);
   else if (set_hydro_scheme_param(p.hydro, k, v)) {
+  } else if (set_hydro_backend_param(p.hydro, k, v)) {  // hydro_backend = amrex, the hierarchy (docs/stage_f.md)
   } else std::cerr << "hydro_suite_driver: ignoring parameter " << k << "\n";
 }
 
@@ -172,6 +175,11 @@ int main(int argc, char** argv) {
       return 2;
     }
   }
+  backend_init(argc, argv);  // hydro_backend = amrex: amrex::Initialize (MPI)
+  struct Fin {
+    ~Fin() { backend_finalize(); }
+  } fin;
+  const bool io = io_rank();
   try {
     const auto t_start = Clock::now();
     Params P;
@@ -195,12 +203,14 @@ int main(int argc, char** argv) {
     if (P.N <= 0) throw std::runtime_error("N missing");
     if (!P.cosmo && P.t_out.empty()) throw std::runtime_error("t_out missing");
     if (P.cosmo && P.z_out.empty()) throw std::runtime_error("z_out missing");
-    std::ostream* out = quiet ? nullptr : &std::cout;
-    std::filesystem::create_directories(odir);
+    std::ostream* out = quiet || !io ? nullptr : &std::cout;
+    if (io) std::filesystem::create_directories(odir);
 
     Config cfg = Config::make(P.N, 1, P.Ndm, P.box);
     cfg.pm_refine = P.pm_refine;
     copy_hydro_scheme(P.hydro, cfg);
+    copy_hydro_backend_param(P.hydro, cfg);
+    check_hydro_backend_param(cfg);
     const bool unsplit = cfg.hydro_scheme == HydroScheme::Unsplit;
     SimClock clk;
     Units un;
@@ -245,6 +255,10 @@ int main(int argc, char** argv) {
       char name[32];
       std::snprintf(name, sizeof name, "out_%03d", iout);
       const std::string d = odir + "/" + name;
+      if (!io) {  // every rank holds the host state (Stage E1 model); rank 0 writes
+        ++iout;
+        return;
+      }
       std::filesystem::create_directories(d);
       if (P.write_fields) {
         write_raw_f32(d + "/u_gas.bin", gas.u);
@@ -395,9 +409,11 @@ int main(int argc, char** argv) {
       }
     }
     const double total = std::chrono::duration<double>(Clock::now() - t_start).count();
+    if (!io) return 0;
     std::printf(" hydro_suite_driver: %s: %d steps, t = %.6g, z = %.6g; wall %.2f s "
                 "(hydro %.2f, pm %.2f)\n",
                 pdir.c_str(), clk.istep, t, clk.redshift, total, wall_hydro, wall_pm);
+    if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
     std::ofstream(odir + "/timing.txt") << "steps = " << clk.istep << "\nwall = " << total
                                         << "\nwall_hydro = " << wall_hydro
                                         << "\nwall_pm = " << wall_pm << "\n";

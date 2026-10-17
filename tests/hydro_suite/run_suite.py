@@ -2,8 +2,8 @@
 """Runner of the hydro accuracy suite (docs/hydro_tests.md).
 
 usage: run_suite.py <test> [--tier quick|full] [--scheme legacy|unsplit]
-                    [--rundir DIR] [--check] [--jobs n] [--driver PATH]
-                    [--results DIR] [--reuse] [--clean]
+                    [--amr L] [--refine-mass M] [--rundir DIR] [--check]
+                    [--jobs n] [--driver PATH] [--results DIR] [--reuse] [--clean]
 
   test   tubes | galilean | sedov | sound | pancake | cosmobox | kh | all
   tier   quick: the small cases used by CTest (label hydro_suite);
@@ -11,6 +11,11 @@ usage: run_suite.py <test> [--tier quick|full] [--scheme legacy|unsplit]
   scheme legacy (default): the original moving-frame TVD scheme;
          unsplit: the unsplit MUSCL-Hancock + HLLC scheme with dual energy
          (docs/hydro_unsplit.md; the driver gets --set hydro_scheme=unsplit)
+  --amr L   run on the AMReX hydro backend with L refinement levels
+            (hydro_backend=amrex, amrex_max_level=L, amrex_refine_mass=M,
+            docs/stage_f.md; needs a driver built with RADRAY_AMREX and the
+            unsplit scheme); the results carry the suffix _amrL and the
+            analysis reads the level-0 (averaged-down) fields
   --check   apply the pass/fail tolerances (exit status 1 on failure); they
             are per scheme (tolerances.py)
   --reuse   do not re-run cases whose output already exists
@@ -52,6 +57,9 @@ class Ctx:
         out = list(extra or ())
         if self.scheme != "legacy":
             out.append(f"hydro_scheme={self.scheme}")
+        if self.args.amr > 0:
+            out += ["hydro_backend=amrex", f"amrex_max_level={self.args.amr}",
+                    f"amrex_refine_mass={self.args.refine_mass:g}"]
         return out
 
     def case(self, name, genfun, **kw):
@@ -207,6 +215,8 @@ def main():
     ap.add_argument("test")
     ap.add_argument("--tier", default="quick", choices=("quick", "full"))
     ap.add_argument("--scheme", default="legacy", choices=("legacy", "unsplit"))
+    ap.add_argument("--amr", type=int, default=0)
+    ap.add_argument("--refine-mass", type=float, default=8.0)
     ap.add_argument("--rundir", default=None)
     ap.add_argument("--results", default=None)
     ap.add_argument("--driver", default=None)
@@ -216,6 +226,10 @@ def main():
     ap.add_argument("--clean", action="store_true")
     args = ap.parse_args()
     suffix = "" if args.scheme == "legacy" else "_" + args.scheme
+    if args.amr > 0:
+        if args.scheme != "unsplit":
+            ap.error("--amr needs --scheme unsplit")
+        suffix += f"_amr{args.amr}"
     if args.rundir is None:
         args.rundir = os.path.join(hc.ROOT, "build", "hydro_suite_runs", args.tier + suffix)
     if args.results is None:
@@ -239,6 +253,8 @@ def main():
                 ctx.clean()
         res["suite_wall"] = time.time() - t0
         res["scheme"] = args.scheme
+        res["amr"] = args.amr
+        res["refine_mass"] = args.refine_mass
         hc.save_json(os.path.join(args.results, f"{name}_{args.tier}{suffix}.json"), res)
         print(f"== {name}: {res['suite_wall']:.1f} s", flush=True)
     if ctx.fails:

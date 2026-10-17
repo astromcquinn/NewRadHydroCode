@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-13: Stage E2 on klone: the PM backend validated and scaled (branch `stage-e-pm-klone`, PR #38, below, `docs/stage_e_pm.md` §3.1, §4.1): the 64³ production configuration with the three backends and `amrex_state = 1` against the serial code (new nightly test), `pm_refine = 2` with 1024³ particles on 1/2/4 nodes bitwise across nodes, box sizes and per FFT; two fixes (start-up memory, the amrex FFT's exit crash). Also 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-17: a falling escape fraction (branch `fesc-evolution`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 
 ## Done 2026-10-17: a falling escape fraction (branch `fesc-evolution`)
@@ -29,6 +29,89 @@ evolution thread". Parameters only; no code change.
   runs: `$RUNS/reion_census.md`. The finished runs' checkpoints (459 GB)
   were deleted with the user's OK (quota at 99 %).
 
+## Done 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`)
+
+**`docs/stage_f.md` §3.** F3a: the gas state holds every refined level
+(the hydro copies them in and out per call, the checkpoint writes the
+state's floats). F3b: the RT hierarchy in `src/amrex/rt_level.cpp`, one
+`Level` per level of the state with its own cells, deposits, rays, units
+and RT parameters; the substep in four phases interleaved across the
+levels; a refined level's outside ghosts take the parent's tau (halved)
+and transmitted fraction (√fgam); the deposits cross the level boundary
+both ways and the rays migrate after every substep, with the photons
+rescaled by the cell volume; a level's cells under the finer level emit
+nothing and have no physics; the finer levels are averaged down after
+the step; the statistics are summed over the levels; the sources go to
+the finest cell holding them; the checkpoint carries every level's rays
+in base units. `amrex_max_level = 0` is bitwise Stage E (176/176 on
+klone); the refined smoke runs are byte-identical across ranks and
+through a restart. Validation: one source in uniform gas (`make_ifront.py`,
+`rt_amr_ifront.slurm`, `ifront_full.py`): the refined 32³ run tracks the
+uniform 64³ front to 0.004–0.14 base cells inside the refined region and
+across its boundary (the lag is the two-cell coarse substep's, the user's
+choice); CTest `amrex_rt_amr_ifront` (nightly). Traps met: the per-level
+periodic wrap, the hydro's push-down after the RT, the photon
+normalisation across levels, the transmitted fraction of a half cell.
+Left for later: the PM on the refined levels (Stage G), FoF/P(k) on
+rank 0, the pancake/KH suite cases with refinement, the flux-register
+and FillPatch overheads, a refined production run (and the sink's
+production threshold).
+
+## Done 2026-10-14: Stage F decisions; B17 under `legacy_physics = 0`; Stage F1 and F2 (branch `stage-f-decisions`, PR #40)
+
+- **Stage F decisions taken** (`docs/PLAN.md`, "Stage F decisions"): one
+  coarse RT substep across levels (rays cross 2^l fine cells, no time
+  sub-cycling of the transport); B17 (`photon_conserve`) part of
+  `legacy_physics = 0`; cooling on in dense gas with an aggressive
+  star-formation sink (overdensity of a few thousand); the rest the
+  implementer's choice; order: gas AMR with refinement off (bitwise),
+  refined hydro on the test suite with the cooling flag and the sink,
+  then the RT across levels.
+- **B17 folded into `legacy_physics = 0`:** the key `photon_conserve`
+  defaults to −1 = `!legacy_physics`, 0 | 1 override
+  (`Config::photon_conserve_effective`, both drivers, `make_production.py
+  --photon-conserve -1|0|1`). The Fortran harnesses mirror it (RT harness
+  PATCHES.md 14: `photo_cell` iterates while any group is photon-limited,
+  `nit_max = 1000`; the full harness reads the key too), so every
+  combination of the mirrored flags stays byte-identical. The stored
+  `legacy_physics = 0` references (`outputs_legacy_rt0_phys0`,
+  `outputs_c0.1_fixed`, harness_full `*_rt0`) are regenerated on the CI
+  platform by the new on-demand workflow
+  `.github/workflows/regen_references.yml` (artifact `references`), with
+  `reference/harness/store_outputs.py` for the RT subset; the legacy sets
+  are untouched.
+- **Stage F2, refined hydro validated** (`docs/stage_f.md` §2): the hydro
+  suite with refinement (`run_suite.py --amr L`, one klone node): one
+  level on 32³ matches or beats the uniform 64³ run (Sod L1 ρ 0.0098
+  against 0.0120; Sedov's shock radius 4.3 % off against 3.0 %, two levels
+  3.5 %; the strong shock 0.16 → 0.086 → 0.036). Three traps on the way,
+  all fixed with tests (§1): the fine levels' dtdx (half speed per level
+  before), the interpolation interval reset per call, and the
+  positivity of the interpolater (`mf_linear_slope_minmax_interp`).
+- **The star-formation sink (F2b)** (`docs/stage_f.md` §2):
+  `sf_overdensity`, `sf_efficiency`; star particles on the PM level (the
+  dark matter deposits bitwise as before), `DM/stars.<ztag>`, `sink.txt`,
+  checkpoint version 8, rank-independent ids; tests label `sink`.
+- **klone: `srun --mpi=pmix`** (`docs/cluster.md` §3): the backend's
+  intermittent start-up crash is a use-after-free inside `ompi/4.1.6-2`'s
+  PMI-1 `MPI_Init` (found with an address-sanitizer build); `pmix` avoids
+  it; the test launcher and the job scripts pass it.
+- **Stage F1, the gas hierarchy** (`docs/stage_f.md` §1):
+  `amrex_max_level` (0 = Stage E, bitwise: `ctest -L amrex_hydro` 27/27
+  on klone), AmrMesh regridding on the gas overdensity
+  (`amrex_refine_mass` · 8^l), FillPatch ghosts, two substeps of dt/2 per
+  parent substep, refluxing and average-down, the CFL over every level,
+  the push-down of the level-0 changes the RT and PM make between hydro
+  calls, the refined levels through the checkpoint (`<checkpoint>.amr/`)
+  and across a rebalancing. Tests (label `amr`): conservation against
+  the uniform run and layout independence at 1 and 2 levels.
+- `cool_suppress_overdensity` (§2; 200 = the original, 0 = dense gas
+  cools), `make_production.py --cool-suppress-overdensity`.
+- Next: Stage F3, the RT across levels (`docs/stage_f.md` §3); the
+  pancake, KH and full-tier suite cases with refinement; the flux-register
+  and FillPatch overheads (to profile).
+- Storage: the Stage D/E one-step timing outputs (581 GB) were deleted on
+  the user's instruction.
 ## Done 2026-10-13: Stage E2 on klone, the PM backend's validation and scaling (branch `stage-e-pm-klone`, PR #38)
 
 Report: `docs/stage_e_pm.md` §3.1 (64³) and §4.1 (1024³). Decisions and
@@ -200,9 +283,10 @@ stale `RADRAY_FFTW` in the login environment.
   and FoF on rank 0 (deferred by decision until round-off there is
   accepted; with FoF every step at 1024³ particles they are 90 % of the
   step and make it 3× slower than the serial code, `docs/stage_e_pm.md`
-  §4.1), `Luv`/`sfr` on every rank. Next: Stage F (AMR), which
-  needs the user's decisions (rays across levels, `photon_conserve`
-  under `legacy_physics = 0`, cooling in dense gas); and the group's
+  §4.1), `Luv`/`sfr` on every rank. Next: Stage F (AMR); the
+  user's decisions (rays across levels, `photon_conserve` under
+  `legacy_physics = 0`, cooling in dense gas) were taken on 2026-10-14
+  (`docs/PLAN.md`, "Stage F decisions"); and the group's
   storage: `/gscratch/astro` is 96 % full, the timing runs of this and
   the Stage D/E threads hold about 450 GB under
   `runs/reion512_40mpc_f0.23/amrex_*` and 40 GB under
@@ -1719,12 +1803,10 @@ differ on klone are skipped there (label `platform_ref`).
 
 ## Open questions for the user
 
-- RT on AMR (`docs/rt_multicell.md` §9): whether to adopt the proposed
-  mixture (a coarse substep with 2^l cells per substep on level l, plus
-  photo-chemistry sub-cycling and transport sub-cycling only where a front
-  outruns the substep), pure time sub-cycling, or a pure coarse substep.
-  Also whether `photon_conserve = 1` (B17) should become part of
-  `legacy_physics = 0`; it is a separate flag for now.
+- ~~RT on AMR: mixture, pure time sub-cycling or a pure coarse substep;
+  whether `photon_conserve = 1` (B17) becomes part of `legacy_physics = 0`.~~
+  Decided 2026-10-14 (`docs/PLAN.md`, "Stage F decisions"): a pure coarse
+  substep; B17 is part of `legacy_physics = 0`.
 
 - Original `Halo/` catalogs, `sfr.txt`, or the Trac & Cen halo finder. These
   would pin down the original source model; it is reconstructed, see

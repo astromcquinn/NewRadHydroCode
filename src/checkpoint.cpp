@@ -33,11 +33,12 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // versions <= 4 are converted on reading), and the AMReX backend's section
 // (rt_backend, then its rays gathered on rank 0) before the trailer.
 // Version 6 (docs/rt_multicell.md): rt_cells_per_substep before the
-// trailer (versions <= 5: 1). The substep carry rt_carry of the clock is in
+// trailer (versions <= 5: 1). Version 8 adds the star particles of the
+// star-formation sink (docs/stage_f.md section 2) after the FoF cache. The substep carry rt_carry of the clock is in
 // substeps of that many cells; a restart with another value converts it.
 // Version 7 (fof_dt_myr, docs/pm_refine.md): the on-the-fly FoF cache
 // before the trailer (empty when off). Versions <= 6 are read as "no cache".
-constexpr std::int32_t kVersion = 7;
+constexpr std::int32_t kVersion = 8;
 
 // The ray layout of versions <= 4
 struct RayV4 {
@@ -236,6 +237,10 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     const std::int64_t fn[2] = {fc.nfof, fc.nreuse};
     o.pod(fn);
     o.vec(fc.halos);
+    // the star-formation sink's particles (version 8): rank 0's mirror
+    // (amrex_pm_gather_stars before the call) and the running count
+    o.pod(pm.nstar);
+    o.vec(pm.stars);
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -538,6 +543,12 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     s.fof.dtau = fd[2];
     s.fof.nfof = fn[0];
     s.fof.nreuse = fn[1];
+  }
+  pm.stars.clear();
+  pm.nstar = 0;
+  if (ver >= 8) {  // every rank reads the (small) star list; amrex_pm_load_stars keeps its own
+    in.pod(pm.nstar);
+    in.vec(pm.stars);
   }
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)
