@@ -82,6 +82,7 @@ do
 | `write_catalogs` | — | write the on-the-fly catalogs in legacy format |
 | `add_metals` | 1 | the add_halo_to_rt metal injection |
 | `fields_every`, `fields_at_data1` | 0, 1 | field output schedule |
+| `fields_levels`, `fields_levels_axis`, `fields_levels_index` | 0, z, −1 | 1: with every field output also `step_NNNN/levels_slice.bin` and `.txt`, one plane of the RT cells at the finest resolution of the refined levels (the field files of a refined run are the level-0 composite): float32 (6, n, n), Fortran order, the components rhog, fHI, fHeI, fHeII, temp and the level of each pixel, n = Nrt 2^L; normal to the axis through base cell `fields_levels_index` (−1: Nrt/2), the middle fine plane of that cell. Without refinement, the base plane in the same format. `docs/stage_f.md` §3 |
 | `max_steps` | 1000 | the original's `timing(1000)` |
 | `run_steps` | 0 | > 0: stop (normally) after this many hydro steps of this invocation, e.g. one step from a checkpoint for timing (`tools/production/speedup.sh`) |
 

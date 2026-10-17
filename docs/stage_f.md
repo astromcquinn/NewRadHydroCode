@@ -394,6 +394,24 @@ at the base resolution.*
 *The errors of the table per step. The curves have no jump at the
 steps where fronts cross the level boundaries.*
 
+**Slices at the finest resolution (`fields_levels = 1`, 2026-10-16).** The
+field files of a refined run hold the level-0 composite. With
+`fields_levels = 1` every field output also writes one plane of the RT
+cells at the finest resolution (`step_NNNN/levels_slice.bin`, `.txt`;
+`docs/full_run.md`): each level's plane is reduced onto rank 0 and the
+levels are composed coarse to fine, a coarse cell filling its fine
+pixels; a level map per pixel gives the outlines. A 3D output at the finest
+resolution would be too large for production; the plane is what the slice
+figures need. CTest `amrex_fields_levels` (two nested levels on 2 ranks:
+the level map, the level-0 pixels equal to the base field).
+
+![The 8-source slice at the finest resolution](figures/amr_ifront8_fine.png)
+
+*The slice of the figure above at the finest resolution (`fields_levels =
+1`, `fields_levels_index = 16`), beside the uniform runs in the same
+planes: inside the refined boxes the fronts have the resolution and the
+shapes of the uniform 64³ and 128³ runs.*
+
 Three fixes came out of it:
 
 1. **The covered cells' fgam** (`fill_covered_fgam`, after every
