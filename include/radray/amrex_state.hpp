@@ -65,6 +65,17 @@ void amrex_state_add_metals(Simulation& s, const std::vector<std::int64_t>& cell
 // rank 0's s.rt fields onto the level's cells.
 void amrex_state_gather_rt(Simulation& s, bool stats_only);
 void amrex_state_scatter_rt(Simulation& s);
+// fields_levels = 1 (radhydro): one plane of the RT cells at the finest
+// resolution, normal to axis (0, 1, 2 = x, y, z) through base cell
+// base_index (the middle fine plane of that cell: base_index 2^L + 2^L/2 in
+// finest-level cells, L = the finest level). On rank 0 `out` holds
+// (kLevelSliceComps, nf, nf) floats in Fortran order, the in-plane axes in
+// increasing order (x,y for a z plane), nf = Nrt 2^L: rhog, fHI, fHeI,
+// fHeII, temp and the level each pixel comes from (a coarse cell fills its
+// 2^(L-l) x 2^(L-l) pixels); finest = L, plane = the fine index. Collective.
+constexpr int kLevelSliceComps = 6;
+void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
+                          int& plane);
 
 // amrex_balance = 1: rebalances the shared decomposition on the current
 // per-box cost (cells + amrex_balance_ray_weight * live rays) before an RT
