@@ -194,7 +194,8 @@ class HydroLevel {
   HydroLevel(const Config& cfg, int N_, int max_grid_size, gs::GasState* state_)
       : N(N_), domain(ax::IntVect(0), ax::IntVect(N_ - 1)), state(state_), max_level(cfg.amrex_max_level),
         refine_mass(cfg.amrex_refine_mass), regrid_every(cfg.amrex_regrid_every) {
-    for (int m = 0; m < 6; ++m) refine_box[m] = cfg.amrex_refine_box[m];
+    for (int m = 0; m < 24; ++m) refine_box[m] = cfg.amrex_refine_box[m];
+    refine_nbox = cfg.amrex_refine_nbox;
     const ax::RealBox rb({0., 0., 0.}, {double(N_), double(N_), double(N_)});  // dx = 1 (cell units)
     const ax::Array<int, 3> per{1, 1, 1};
     geom.define(domain, rb, ax::CoordSys::cartesian, per);
@@ -276,7 +277,8 @@ class HydroLevel {
   int finest_ever = 0;  // the deepest level used so far (the timers line)
   double refine_mass = 8;
   int regrid_every = 1;
-  int refine_box[6] = {0, 0, 0, -1, -1, -1};
+  int refine_box[24] = {0, 0, 0, -1, -1, -1};
+  int refine_nbox = 0;
   std::unique_ptr<Mesh> mesh;
   ax::MultiFab prev0;  // level 0 as last written out (the push-down reference)
   bool have_prev0 = false;
@@ -521,9 +523,10 @@ class HydroLevel {
   void tag(int lev, ax::TagBoxArray& tags) {
     const double thr = rho_avg * refine_mass * std::ldexp(1.0, 3 * lev);
     const ax::MultiFab& Ul = U(lev);
-    // amrex_refine_box (level-0 cells, inclusive) at this level's resolution
-    const int* rb = refine_box;
-    const bool have_box = rb[3] >= rb[0] && rb[4] >= rb[1] && rb[5] >= rb[2];
+    // amrex_refine_box (level-0 cells, inclusive) at this level's resolution:
+    // box lev, or the last one for the deeper levels
+    const int* rb = refine_box + 6 * std::min(lev, std::max(refine_nbox - 1, 0));
+    const bool have_box = refine_nbox > 0 && rb[3] >= rb[0] && rb[4] >= rb[1] && rb[5] >= rb[2];
     const ax::Box fixed(ax::IntVect(rb[0] << lev, rb[1] << lev, rb[2] << lev),
                         ax::IntVect(((rb[3] + 1) << lev) - 1, ((rb[4] + 1) << lev) - 1, ((rb[5] + 1) << lev) - 1));
     for (ax::MFIter mfi(Ul); mfi.isValid(); ++mfi) {
@@ -592,9 +595,14 @@ class HydroLevel {
       std::fprintf(stderr, "AMR debug: regrid: finest %d, level boxes:%s\n", finest,
                    [&] {
                      std::string s;
-                     for (int lev = 0; lev <= finest; ++lev)
-                       s += " " + std::to_string(levels[static_cast<std::size_t>(lev)].ba.size()) + "(" +
-                            std::to_string(levels[static_cast<std::size_t>(lev)].ba.numPts()) + " cells)";
+                     for (int lev = 0; lev <= finest; ++lev) {
+                       const ax::BoxArray& ba = levels[static_cast<std::size_t>(lev)].ba;
+                       const ax::Box mb = ba.minimalBox();
+                       s += " " + std::to_string(ba.size()) + "(" + std::to_string(ba.numPts()) + " cells, " +
+                            std::to_string(mb.smallEnd(0)) + "," + std::to_string(mb.smallEnd(1)) + "," +
+                            std::to_string(mb.smallEnd(2)) + ".." + std::to_string(mb.bigEnd(0)) + "," +
+                            std::to_string(mb.bigEnd(1)) + "," + std::to_string(mb.bigEnd(2)) + ")";
+                     }
                      return s;
                    }()
                        .c_str());
