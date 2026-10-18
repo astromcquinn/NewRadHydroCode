@@ -783,6 +783,20 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/unsplit 13 --set hydro_scheme=unsplit)
+    # c_reduced_schedule (docs/production_run.md section 1): restart from step
+    # 13, before the switches at steps 14 and 15 (x from the checkpoint's RT grid)
+    add_test(NAME restart_smoke_c_schedule
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/c_schedule 13 --set legacy_rt=0
+                     --set legacy_physics=0 --set c_reduced_schedule=0.3,0.005,0.6,0.01,1)
+    # the one-speed schedule is the constant c_reduced byte for byte; the
+    # switching rule, step by step
+    add_test(NAME c_schedule
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/c_schedule_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/c_schedule --set legacy_rt=0 --set legacy_physics=0)
+    set_tests_properties(c_schedule PROPERTIES TIMEOUT 600 LABELS physics)
     # ray_rotate = 3 (B16 fix): the per-substep rotation is keyed on the clock
     add_test(NAME restart_smoke_rotate
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
@@ -1374,6 +1388,27 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
                      --set movie_dz=0.5 --set movie_z0=25)
     set_tests_properties(amrex_state_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_state;restart")
+    # c_reduced_schedule on the levels: x on rank 0, broadcast; restart across
+    # the switches (1 rank) and the switching rule on 2 ranks
+    add_test(NAME amrex_state_restart_smoke_c_schedule
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/state_restart_c_schedule 13 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                     --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                     --set movie_dz=0.5 --set movie_z0=25 --set c_reduced_schedule=0.3,0.005,0.6,0.01,1)
+    set_tests_properties(amrex_state_restart_smoke_c_schedule PROPERTIES TIMEOUT 1800
+                         LABELS "amrex;amrex_state;restart")
+    add_test(NAME amrex_state_c_schedule_r2
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/c_schedule_check.py
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/state_c_schedule_r2 --set legacy_rt=0 --set legacy_physics=0
+                     --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                     --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                     --set amrex_max_grid_size=8)
+    set_tests_properties(amrex_state_c_schedule_r2 PROPERTIES TIMEOUT 1800
+                         LABELS "amrex;amrex_state" ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
     # a bit-identical restart through the hydro backend
     add_test(NAME amrex_hydro_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
