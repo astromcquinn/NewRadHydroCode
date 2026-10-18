@@ -57,6 +57,14 @@ evolution thread". Parameters only; no code change.
   runs: `$RUNS/reion_census.md`. The finished runs' checkpoints (459 GB)
   were deleted with the user's OK (quota at 99 %).
 
+## Done 2026-10-16: refined-run crash fix, abort on error, `fields_levels` (branch `fields-levels`)
+
+- **Crash of the refined runs** (`fesc512_b2.5_amr` at step 23, `amr_val128/amr128` at step 20: "a rank with rays to add but no box"): a refined level with fewer boxes than ranks; rays parked or leaving a finer level arrived on a rank without a box of that level. `add_rays` now hands such rays to the owner of box 0 (commit a90c2ec on `claude/pensive-goodall-kvpwgz`). `fesc512_amr` resumed from its checkpoint with the fix and PR #42's RT fixes and passed step 23.
+- **An error on one rank ends the job** (`backend_abort`: `MPI_Abort` with more than one rank, from the error handlers of radhydro, rt_driver, pm_driver, hydro_driver; 72f7731). Before, the failing rank hung in the collective `amrex::Finalize` and the others waited: `fesc512_amr` held 5 nodes for 9.5 h after its crash. Tested: an error on rank 0 alone ends a 2-rank run in about 30 s.
+- **`fields_levels = 1`**: a plane at the finest resolution of the RT levels with every field output (`levels_slice.bin/.txt`; `docs/full_run.md`, `docs/stage_f.md` §3); CTest `amrex_fields_levels`; `tools/analysis/amr_figures.py` (the AMR figures of `docs/stage_f.md`).
+- **Open: two refined levels are not rank-independent.** The 8-source problem with two levels differs between 2, 3 and 8 ranks from step 8 on (relative 1e-10 in x_HII, the photons in flight); also with the binary before the `add_rays` fix, so it predates it. One level was checked byte-identical across ranks in F3; two levels never were. To find (the RT hierarchy with nested levels, or the hydro's fine layouts, which AMReX chops by the rank count).
+- Jobs after the 2026-10-16 cluster restart: `fesc512_b2.5_uniform` finished (z = 4.98, 13.4 h); `fesc512_amr`, `amr_val128/{amr128,u256}` resubmitted on `build-amrex-fix2` (resuming from their checkpoints); the cost probe has no usable checkpoint (`reion512_40mpc_f0.23`'s was removed; `fesc512_b2.5`'s has recomb_rad = 1).
+
 ## Done 2026-10-14 (evening): F3 validation with 8 sources (branch `stage-f3-8src`)
 
 **`docs/stage_f.md` §3, "Eight sources".** `make_ifront.py --sources 8src`
@@ -1865,11 +1873,48 @@ differ on klone are skipped there (label `platform_ref`).
    - framework spike (AMReX vs Parthenon): done, AMReX recommended
      (`docs/framework_decision.md`), **approved 2026-10-10**; Hyak CPU and GPU
      benchmarks done (H200 ≈ 5 nodes on the RT; no ACCESS proposal yet);
-   - ray data-structure rewrite;
-   - MPI;
-   - AMR for gas, then RT;
-   - multigrid/tree gravity;
+   - ray data-structure rewrite: done (Stage D, `docs/stage_d.md`);
+   - MPI: done through the AMReX backends (Stage E, `docs/stage_e_*.md`);
+   - AMR for gas, then RT: built (Stage F1–F3, `docs/stage_f.md`); what
+     is left is item 9;
+   - multigrid/tree gravity (Stage G);
    - adaptive RT.
+9. **Before AMR is ready for science** (2026-10-15, after PR #41):
+   - **Gravity on the refined levels (Stage G).** Since `pm_gas_levels`
+     (below) every level gets the force of the uniform PM mesh over its
+     own cells; the force resolution is still the mesh's everywhere.
+     Multigrid Poisson on the hierarchy (adaptive resolution, no huge
+     uniform mesh) remains Stage G, TreePM optional.
+   - **Hydro validation with refinement (F2):** the pancake and KH cases,
+     the full tier, and the composite of the finest data for comparisons
+     at the matched finest resolution.
+   - **RT validation with refinement (F3):** `uniform_8src` with a refined
+     region, the Iliev tests with refinement, a 128³
+     production-configuration run with two levels against uniform 128³
+     and 256³ (x_HII(z), τ_es, T_M, front positions). Only the
+     one-source I-front is done (`amrex_rt_amr_ifront`). Scripts for the
+     128³ runs and a 512³ cost probe (0 vs 2 levels on 5 nodes) are
+     ready, not yet run (`docs/stage_f.md` §3, "Next").
+   - **pm_refine and the refined gas: done 2026-10-15** (`pm_gas_levels
+     = 1`, default; `docs/stage_f.md` §4): the PM deposit takes the gas
+     of the finest level covering each mesh cell and every level is
+     kicked on its own cells, so with `pm_refine = 4` both levels of a
+     512³ run get gravity at the 2048³ mesh. A 16³ run refined everywhere
+     now matches the uniform 32³ run on the same mesh to 0.3 % (gas) and
+     1e-4 cells (particles), against 9 % and 8e-3 with the level-0
+     coupling. `make_production.py --ndm` allows 1024³ particles on the
+     2048³ mesh. To measure on klone: the 2048³ mesh's cost and memory.
+   - **Production:** the sink's production threshold (`sf_overdensity`,
+     "a few thousand"), a first refined production run, profiling the
+     flux-register and FillPatch overheads (`reflux`, `fill` timers), the
+     distributed FoF and P(k) (rank 0 today, the bottleneck at 1024³
+     particles).
+   - **Limits:** only the AMReX backends refine; M1/OTVET exist only in
+     the serial RT (`rt_backend = amrex` needs `rt_method = rays`), so
+     with refinement they could act on level 0 at best, untested and not
+     refused; the coarse substep lags the fine-level
+     fronts (1.5 % with the whole box on level 1) and fails light-limited
+     fronts at k = 4 (two levels at 0.1c, `docs/rt_multicell.md` §7–8).
 
 ## Open questions for the user
 

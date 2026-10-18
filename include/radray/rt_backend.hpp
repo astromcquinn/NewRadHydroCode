@@ -35,6 +35,11 @@ bool amrex_available();
 // every rank runs the whole driver and only io_rank() writes files.
 void backend_init(int& argc, char**& argv);
 void backend_finalize();
+// After an error on this rank: with more than one rank, flush and
+// MPI_Abort(code), so that the job ends instead of the other ranks waiting
+// in their next collective (a rank that returns from main hangs in the
+// collective amrex::Finalize). No-op on one rank and without AMReX.
+void backend_abort(int code);
 bool io_rank();
 int backend_rank();
 int backend_nranks();

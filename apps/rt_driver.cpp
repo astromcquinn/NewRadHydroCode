@@ -188,6 +188,7 @@ int main(int argc, char** argv) {
                 << (use_amrex(s.cfg) ? " " + amrex_rt_timers(s) + "\n" : std::string());
   } catch (const std::exception& e) {
     std::fprintf(stderr, "rt_driver: error: %s\n", e.what());
+    backend_abort(1);  // more than one rank: end the job (the others would wait)
     return 1;
   }
   return 0;
