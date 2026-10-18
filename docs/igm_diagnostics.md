@@ -93,8 +93,17 @@ fitting the forest transmission (its mean and PDF) with simulations. The
 that transmits, not a volume average that includes neutral islands, where
 Γ ≈ 0. (This reading of their method follows the task description; it has
 not been checked against the paper here.) The closest estimator is the volume
-average over ionized cells, `ion_V` at x_HI < 10⁻². It is the solid line
-in the figure.
+average over ionized cells, `ion_V` at x_HI < 10⁻². It was the solid line
+in the figure until 2026-10-18.
+
+**Since 2026-10-18 (user decision):** the compared estimator counts the
+neutral volume as Γ = 0, and uses the median rather than the mean of the
+ionized cells, so that the 1/r² peaks next to the sources do not dominate:
+`G_medx` = median(Γ | x_HI < 10⁻²) × x_HII,V (`igm_plot.py`: solid line,
+`G/obs` in the table). The mean over all cells (`G_V`, neutral cells
+contributing ≈ 0) is the dashed line. Before overlap this lowers the model
+Γ by up to 30 % relative to `ion_V` (fesc512 at z = 6: 0.092 against
+0.133 × 10⁻¹² s⁻¹).
 * Below x_HI ~ 10⁻² the average hardly depends on the threshold: in
   ionized gas x_HI ~ 10⁻⁴ (mean density, Γ ~ 2×10⁻¹³), so 10⁻² separates
   the ionized and neutral phases cleanly. 10⁻³ starts to cut dense
