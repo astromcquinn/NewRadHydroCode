@@ -936,3 +936,14 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   A 512³ refined run's checkpoint is ~240 GB and took ~9 min per write, more
   than the step itself (`fesc512_b2.5_amr`). Runs already set up keep the
   value in their `params.txt`.
+
+## No particle snapshots (2026-10-18)
+
+* **Decision (user):** the dark-matter particles are never needed except for
+  restarts, so production snapshots no longer write them. New `data_files =
+  nodm` (`norays` without `DM/xv_dm`: the gas files `u, v, w, e` and
+  `RT/rt_grid` are kept; the particles stay in the checkpoints), the
+  default of `make_production.py` and `amr512_runs.sh`. Saves ~3 GB per
+  snapshot at 512³ particles, ~26 GB at 1024³. `w_gas` (ρ_HI, ρ_HeI,
+  ρ_HeII, ρ_Z) is also what a refined run's mean free path should use: the
+  composite's ρ_HI is the correct mean, unlike rhog × fHI.

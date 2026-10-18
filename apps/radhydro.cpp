@@ -132,8 +132,9 @@ struct RunParams {
   std::string movie_slab_axes = "xyz";
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
-  // (without Ray/, which holds every ray: 96 B each), dm (only xv_dm, as
-  // the original with one thread) or gas (only Gas/u_gas)
+  // (without Ray/, which holds every ray: 96 B each), nodm (norays without
+  // DM/xv_dm: the particles stay only in the checkpoints), dm (only xv_dm,
+  // as the original with one thread) or gas (only Gas/u_gas)
   std::string fields;
   std::string data_files = "all";
   // Sources
@@ -247,8 +248,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "fields")
     P.fields = val;
   else if (key == "data_files") {
-    if (val != "all" && val != "norays" && val != "dm" && val != "gas")
-      throw std::runtime_error("data_files must be all, norays, dm or gas");
+    if (val != "all" && val != "norays" && val != "nodm" && val != "dm" && val != "gas")
+      throw std::runtime_error("data_files must be all, norays, nodm, dm or gas");
     P.data_files = val;
   }
   else if (key == "deterministic_parallel") {
@@ -388,7 +389,7 @@ void write_data_files(const std::string& odir, const std::string& tag, const Sim
     write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
     return;
   }
-  write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
+  if (which != "nodm") write_f32(odir + "/DM/xv_dm." + tag, xv.data(), xv.size());
   if (which == "dm") return;
   std::filesystem::create_directories(odir + "/Gas");
   write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
@@ -424,7 +425,7 @@ void write_data_files(const std::string& odir, const std::string& tag, const Sim
     }
     write_f32(odir + "/RT/rt_grid." + tag, buf.data(), buf.size());
   }
-  if (which == "norays") return;
+  if (which == "norays" || which == "nodm") return;
   // the original opens (creates) the Ray files and writes them if Nray > 0
   std::filesystem::create_directories(odir + "/Ray");
   {

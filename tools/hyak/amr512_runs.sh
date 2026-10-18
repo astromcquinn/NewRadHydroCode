@@ -29,9 +29,10 @@
 # F6 (0.135), BETA (2.5), LEVELS (2), REFINE_MASS (8), COOL
 # (cool_suppress_overdensity, default 0: dense gas cools, the Stage F
 # decision), SF (sf_overdensity, default 3000: "an aggressive sink above a
-# few thousand", the Stage F decision; 0 = off), DATA_FILES (default gas:
-# Gas/u_gas at the snapshots, enough for igm_stats.py; norays adds the 26 GB
-# DM/xv_dm per snapshot), FOF_DT (30), EXE (build-amrex/radhydro),
+# few thousand", the Stage F decision; 0 = off), DATA_FILES (default nodm:
+# Gas (u, v, w = rho_HI..., e) and RT/rt_grid at the snapshots, no particles;
+# norays adds the 26 GB DM/xv_dm per snapshot, gas keeps only Gas/u_gas),
+# FOF_DT (30), EXE (build-amrex/radhydro),
 # NODES (5), SBATCH_ARGS, DRYRUN=1 (make the directories, print the sbatch
 # commands). COOL, SF and everything else apply to both runs.
 set -eu
@@ -45,7 +46,7 @@ LEVELS="${LEVELS:-2}"
 REFINE_MASS="${REFINE_MASS:-8}"
 COOL="${COOL:-0}"
 SF="${SF:-3000}"
-DATA_FILES="${DATA_FILES:-gas}"
+DATA_FILES="${DATA_FILES:-nodm}"
 FOF_DT="${FOF_DT:-30}"
 EXE="${EXE:-build-amrex/radhydro}"
 NODES="${NODES:-5}"

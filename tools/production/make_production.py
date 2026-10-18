@@ -108,9 +108,10 @@ def main():
                          "after the transport, so they are absorbed in their own cell first "
                          "(moment_inject; default 1, docs/rt_moments.md); 0: before, the original "
                          "order, which leaves dense source cells neutral")
-    ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
-                    help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
-                         "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
+    ap.add_argument("--data-files", default="nodm", choices=("all", "norays", "nodm", "dm", "gas"),
+                    help="files of the zdata1 snapshots besides the fields: nodm (default, user "
+                         "decision 2026-10-18: Gas and RT/rt_grid, no particles; they stay in "
+                         "the checkpoints), norays (DM, Gas, RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
                          "the source-start mean free path), dm (only the particles: 26 GB "
                          "per output at 1024^3, docs/pm_refine.md)")
     ap.add_argument("--restart-keep", type=int, default=0,

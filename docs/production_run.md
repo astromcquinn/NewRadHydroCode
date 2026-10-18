@@ -27,7 +27,7 @@ the original behaviour:
 | `movie_slab`, `movie_slab_axes` | 0, `xyz` | t > 0: write only the slabs of t cells through the box centre normal to each axis listed, instead of the full cube (`docs/movies.md`, "Slab frames"); 0: the full cube |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes; `make_production.py` writes 10 (user decision 2026-10-18) |
 | `restart_keep` | 0 | n > 0: numbered checkpoints `checkpoint_NNNN.bin`, of which only the newest n are kept (deleted after each successful write; `reion_production.slurm` resumes from the newest); 0: as `restart_keep_latest` |
-| `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list) and the snapshot files: `all`, `norays`, `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
+| `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list) and the snapshot files: `all`, `norays`, `nodm` (`norays` without `DM/xv_dm`: the particles only in the checkpoints; the `make_production.py` default, user decision 2026-10-18), `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
 params.txt of the production configuration. **Its recombination case is
