@@ -142,6 +142,14 @@ struct RunParams {
   std::string ics;          // directory of xv_dm.init/u_gas.init
   // Output and control
   int fields_every = 0;     // write fields every n steps (0: never)
+  // fields_levels = 1: with every field output, one plane at the finest
+  // resolution of the RT levels (step_NNNN/levels_slice.bin and .txt; the
+  // refined runs' field files are the level-0 composite), normal to
+  // fields_levels_axis (x|y|z) through base cell fields_levels_index
+  // (-1: Nrt/2), the middle fine plane of that cell
+  int fields_levels = 0;
+  int fields_levels_axis = 2;
+  int fields_levels_index = -1;
   int fields_at_data1 = 1;  // write fields at the zdata1 output steps
   // tensor_dump = 1: the Eddington-tensor diagnostic at the zdata1 output
   // steps (rt_tensor_diag.hpp; tensor.bin, otvet_h.bin, sources.txt)
@@ -265,6 +273,14 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ics = val;
   else if (key == "fields_every")
     P.fields_every = std::stoi(val);
+  else if (key == "fields_levels") {
+    P.fields_levels = std::stoi(val);
+    if (P.fields_levels != 0 && P.fields_levels != 1) throw std::runtime_error("fields_levels must be 0 or 1");
+  } else if (key == "fields_levels_axis") {
+    if (val != "x" && val != "y" && val != "z") throw std::runtime_error("fields_levels_axis must be x, y or z");
+    P.fields_levels_axis = val[0] - 'x';
+  } else if (key == "fields_levels_index")
+    P.fields_levels_index = std::stoi(val);
   else if (key == "fields_at_data1")
     P.fields_at_data1 = std::stoi(val);
   else if (key == "tensor_dump")
@@ -892,6 +908,52 @@ int main(int argc, char** argv) {
       W("xv_dm", pm.xv);
     };
 
+    // fields_levels = 1: the plane at the finest resolution (collective)
+    auto write_levels_slice = [&](const std::string& d) {
+      if (!P.fields_levels) return;
+      const int axis = P.fields_levels_axis;
+      const int idx = P.fields_levels_index >= 0 ? P.fields_levels_index : cfg.Nrt / 2;
+      std::vector<float> out;
+      int nf = 0, finest = 0, plane = 0;
+      if (use_amrex(cfg)) {
+        amrex_rt_level_slice(s, axis, idx, out, nf, finest, plane);
+      } else if (io) {  // the serial RT: the base plane of rank 0's grid
+        const RTGrid& G = s.rt;
+        const int N = cfg.Nrt;
+        if (idx < 0 || idx >= N) throw std::runtime_error("fields_levels_index must be within 0..N-1");
+        nf = N;
+        plane = idx;
+        out.assign(static_cast<std::size_t>(kLevelSliceComps) * N * N, 0.0f);
+        const int ia = axis == 0 ? 1 : 0, ib = axis == 2 ? 1 : 2;
+        for (int b = 0; b < N; ++b)
+          for (int a = 0; a < N; ++a) {
+            int ijk[3];
+            ijk[axis] = idx;
+            ijk[ia] = a;
+            ijk[ib] = b;
+            const std::int64_t c = ijk[0] + static_cast<std::int64_t>(N) * (ijk[1] + static_cast<std::int64_t>(N) * ijk[2]);
+            float* o = out.data() + (static_cast<std::size_t>(a) + static_cast<std::size_t>(N) * b) * kLevelSliceComps;
+            o[0] = G.rhog[c];
+            o[1] = G.fHI[c];
+            o[2] = G.fHeI[c];
+            o[3] = G.fHeII[c];
+            o[4] = G.temp[c];
+          }
+      }
+      if (!io) return;
+      write_f32(d + "/levels_slice.bin", out.data(), out.size());
+      std::ofstream t(d + "/levels_slice.txt");
+      const char* names = "xyz";
+      const int ia = axis == 0 ? 1 : 0, ib = axis == 2 ? 1 : 2;
+      t << "# fields_levels: one plane of the RT cells at the finest resolution\n"
+        << "# levels_slice.bin: float32 (ncomp, n, n) in Fortran order, the first in-plane axis fastest\n"
+        << "ncomp = " << kLevelSliceComps << "\ncomponents = rhog fHI fHeI fHeII temp level\n"
+        << "n = " << nf << "\nfinest = " << finest << "\ncells_per_base_cell = " << (1 << finest)
+        << "\naxis = " << names[axis] << "\nin_plane = " << names[ia] << " " << names[ib]
+        << "\nbase_index = " << idx << "\nplane = " << plane
+        << "\n# plane: the fine-cell index along the axis; its centre is at (plane + 0.5) / cells_per_base_cell base cells\n";
+    };
+
     auto step_dir = [&]() {
       char name[32];
       std::snprintf(name, sizeof name, "step_%04d", s.clk.istep);
@@ -1096,7 +1158,10 @@ int main(int argc, char** argv) {
       summaries();
       const std::string d = step_dir();
       write_stats(d);
-      if (P.fields_every > 0) write_fields(d);
+      if (P.fields_every > 0) {
+        write_fields(d);
+        if (!use_amrex(cfg) || s.amrex) write_levels_slice(d);  // (the RT level is made at the first RT step)
+      }
     }
 
     std::ofstream timing;
@@ -1237,6 +1302,7 @@ int main(int argc, char** argv) {
       if (fields || last) {
         sync_mirror();
         write_fields(d);
+        write_levels_slice(d);
       }
       T.io += std::chrono::duration<double>(Clock::now() - th).count();
 

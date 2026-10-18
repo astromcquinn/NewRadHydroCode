@@ -1291,6 +1291,15 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       if(NOT RADRAY_NIGHTLY_TESTS)
         set_tests_properties(amrex_rt_amr_ifront8 PROPERTIES DISABLED TRUE)
       endif()
+      # fields_levels = 1: the plane at the finest resolution of two nested
+      # refined levels on 2 ranks (the level map, the level-0 pixels equal to
+      # the base field)
+      add_test(NAME amrex_fields_levels
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/levels_slice_check.py
+                       ${amrex_runs}/fields_levels "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_fields_levels PROPERTIES TIMEOUT 900 LABELS "amrex;amr"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 4)
     endif()
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro

@@ -242,7 +242,65 @@ struct LevelBase {
   virtual void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const = 0;
   virtual void scatter_rays(const std::vector<RayP>& in, bool first) = 0;
   virtual std::string timers() const = 0;
+  // fields_levels = 1: amrex_rt_level_slice (amrex_state.hpp). Collective.
+  virtual void level_slice(int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
+                           int& plane) const = 0;
 };
+
+// One plane through the levels' RT cells at the finest resolution (the
+// plane of amrex_rt_level_slice): each level's plane reduced onto rank 0
+// (every cell of a level has one owner, so the sum is a copy), then
+// composed coarse to fine, a coarse cell filling its fine pixels.
+template <class L>
+void slice_of_levels(const std::vector<const L*>& lv, int axis, int base_index, std::vector<float>& out, int& nf,
+                     int& finest, int& plane) {
+  constexpr int NCOMP = kLevelSliceComps;
+  finest = static_cast<int>(lv.size()) - 1;
+  const int N0 = lv[0]->N;
+  if (axis < 0 || axis > 2 || base_index < 0 || base_index >= N0)
+    throw std::runtime_error("fields_levels: the axis must be x, y or z and the index within 0..N-1");
+  const int F = 1 << finest;
+  nf = N0 * F;
+  plane = base_index * F + F / 2;
+  const int ia = axis == 0 ? 1 : 0, ib = axis == 2 ? 1 : 2;  // the in-plane axes, ia < ib
+  const bool io = ax::ParallelDescriptor::IOProcessor();
+  const int root = ax::ParallelDescriptor::IOProcessorNumber();
+  const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+  if (io) out.assign(static_cast<std::size_t>(NCOMP) * nf * nf, 0.0f);
+  for (int l = 0; l <= finest; ++l) {
+    const L& V = *lv[static_cast<std::size_t>(l)];
+    const int Nl = V.N, sh = finest - l, pl = plane >> sh;
+    std::vector<float> buf(static_cast<std::size_t>(NCOMP) * Nl * Nl, 0.0f);  // 5 fields + coverage
+    for (ax::MFIter mfi(V.C); mfi.isValid(); ++mfi) {
+      const ax::Box bx = mfi.validbox();
+      if (pl < bx.smallEnd(axis) || pl > bx.bigEnd(axis)) continue;
+      ax::Box b2 = bx;
+      b2.setSmall(axis, pl);
+      b2.setBig(axis, pl);
+      auto c = V.C.const_array(mfi);
+      const auto lo = ax::lbound(b2), hi = ax::ubound(b2);
+      for (int k = lo.z; k <= hi.z; ++k)
+        for (int j = lo.y; j <= hi.y; ++j)
+          for (int i = lo.x; i <= hi.x; ++i) {
+            const int ijk[3] = {i, j, k};
+            float* q = buf.data() + (static_cast<std::size_t>(ijk[ia]) + static_cast<std::size_t>(Nl) * ijk[ib]) * NCOMP;
+            for (int m = 0; m < 5; ++m) q[m] = cf(c, i, j, k, m);
+            q[5] = 1.0f;
+          }
+    }
+    MPI_Reduce(io ? MPI_IN_PLACE : buf.data(), buf.data(), static_cast<int>(buf.size()), MPI_FLOAT, MPI_SUM, root,
+               comm);
+    if (!io) continue;
+    for (int fb = 0; fb < nf; ++fb)
+      for (int fa = 0; fa < nf; ++fa) {
+        const float* q = buf.data() + (static_cast<std::size_t>(fa >> sh) + static_cast<std::size_t>(Nl) * (fb >> sh)) * NCOMP;
+        if (!(q[5] > 0)) continue;
+        float* o = out.data() + (static_cast<std::size_t>(fa) + static_cast<std::size_t>(nf) * fb) * NCOMP;
+        for (int m = 0; m < 5; ++m) o[m] = q[m];
+        o[5] = static_cast<float>(l);
+      }
+  }
+}
 
 template <class Enc>
 struct Level : LevelBase {
@@ -1791,6 +1849,10 @@ struct Level : LevelBase {
     }
   }
 
+  void level_slice(int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
+                   int& plane) const override {
+    slice_of_levels(std::vector<const Level*>{this}, axis, base_index, out, nf, finest, plane);
+  }
   std::string timers() const override {
     char buf[512];
     std::snprintf(buf, sizeof buf,
@@ -2193,6 +2255,12 @@ struct Hierarchy : LevelBase {
     average_down();
     amrex_hydro_level0_is_current();  // the hydro must not push this change down again
   }
+  void level_slice(int axis, int base_index, std::vector<float>& out, int& nf, int& fin,
+                   int& plane) const override {
+    std::vector<const L*> lv;
+    for (int l = 0; l <= finest; ++l) lv.push_back(levels[static_cast<std::size_t>(l)].get());
+    slice_of_levels(lv, axis, base_index, out, nf, fin, plane);
+  }
   void sync_fields(Simulation& s) override { base().sync_fields(s); }
   void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
   void scatter_fields(Simulation& s) override { base().scatter_fields(s); }
@@ -2362,6 +2430,10 @@ void backend_bcast_bytes(void* p, std::size_t n) {
   }
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
+void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
+                          int& plane) {
+  level_of(s).level_slice(axis, base_index, out, nf, finest, plane);
+}
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }

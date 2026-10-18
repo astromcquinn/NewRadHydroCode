@@ -131,6 +131,15 @@ the shock radius for Sedov at t = 10), uniform / 1 level / 2 levels:
 | Sedov, N = 32 | 0.0608 / 0.0427 / 0.0345 | 0.0987 / 0.0683 / 0.0604 | 0.0765 / 0.0523 / 0.0436 | +5.9 % / +4.3 % / +3.5 % | 2 / 39 / 113 |
 | Sedov, N = 64 | 0.0406 / 0.0279 / 0.0202 | 0.0648 / 0.0418 / 0.0332 | 0.0467 / 0.0318 / 0.0250 | +3.0 % / +1.9 % / +1.5 % | 43 / 936 / 2587 |
 
+![Sedov blast with refinement](figures/amr_sedov.png)
+
+*Sedov at t = 10, N = 32 (`tools/analysis/amr_figures.py --only sedov`).
+Top: density slices through the blast. The refined runs are shown at the
+base resolution: the driver writes the level-0 composite (each refined
+cell's children averaged down), not the fine levels. Bottom: the binned
+radial profile against the exact solution, and the L1 and shock-radius
+errors of the table.*
+
 One level on N = 32 matches or beats the uniform N = 64 run (Sod: 0.0098
 against 0.0120; Sedov: 0.0427 against 0.0406, R error 4.3 % against
 3.0 %), two levels halve the errors again where the second level is
@@ -369,6 +378,40 @@ while the ray loses 1 − √fgam (a photon excess at fine-to-coarse
 crossings). CTest `amrex_rt_amr_ifront8` (label `amr`, nightly) repeats
 the one-level case on 2 ranks (≈ 11 min with `amrex_rt_amr_ifront`).
 
+![8-source x_HII slices](figures/amr_ifront8_slices.png)
+
+*Step 10 (z ≈ 11.6), a slice through source 6 and the refined boxes. Top:
+x_HII. The refined panels are the level-0 composites (base resolution;
+the fine levels are not written); the uniform 128³ run is shown at its own
+resolution. Bottom: the difference from the finer uniform run averaged to
+32³. Inside the level-1 box the mean |Δx_HII| falls from 0.031 to 0.020
+(one level, against 64³) and from 0.031 to 0.025 (two levels, against
+128³); over the whole slice it is unchanged, the rest of the box being
+at the base resolution.*
+
+![8-source error histories](figures/amr_ifront8_errors.png)
+
+*The errors of the table per step. The curves have no jump at the
+steps where fronts cross the level boundaries.*
+
+**Slices at the finest resolution (`fields_levels = 1`, 2026-10-16).** The
+field files of a refined run hold the level-0 composite. With
+`fields_levels = 1` every field output also writes one plane of the RT
+cells at the finest resolution (`step_NNNN/levels_slice.bin`, `.txt`;
+`docs/full_run.md`): each level's plane is reduced onto rank 0 and the
+levels are composed coarse to fine, a coarse cell filling its fine
+pixels; a level map per pixel gives the outlines. A 3D output at the finest
+resolution would be too large for production; the plane is what the slice
+figures need. CTest `amrex_fields_levels` (two nested levels on 2 ranks:
+the level map, the level-0 pixels equal to the base field).
+
+![The 8-source slice at the finest resolution](figures/amr_ifront8_fine.png)
+
+*The slice of the figure above at the finest resolution (`fields_levels =
+1`, `fields_levels_index = 16`), beside the uniform runs in the same
+planes: inside the refined boxes the fronts have the resolution and the
+shapes of the uniform 64³ and 128³ runs.*
+
 Three fixes came out of it:
 
 1. **The covered cells' fgam** (`fill_covered_fgam`, after every
@@ -383,6 +426,13 @@ Three fixes came out of it:
    mean of its children's fgam of the same substep, which is what the
    children absorb of the parent's deposit (photon conserving). Total
    deficit after the fix: 0.24 %.
+
+   ![The covered-cell fgam fix](figures/amr_fgam_fix.png)
+
+   *Photons in flight of the refined run against uniform 64³ with
+   `rt_cells_per_substep = 2`, before and after the fix (step 10; the
+   level-1 box outlined). The 2 % offset at the early steps, the same in
+   both, comes from the unrefined part of the box (32³).*
 2. **Each level's ray pool** (`calc_ngam_ray`, `pool_guard`): the split
    and merge thresholds and the pool guard of every level used the base
    pool `Nray_max = nray_max_factor N³`; a refined level with up to 8× the
@@ -533,6 +583,7 @@ Poisson on the hierarchy remains the long-term route.
 | `tools/hyak/amr512_runs.sh` | the refined 512³ production run and its unrefined control (§4) |
 | `tests/problems_full/make_ifront.py` | the I-front problems of §3: one source or `--sources 8src`, the dark matter at rest, `sources_pos.txt` |
 | `tools/analysis/ifront_full.py`, `tools/analysis/ifront_multi.py` | the front radius of one source; per-source ionised volumes, x_HII,V/M, photons in flight and the checks for several |
+| `tools/analysis/amr_figures.py` | the figures of §2 and §3 (`docs/figures/amr_*.png`) |
 | `tools/hyak/rt_amr_ifront.slurm`, `tools/hyak/rt_amr_ifront8.slurm`, `tests/rt_amr_ifront.cmake` | the refined I-front runs on klone and the nightly CTests `amrex_rt_amr_ifront`, `amrex_rt_amr_ifront8` |
 
 Tests: `ctest -L amrex_hydro` (27, refinement off: bitwise the serial
