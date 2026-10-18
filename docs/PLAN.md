@@ -929,3 +929,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   1024³ particles rather than 2048³ (whose FoF and P(k) on rank 0 would
   not fit). Multigrid Poisson on the hierarchy stays Stage G.
 
+## Checkpoint cadence (2026-10-18)
+
+* **Decision (user):** future production runs checkpoint every 10 hydro
+  steps (`make_production.py --restart-every`, default now 10; it was 1).
+  A 512³ refined run's checkpoint is ~240 GB and took ~9 min per write, more
+  than the step itself (`fesc512_b2.5_amr`). Runs already set up keep the
+  value in their `params.txt`.

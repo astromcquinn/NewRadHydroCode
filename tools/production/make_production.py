@@ -22,7 +22,8 @@ and source (ray_rotate = 3, the B16 fix; --ray-rotate), the unsplit hydro with d
 travelled (redshift_per_distance = 1; --redshift-per-distance), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5 (Lyman-alpha forest comparison), movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
-docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
+docs/movies.md), a checkpoint every --restart-every hydro steps (default 10: a 512^3 refined
+checkpoint is ~240 GB and ~9 min to write; user decision 2026-10-18).
 
 --backend amrex writes the AMReX backends with the state on the levels and
 load balancing into params.txt (rt/hydro/pm_backend = amrex, amrex_state =
@@ -85,7 +86,7 @@ def main():
                     help="f_esc(z) = f_esc ((1+z)/(1+f_esc_z0))^beta, capped at 1 "
                          "(tools/analysis/emissivity.py); 0: constant f_esc")
     ap.add_argument("--f-esc-z0", type=float, default=6.0)
-    ap.add_argument("--restart-every", type=int, default=1)
+    ap.add_argument("--restart-every", type=int, default=10)
     ap.add_argument("--recomb-case", default="B", choices=("A", "B"),
                     help="recombination case (docs/recomb_radiation.md). Default B: on the spot, "
                          "the original (user decision 2026-10-12, so that the production "
