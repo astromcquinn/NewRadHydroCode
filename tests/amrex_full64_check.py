@@ -71,13 +71,20 @@ def main():
         if mode == "rt":
             run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
                  "--movie-dz", "0", "--hydro-scheme", "legacy", "--redshift-per-distance", "0",
-                 "--recomb-case", "B", "--recomb-rad", "0"],  # recomb_rad: serial RT only
+                 "--recomb-case", "B", "--recomb-rad", "0",  # recomb_rad: serial RT only
+                 "--c-schedule", "none"],  # the constant 0.01c of the measurement
                 os.path.join(work, "make.log"))
         else:
             # today's production defaults (unsplit, redshift_per_distance, case B
-            # without recombination radiation: amrex_state needs recomb_rad = 0)
+            # without recombination radiation: amrex_state needs recomb_rad = 0),
+            # but the constant 0.01c the tolerances were measured with: at the
+            # c_reduced_schedule's 0.1-0.4c the snapshot Gamma is ray-sampling
+            # noise, independent between the two runs, and the per-cell fHI
+            # differs by ~0.6 rms (and the run takes 40x longer); the schedule
+            # on the backends: amrex_state_c_schedule_r2
             run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
-                 "--movie-dz", "0", "--recomb-rad", "0"], os.path.join(work, "make.log"))
+                 "--movie-dz", "0", "--recomb-rad", "0", "--c-schedule", "none"],
+                os.path.join(work, "make.log"))
     common = ["--quiet", "--set", "restart_every=0", "--set", "movie_dz=0.25", "--set", "movie_z0=15"]
     runs = {"serial": [exe, prob, os.path.join(work, "serial")] + common,
             "amrex": [launch] + flags + ["-np", "2", "-x", "OMP_NUM_THREADS=2", exe, prob,

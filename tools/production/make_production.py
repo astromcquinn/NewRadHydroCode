@@ -2,7 +2,8 @@
 """Set up the production reionization run (docs/production_run.md).
 
     make_production.py OUTDIR --N 128 [--box 10] [--z-init 100] [--seed 7]
-                       [--c-reduced 0.01] [--nray-max-factor 16] [--threads 4]
+                       [--c-schedule 0.1,0.25,0.2,0.5,0.3,0.75,0.5 | --c-schedule none --c-reduced 0.2]
+                       [--nray-max-factor 16] [--threads 4]
                        [--hydro-scheme unsplit] [--redshift-per-distance 1]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
@@ -54,7 +55,15 @@ def main():
     ap.add_argument("--box", type=float, default=10.0)
     ap.add_argument("--z-init", type=float, default=100.0)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--c-reduced", type=float, default=0.01)
+    ap.add_argument("--c-reduced", type=float, default=None,
+                    help="constant reduced speed of light; given alone it turns the default "
+                         "schedule off (written as c_reduced; default 0.01 with --c-schedule none)")
+    ap.add_argument("--c-schedule", default=None,
+                    help="c_reduced_schedule c0,x1,c1,x2,c2,...: c_reduced by the box's x_HII,V "
+                         "(production default, user decision 2026-10-18: 0.1c below x = 0.25, "
+                         "0.2c to x = 0.5, 0.3c to 0.75, 0.5c after; docs/production_run.md "
+                         "section 1); "
+                         "'none' for the constant --c-reduced")
     ap.add_argument("--nray-max-factor", type=int, default=16)
     ap.add_argument("--movie-dz", type=float, default=0.05)
     ap.add_argument("--movie-fields", default="fHI,temp,rhog",
@@ -171,6 +180,12 @@ def main():
                          "in between (docs/pm_refine.md, FoF cadence); 0: every hydro step "
                          "(the original, no line written)")
     a = ap.parse_args()
+    # the speed of light: the default schedule, unless a constant --c-reduced
+    # is given alone (then that constant)
+    if a.c_schedule is None:
+        a.c_schedule = "none" if a.c_reduced is not None else "0.1,0.25,0.2,0.5,0.3,0.75,0.5"
+    if a.c_reduced is None:
+        a.c_reduced = 0.01 if a.c_schedule in ("", "none") else float(a.c_schedule.split(",")[0])
     ndm = a.pm_refine * a.N
     if a.backend == "amrex":
         if a.hydro_scheme != "unsplit":
@@ -211,6 +226,8 @@ def main():
         # is deterministic by construction and refuses the flag
         f"deterministic_parallel = {0 if a.backend == 'amrex' else 1}",
         f"c_reduced = {a.c_reduced:g}",
+        *([] if a.c_schedule in ("", "none") else
+          [f"c_reduced_schedule = {' '.join(x.strip() for x in a.c_schedule.split(','))}"]),
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]

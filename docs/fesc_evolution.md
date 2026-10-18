@@ -314,11 +314,12 @@ not only the block-emission clumps.
 
 ## 7. The speed of light
 
-This calibration used ĉ = 0.2c throughout. On 2026-10-17 the user set a
-new production default, ĉ by ionization state (0.1c below x_HII,V = 0.3,
-0.2c to 0.8, 0.4c after; `c_reduced_schedule`, branch `c-schedule`,
-`docs/production_run.md` §1). After overlap the 0.4c ends reionization
-earlier and lets Γ relax faster, so (f6, β) must be recalibrated with it:
-with the speed-of-light runs (z99 is ≈ 0.1 later at 0.4c than at 1c, ≈ 0.3
-later at 0.2c), expect the same f6 and β to end reionization ≈ 0.15–0.2
-earlier and to raise Γ after overlap.
+This calibration used ĉ = 0.2c throughout. The production default is now
+ĉ by ionization state (`c_reduced_schedule`, `docs/production_run.md` §1):
+set on 2026-10-17 as 0.1c below x_HII,V = 0.3, 0.2c to 0.8, 0.4c after, and
+revised by the user on 2026-10-18 to 0.1c below 0.25, 0.2c to 0.5, 0.3c to
+0.75, 0.5c after. The faster light during and after overlap ends
+reionization earlier and lets Γ relax faster, so (f6, β) must be
+recalibrated with it. From the speed-of-light runs (z99 is ≈ 0.09 later
+at 0.5c than at 1c, ≈ 0.30 later at 0.2c), expect the same f6 and β to end
+reionization ≈ 0.15–0.25 earlier and to raise Γ after overlap.
