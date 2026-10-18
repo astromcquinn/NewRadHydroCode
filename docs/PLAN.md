@@ -914,14 +914,79 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   to Stage E; (2) refined hydro on the hydro test suite, with the cooling
   flag and the sink; (3) the RT coarse substep across levels.
 
+## f_esc evolution thread (2026-10-14): a falling escape fraction
+
+* **Request (user):** lower the late-time emissivity with
+  f_esc(z) = f6 ((1+z)/7)^β (`f_esc`, `f_esc_beta`, `f_esc_z0 = 6`,
+  `f_esc_max`; no code change) so that Γ_HI and the Lyα forest come closer
+  to the data. Undershoot ε on purpose and let reionization end later
+  (z ≈ 5.3–5.5). Calibrate at 256³ on the box, ICs and parameters of the
+  256³ rays run with only the sources changed; then one 512³ rays run to
+  z = 5 with the parameters of `reion512_rays`; report how much of λ_mfp's
+  excess ε alone removes. Options beyond ε (resolution, a subgrid
+  Lyman-limit opacity) are to be discussed before anything is implemented.
+  Report: `docs/fesc_evolution.md`.
+* **256³ base: `otvcl256`** (20 Mpc/h, the 512³ cell size, case A + RR with
+  `recomb_rad_cell_onspot = 1`, f_esc = 0.23). It is the β = 0 point; the
+  grid runs differ from it only in the source lines (`tensor_dump`, an
+  output-only diagnostic, dropped). Script `tools/hyak/fesc_runs.sh`.
+* **Grid (thread choice): f6 set so that z50 stays near 7**, from a one-zone
+  Q(z) model fitted to `otvcl256` (C ≈ 4.3): β = 3, 5, 7 as asked
+  (f6 = 0.12, 0.075, 0.045) plus β = 2 (f6 = 0.15), added at once because
+  the model predicted that β ≥ 4 does not finish by z = 5 at z50 = 7. The
+  model underestimates the early photons' efficiency: z50 came out 7.16,
+  7.27, 7.63, 8.04. β = 5 and 7 were not rerun at a lower f6: they already
+  do not finish reionizing by z = 5 (x_V = 0.98, 0.77), and a lower f6 only
+  delays them further.
+* **User decision (2026-10-14): the 512³ run uses
+  `recomb_rad_cell_onspot = 1`** (the block-emission clump fix, as in the
+  256³ base and the production default), although `reion512_rays` was run
+  without it; the comparison with `reion512_rays` therefore includes that
+  fix (Γ −2 %, history unchanged at 128³; λ_mfp possibly longer).
+* **512³ choice (thread): β = 2.5, f6 = 0.135**, between the β = 2 and 3
+  points of the grid: A ≈ 1 (the forest) and Γ ≈ Gaikwad+23 by log
+  interpolation, and z99 ≈ 5.7 at 256³, i.e. ≈ 5.5 at 512³ (that box ends
+  0.18 later at fixed f_esc). A 256³ run at the same values checks the
+  interpolation. Snapshots at the closure runs' list
+  (15 7 6.5 6.25 6 5.75 5.5 5.25 5); otherwise `reion512_rays`.
+
+## Reduced speed of light by ionisation state (2026-10-17)
+
+* **User decision: production runs use ĉ = 0.1c for x_HII,V < 0.3, 0.2c
+  for 0.3 ≤ x < 0.8 and 0.4c for x ≥ 0.8.** Motivation: the runs of
+  different threads had used different constant speeds (0.1c, 0.2c,
+  0.1c → 0.3c), and the end of reionization and the post-overlap Γ_HI
+  depend on ĉ (`docs/production_run.md` §1).
+* Implemented as `c_reduced_schedule` (apps/radhydro; the C++ default is no
+  schedule, the original) and the `make_production.py` default
+  (`--c-schedule`). Choices of the implementing thread: x is the
+  volume-weighted x_HII of the box at the end of the previous hydro step;
+  x = 0 until the RT has written its grid; no hysteresis (stateless, so
+  restarts are exact without a checkpoint change).
+
+## Reduced speed of light, revised schedule (2026-10-18)
+
+* **User decision: ĉ = 0.1c for x_HII,V < 0.25, 0.2c to 0.5, 0.3c to 0.75,
+  0.5c above** (`c_reduced_schedule = 0.1 0.25 0.2 0.5 0.3 0.75 0.5`, the
+  `make_production.py` default; replaces 0.1c / 0.2c from 0.3 / 0.4c from
+  0.8). Evidence discussed: the 20 Mpc/h 256³ constant-ĉ runs (`runs/sol`)
+  delay x_HII,V = 0.99 by Δz = 0.09 (0.5c), 0.19 (0.3c), 0.30 (0.2c),
+  0.56 (0.1c) against 1c, about half of the old schedule's delay coming
+  from the 0.1c phase; and the post-overlap Γ_HI of the fesc512 pair
+  (0.1c) at a third of the local-equilibrium value σ ṅ λ, the background's
+  relaxation λ/ĉ (200–300 Myr at 0.1c) being longer than the time over
+  which λ_mfp doubles (~70 Myr at z = 5.5–5.2): an intermediate step and a
+  higher maximum. The RT substeps per hydro step scale with ĉ (the late
+  phase at 0.5c costs ~5× the RT time of 0.1c).
+
 ## Unified RT-methods suite (2026-10-17): one ĉ, 512³, one f_esc, AMR, and FLD
 
 *Assessment requested by the user on 2026-10-17 (session
 `sleepy-feynman`); no code changed. The tables and estimates come from
 `docs/rt_methods_512.md`, `docs/otvet_closure.md` §7,
 `docs/production_run.md` §8–9, `docs/stage_e_state.md`, `docs/stage_f.md`,
-`docs/fesc_evolution.md` (branch `fesc-evolution`) and the open PRs
-#42–#44.*
+`docs/fesc_evolution.md` and the PRs open on 2026-10-17 (#42–#44; by
+2026-10-18 #42, #44, #45 and #46 were merged into `main`, #43 open).*
 
 * **Goal (user):** every RT method run with the same, motivated reduced
   speed of light, at 512³, with the same f_esc, ideally with AMR; and a
@@ -979,17 +1044,23 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      light-limited fronts at two levels (`docs/rt_multicell.md` §7–8).
   4. **f_esc.** Constant 0.23 overshoots Γ by 2.5× and λ_mfp by 5× at
      z ≈ 5.5; the falling law f_esc(z) = 0.135 ((1+z)/7)^2.5 lands on the
-     Γ and forest data at 256³ and awaits its 512³ confirmation
-     (`fesc-evolution`, unmerged). Whatever the law, it must be held fixed
+     Γ and forest data at 256³ and, confirmed at 512³ (PR #45, merged:
+     Γ 0.97–1.00× and ⟨F⟩ 1.1× the data at z = 5.1–5.4, z99 = 5.51,
+     τ_es = 0.056), is the law for the suite. It was calibrated at a
+     constant 0.2c with 512³ particles, so it needs a check in the suite's
+     configuration (the schedule, 1024³ particles). Whatever the law, it
+     must be held fixed
      across methods: a per-method forest calibration would move f_esc by
      ≈ 30 % through ⟨F⟩ (`docs/rt_methods_512.md` §7) and defeat the
      comparison.
   5. **AMR readiness.** Two refined levels are not rank-independent
      (1e-10, `fields-levels`); gravity on refined levels is at the PM-mesh
      resolution only (Stage G); the flux-register and FillPatch overheads
-     are unprofiled; the 512³ cost probe has no usable checkpoint; PRs
-     #42–#44 are open. The first refined 512³ run is also the test of
-     whether refinement shortens λ_mfp, the physics reason for AMR here.
+     are unprofiled; the 512³ cost probe has no usable checkpoint; PR #43
+     is open. The first refined 512³ run is also the test of whether
+     refinement shortens λ_mfp, the physics reason for AMR here (the
+     user's reading on 2026-10-18: AMR works but changes the results
+     little).
 * **Decision (user, 2026-10-17): the default reduced speed of light is a
   schedule on the ionized fraction,** given by the user to another
   thread, which implemented it as `c_reduced_schedule` (branch
@@ -1045,10 +1116,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
     code, plus the backend port.
   Recommendation: build FLD proper; P1 optional as a cheap extra point.
 * **Proposed order:**
-  1. Merge PRs #42–#44; finish the 512³ f_esc(z) run; land the ĉ
-     schedule (the other thread) and check it against full c on the
-     post-overlap Γ (thread A below: two runs). Decide the f_esc law and
-     case B against case A + RR.
+  1. ~~Merge PRs #42, #44–#46; finish the 512³ f_esc(z) run; land the ĉ
+     schedule~~ done 2026-10-18; merge PR #43; check the schedule against
+     full c on the post-overlap Γ (thread A below: two runs). Decide the
+     f_esc law and case B against case A + RR.
   2. Add FLD (and optionally P1) to the serial moment framework (thread B).
      Run the uniform 512³ suite of all methods at the shared ĉ, f_esc and
      recombination treatment, one node per run; every analysis tool
@@ -1057,6 +1128,41 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      comparison within weeks, without AMR.
   3. Port the moment solvers and FLD to the AMReX hierarchy and
      `recomb_rad` to the backend (thread C), then repeat with two levels.
+* **The uniform 512³ rerun of every RT method (user, 2026-10-18):** the
+  schedule, the f_esc(z) law, a uniform grid with `pm_refine = 4` and
+  1024³ particles, no dark matter in the outputs (`data_files = nodm`,
+  PR #43), the previous outputs overwritten; a short paper on the moment
+  methods against the rays and the improved closures. The AMR run is
+  working but changes the results little, so the suite stays uniform.
+  Pre-launch checklist from the assessment of 2026-10-18:
+  1. merge PR #43 (`--ndm`, `nodm`, the checkpoint cadence);
+  2. everything runs on the serial path (the moment methods exist only
+     there), one node per run, so every run gets case A + RR; raise the
+     `--mem` of `rt_methods_runs.sh` and `otvet_closure_runs.sh`;
+  3. `pm_refine = 4` with 1024³ particles has never run serially at 512³:
+     the host PM arrays at the 2048³ mesh are ≈ 275 GB (mesh force 103,
+     int64 hash table 69, density and the P(k) buffer 68, particles and
+     links 35) on top of the RT's 150–250 GB, within a 1.5 TB node; a
+     two-step test from the existing 1024³ ICs first;
+  4. the f_esc law was calibrated at a constant 0.2c with 512³ particles:
+     the faster late ĉ raises Γ, the Sheth–Tormen L(M) with 1024³
+     particles lowered it (the other thread's uniform run ended at
+     z = 5.27 with Γ at half the data, also at 0.1c, case B and with the
+     sink); so run the ray base first, check z99 and Γ at z = 5.4, adjust
+     f6 if needed, then the siblings from its params.txt;
+  5. no star-formation sink on the serial path (it needs the AMReX hydro
+     backend): keep `cool_suppress_overdensity = 200` as in the previous
+     comparison (decision for the user);
+  6. Γ for P_Γ without the rays' single-substep noise: `tensor_dump = 1`
+     (14 GB per snapshot per run at 512³) or a substep-averaged Γ_HI field
+     (about half a day of code; preferred);
+  7. new run names rather than overwriting (`docs/rt_methods_512.md` and
+     `docs/otvet_closure.md` cite the old ones), the old checkpoints
+     (≈ 0.9 TB) deleted first;
+  8. FLD can join later as a sibling of the same base.
+  Rough costs at the revised schedule (≈ 1.2× the 0.2c runs): rays
+  A + RR 17 h, rays B 10 h, M1 5 h, each OTVET variant 5–6 h; about 60
+  node-hours.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
   schedule above; (b) case B for the whole
   suite, or port recombination radiation to the backend first; (c) the
