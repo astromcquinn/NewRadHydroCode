@@ -1135,6 +1135,40 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   PR #43), the previous outputs overwritten; a short paper on the moment
   methods against the rays and the improved closures. The AMR run is
   working but changes the results little, so the suite stays uniform.
+  **Decisions (user, 2026-10-18):** (1) the luminosities stay those of
+  the 512³ calibration, `data/uv_lf/am_params_128_10mpc.txt` (the L(M)
+  fitted so that the FoF halos of the 128³, 10 Mpc/h box, the same cell
+  and particle mass as 512³ in 40 Mpc/h, reproduce the observed UV LFs;
+  with 1024³ particles the halo counts shift a little, which the base run's
+  check absorbs; the Sheth–Tormen table `am_params_st_fof.txt` would have
+  changed the emissivity by about 0.04 dex); (2) cooling suppression 200
+  and no sink; a sink on the serial path is wanted later; (3) overwrite
+  the old run names; (7) no dark matter in the outputs, only in the
+  checkpoints (`data_files = gas`); the recombination treatment of the
+  suite (thread choice, 2026-10-18): case A + transported recombination
+  radiation with `recomb_rad_cell_onspot = 1`, as the f_esc calibration
+  (`fesc512_b2.5`) and the first comparison, with the case-B rays as a
+  sibling; `make_production.py`'s own default is case B, set on 2026-10-12
+  only so that production ran on the AMReX backend, which does not apply
+  to this all-serial suite (`rt_suite512.sh RECOMB=B` gives case B); (4)
+  the substep-averaged Γ_HI, built
+  the same day as `gammaHI_avg` (below); (5) the launch script
+  `tools/hyak/rt_suite512.sh` (below); (6) the 2048³-mesh probe runs in a
+  thread of the user's on klone.
+  **Built 2026-10-18 (branch `claude/sleepy-feynman-dx6ic2`):**
+  `gammaHI_avg` in `fields` and `movie_fields` (`Simulation::gamma_avg`,
+  `gamma_avg_*` in `rt.hpp`; the sum of Γ_HI × dt over the hydro step's
+  substeps in double, after each substep's physics; the step average in
+  the snapshots, the running average in frames; serial RT only, the
+  backend refuses it; `movie_every_substep = 1` for the tests;
+  `gamma_power.py --field`, `rt_methods_runs.py --gamma-field`; tests
+  `gamma_avg_rays`, `gamma_avg_m1`: the mean of the per-substep frames,
+  thread independence, output only), and `tools/hyak/rt_suite512.sh`
+  (phases `probe`, `base`, `siblings`, `post`; `OVERWRITE=1` removes the
+  old directories; the disk estimate in its header: ≈ 450 GB per ray run
+  and 205 GB per moment run while running, ≈ 105 GB each kept, the set
+  ≈ 1.9 TB running and 0.75 TB kept, the old set's checkpoints ≈ 1 TB
+  freed).
   Pre-launch checklist from the assessment of 2026-10-18:
   1. PR #43 is *not* a prerequisite (correction, 2026-10-18): the suite
      is uniform, and `pm_refine = 4` with 1024³ particles is the
@@ -1161,21 +1195,26 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      z = 5.27 with Γ at half the data, also at 0.1c, case B and with the
      sink); so run the ray base first, check z99 and Γ at z = 5.4, adjust
      f6 if needed, then the siblings from its params.txt;
-  5. no star-formation sink on the serial path (it needs the AMReX hydro
-     backend): keep `cool_suppress_overdensity = 200` as in the previous
-     comparison (decision for the user);
-  6. Γ for P_Γ without the rays' single-substep noise: `tensor_dump = 1`
-     (14 GB per snapshot per run at 512³) or a substep-averaged Γ_HI field
-     (about half a day of code; preferred);
-  7. new run names rather than overwriting (`docs/rt_methods_512.md` and
-     `docs/otvet_closure.md` cite the old ones), the old checkpoints
-     (≈ 0.9 TB) deleted first;
+  5. ~~no star-formation sink on the serial path~~ decided: cooling
+     suppression 200, no sink (the sink needs the AMReX hydro backend; a
+     serial-path sink is a later item);
+  6. ~~Γ for P_Γ without the rays' single-substep noise~~ done: the field
+     `gammaHI_avg`, in the suite's `fields` and `movie_fields`;
+  7. ~~new run names rather than overwriting~~ the user chose to overwrite
+     (the figures of `docs/rt_methods_512.md` and `docs/otvet_closure.md`
+     stay in the repository; their snapshots go); `rt_suite512.sh
+     OVERWRITE=1` removes the old directories, checkpoints included;
   8. FLD can join later as a sibling of the same base.
   Rough costs at the revised schedule (≈ 1.2× the 0.2c runs): rays
   A + RR 17 h, rays B 10 h, M1 5 h, each OTVET variant 5–6 h; about 60
   node-hours.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
-  schedule above; (b) case B for the whole
+  schedule above; (b) ~~case B~~ moot for the suite: every run is serial, so
+  all get case A + RR (the case-B rays are one of the siblings); (c) ~~the
+  f_esc law~~ β = 2.5, f6 = 0.135 with the 512³-calibrated luminosities,
+  checked on the base run first; (d) ~~the uniform-grid suite first~~ yes
+  (2026-10-18); open: (e) FLD proper alone, or P1 as well; (f) the paper
+  for the FLD limiter. Superseded text follows for the record: (b) case B for the whole
   suite, or port recombination radiation to the backend first; (c) the
   f_esc law once the 512³ run reports; (d) whether the uniform-grid suite
   (step 2) is worth running before the moment methods have AMR; (e) FLD
