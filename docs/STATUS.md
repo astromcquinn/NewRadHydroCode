@@ -21,13 +21,15 @@
 - **`tools/hyak/rt_suite512.sh`**: the uniform 512³ rerun of every RT
   method with the user's decisions of 2026-10-18 (`docs/PLAN.md`): phases
   `probe` (a few steps at the 2048³ PM mesh, peak memory and PM time),
-  `base` (the ray run), `siblings` (case-B rays, M1, OTVET thin, split,
-  screen, cone, through the existing sibling scripts) and `post`;
+  `base` (the ray run, case B), `siblings` (the case A + RR rays, M1,
+  OTVET thin, split, screen, cone, through the existing sibling scripts)
+  and `post`; one checkpoint kept (`RESTART_KEEP`);
   `OVERWRITE=1` removes the old directories of the same names; never
   reuses an old `params.txt`; the disk estimate in its header.
 - Decisions recorded in `docs/PLAN.md`: the 512³-calibrated luminosities
   kept, cooling suppression 200 and no sink (a serial-path sink later),
-  overwrite, no dark matter in the outputs.
+  overwrite, no dark matter in the outputs, case B as the suite's default
+  with one case A + RR ray run; the disk estimate.
 
 ## 2026-10-17: the unified RT-methods suite, assessed (branch `claude/sleepy-feynman-dx6ic2`)
 

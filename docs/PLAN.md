@@ -1144,14 +1144,22 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   changed the emissivity by about 0.04 dex); (2) cooling suppression 200
   and no sink; a sink on the serial path is wanted later; (3) overwrite
   the old run names; (7) no dark matter in the outputs, only in the
-  checkpoints (`data_files = gas`); the recombination treatment of the
-  suite (thread choice, 2026-10-18): case A + transported recombination
-  radiation with `recomb_rad_cell_onspot = 1`, as the f_esc calibration
-  (`fesc512_b2.5`) and the first comparison, with the case-B rays as a
-  sibling; `make_production.py`'s own default is case B, set on 2026-10-12
-  only so that production ran on the AMReX backend, which does not apply
-  to this all-serial suite (`rt_suite512.sh RECOMB=B` gives case B); (4)
-  the substep-averaged Γ_HI, built
+  checkpoints (`data_files = gas`); **the recombination treatment (user,
+  2026-10-18): case B without recombination radiation is the default of
+  the suite** (the base rays and every moment method), **plus one ray run
+  with case A + transported recombination radiation** and
+  `recomb_rad_cell_onspot = 1` (`reion512_rays_caseA`); the case-B
+  configuration is also `make_production.py`'s default. Note for the
+  base run's check: the f_esc law was calibrated with case A + RR, and
+  case B gives about 10 % less Γ after overlap and a slightly later end
+  (`docs/rt_methods_512.md` §4). Disk (user question, 2026-10-18): per
+  run the suite needs about what the 2026-10-11 set needed (a case-B ray
+  run ≈ 390 GB while running with two checkpoints kept against ≈ 410 GB
+  then; the additions are the averaged Γ frames, three more snapshots and
+  the 1024³ particles in the checkpoints, 23 GB each); the checkpoints
+  dominate, so the script keeps one (`RESTART_KEEP=1`, the writes are
+  atomic), which brings the set to ≈ 1.3 TB while running and 0.75 TB
+  kept; (4) the substep-averaged Γ_HI, built
   the same day as `gammaHI_avg` (below); (5) the launch script
   `tools/hyak/rt_suite512.sh` (below); (6) the 2048³-mesh probe runs in a
   thread of the user's on klone.
@@ -1209,8 +1217,8 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   A + RR 17 h, rays B 10 h, M1 5 h, each OTVET variant 5–6 h; about 60
   node-hours.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
-  schedule above; (b) ~~case B~~ moot for the suite: every run is serial, so
-  all get case A + RR (the case-B rays are one of the siblings); (c) ~~the
+  schedule above; (b) ~~case B~~ decided 2026-10-18: case B for the suite,
+  one ray run with case A + RR; (c) ~~the
   f_esc law~~ β = 2.5, f6 = 0.135 with the 512³-calibrated luminosities,
   checked on the base run first; (d) ~~the uniform-grid suite first~~ yes
   (2026-10-18); open: (e) FLD proper alone, or P1 as well; (f) the paper

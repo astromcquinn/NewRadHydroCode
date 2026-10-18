@@ -7,12 +7,11 @@
 # the make_production.py default: 0.1c below x_HII,V = 0.25, 0.2c to 0.5,
 # 0.3c to 0.75, 0.5c after), f_esc(z) = F6 ((1+z)/7)^BETA with the
 # luminosities of the 512^3 calibration (data/uv_lf/am_params_128_10mpc.txt,
-# docs/fesc_evolution.md), case A + recombination radiation with
-# recomb_rad_cell_onspot = 1 (RECOMB=A, as the f_esc calibration and the
-# first comparison; make_production.py's own default is case B, chosen on
-# 2026-10-12 only so that production runs on the AMReX backend, which has
-# no recombination radiation; RECOMB=B gives that, and then the caseB
-# sibling is skipped), the original cooling suppression (200) and no
+# docs/fesc_evolution.md), case B recombination without recombination
+# radiation for the base and the moment methods (RECOMB=B, user decision
+# 2026-10-18) plus one ray run with case A + transported recombination
+# radiation and recomb_rad_cell_onspot = 1 (the caseA sibling; RECOMB=A
+# swaps the two), the original cooling suppression (200) and no
 # star-formation sink, no dark matter in the outputs (data_files = gas: the
 # particles are only in the checkpoints), the substep-averaged Gamma_HI
 # (gammaHI_avg) in the snapshots and the slab movie frames. Every run is on
@@ -20,8 +19,8 @@
 # there), so all of them get the same physics.
 #
 # Runs ($RUNS/<name>; the names of the 2026-10-11 set, overwritten):
-#   reion512_rays                rays, the base and the reference
-#   reion512_rays_caseB          rays, case B, no recombination radiation
+#   reion512_rays                rays, the base and the reference (case B)
+#   reion512_rays_caseA          rays, case A + recombination radiation
 #   reion512_rays_m1             M1
 #   reion512_rays_otvet          OTVET, thin tensor
 #   reion512_rays_otvet_split    OTVET, direct + diffuse split
@@ -46,18 +45,23 @@
 # (default $RUNS/hmf512_40mpc_r2/ics: 512^3 gas, 1024^3 particles, 40 Mpc/h,
 # seed 7 with the 512^3 large-scale phases, docs/pm_refine.md), BASE
 # (default $RUNS/reion512_rays), F6 (0.135), BETA (2.5), AM_PARAMS
-# (data/uv_lf/am_params_128_10mpc.txt), RECOMB (A, or B), SIBLINGS (default
-# "caseB m1 otvet split screen cone"), SBATCH_ARGS (default a whole node: --exclusive
+# (data/uv_lf/am_params_128_10mpc.txt), RECOMB (B, or A), SIBLINGS (default
+# "caseA m1 otvet split screen cone"; caseA / caseB is the ray run with the
+# other recombination treatment, skipped when it is the base's), RESTART_KEEP
+# (1: checkpoint writes are atomic, docs/production_run.md section 3; 2 to
+# keep the previous one too), SBATCH_ARGS (default a whole node: --exclusive
 # --cpus-per-task=192 --mem=1000G --time=4-00:00:00), THREADS (192), EXE
 # (build/radhydro), PROBE_STEPS (3), MAKE_EXTRA (more make_production.py
 # arguments), DRYRUN=1 (make the directories, print the sbatch commands).
 #
 # Disk per run at 512^3 (estimates): snapshots 9 x (7 field cubes of 0.5 GB
 # + Gas/u_gas 2.7 GB) = 55 GB; slab movie frames ~400 x 5 fields x 25 MB =
-# 50 GB; checkpoints, 2 kept (restart_keep = 2, restart_every = 10): rays
-# ~170 GB each with case A + RR, moments ~50 GB. So a ray run holds ~450 GB
-# while it runs and ~105 GB once its checkpoints are deleted, a moment run
-# ~205 / ~105 GB; the set ~1.9 TB while running, ~0.75 TB kept. Memory:
+# 50 GB; checkpoints (restart_every = 10, RESTART_KEEP kept): case-B rays
+# ~135 GB each, case A + RR rays ~190 GB (1.5x the rays), moments ~45 GB,
+# each with the 1024^3 particles (26 GB). With one kept a case-B ray run
+# holds ~240 GB while it runs, the case A + RR run ~295 GB, a moment run
+# ~150 GB, all ~105 GB once the checkpoints are deleted; the set ~1.3 TB
+# while running (1.9 TB with RESTART_KEEP=2), ~0.75 TB kept. Memory:
 # the serial PM at the 2048^3 mesh adds ~275 GB of host arrays to the RT's
 # 150-250 GB (within the node's 1.5 TB; the probe measures it).
 set -eu
@@ -67,13 +71,14 @@ BASE="${BASE:-$RUNS/reion512_rays}"
 F6="${F6:-0.135}"
 BETA="${BETA:-2.5}"
 AM_PARAMS="${AM_PARAMS:-data/uv_lf/am_params_128_10mpc.txt}"
-RECOMB="${RECOMB:-A}"
+RECOMB="${RECOMB:-B}"
 case "$RECOMB" in
   A) recomb_args=(--recomb-case A --recomb-rad 1 --recomb-rad-cell-onspot 1) ;;
   B) recomb_args=(--recomb-case B --recomb-rad 0) ;;
   *) echo "RECOMB must be A or B"; exit 2 ;;
 esac
-SIBLINGS="${SIBLINGS:-caseB m1 otvet split screen cone}"
+RESTART_KEEP="${RESTART_KEEP:-1}"
+SIBLINGS="${SIBLINGS:-caseA m1 otvet split screen cone}"
 THREADS="${THREADS:-192}"
 SBATCH_ARGS="${SBATCH_ARGS:---exclusive --cpus-per-task=192 --mem=1000G --time=4-00:00:00}"
 EXE="${EXE:-build/radhydro}"
@@ -123,7 +128,7 @@ make_base() {  # the base's params.txt (fresh; an old run of the name needs OVER
     --nray-max-factor 15 --am-params "$AM_PARAMS" --f-esc "$F6" --f-esc-beta "$BETA" --f-esc-z0 6 \
     --xi-ion 25.38 --movie-dz 0.025 --movie-slab 8 --movie-fields fHI,temp,rhog,gammaHI,gammaHI_avg \
     --fields fHI,fHeI,fHeII,temp,rhog,gammaHI,gammaHI_avg --zdata1 "15 7 6.5 6.25 6 5.75 5.5 5.25 5" \
-    --restart-every 10 --restart-keep 2 --data-files gas --cool-suppress-overdensity 200 \
+    --restart-every 10 --restart-keep "$RESTART_KEEP" --data-files gas --cool-suppress-overdensity 200 \
     "${recomb_args[@]}" ${MAKE_EXTRA:-} > /dev/null
   # 1024^3 particles on the 2048^3 mesh (make_production.py writes
   # Ndm = pm_refine * N; the code needs only that Ndm divides the mesh)
@@ -178,11 +183,12 @@ base)
   ;;
 siblings)
   [ -f "$BASE/params.txt" ] || { echo "$BASE/params.txt missing: run the base phase first"; exit 1; }
-  if [ "$RECOMB" = B ]; then SIBLINGS="${SIBLINGS//caseB/}"; echo "RECOMB=B: the base is case B already, no caseB sibling"; fi
+  # the ray run with the other recombination treatment: never the base's own
+  if [ "$RECOMB" = B ]; then SIBLINGS="${SIBLINGS//caseB/}"; else SIBLINGS="${SIBLINGS//caseA/}"; fi
   dirs=()
   for s in $SIBLINGS; do
     case "$s" in
-      caseB) dirs+=("${BASE}_caseB") ;;
+      caseA|caseB) dirs+=("${BASE}_$s") ;;
       m1|otvet) dirs+=("${BASE}_$s") ;;
       split|screen|cone) dirs+=("${BASE}_otvet_$s") ;;
       *) echo "unknown sibling $s"; exit 2 ;;
@@ -193,17 +199,28 @@ siblings)
   methods=""; closures=""
   for s in $SIBLINGS; do
     case "$s" in
-      caseB)
-        d="${BASE}_caseB"; mkdir -p "$d"
+      caseA|caseB)
+        d="${BASE}_$s"; mkdir -p "$d"
         {
-          echo "# $(basename "$BASE") with case B and no recombination radiation (tools/hyak/rt_suite512.sh)"
+          if [ "$s" = caseA ]; then
+            echo "# $(basename "$BASE") with case A + transported recombination radiation (tools/hyak/rt_suite512.sh)"
+          else
+            echo "# $(basename "$BASE") with case B and no recombination radiation (tools/hyak/rt_suite512.sh)"
+          fi
           grep -Ev '^[[:space:]]*(ics|recomb_case|recomb_rad|recomb_rad_block|recomb_rad_cell_onspot|recomb_rad_lines|recomb_rad_pool)[[:space:]]*=' "$BASE/params.txt"
           echo "ics = $ics"
-          echo "recomb_case = B"
-          echo "recomb_rad = 0"
+          if [ "$s" = caseA ]; then
+            echo "recomb_case = A"
+            echo "recomb_rad = 1"
+            echo "recomb_rad_block = 4"
+            echo "recomb_rad_cell_onspot = 1"
+          else
+            echo "recomb_case = B"
+            echo "recomb_rad = 0"
+          fi
         } > "$d/params.txt"
         ln -s "$ics" "$d/ics"
-        submit sbatch $SBATCH_ARGS --job-name=reion512_caseB --output="$d/slurm-%j.out" \
+        submit sbatch $SBATCH_ARGS --job-name="reion512_$s" --output="$d/slurm-%j.out" \
           --export=ALL,PROB="$d",THREADS="$THREADS",EXE="$EXE",POST=sbatch tools/hyak/reion_production.slurm
         ;;
       m1|otvet) methods="$methods $s" ;;
@@ -224,6 +241,7 @@ post)
   extra=""
   for s in $SIBLINGS; do
     case "$s" in
+      caseA) extra="$extra ${b}_caseA:rays_A_RR" ;;
       caseB) extra="$extra ${b}_caseB:rays_B" ;;
       split|screen|cone) extra="$extra ${b}_otvet_$s:$s" ;;
     esac
