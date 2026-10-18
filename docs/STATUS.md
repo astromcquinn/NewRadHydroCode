@@ -15,8 +15,9 @@ against 0.1) and f_esc (constant 0.23 against the falling law of
 `docs/production_run.md` §9 covers the history but not the post-overlap
 Γ; FLD does not exist and is not an isotropic Eddington tensor (the flux
 is slaved to ∇N; it needs an implicit solver). **Decided the same day
-(user): the default ĉ is a schedule on x_HII,V, 0.1c below 0.3, 0.2c to
-0.8, 0.4c after**, being implemented by another thread. Proposed order:
+(user): the default ĉ is a schedule on x_HII,V**, implemented by another
+thread as `c_reduced_schedule` (PR #46) and revised on 2026-10-18 to 0.1c
+below 0.25, 0.2c to 0.5, 0.3c to 0.75, 0.5c after. Proposed order:
 merge PRs #42–#44, the 512³ f_esc(z) run and the schedule's check against
 full c (thread A, two runs); FLD in
 the serial moment framework (thread B) and the uniform 512³ suite of all
@@ -1799,8 +1800,9 @@ differ on klone are skipped there (label `platform_ref`).
 ## Open questions for the user
 
 - **The unified RT-methods suite** (`docs/PLAN.md`, "Unified RT-methods
-  suite", 2026-10-17): (a) ~~ĉ~~ decided 2026-10-17, the schedule 0.1c /
-  0.2c / 0.4c switched at x_HII,V = 0.3 and 0.8; (b) case B for the whole suite, or recombination radiation
+  suite", 2026-10-17): (a) ~~ĉ~~ decided 2026-10-17 and revised
+  2026-10-18 (PR #46): 0.1c / 0.2c / 0.3c / 0.5c switched at x_HII,V =
+  0.25, 0.5 and 0.75; (b) case B for the whole suite, or recombination radiation
   ported to the backend first; (c) the f_esc law once the 512³ run
   reports; (d) the uniform-grid suite before the moment methods have AMR;
   (e) FLD proper alone, or P1 as well; (f) the paper for the FLD limiter.

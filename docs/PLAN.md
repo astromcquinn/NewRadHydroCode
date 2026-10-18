@@ -955,10 +955,12 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      0.01c delays it by Δz ≈ 2 (`docs/cluster.md` §7). Not measured: Γ_HI,
      its PDF and P_Γ after overlap against full c, in a box with the 512³
      mean free path (the lag scales with λ_mfp, 5× longer at 40 Mpc/h
-     than the data), with the f_esc(z) sources. The 20 Mpc/h 256³ study
-     decided on 2026-10-11 (above, `runs/sol/`) never ran. `c_reduced` is
-     one constant: the schedule of `docs/plane_parallel.md` was never
-     built. Two physical limits: before overlap the fronts crossing the
+     than the data), with the f_esc(z) sources. *Correction (2026-10-18):*
+     the 20 Mpc/h 256³ constant-ĉ study (`runs/sol`) was run by another
+     thread after all; it delays x_V = 0.99 against 1c by Δz = 0.09
+     (0.5c), 0.19 (0.3c), 0.30 (0.2c) and 0.56 (0.1c), and it set the
+     revised schedule below (recorded on branch `c-schedule`, PR #46).
+     Two physical limits: before overlap the fronts crossing the
      last voids approach ĉ (the Δz lag above); after overlap Γ relaxes on
      λ_mfp/ĉ, the regime of the Γ-fluctuation comparison:
 
@@ -989,34 +991,37 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
      #42–#44 are open. The first refined 512³ run is also the test of
      whether refinement shortens λ_mfp, the physics reason for AMR here.
 * **Decision (user, 2026-10-17): the default reduced speed of light is a
-  three-stage schedule on the ionized fraction,** given by the user to
-  another thread, which implements it (nothing of it is pushed as of this
-  entry):
+  schedule on the ionized fraction,** given by the user to another
+  thread, which implemented it as `c_reduced_schedule` (branch
+  `c-schedule`, PR #46; the C++ default stays the constant). **Revised by
+  the user on 2026-10-18** on the `runs/sol` study (above), now the
+  `make_production.py` default:
 
-  | x_HII,V | ĉ |
-  |---|---|
-  | < 0.3 | 0.1c |
-  | 0.3 – 0.8 | 0.2c |
-  | > 0.8 | 0.4c |
+  | x_HII,V | ĉ (2026-10-17) | ĉ (revised 2026-10-18) |
+  |---|---|---|
+  | < 0.25 | 0.1c | 0.1c |
+  | 0.25 – 0.3 | 0.1c | 0.2c |
+  | 0.3 – 0.5 | 0.2c | 0.2c |
+  | 0.5 – 0.75 | 0.2c | 0.3c |
+  | 0.75 – 0.8 | 0.2c | 0.5c |
+  | > 0.8 | 0.4c | 0.5c |
 
   It follows the 128³ measurements: at 0.1c the history is converged to
   0.01 in x_V up to x_V ≈ 0.2 and the midpoint lags by Δz = 0.15, which
   0.2c halves; the last fronts and the post-overlap Γ are where ĉ
   matters, and 0.4c sits between 0.3c (end lag Δz = 0.14) and 1c. The
   schedule applies to every RT method (the moment solvers read the same
-  ĉ), so it is the "same motivated ĉ" of the suite. Cost: roughly that
-  of a constant 0.2c run (a rough ∫ ĉ (1+z) dt count: the extra
-  substeps after x_V = 0.8 are paid for by the halved count before 0.3),
-  so the 512³ costs of `docs/rt_methods_512.md` §3 stand. Implementation
-  notes for whichever thread builds it: switch on the volume-weighted
-  x_HII of the statistics (a serial sum, identical on every rank), at a
-  hydro-step boundary only (the substep count of a step is set from ĉ at
-  its start), monotone (never back); the current stage goes into the
-  checkpoint so a restart is bit-identical; defaults must reproduce the
-  constant `c_reduced` bitwise; `redshift_per_distance = 1` keeps the
-  redshifting right as ĉ changes; `make_production.py` writes the
-  schedule by default once it exists. Thread A below checks the schedule
-  against full c.
+  ĉ), so it is the "same motivated ĉ" of the suite. Cost: the revised
+  schedule is about 1.2× a constant 0.2c run (a rough ∫ ĉ (1+z) dt count;
+  the 0.5c phase after x_V = 0.75 dominates), so the 512³ costs of
+  `docs/rt_methods_512.md` §3 scale by about that. As built (PR #46): ĉ
+  of each hydro step from the box's x_HII,V at the end of the previous
+  step, stateless (so restarts are exact without a checkpoint change), no
+  hysteresis, rank 0 broadcasts x on the backends; tests `c_schedule`,
+  `restart_smoke_c_schedule` and the backend pair. The (f6, β) of the
+  f_esc law were calibrated at a constant 0.2c and need a check with the
+  schedule (PR #46's STATUS). Thread A below checks the schedule against
+  full c.
 * **FLD is not an isotropic Eddington tensor in the two-moment sense.**
   It drops the flux equation: F = −ĉ λ(R) ∇N/κ with a limiter keeping
   |F| ≤ ĉN (Levermore & Pomraning 1981, from memory: λ(R) = (2+R)/(6+3R+R²),
@@ -1072,8 +1077,8 @@ thread's work merged into `main`) and two runs.
 > (docs/cluster.md: `source tools/hyak/env.sh`,
 > `RUNS=/gscratch/astro/$USER/radhydro/runs`). Branch `c-schedule-check`
 > off `main`; commit often and push. Stop and report if `main` does not
-> yet have the ĉ schedule (0.1c below x_HII,V = 0.3, 0.2c to 0.8, 0.4c
-> after).
+> yet have `c_reduced_schedule` (PR #46; the production default 0.1c
+> below x_HII,V = 0.25, 0.2c to 0.5, 0.3c to 0.75, 0.5c after).
 >
 > Goal: what the 128³ set did not measure, i.e. the history and Γ_HI
 > after overlap with the schedule against full c, in a box with the 512³
