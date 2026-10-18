@@ -284,7 +284,7 @@ sets the end of reionization:
 After overlap Γ_HI relaxes to its equilibrium in about λ_mfp/ĉ (≈ 160 Myr
 at λ = 10 pMpc and 0.2c, twice that at 0.1c), comparable to the 120 Myr
 from z = 5.5 to 5, where the Lyα forest is compared. The schedule spends
-the cheap 0.1c where it costs nothing in accuracy (x < 0.3), and the most
+the cheap 0.1c where it costs nothing in accuracy (x < 0.25), and the most
 light where the fronts sweep the voids and the background builds up.
 
 ## 2. Ray pool (F3) and ray memory
