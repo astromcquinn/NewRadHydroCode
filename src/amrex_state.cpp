@@ -69,6 +69,8 @@ std::string amrex_state_summary(const Config& c) {
 
 void check_amrex_state_param(const Config& c) {
   if (c.amrex_balance && !c.amrex_state) throw std::runtime_error("amrex_balance = 1 needs amrex_state = 1");
+  if (c.amrex_slab && c.amrex_max_level > 0)
+    throw std::runtime_error("amrex_slab = 1 does not support amrex_max_level > 0 (the refined levels)");
   if (c.amrex_balance && c.amrex_slab)
     throw std::runtime_error("amrex_balance = 1 does not support amrex_slab = 1 (the slabs keep their z order)");
   if (!c.amrex_state) return;

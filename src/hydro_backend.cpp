@@ -1,6 +1,7 @@
 // hydro_backend parameters (hydro_backend.hpp); AMReX-free.
 #include "radray/hydro_backend.hpp"
 
+#include <cstdio>
 #include <stdexcept>
 
 #include "radray/rt_backend.hpp"
@@ -23,27 +24,108 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
       throw std::runtime_error("amrex_hydro_max_grid_size must be >= 4 (or 0: amrex_max_grid_size)");
     return true;
   }
+  // Stage F: the hierarchy (docs/stage_f.md section 1)
+  if (key == "amrex_max_level") {
+    c.amrex_max_level = std::stoi(val);
+    if (c.amrex_max_level < 0 || c.amrex_max_level > 8) throw std::runtime_error("amrex_max_level must be 0..8");
+    return true;
+  }
+  if (key == "amrex_refine_mass") {
+    c.amrex_refine_mass = std::stod(val);
+    if (!(c.amrex_refine_mass > 0)) throw std::runtime_error("amrex_refine_mass must be > 0");
+    return true;
+  }
+  if (key == "amrex_regrid_every") {
+    c.amrex_regrid_every = std::stoi(val);
+    if (c.amrex_regrid_every < 1) throw std::runtime_error("amrex_regrid_every must be >= 1");
+    return true;
+  }
+  if (key == "amrex_fine_max_grid_size") {
+    c.amrex_fine_max_grid_size = std::stoi(val);
+    if (c.amrex_fine_max_grid_size < 4) throw std::runtime_error("amrex_fine_max_grid_size must be >= 4");
+    return true;
+  }
+  if (key == "amrex_blocking_factor") {
+    c.amrex_blocking_factor = std::stoi(val);
+    if (c.amrex_blocking_factor < 2) throw std::runtime_error("amrex_blocking_factor must be >= 2");
+    return true;
+  }
+  if (key == "amrex_n_error_buf") {
+    c.amrex_n_error_buf = std::stoi(val);
+    if (c.amrex_n_error_buf < 0) throw std::runtime_error("amrex_n_error_buf must be >= 0");
+    return true;
+  }
+  if (key == "amrex_grid_eff") {
+    c.amrex_grid_eff = std::stod(val);
+    if (!(c.amrex_grid_eff > 0 && c.amrex_grid_eff <= 1)) throw std::runtime_error("amrex_grid_eff must be in (0, 1]");
+    return true;
+  }
+  if (key == "amrex_refine_box") {
+    int v[6];
+    if (std::sscanf(val.c_str(), "%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6)
+      throw std::runtime_error("amrex_refine_box must be i0,j0,k0,i1,j1,k1 (level-0 cells, inclusive)");
+    for (int m = 0; m < 6; ++m) c.amrex_refine_box[m] = v[m];
+    return true;
+  }
+  // the star-formation sink (docs/stage_f.md section 2)
+  if (key == "sf_overdensity") {
+    c.sf_overdensity = std::stod(val);
+    if (!(c.sf_overdensity >= 0)) throw std::runtime_error("sf_overdensity must be >= 0 (0 = off)");
+    return true;
+  }
+  if (key == "sf_efficiency") {
+    c.sf_efficiency = std::stod(val);
+    if (!(c.sf_efficiency > 0 && c.sf_efficiency <= 1e6)) throw std::runtime_error("sf_efficiency must be > 0");
+    return true;
+  }
   return false;
 }
 
 void copy_hydro_backend_param(const Config& from, Config& to) {
   to.hydro_backend = from.hydro_backend;
   to.amrex_hydro_max_grid_size = from.amrex_hydro_max_grid_size;
+  to.amrex_max_level = from.amrex_max_level;
+  to.amrex_refine_mass = from.amrex_refine_mass;
+  to.amrex_regrid_every = from.amrex_regrid_every;
+  to.amrex_fine_max_grid_size = from.amrex_fine_max_grid_size;
+  to.amrex_blocking_factor = from.amrex_blocking_factor;
+  to.amrex_n_error_buf = from.amrex_n_error_buf;
+  to.amrex_grid_eff = from.amrex_grid_eff;
+  for (int m = 0; m < 6; ++m) to.amrex_refine_box[m] = from.amrex_refine_box[m];
+  to.sf_overdensity = from.sf_overdensity;
+  to.sf_efficiency = from.sf_efficiency;
 }
 
 std::string hydro_backend_summary(const Config& c) {
   if (!use_amrex_hydro(c)) return "hydro_backend = serial";
-  return "hydro_backend = amrex (max_grid_size = " +
-         std::to_string(c.amrex_hydro_max_grid_size ? c.amrex_hydro_max_grid_size : c.amrex_max_grid_size) + ")";
+  std::string s = "hydro_backend = amrex (max_grid_size = " +
+                  std::to_string(c.amrex_hydro_max_grid_size ? c.amrex_hydro_max_grid_size : c.amrex_max_grid_size);
+  if (c.amrex_max_level > 0)
+    s += ", max_level = " + std::to_string(c.amrex_max_level) + ", refine_mass = " + std::to_string(c.amrex_refine_mass) +
+         ", regrid_every = " + std::to_string(c.amrex_regrid_every) + ", fine boxes " +
+         std::to_string(c.amrex_fine_max_grid_size) + "/" + std::to_string(c.amrex_blocking_factor);
+  if (c.sf_overdensity > 0)
+    s += ", sink above " + std::to_string(c.sf_overdensity) + " x mean, efficiency " + std::to_string(c.sf_efficiency) +
+         " per t_ff";
+  return s + ")";
 }
 
 void check_hydro_backend_param(const Config& c) {
+  if (c.sf_overdensity > 0 && !use_amrex_hydro(c))
+    throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs hydro_backend = amrex");
   if (!use_amrex_hydro(c)) return;
   if (!amrex_available())
     throw std::runtime_error("hydro_backend = amrex: this build has no AMReX (cmake -DRADRAY_AMREX=ON)");
   if (c.hydro_scheme != HydroScheme::Unsplit)
     throw std::runtime_error("hydro_backend = amrex needs hydro_scheme = unsplit (the legacy split scheme "
                              "with its pencil FFT stays on the serial code)");
+  if (c.amrex_max_level > 0) {
+    if (c.amrex_fine_max_grid_size % c.amrex_blocking_factor != 0)
+      throw std::runtime_error("amrex_fine_max_grid_size must be a multiple of amrex_blocking_factor");
+    const int mgs0 = c.amrex_hydro_max_grid_size ? c.amrex_hydro_max_grid_size : c.amrex_max_grid_size;
+    if (mgs0 % c.amrex_blocking_factor != 0)
+      throw std::runtime_error("amrex_max_level > 0: the level-0 box size must be a multiple of amrex_blocking_factor");
+  }
 }
 
 }  // namespace radray

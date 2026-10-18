@@ -102,8 +102,9 @@ struct LevelBase {
   // amrex_state = 1: the cells into rank 0's mirror (all fields, or the
   // five of write_stats), and rank 0's RT grid onto the cells (a restart)
   virtual void gather_fields(Simulation& s, bool stats_only) = 0;
-  // a movie frame: rhog, fHI, fHeI, fHeII, temp and gamma(1) only
-  virtual void gather_movie(Simulation& s) = 0;
+  // a movie frame: rhog, fHI, fHeI, fHeII, temp and gamma(1) only (the
+  // moment level; the ray levels gather every field)
+  virtual void gather_movie(Simulation& s) { gather_fields(s, false); }
   virtual void scatter_fields(Simulation& s) = 0;
   // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
   // and rays moved onto a new mapping of the same BoxArray

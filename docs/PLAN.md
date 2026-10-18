@@ -688,6 +688,46 @@ policy on klone, and deleting the merged branches.
     and the job scripts run in the run directory. Not pursued further
     without a second occurrence.
 
+## Stage E2 on klone (2026-10-13): the PM backend's validation and scaling
+
+* **Request (user):** on branch `stage-e-pm-klone`, build `main` with
+  AMReX 26.10 + FFT and run the `amrex_pm`, `amrex`, `amrex_state`, `pm`
+  labels and the fast suite; the 64³ production-configuration comparison
+  of the three backends with `amrex_state = 1` against the serial code
+  (`docs/stage_e_pm.md` §3), as a nightly test if it fits; the PM backend
+  at `pm_refine = 2` (`hmf512_40mpc_r2` restarted for 3 steps) on 1, 2, 4
+  cpu-g2 nodes against the serial code, both FFTs, box sizes 32 and 64,
+  bitwise across all of them; if the amrex FFT ever differs, say so and
+  keep `pencil` the default. Nothing may change results; the serial PM
+  stays byte-identical.
+* **Choices made in this thread** (open to revision; `docs/stage_e_pm.md`
+  §3.1, §4.1):
+  - The 64³ comparison is the nightly test `amrex_state_full64_vs_serial`
+    (95 s), compared as `amrex_full64_vs_serial` does for the RT, with
+    tolerances set from the klone measurement (histories and τ_es 1e-3,
+    per-cell fHI rms 0.15, T 1e-2, ρ 5e-4). The 5e-2 per-cell fHI
+    difference is the rays' Γ noise reshuffled by the PM's round-off
+    (fHI difference = Γ difference, correlation −0.9998), not an error.
+  - `--set step_timers=1` prints the backends' cumulative phase timers
+    after every step (output only); the PM level got a separate `drift`
+    timer.
+  - `pm::init_pm(..., host_arrays)`: with `amrex_state = 1` only the I/O
+    rank allocates the host PM arrays and runs the host initial FFT
+    (memory only; the 1024³ runs went OOM without it).
+  - The amrex FFT's planner reset is guarded by
+    `fftwf_planner_nthreads() > 1` (klone's AMReX never initialises
+    FFTW's threads; the unguarded reset crashed at exit). Results
+    unchanged.
+  - The scaling script compares each FFT against its own 1-node
+    reference; `pencil` stays the default (the amrex FFT was also bitwise
+    across nodes and boxes, but is slower on klone and has no guarantee
+    by construction).
+  - No new user decisions. Open for the user: the FoF and P(k) on rank 0
+    make the full step 3× slower than the serial code at this size
+    (§4.1); a distributed halo finder (E3's open item) or a less
+    frequent FoF is the remedy.
+
+
 ## Stage E3 (2026-10-13): the state on the levels
 
 * **Request (user):** merge the branches, understand the hydro threshold
@@ -868,3 +908,54 @@ policy on klone, and deleting the merged branches.
   A like-for-like 1024³ comparison therefore needs `recomb_rad = 1` with
   moments on the level (phase 3b), done before phase 5;
   `rt_substep_carry` is a clock setting, the same on every backend.
+
+## Stage F decisions (2026-10-14): AMR for gas and RT
+
+Taken by the user after Stage E closed (PR #37), on the questions listed
+in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
+
+* **Rays across refinement levels: one coarse substep.** No time
+  sub-cycling of the transport (neither pure nor the §9 mixture's
+  patch-wise sub-cycling): in a level-l patch rays cross 2^l fine cells
+  per coarse substep (`rt_cells_per_substep` = 2^l locally), with the
+  exposure deposit (`ray_deposit = exposure`), `photon_conserve` and the
+  angular resolution set per level (emission/entry nside resolving the
+  fine cells, splitting continuing into fine levels). The user's reason:
+  the I-fronts move much slower than light in the refined (dense) gas,
+  except around quasars, which are not modelled; the uniform-grid study
+  passed every target at one level (k = 2) and failed only light-limited
+  fronts at 0.1c with two levels (k = 4, `docs/rt_multicell.md` §7–8).
+  Per-cell photo-chemistry sub-cycling (no rays) stays available as a
+  later option for dense cells with short time-scales.
+* **B17 is part of `legacy_physics = 0`.** `photon_conserve` (the
+  converged photon limit of `photo_cell`) defaults to `!legacy_physics`;
+  an explicit 0 or 1 overrides in either mode. Mirrored in the Fortran
+  harnesses (RT harness PATCHES.md 14) so that the C++ stays
+  byte-identical to them in every combination of the mirrored flags
+  (CLAUDE.md rule 2); the stored `legacy_physics = 0` references were
+  regenerated on the CI platform (`.github/workflows/regen_references.yml`).
+  Production (`make_production.py`, `legacy_physics = 0`) therefore gets
+  it without a flag; `--photon-conserve 0` turns it off. The exposure
+  deposit stays a separate flag.
+* **Cooling in dense gas: on, with an aggressive star-formation sink.**
+  The original's suppression above 200× the mean density (cooling ×
+  (200/x)², SN heating × (200/x)^1.5, `rt_cell.hpp`) becomes a parameter
+  with the original as its default (`cool_suppress_overdensity = 200`;
+  0 = no suppression), and a sink converts gas above an overdensity
+  threshold to collisionless star particles (`sf_overdensity`, default 0
+  = off; "a few thousand for most runs", so the production default will
+  be of that order and set when the sink exists; the efficiency per
+  free-fall time is a second parameter). Dense gas keeps cooling and gets
+  cold, as the user wants for self-shielded minihalos, and the sink keeps
+  the hydro time step and the cooling update sane in collapsed gas. The
+  cooling update itself (first order, positive, monotone;
+  `docs/port_notes.md` §5b) is kept; sub-cycling it in cells with y ≫ 1
+  is a follow-up if the tests show it is needed.
+* **The rest is the implementer's choice** (user: "you decide"): hydro
+  sub-cycling in time with AMReX `FluxRegister` refluxing; RT deposits per
+  level with a coarse/fine rule at the boundary; validation on the Iliev
+  tests with refinement and against uniform runs at the matched finest
+  resolution, and bitwise against the uniform backend with refinement off.
+* **Order (agreed):** (1) gas AMR with refinement off, bitwise identical
+  to Stage E; (2) refined hydro on the hydro test suite, with the cooling
+  flag and the sink; (3) the RT coarse substep across levels.

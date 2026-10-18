@@ -5,6 +5,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <AMReX_BoxArray.H>
 #include <AMReX_DistributionMapping.H>
@@ -35,6 +36,19 @@ struct GasState {
   ax::BoxArray ba;
   ax::DistributionMapping dm;
   FFab G;
+  // Stage F3a (docs/stage_f.md section 3): the refined levels of the
+  // hydro hierarchy (amrex_max_level > 0), float like G, on the
+  // hierarchy's BoxArray and mapping of each level; the hydro copies them
+  // in and out at every call and (re)defines them at a regrid, so the gas
+  // of every level lives here between steps (the RT of F3b reads them).
+  // fine[l - 1] is level l; finest is the deepest level in use.
+  struct FineLevel {
+    ax::BoxArray ba;
+    ax::DistributionMapping dm;
+    FFab G;
+  };
+  std::vector<FineLevel> fine;
+  int finest = 0;
 };
 
 // The active gas state (null unless amrex_state = 1 and amrex_state_init
@@ -101,5 +115,15 @@ struct PMState;
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count);
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm);
 void pm_remap(pm::PMState& p, const amrex::DistributionMapping& dm);
+// The hydro hierarchy's level 0 onto the new mapping (its data is copied
+// in from the gas state at every step; the refined levels keep their own
+// mapping); nothing without a hierarchy.
+void amrex_hydro_remap(const amrex::DistributionMapping& dm);
+// The hydro's level-0 reference for its push-down (docs/stage_f.md section
+// 1) set to the state's current level 0: called by the RT hierarchy after
+// its step, which changed the refined levels itself and averaged them down
+// (so that change is not pushed down again); the PM's later changes still
+// are.
+void amrex_hydro_level0_is_current();
 
 }  // namespace radray

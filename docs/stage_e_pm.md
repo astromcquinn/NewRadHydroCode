@@ -16,6 +16,7 @@ AMReX) is a separate thread; the hydro files are untouched here.*
 | The switch (`pm_backend`, `amrex_pm_max_grid_size`, `amrex_pm_fft`; `include/radray/pm_backend.hpp`) | done, AMReX-free; stub for builds without AMReX | the default build and the fast suite need neither AMReX nor MPI |
 | The level `src/amrex/pm_level.cpp` in `pm_driver` and `radhydro` (`calc_kick` and `calc_kick_unsplit`, `pm_refine`) | done | §3: round-off against `pm_driver` on the 8 PM problems; bitwise identical for 1/2/4/8 ranks × 1/2 threads × box sizes 32/16/8, both FFTs; Ewald force, no self-force, momentum, the r = 2 pancake and its twin on the level; the full loop with `rt_backend = amrex` rank- and thread-independent, bit-identical restarts (legacy, unsplit, pm_refine = 2) |
 | Timing on the 4-core VM, 128³ and 256³ DM | §4 | |
+| klone (2026-10-13): the 64³ production configuration, three backends + `amrex_state = 1` vs serial; `pm_refine = 2` with 1024³ particles on 1/2/4 nodes | §3.1 (nightly `amrex_state_full64_vs_serial`), §4.1 | round-off against the serial code (x_HII 1.5e-6, T 3.2e-5, τ_es 2.2e-7 at 64³; gas ≤ 5e-6 rms, particles 3e-6 cells at 1024³); bitwise across 1/2/4 nodes and box sizes 32/64 for each FFT; PM 2.7× the serial on 1 node, 1.3 s per step on 4 |
 | Tests `ctest -L amrex_pm` (65 tests, 73 with the serial fixtures) | done | all pass here |
 
 Ground rules kept: `reference/` and the serial PM are untouched in
@@ -134,9 +135,15 @@ choosing the same algorithm for the same 1-D size whatever `howmany` and
 the thread count, which is not guaranteed; the pencil transform is the
 default because its determinism does not depend on the planner. The two
 differ from each other, and from the serial 3-D FFTW plan of `src/fft.cpp`,
-at round-off. The amrex path resets FFTW's planner thread count to 1 after
-each use, so the host code's own plans (the hydro's 1-D transforms, the
-serial PM) stay the serial ones.
+at round-off. Where AMReX uses the threaded FFTW, the amrex path resets
+FFTW's planner thread count to 1 after each use, so the host code's own
+plans (the hydro's 1-D transforms, the serial PM) stay the serial ones. On
+klone AMReX is built with `AMReX_FFTW_IGNORE_OMP` (`tools/hyak/
+build_amrex.sh`): it never initialises FFTW's threads, its plans are
+single-threaded, and the reset is skipped (`fftwf_planner_nthreads() > 1`
+guards it; an unguarded `fftwf_plan_with_nthreads` before
+`fftwf_init_threads` runs `fftwf_cleanup`, which left the solver's plans
+undefined and crashed their destruction at exit at 1024³, §4.1).
 
 ### 1.3 Determinism
 
@@ -234,9 +241,59 @@ swapping the serial RT for the RT backend (Stage D) changes them by 1e-8
 to 3e-7. That is the sensitivity of the 16³ smoke problem to the force
 round-off (1e-6 of the maximum force, §1.3) through the hydro, not an
 error of the backend: the gravity-only problems above follow the serial
-trajectories to 1e-5 over 30 steps, and the unit tests pin the forces. A
-64³ production-configuration comparison (as `amrex_full64_vs_serial` does
-for the RT) is the right nightly check and is not added here.
+trajectories to 1e-5 over 30 steps, and the unit tests pin the forces. The
+64³ production-configuration comparison is §3.1.
+
+### 3.1 The 64³ production configuration (klone, 2026-10-13)
+
+Nightly test `amrex_state_full64_vs_serial` (labels `amrex;amrex_state;
+full;nightly`; `tests/amrex_full64_check.py ... state`): `make_production.py
+--N 64 --recomb-rad 0` with today's production defaults (10 Mpc/h, 0.01c,
+factor 16, on-the-fly sources, `legacy_rt = legacy_physics = 0`,
+`hydro_scheme = unsplit`, `redshift_per_distance = 1`, case B), z = 100 → 5
+in 27 hydro steps. The serial code (4 threads, `deterministic_parallel`)
+against the three backends with the state on the levels (`rt_backend =
+hydro_backend = pm_backend = amrex`, `amrex_state = 1`, 2 ranks × 2
+threads), compared as `amrex_full64_vs_serial` does for the RT: the
+histories of `stats.txt` (x_HII and T, volume and mass weighted, every
+step), τ_es from the movie frames, and the per-cell fields of the last
+step. Measured on klone (job 41832828, the build of this branch; the rows
+other than the test are runs of the same problem with fewer backends,
+the RT + hydro run bitwise the RT-only one):
+
+| 64³, serial vs backends | x_HII,V | x_HII,M | T_V | T_M | τ_es | fHI rms (z = 5) | T rms | ρ_gas rms |
+|---|---|---|---|---|---|---|---|---|
+| RT backend only (2 × 2) | 3.2e-8 | 3.7e-7 | 2.1e-7 | 1.1e-6 | 1.1e-8 | 1.6e-4 | 6.7e-6 | 3.2e-6 |
+| RT + hydro backends | 3.2e-8 | 3.7e-7 | 2.1e-7 | 1.1e-6 | 1.1e-8 | 1.6e-4 | 6.7e-6 | 3.2e-6 |
+| PM backend only (serial RT and hydro) | 1.2e-6 | 1.6e-6 | 3.2e-5 | 1.9e-5 | 1.5e-7 | 5.4e-2 | 6.4e-4 | 5.2e-5 |
+| **the three backends, `amrex_state = 1` (the test)** | 1.2e-6 | 1.5e-6 | 3.2e-5 | 1.9e-5 | 2.2e-7 (0.05728) | 5.4e-2 | 7.1e-4 | 5.2e-5 |
+| tolerance of the test | 1e-3 | 1e-3 | 1e-3 | 1e-3 | 1e-3 | 0.15 | 1e-2 | 5e-4 |
+
+(history columns: the largest relative difference over the steps; fields:
+rms difference over rms value.) The three backends with `amrex_state = 1`
+are bitwise identical to the same three with the host state
+(`amrex_state = 0`), as at 256³ and 512³ (`docs/stage_e_state.md` §4).
+
+Reading: the histories and τ_es follow the serial code to 3e-5, the gas
+density to 5e-5 and the temperature to 7e-4 per cell, all from the PM
+backend's round-off (its fixed-point CIC and per-line FFT, §1.3; the hydro
+backend is bitwise the serial step and the RT backend contributes 1e-4).
+The 5 % rms in fHI at z = 5, after overlap, is not a density or
+temperature effect: per cell, the fHI difference is the Γ_HI difference
+with the sign reversed (correlation −0.9998, slope −0.99; median |ΔΓ/Γ|
+1e-3, rms of Δln Γ 4.5e-2, against 1.3e-4 in Δln ρ). The 1e-4 density
+round-off moves rays across the split, merge and removal thresholds, which
+reshuffles the rays' per-cell sampling noise in Γ (the noise of a single
+substep that `docs/otvet_closure.md` finds in the rays' snapshot Γ); the
+RT backend alone, whose densities are bitwise the serial ones, stays at
+1.6e-4. The test takes 95 s on 4 cores (serial 38 s, backends 53 s), well
+inside the nightly budget.
+
+The existing nightly `amrex_full64_vs_serial` had stopped working: it read
+τ_es with the frame layout of before `be49827` (the Γ columns of
+`frames.txt`) and wrote into a work directory it did not create. Both are
+fixed here; it passes on klone (x_HII 4e-6, T 8e-5, τ_es 8e-7, fHI 6e-3,
+T 1e-3 per cell, 105 s).
 
 ## 4. Timing
 
@@ -291,6 +348,136 @@ distributed hydro of E1 removes the latter too. `amrex_pm_fft = amrex` is
 10 % faster than the pencil transform at 4 ranks (its `plan_many`
 transforms and fewer copies).
 
+### 4.1 klone: pm_refine = 2 with 1024³ particles (2026-10-13)
+
+The `hmf512_40mpc_r2` configuration (`docs/pm_refine.md`: 40 Mpc/h, 512³
+gas, a 1024³ PM mesh and 1024³ particles, `pm_refine = 2`, unsplit hydro,
+no sources, `tvir_min = 1e30`, FoF catalogues every step) restarted from
+its last checkpoint (step 55, z = 5.50) for 3 hydro steps (56–58, z = 5.41
+→ 5.26), `zdata1 = "15 5.5 5.35 4"` so that step 57 writes P(k) and the
+particles, the gas fields (`u_gas`, `e_gas`, `rhog`) every step, and
+`--set step_timers=1` (the backends' cumulative phase timers and the FoF
+and P(k) times after every step, rank 0). The three backends with the
+state on the levels (`rt_backend = hydro_backend = pm_backend = amrex`,
+`amrex_state = 1`) on 1, 2 and 4 cpu-g2 nodes, 24 ranks × 8 threads per
+node, the UCX settings of `env.sh`, for `amrex_pm_fft = pencil | amrex`
+and gas boxes `amrex_max_grid_size = 32 | 64` (the PM mesh boxes are
+`pm_refine` times larger, 64³ and 128³); the serial code on one node with
+192 threads. Script `tools/hyak/amrex_pm_scaling.slurm`, tables
+`tools/hyak/amrex_pm_scaling_table.py`, comparison with the serial code
+`tools/hyak/amrex_pm_vs_serial.py`; outputs in
+`$RUNS/hmf512_40mpc_r2/amrex_pm_scaling` (jobs 41832848 serial and the
+1-node pencil runs, 41835129 the 1-node amrex runs, 41835130 2 nodes,
+41835131 4 nodes; logs in `logs/stage_e_pm/`).
+
+**Bitwise.** On each FFT, every run is identical to the 1-node, 32³-box
+run of that FFT: every file of the three steps (`tests/amrex_pm_check.py
+bitwise`: `u_gas`, `e_gas`, `rhog`, `stats.txt`), the particles, P(k) and
+the three halo catalogues (sha256). That holds for 1, 2 and 4 nodes and
+both box sizes: 5 comparisons per FFT, all identical. The two FFTs differ from each other
+at round-off, as designed (§1.2). The amrex FFT itself is
+rank-, node- and box-independent here as well (it also was in every test
+of §3). `pencil` stays the default, since its independence holds by
+construction.
+
+**Against the serial code** (step 56–58; `vs_serial_n1_*.txt`; the pencil
+and amrex runs give the same magnitudes):
+
+| | pencil, 1 node | amrex, 1 node |
+|---|---|---|
+| `u_gas` rms diff / rms (ρ, ρv, E), step 58 | 8e-7 – 3.4e-6 | 7e-7 – 3.4e-6 |
+| `u_gas` max diff / max, all steps | ≤ 4.1e-5 | ≤ 4.1e-5 |
+| `e_gas` rms, step 58 | 3.5e-6 | 3.4e-6 |
+| `stats.txt` (DM a/v max and rms, gas c/v) | ≤ 1.4e-6 | ≤ 1.3e-6 |
+| N_halo, steps 56/57/58 (serial 452785 / 462732 / 471867) | 452786 / 462733 / 471863 | 452785 / 462734 / 471860 |
+| particles at z = 5.33: positions rms / max [DM cells] | 3.2e-6 / 1.2e-4 | 3.2e-6 / 1.8e-4 |
+| velocities rms / max [rms velocity] | 4.4e-7 / 3.3e-5 | 4.4e-7 / 3.4e-5 |
+| P(k), largest relative difference | 1.0e-6 | 1.0e-6 |
+
+Round-off, as in §3: the fixed-point CIC and the FFT against the serial
+float CIC and the 3-D FFTW plan. A few halos out of 4.6·10⁵ near the
+linking length change their membership.
+
+**Per step** (mean over the 3 steps; PM = the `pm` column of `timing.txt`:
+drift, deposit, FFT, force, kicks; FoF = the halo finder on rank 0,
+including the gather of the particles into the host mirror it reads;
+P(k) once, at step 57; summaries + io = the statistics and the field
+output of every step, with the state gathered from the levels):
+
+| [s per step] | PM | hydro | FoF | P(k) (step 57) | summaries + io | step |
+|---|---|---|---|---|---|---|
+| serial, 1 node, 192 threads | 11.18 | 15.89 | 32.1 | 20.0 | 7.6 | 73.5 |
+| backends, 1 node, pencil, 32 | 4.13 | 3.12 | 188.0 | 48.4 | 20.4 | 231.8 |
+| backends, 2 nodes, pencil, 32 | 2.97 | 2.08 | 183.8 | 48.6 | 21.4 | 226.4 |
+| backends, 4 nodes, pencil, 32 | 1.32 | 0.87 | 182.0 | 49.9 | 22.8 | 223.6 |
+
+The PM backend's phases (mean per step, s; `gather` = the particle mirror
+for the FoF, counted in the FoF column above):
+
+| nodes, FFT, box | PM | drift | deposit | (SumBoundary) | FFT | force | kick_dm | kick_gas | gather |
+|---|---|---|---|---|---|---|---|---|---|
+| 1, pencil, 32 | 4.13 | 1.07 | 1.04 | 0.29 | 0.78 | 0.23 | 0.95 | 0.04 | 8.20 |
+| 1, pencil, 64 | 4.30 | 1.08 | 1.20 | 0.01 | 0.75 | 0.22 | 0.98 | 0.04 | 7.88 |
+| 1, amrex, 32 | 4.50 | 1.07 | 1.01 | 0.19 | 1.20 | 0.22 | 0.92 | 0.04 | 7.62 |
+| 1, amrex, 64 | 4.55 | 1.06 | 1.11 | 0.04 | 1.15 | 0.21 | 0.96 | 0.04 | 7.34 |
+| 2, pencil, 32 | 2.97 | 0.50 | 0.59 | 0.12 | 0.92 | 0.11 | 0.81 | 0.03 | 6.14 |
+| 2, pencil, 64 | 3.06 | 0.61 | 0.66 | 0.10 | 1.08 | 0.10 | 0.58 | 0.02 | 5.87 |
+| 2, amrex, 32 | 2.97 | 0.53 | 0.57 | 0.21 | 1.22 | 0.11 | 0.50 | 0.02 | 6.13 |
+| 2, amrex, 64 | 3.24 | 0.60 | 0.70 | 0.15 | 1.27 | 0.10 | 0.53 | 0.02 | 5.87 |
+| 4, pencil, 32 | 1.32 | 0.35 | 0.27 | 0.07 | 0.31 | 0.06 | 0.33 | 0.01 | 4.92 |
+| 4, pencil, 64 | 1.54 | 0.40 | 0.40 | 0.04 | 0.30 | 0.06 | 0.37 | 0.01 | 4.70 |
+| 4, amrex, 32 | 1.41 | 0.36 | 0.27 | 0.08 | 0.39 | 0.06 | 0.31 | 0.01 | 4.91 |
+| 4, amrex, 64 | 1.63 | 0.41 | 0.40 | 0.06 | 0.39 | 0.06 | 0.36 | 0.01 | 4.70 |
+
+Peak RSS (`peak RSS` lines of the log and `sacct`): the serial code 168 GB.
+The backends: rank 0 120–126 GB on every node count (its host state: the
+mirror of the particles and the gas, and the FoF's and P(k)'s work
+arrays, all of which the serial code also holds); the other ranks 12 GB
+on 1 node and 7 GB on 2 and 4. The peaks of the job steps (sacct MaxRSS,
+always rank 0) are 126.0–127.5 GB on 2 nodes and 128.5–131.4 GB on 4.
+
+**Reading.**
+- The PM backend is 2.7× faster than the serial PM on one node (4.1 s
+  against 11.2 s), and 3.1× faster again on 4 nodes (1.3 s; 3.0 s on 2
+  nodes, where the FFT's transposes first cross the network and it is
+  slower than on one node). The deposit and the kicks scale with the
+  ranks. The drift (positions on the level, `amrex_state = 1`) costs as
+  much as the deposit. The FFT is 0.3–0.4 s on 4 nodes. `SumBoundary` is
+  under 0.3 s, and 0.01–0.15 s with 128³ mesh boxes.
+  The larger boxes are 4 % slower on one node and 15–17 % slower on 4
+  nodes (512 mesh boxes for 96 ranks: worse balance in the deposit and the
+  drift).
+- `amrex_pm_fft = amrex` costs 0.4 s more than the pencil on one node (1.2
+  s against 0.8 s: its plans are single-threaded on klone, §1.2), 0.2–0.3 s
+  on 2 and 0.1 s on 4. It brings nothing here, so `pencil` stays the default.
+- The hydro backend is 5× faster than the serial hydro on one node and 18×
+  on 4.
+- The step is 3× *slower* than the serial code: the FoF and P(k) run on
+  rank 0 alone, with that rank's 8 threads, on a host mirror of all 1024³
+  particles (188 s against 32 s on 192 threads, and 48 s against 20 s for
+  P(k)). They take 90 % of the step and do not change with the node count.
+  The gather into the mirror also scales poorly (8.2 s on 1 node, 4.9 s on
+  4). This is the open item of `docs/stage_e_state.md` (the halo finder on
+  the distributed particles, E3). Until then, a run with FoF every step
+  should use `fof_dt_myr` or run the halo finder less often. Rank 0 with
+  more threads would also help (a heterogeneous launch).
+- Rank 0's 124 GB is the host state that the FoF, P(k) and the output
+  read. It does not shrink with the node count. The other ranks hold
+  their part of the levels.
+
+**Two fixes found by these runs** (neither changes a result):
+- *Start-up memory.* With `amrex_state = 1`, every rank allocated the
+  host PM arrays and ran the host initial FFT, then freed them: 45 GB per
+  rank at 1024³, so 24 ranks went OOM at 700 GB on one node.
+  `pm::init_pm(..., host_arrays)` now allocates them on the ranks that
+  need them (rank 0, which reads the checkpoint and does the I/O), and the
+  others skip the host FFT. The state after start-up is the one the ranks
+  had after freeing the arrays.
+- *The amrex FFT's exit crash* (§5, the planner reset): every
+  `amrex_pm_fft = amrex` run at 1024³ finished its steps and then crashed
+  destroying its plans. The step outputs of the crashed run are
+  byte-identical to the fixed one.
+
 ## 5. Findings and traps
 
 - The serial `link_dm` cell of a particle (`int(x·x_dm_m)`) and the CIC
@@ -305,7 +492,13 @@ transforms and fewer copies).
 - `amrex::FFT` sets FFTW's planner to the OpenMP thread count when its
   first solver is built (`fftwf_plan_with_nthreads`), a global that the
   host's later plans would inherit; the backend resets it to 1 after each
-  solve.
+  solve, but only when it is above 1: in FFTW 3.3.10,
+  `fftwf_plan_with_nthreads` before `fftwf_init_threads` calls
+  `fftwf_cleanup`, and an AMReX built with `AMReX_FFTW_IGNORE_OMP` (klone)
+  never initialises the threads. The unguarded reset left the R2C plans
+  undefined; they still ran, but destroying them segfaulted at the end of
+  the 1024³ runs (§4.1; the 32³ tests use transforms without twiddle
+  tables and never showed it).
 - The bitwise-OR all-reduce gathers disjoint float pieces exactly; a
   summing all-reduce would turn −0.0 into +0.0.
 - `pm_driver`'s `phi.bin` is the potential on the PM mesh: the backend
@@ -321,9 +514,11 @@ transforms and fewer copies).
   (drift and `Redistribute` on the level, the gather replaced by the
   checkpoint and the halo finder reading the container).
 - The halo finder and sources on the distributed particles (E3), load
-  balancing (E4), AMReX checkpoints (E5), the klone scaling (E6).
-- A 64³ production-configuration nightly comparison of the full loop with
-  both backends against the serial code.
+  balancing (E4), AMReX checkpoints (E5), the klone scaling (E6; the PM
+  part is §4.1).
+- The halo finder and P(k) on the distributed particles: on rank 0 they
+  are 90 % of a step at 1024³ and make the full loop 3× slower than the
+  serial code (§4.1).
 - The GPU build (the loops are plain OpenMP here; the level's structure
   follows `rt_level.cpp`, whose device path is in place).
 
