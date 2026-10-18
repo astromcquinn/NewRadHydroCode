@@ -1117,9 +1117,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   Recommendation: build FLD proper; P1 optional as a cheap extra point.
 * **Proposed order:**
   1. ~~Merge PRs #42, #44–#46; finish the 512³ f_esc(z) run; land the ĉ
-     schedule~~ done 2026-10-18; merge PR #43; check the schedule against
-     full c on the post-overlap Γ (thread A below: two runs). Decide the
-     f_esc law and case B against case A + RR.
+     schedule~~ done 2026-10-18 (PR #43, AMR gravity, is not needed for
+     the uniform suite); check the schedule against full c on the
+     post-overlap Γ (thread A below: two runs). Decide the f_esc law and
+     case B against case A + RR.
   2. Add FLD (and optionally P1) to the serial moment framework (thread B).
      Run the uniform 512³ suite of all methods at the shared ĉ, f_esc and
      recombination treatment, one node per run; every analysis tool
@@ -1135,7 +1136,17 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   methods against the rays and the improved closures. The AMR run is
   working but changes the results little, so the suite stays uniform.
   Pre-launch checklist from the assessment of 2026-10-18:
-  1. merge PR #43 (`--ndm`, `nodm`, the checkpoint cadence);
+  1. PR #43 is *not* a prerequisite (correction, 2026-10-18): the suite
+     is uniform, and `pm_refine = 4` with 1024³ particles is the
+     uniform-grid PM mesh of `docs/pm_refine.md`, on `main` since
+     2026-10-12 (the code needs only that Ndm divides the 2048³ mesh).
+     #43 adds AMR-only gravity plus two script conveniences, `--ndm` and
+     `data_files = nodm`. On `main` alone: `make_production.py --pm-refine
+     4 --no-ics ...`, then `Ndm = 1024` in params.txt and `ics` linked to
+     the existing 1024³ ICs (`$RUNS/hmf512_40mpc_r2/ics`: 512³ gas,
+     1024³ particles, 40 Mpc/h, seed 7); `--data-files gas` already omits
+     the dark matter, as the first 512³ comparison did;
+     `--restart-every 10` is an existing option;
   2. everything runs on the serial path (the moment methods exist only
      there), one node per run, so every run gets case A + RR; raise the
      `--mem` of `rt_methods_runs.sh` and `otvet_closure_runs.sh`;

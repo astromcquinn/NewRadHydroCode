@@ -18,8 +18,9 @@ is slaved to ∇N; it needs an implicit solver). **Decided the same day
 (user): the default ĉ is a schedule on x_HII,V**, implemented by another
 thread as `c_reduced_schedule` (PR #46) and revised on 2026-10-18 to 0.1c
 below 0.25, 0.2c to 0.5, 0.3c to 0.75, 0.5c after. Proposed order:
-merge PR #43 (#42, #44, #45 and #46 are in `main` as of 2026-10-18), the
-schedule's check against full c (thread A, two runs); FLD in
+the schedule's check against full c (thread A, two runs; #42, #44, #45
+and #46 are in `main` as of 2026-10-18, and #43, AMR gravity, is not
+needed for the uniform suite); FLD in
 the serial moment framework (thread B) and the uniform 512³ suite of all
 methods at one ĉ, f_esc and recombination treatment; then the moment
 methods, FLD and `recomb_rad` on the AMReX hierarchy (thread C) and the
