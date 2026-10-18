@@ -913,3 +913,39 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
 * **Order (agreed):** (1) gas AMR with refinement off, bitwise identical
   to Stage E; (2) refined hydro on the hydro test suite, with the cooling
   flag and the sink; (3) the RT coarse substep across levels.
+
+## f_esc evolution thread (2026-10-14): a falling escape fraction
+
+* **Request (user):** lower the late-time emissivity with
+  f_esc(z) = f6 ((1+z)/7)^β (`f_esc`, `f_esc_beta`, `f_esc_z0 = 6`,
+  `f_esc_max`; no code change) so that Γ_HI and the Lyα forest come closer
+  to the data. Undershoot ε on purpose and let reionization end later
+  (z ≈ 5.3–5.5). Calibrate at 256³ on the box, ICs and parameters of the
+  256³ rays run with only the sources changed; then one 512³ rays run to
+  z = 5 with the parameters of `reion512_rays`; report how much of λ_mfp's
+  excess ε alone removes. Options beyond ε (resolution, a subgrid
+  Lyman-limit opacity) are to be discussed before anything is implemented.
+  Report: `docs/fesc_evolution.md`.
+* **256³ base: `otvcl256`** (20 Mpc/h, the 512³ cell size, case A + RR with
+  `recomb_rad_cell_onspot = 1`, f_esc = 0.23). It is the β = 0 point; the
+  grid runs differ from it only in the source lines (`tensor_dump`, an
+  output-only diagnostic, dropped). Script `tools/hyak/fesc_runs.sh`.
+* **Grid (thread choice): f6 set so that z50 stays near 7**, from a one-zone
+  Q(z) model fitted to `otvcl256` (C ≈ 4.3): β = 3, 5, 7 as asked
+  (f6 = 0.12, 0.075, 0.045) plus β = 2 (f6 = 0.15), added at once because
+  the model predicted that β ≥ 4 does not finish by z = 5 at z50 = 7. The
+  model underestimates the early photons' efficiency: z50 came out 7.16,
+  7.27, 7.63, 8.04. β = 5 and 7 were not rerun at a lower f6: they already
+  do not finish reionizing by z = 5 (x_V = 0.98, 0.77), and a lower f6 only
+  delays them further.
+* **User decision (2026-10-14): the 512³ run uses
+  `recomb_rad_cell_onspot = 1`** (the block-emission clump fix, as in the
+  256³ base and the production default), although `reion512_rays` was run
+  without it; the comparison with `reion512_rays` therefore includes that
+  fix (Γ −2 %, history unchanged at 128³; λ_mfp possibly longer).
+* **512³ choice (thread): β = 2.5, f6 = 0.135**, between the β = 2 and 3
+  points of the grid: A ≈ 1 (the forest) and Γ ≈ Gaikwad+23 by log
+  interpolation, and z99 ≈ 5.7 at 256³, i.e. ≈ 5.5 at 512³ (that box ends
+  0.18 later at fixed f_esc). A 256³ run at the same values checks the
+  interpolation. Snapshots at the closure runs' list
+  (15 7 6.5 6.25 6 5.75 5.5 5.25 5); otherwise `reion512_rays`.
