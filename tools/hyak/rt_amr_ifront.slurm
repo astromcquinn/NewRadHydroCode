@@ -6,8 +6,11 @@
 #
 #   sbatch --export=ALL,BUILD=$PWD/build-sink,OUT=$RUNS/rt_amr_ifront[,N=32][,STEPS=40][,RANKS=8][,HALF=8] \
 #          tools/hyak/rt_amr_ifront.slurm
-# HALF: the half-width of the refined box around the centre, in base cells
-# (8: the central half of a 32^3 box; 4: the front crosses the boundary early)
+# HALF: the half-width of the tagged box around the centre, in base cells.
+# The level is larger: the tags grow by amrex_n_error_buf = 1 and the grids
+# by the blocking factor (4 base cells), so HALF = 4 refines base cells
+# 8..23 (radius 8, the front crosses it between steps 9 and 10) and HALF = 8
+# refines 4..27 (radius 12, the front stays inside).
 #SBATCH --job-name=rt-amr-ifront
 #SBATCH --account=astro
 #SBATCH --partition=cpu-g2
@@ -45,7 +48,7 @@ run() {  # run <name> <problem> [--set ...]
 run uniform$N "$OUT/prob$N"
 run amr$N "$OUT/prob$N" --set amrex_max_level=1 --set amrex_refine_mass=1e9 --set amrex_refine_box=$q,$q,$q,$q3,$q3,$q3
 run uniform$((2 * N)) "$OUT/prob$((2 * N))"
-echo "refined box: base cells $q..$q3 (radius $HALF from the centre)"
+echo "tagged box: base cells $q..$q3 (radius $HALF from the centre; the level adds the buffer and blocking)"
 python3 "$src/tools/analysis/ifront_full.py" "$OUT/uniform$N" "$OUT/amr$N" --N "$N"
 python3 "$src/tools/analysis/ifront_full.py" "$OUT/uniform$((2 * N))" --N "$((2 * N))"
 python3 "$src/tools/analysis/ifront_full.py" --N "$N" --check "$OUT/uniform$((2 * N))" "$OUT/uniform$N" "$OUT/amr$N" 0.25

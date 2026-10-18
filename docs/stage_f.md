@@ -13,7 +13,7 @@ cooling flag and the sink), F3 (the RT across levels).*
 |---|---|
 | F1: the gas hierarchy (`amrex_max_level`, AmrMesh regridding, FillPatch, refluxing, average-down) in `src/amrex/hydro_level.cpp`; `amrex_max_level = 0` is bitwise the Stage E level | done 2026-10-14 |
 | F2: refined hydro validated on the hydro test suite (§2: one level on 32³ matches the uniform 64³ run); `cool_suppress_overdensity`; the star-formation sink (F2b) | done 2026-10-14 (the pancake, KH and full-tier cases pending) |
-| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | done 2026-10-15: the I-front validated inside the refined region and across its boundary (§3) |
+| F3: the gas state on every level (F3a) and rays across levels with the coarse substep (F3b, `rt_cells_per_substep` = 2^l on level l) | done 2026-10-15: the I-front validated inside the refined region and across its boundary (§3); 2026-10-14 (branch `stage-f3-8src`): the 8 sources of `uniform_8src` with one and two levels, three fixes (§3, "Eight sources") |
 
 ## 1. The hierarchy (F1)
 
@@ -128,6 +128,15 @@ the shock radius for Sedov at t = 10), uniform / 1 level / 2 levels:
 | 123 (double rarefaction), N = 32 | 0.0327 / 0.0210 / 0.0221 | 0.0649 / 0.0196 / 0.0184 | 0.279 / 0.057 / 0.069 | | 1 / 8 / 32 |
 | Sedov, N = 32 | 0.0608 / 0.0427 / 0.0345 | 0.0987 / 0.0683 / 0.0604 | 0.0765 / 0.0523 / 0.0436 | +5.9 % / +4.3 % / +3.5 % | 2 / 39 / 113 |
 | Sedov, N = 64 | 0.0406 / 0.0279 / 0.0202 | 0.0648 / 0.0418 / 0.0332 | 0.0467 / 0.0318 / 0.0250 | +3.0 % / +1.9 % / +1.5 % | 43 / 936 / 2587 |
+
+![Sedov blast with refinement](figures/amr_sedov.png)
+
+*Sedov at t = 10, N = 32 (`tools/analysis/amr_figures.py --only sedov`).
+Top: density slices through the blast. The refined runs are shown at the
+base resolution: the driver writes the level-0 composite (each refined
+cell's children averaged down), not the fine levels. Bottom: the binned
+radial profile against the exact solution, and the L1 and shock-radius
+errors of the table.*
 
 One level on N = 32 matches or beats the uniform N = 64 run (Sod: 0.0098
 against 0.0120; Sedov: 0.0427 against 0.0406, R error 4.3 % against
@@ -254,12 +263,20 @@ uniform 64³ run as the reference:
 
 The refined run tracks the 64³ front to a few hundredths of a cell, as
 well as the base run does; here the front stayed inside the refined
-region (radius 8). With the whole box refined (the RT entirely on level
+region (radius 12: `HALF = 8` tags 8..23, the level adds the buffer and
+the blocking factor, 4..27). With the whole box refined (the RT entirely on level
 1, the hydro and PM at 32³) the front reaches 8.60 base cells at step 10
-against the 64³ run's 8.74 and the 32³ run's 8.65, with the same photons
-in flight (526 against 552): the 1.5 % lag is the two-cell coarse
-substep's (the k = 2 result of `docs/rt_multicell.md`, the decision's
-price), not a defect. The first run with the refined region of radius 4,
+against the 64³ run's 8.74 and the 32³ run's 8.65. *Corrected
+2026-10-14 ("Eight sources" below):* this 1.5 % lag is not the two-cell
+coarse substep's (the uniform 64³ run with `rt_cells_per_substep = 2`
+is 0.013 cells *ahead* of k = 1) but gravity: `make_ifront.py` wrote
+Zel'dovich dark matter (σ ≈ 0.15 per cell), so the "uniform" gas grew
+structure, and the refined runs, with the PM on level 0 only (Stage G),
+grew a different one than the uniform 64³ run (denser around the source,
+more recombinations). With the dark matter at rest the whole-box run
+reproduces the uniform 64³ k = 2 run to 1e-4 (below). The photons in
+flight compared here (526 against 552) were also in different units
+(fixed below). The first run with the tagged box of radius 4 (the level: radius 8),
 so that the front crosses the level boundary, overshot by 0.57 cells
 right after the crossing and had 8× the photons in flight: the kernels
 keep a ray's photons per RT-cell volume (`ray_source`: ngam / vol_rt /
@@ -270,7 +287,11 @@ the base level; refined 32³ against the 64³ reference, errors in base
 cells: 0.004, 0.014, 0.018, 0.044, 0.061, 0.080, 0.108, 0.140 (steps
 3–10; the uniform 32³ run: 0.022, 0.029, 0.031, 0.008, 0.010, 0.029,
 0.060, 0.087), i.e. the fine level's lag carried across, nothing from the
-crossing. CTest `amrex_rt_amr_ifront` (label `amr`, nightly) repeats the
+crossing (the lag was the gravity of the Zel'dovich dark matter, see
+above; with the dark matter at rest, `rt_amr_ifront7`, the refined errors
+are 0.013, 0.007, 0.015, 0.011, 0.012, 0.018, 0.016, 0.014 against the
+base run's 0.029–0.064, three to four times smaller at every step, the
+crossing between steps 9 and 10 included). CTest `amrex_rt_amr_ifront` (label `amr`, nightly) repeats the
 three runs on 2 ranks. Three more traps on the way: the
 refined levels' RT parameters must carry their own grid size for the
 periodic wrap (`nrtr`, `hrtr`: a source ray at x = 32.5 on level 1
@@ -280,6 +301,113 @@ itself and averaged them down; the hydro pushed the same change down
 again, and a species that had grown from ~0 overflowed in the ratio rule,
 now guarded); and `fgam` is the transmitted fraction, so a half cell's is
 √fgam.
+
+**Eight sources (2026-10-14, branch `stage-f3-8src`;
+`tools/hyak/rt_amr_ifront8.slurm`, `make_ifront.py --sources 8src`,
+`tools/analysis/ifront_multi.py`; data `docs/data/stage_f/ifront8_*.json`).**
+The 8 sources of `tests/problems/uniform_8src` at the centres of their
+32³ cells (the same places for every N; the 64³ and 128³ grids put each
+in the fine cell above the corner, +0.25 base cells, the same for the
+refined levels), equal luminosities (the one-source L), the dark matter
+at rest. Compared: x_HII,V and x_HII,M, the photons in flight
+(`ngam_rays_total`, in base units), and the ionised volume around each
+source: every base cell goes to its nearest source (periodic), the finer
+uniform runs averaged down to 32³ first (the sources sit at 32³ cell
+centres, so many base cells are equidistant from two sources and the
+partition must be the same for every run), R_s = (3V_s/4π)^{1/3} in base
+cells. One level over base cells 0..15 × 4..19 × 4..19
+(`amrex_refine_box`, `amrex_n_error_buf = 0`, so the level is exactly the
+box; checked with `RADRAY_AMR_DEBUG=1`, which now prints each level's
+bounding box): sources 1 and 6 inside, near its faces; their fronts
+overlap inside and leave it, the fronts of 3, 8 and 2 (through the
+periodic face) enter it and meet 1's and 6's at the faces. Two levels:
+level 2 over 2..13 × 6..17 × 6..17 (`amrex_refine_box` now takes one box
+per level), holding 1 and 6. 8 ranks × 4 threads on one klone node. Errors
+against the uniform run at the finest resolution, uniform 32³ / refined
+(relative for x and the photons; base cells for R; worst over steps 3–10;
+"jump" is the largest change of R_refined − R_ref from one step to the
+next):
+
+| case | x_HII,V | x_HII,M | photons in flight | max \|ΔR\| per source | max jump | wall |
+|---|---|---|---|---|---|---|
+| 1 level vs 64³ | 0.035 / 0.031 | 0.034 / 0.031 | 0.076 / 0.071 | 0.082 / 0.095 | 0.020 / 0.026 | 14 / 28 / 109 s |
+| 2 levels vs 128³ | 0.053 / 0.053 | 0.050 / 0.050 | 0.107 / 0.099 | 0.102 / 0.132 | 0.035 / 0.035 | 14 / 80 / 1432 s |
+| whole box, 1 level, vs 64³ with k = 2 | 0.027 / 1e-4 | 0.026 / 0.002 | 0.026 / 6e-6 | 0.071 / 2e-4 | — / 1e-4 | |
+
+Per step (1 level): x_HII,V 0.018–0.031 against 0.021–0.035, better at
+steps 3–7 and equal within 0.0006 at 8–10, where the unrefined 7/8 of the
+box dominates; the photons in flight better at every step. The two
+sources in the refined level start better than the base run (R_1 4.153
+against 4.170, the reference 4.141) and source 1 stays better; the largest
+per-source errors are those of sources 3 and 6, whose fronts meet at the
+level's faces: 0.03 base cells above the base run's at steps 8–10. No
+jump at any crossing (0.026 base cells at most, the base run's own
+step-to-step variation 0.020). The checks of `ifront_multi.py --check`
+(per source |ΔR| within the base run's + 0.25 cells, x within the base
+run's + 1 %, photons in flight within + 3 %, jumps below 0.15 cells) pass
+for both. With the whole box on level 1, the hierarchy reproduces the
+uniform 64³ run with `rt_cells_per_substep = 2` to 1e-4 (the ray
+transport, splitting, merging and physics on a refined level are the
+uniform code's), and the partly refined run is within 0.25 % of that run's
+photons in flight at every step; against it the per-source error is
+0.084 (base 0.071), i.e. a residual of a few hundredths of a cell at the
+level's faces, more ionised outside them. A likely, unverified, source:
+a fine ray's deposit in a ghost cell outside its level goes to the parent
+as photons over the whole coarse cell, which absorbs 1 − fgam of it,
+while the ray loses 1 − √fgam (a photon excess at fine-to-coarse
+crossings). CTest `amrex_rt_amr_ifront8` (label `amr`, nightly) repeats
+the one-level case on 2 ranks (≈ 11 min with `amrex_rt_amr_ifront`).
+
+![8-source x_HII slices](figures/amr_ifront8_slices.png)
+
+*Step 10 (z ≈ 11.6), a slice through source 6 and the refined boxes. Top:
+x_HII. The refined panels are the level-0 composites (base resolution;
+the fine levels are not written); the uniform 128³ run is shown at its own
+resolution. Bottom: the difference from the finer uniform run averaged to
+32³. Inside the level-1 box the mean |Δx_HII| falls from 0.031 to 0.020
+(one level, against 64³) and from 0.031 to 0.025 (two levels, against
+128³); over the whole slice it is unchanged, the rest of the box being
+at the base resolution.*
+
+![8-source error histories](figures/amr_ifront8_errors.png)
+
+*The errors of the table per step. The curves have no jump at the
+steps where fronts cross the level boundaries.*
+
+Three fixes came out of it:
+
+1. **The covered cells' fgam** (`fill_covered_fgam`, after every
+   substep's physics, finest first): a parent ray crossing a cell under a
+   finer level gives its deposit to the 8 children (each takes the
+   parent's value per volume) and loses, in `cast_3`, 1 − fgam of the
+   covered cell, which had no physics and kept the fgam of the last
+   `average_down`, one step (about 13 substeps) old. Rays entering the
+   refined level through gas ionised since then lost too many photons:
+   the photons in flight inside the level were 14 % low within two cells
+   of its faces at step 10, 4.2 % in total. The covered cell now takes the
+   mean of its children's fgam of the same substep, which is what the
+   children absorb of the parent's deposit (photon conserving). Total
+   deficit after the fix: 0.24 %.
+
+   ![The covered-cell fgam fix](figures/amr_fgam_fix.png)
+
+   *Photons in flight of the refined run against uniform 64³ with
+   `rt_cells_per_substep = 2`, before and after the fix (step 10; the
+   level-1 box outlined). The 2 % offset at the early steps, the same in
+   both, comes from the unrefined part of the box (32³).*
+2. **Each level's ray pool** (`calc_ngam_ray`, `pool_guard`): the split
+   and merge thresholds and the pool guard of every level used the base
+   pool `Nray_max = nray_max_factor N³`; a refined level with up to 8× the
+   cells was held to the base grid's ray budget (the guard fired 279 times
+   in the whole-box run). Level l now has `Nray_max × cells(l)/N³`; level
+   0 is unchanged (bitwise).
+3. **The photons in flight** (`ngam_rays_total`) summed each level's rays
+   in that level's units (a ray's ngam is per RT-cell volume, 8^l times
+   the base value); now in base units, as after a restart.
+
+And the test problem: `make_ifront.py` now puts the dark matter at rest
+on its lattice, as its description said (above). The refined results
+change; `amrex_max_level = 0` is bitwise as before.
 
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
@@ -329,6 +457,10 @@ uniform 128³ and 256³ runs (x_HII(z), τ_es, T_M, the front positions).
 | `tools/hyak/hydro_suite_amr.slurm`, `tools/analysis/hydro_suite_amr.py` | the suite with refinement on klone and its tables |
 | `tests/amr_conservation_check.py`, `tests/run_amrex.cmake` (`STRICT=cons`) | the conserved totals of a refined run against the uniform run (to 1e-7: the driver's float fields; the hierarchy's double level-0 mass is `mass0` in its timers line) |
 | `tools/production/make_production.py` | `--cool-suppress-overdensity` |
+| `tests/problems_full/make_ifront.py` | the I-front problems of §3: one source or `--sources 8src`, the dark matter at rest, `sources_pos.txt` |
+| `tools/analysis/ifront_full.py`, `tools/analysis/ifront_multi.py` | the front radius of one source; per-source ionised volumes, x_HII,V/M, photons in flight and the checks for several |
+| `tools/analysis/amr_figures.py` | the figures of §2 and §3 (`docs/figures/amr_*.png`) |
+| `tools/hyak/rt_amr_ifront.slurm`, `tools/hyak/rt_amr_ifront8.slurm`, `tests/rt_amr_ifront.cmake` | the refined I-front runs on klone and the nightly CTests `amrex_rt_amr_ifront`, `amrex_rt_amr_ifront8` |
 
 Tests: `ctest -L amrex_hydro` (27, refinement off: bitwise the serial
 step), `ctest -L amr` (the label matches `amrex` too; the new tests are
