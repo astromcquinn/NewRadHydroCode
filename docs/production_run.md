@@ -245,14 +245,15 @@ RT substep total is unchanged.
 
 ### By ionisation state (`c_reduced_schedule`)
 
-*User decision, 2026-10-17: the production default.* The light speed is
+*User decision, 2026-10-17, revised 2026-10-18: the production default.* The light speed is
 chosen per hydro step from the box's volume-weighted ionised fraction x:
 
 ```
-c_reduced_schedule = 0.1 0.3 0.2 0.8 0.4
+c_reduced_schedule = 0.1 0.25 0.2 0.5 0.3 0.75 0.5
 ```
 
-means ĉ = 0.1c for x < 0.3, 0.2c for 0.3 ≤ x < 0.8 and 0.4c for x ≥ 0.8.
+means ĉ = 0.1c for x < 0.25, 0.2c for 0.25 ≤ x < 0.5, 0.3c for 0.5 ≤ x < 0.75
+and 0.5c for x ≥ 0.75 (until 2026-10-18: 0.1c / 0.2c from 0.3 / 0.4c from 0.8).
 The general form is `c0 x1 c1 x2 c2 ...` (spaces or commas, thresholds
 increasing in (0, 1]). x is the x_HII,V of the end of the previous hydro
 step (the `xHII_V` of its `stats.txt`, the same sum). Before the RT has

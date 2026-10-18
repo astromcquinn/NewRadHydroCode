@@ -13,7 +13,8 @@
   Stateless, so restarts are exact with no checkpoint change; on the AMReX
   backends rank 0 computes x and broadcasts it.
 * **Production default** (`make_production.py --c-schedule`, user
-  decision): 0.1c for x < 0.3, 0.2c to 0.8, 0.4c after. An explicit
+  decision, revised 2026-10-18): 0.1c for x < 0.25, 0.2c to 0.5, 0.3c to
+  0.75, 0.5c after (was 0.1c / 0.2c from 0.3 / 0.4c from 0.8). An explicit
   `--c-reduced` alone keeps a constant speed; `calibrate_fesc.py` and the
   stored-tolerance AMReX test are unchanged.
 * **Tests:** `c_schedule` (a one-speed schedule is the constant

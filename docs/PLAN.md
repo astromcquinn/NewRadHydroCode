@@ -927,3 +927,18 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   volume-weighted x_HII of the box at the end of the previous hydro step;
   x = 0 until the RT has written its grid; no hysteresis (stateless, so
   restarts are exact without a checkpoint change).
+
+## Reduced speed of light, revised schedule (2026-10-18)
+
+* **User decision: ĉ = 0.1c for x_HII,V < 0.25, 0.2c to 0.5, 0.3c to 0.75,
+  0.5c above** (`c_reduced_schedule = 0.1 0.25 0.2 0.5 0.3 0.75 0.5`, the
+  `make_production.py` default; replaces 0.1c / 0.2c from 0.3 / 0.4c from
+  0.8). Evidence discussed: the 20 Mpc/h 256³ constant-ĉ runs (`runs/sol`)
+  delay x_HII,V = 0.99 by Δz = 0.09 (0.5c), 0.19 (0.3c), 0.30 (0.2c),
+  0.56 (0.1c) against 1c, about half of the old schedule's delay coming
+  from the 0.1c phase; and the post-overlap Γ_HI of the fesc512 pair
+  (0.1c) at a third of the local-equilibrium value σ ṅ λ, the background's
+  relaxation λ/ĉ (200–300 Myr at 0.1c) being longer than the time over
+  which λ_mfp doubles (~70 Myr at z = 5.5–5.2): an intermediate step and a
+  higher maximum. The RT substeps per hydro step scale with ĉ (the late
+  phase at 0.5c costs ~5× the RT time of 0.1c).
