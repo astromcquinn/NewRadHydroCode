@@ -73,7 +73,13 @@ cross the cell in one RT substep. In the RSLA this is F·σ, independent of
 ĉ (`docs/production_run.md` §1). `rt_step_1` resets it every substep, so
 the output is the value of the **last RT substep** of the hydro step: an
 instantaneous snapshot, not a time average. Cells that no photon reached
-and that have x_HI ≥ 0.99 have Γ = 0.
+and that have x_HI ≥ 0.99 have Γ = 0. Since 2026-10-18 the field
+`gammaHI_avg` (in `fields` and `movie_fields`) is the same rate averaged
+over the hydro step's RT substeps, weighted by the substep length
+(`Simulation::gamma_avg`, accumulated after every substep's physics in
+double precision, output only, serial RT only): the quantity for the power
+spectrum of Γ, where the single-substep ray sampling noise matters
+(`docs/rt_methods_512.md` §6); `igm_stats.py` keeps reading `gammaHI`.
 
 **Estimators** (`gamma` in the JSON):
 * `V`: the volume average over the box;
@@ -349,7 +355,8 @@ other: the Γ implied by the observed ⟨F⟩ (crosses in the figure) is 0.26
   through x_HI.
 * **Γ is an instantaneous snapshot** (the last RT substep); it fluctuates
   with the discrete ray sampling. The volume averages are robust (millions
-  of cells).
+  of cells); `gammaHI_avg` (above) is the substep average for the
+  cell-level statistics.
 * **The source spectrum is fixed by the code** (five groups, 15.7–74 eV,
   `pop2_init` weights). The Becker eq. 10 conversion between Γ, λ and ṅ
   in the data file assumes α_s = 2 at 912 Å. The simulation's own Γ-to-ṅ
