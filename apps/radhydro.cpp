@@ -99,6 +99,13 @@ struct RunParams {
   int legacy_rt = 1;
   int legacy_physics = 1;
   double c_reduced = 1.0;   // reduced speed of light (calc_timestep cscale)
+  // c_reduced_schedule = c0 x1 c1 x2 c2 ... (new, default empty = off,
+  // docs/production_run.md section 1): the reduced speed of light by
+  // ionisation state. Each hydro step uses c_k for xk <= x < x(k+1), with
+  // x = x_HII,V of the box at the end of the previous step (c0 below x1,
+  // and before the RT has run: x = 0 while the RT grid is unwritten).
+  // Overrides c_reduced. Stateless, so a restart reproduces it.
+  std::vector<double> c_sched_c, c_sched_x;
   int deterministic_parallel = 0;  // parallel ray tracing (docs/parallel.md)
   int threads = 0;          // OpenMP threads (0: OpenMP default)
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
@@ -260,6 +267,29 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "c_reduced") {
     P.c_reduced = to_double(val);
     if (!(P.c_reduced > 0)) throw std::runtime_error("c_reduced must be > 0");
+  } else if (key == "c_reduced_schedule") {
+    // c0 x1 c1 x2 c2 ... (spaces or commas); "" or "none" turns it off
+    std::string t = val;
+    for (char& ch : t)
+      if (ch == ',') ch = ' ';
+    std::istringstream in(t);
+    std::vector<double> v;
+    std::string w;
+    while (in >> w) {
+      if (w == "none") continue;
+      v.push_back(to_double(w));
+    }
+    P.c_sched_c.clear();
+    P.c_sched_x.clear();
+    if (!v.empty()) {
+      if (v.size() % 2 != 1) throw std::runtime_error("c_reduced_schedule: give c0 x1 c1 x2 c2 ...");
+      for (std::size_t i = 0; i < v.size(); ++i) (i % 2 ? P.c_sched_x : P.c_sched_c).push_back(v[i]);
+      for (double c : P.c_sched_c)
+        if (!(c > 0)) throw std::runtime_error("c_reduced_schedule: speeds must be > 0");
+      for (std::size_t i = 0; i < P.c_sched_x.size(); ++i)
+        if (!(P.c_sched_x[i] > 0 && P.c_sched_x[i] <= 1) || (i > 0 && !(P.c_sched_x[i] > P.c_sched_x[i - 1])))
+          throw std::runtime_error("c_reduced_schedule: thresholds must increase within (0, 1]");
+    }
   } else if (key == "ics")
     P.ics = val;
   else if (key == "fields_every")
@@ -595,7 +625,7 @@ int main(int argc, char** argv) {
     s.cfg.pm_refine = P.pm_refine;
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
-    s.cfg.c_reduced = P.c_reduced;
+    s.cfg.c_reduced = P.c_sched_c.empty() ? P.c_reduced : P.c_sched_c[0];
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
@@ -731,6 +761,7 @@ int main(int argc, char** argv) {
            << ", box = " << cfg.box
            << " Mpc/h, z_init = " << P.z_init << ", Nray_max = " << cfg.Nray_max
            << "\n legacy_rt = " << P.legacy_rt << ", legacy_physics = " << P.legacy_physics << ", c_reduced = " << P.c_reduced
+           << (P.c_sched_c.empty() ? std::string() : " (overridden by c_reduced_schedule)")
            << (P.redshift_per_distance ? ", redshift_per_distance = 1" : "")
            << (P.redshift_per_distance && !(P.c_reduced < 1) ? " (no effect: c_reduced >= 1)" : "")
            << (P.rt_cells_per_substep != 1
@@ -852,7 +883,46 @@ int main(int argc, char** argv) {
       d1("xHeIII_V", xhe3 / nc);
       d1("T_V", tv / nc);
       d1("T_M", tm / mass);
+      if (!P.c_sched_c.empty()) d1("c_reduced", s.cfg.c_reduced);  // this step's (schedule only)
       std::fclose(fp);
+    };
+
+    // c_reduced_schedule: x_HII,V of the box at the end of the last step
+    // (rank 0's RT grid, summed as in write_stats; called after write_stats,
+    // which brings the cells onto rank 0 for amrex_state = 1, or after
+    // reading a checkpoint) and the speed it selects for the next step
+    double sched_x = 0;
+    auto update_sched_x = [&]() {
+      if (P.c_sched_c.empty()) return;
+      double v = 0;
+      if (io) {
+        const RTGrid& G = s.rt;
+        bool filled = false;  // the RT has written the grid (allocate zero-fills it)
+        for (std::int64_t c = 0; c < G.ncell; ++c) {
+          const double fHI = G.fHI[c];
+          v = v + (1 - fHI);
+          filled = filled || fHI != 0;
+        }
+        v = filled ? v / cfg.nrtcr : 0;  // before the first RT step: c0
+      }
+      if (on_level) backend_bcast(&v, 1);
+      sched_x = v;
+    };
+    bool sched_announced = false;
+    auto apply_sched = [&]() {
+      if (P.c_sched_c.empty()) return;
+      double c = P.c_sched_c[0];
+      for (std::size_t i = 0; i < P.c_sched_x.size(); ++i)
+        if (sched_x >= P.c_sched_x[i]) c = P.c_sched_c[i + 1];
+      if (c != s.cfg.c_reduced || !sched_announced) {
+        if (io) {
+          std::printf(" c_reduced_schedule: c_reduced = %g from step %d (z = %.5f, x_HII,V = %.6f)\n", c,
+                      s.clk.istep + 1, s.clk.redshift, sched_x);
+          std::fflush(stdout);
+        }
+        s.cfg.c_reduced = c;
+        sched_announced = true;
+      }
     };
 
     auto write_fields = [&](const std::string& d) {
@@ -1094,6 +1164,7 @@ int main(int argc, char** argv) {
       // without them starts with level 0 only and regrids at the first step)
       if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr"))
         amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
+      update_sched_x();  // the checkpoint's RT grid: the last step's x_HII,V
     } else {
       // Summarize the initial state
       calc_sim_var(cfg, s.clk, s.units);
@@ -1105,6 +1176,7 @@ int main(int argc, char** argv) {
       summaries();
       const std::string d = step_dir();
       write_stats(d);
+      update_sched_x();
       if (P.fields_every > 0) write_fields(d);
     }
 
@@ -1126,6 +1198,7 @@ int main(int argc, char** argv) {
       const auto ts0 = Clock::now();
 
       calc_sim_var(cfg, s.clk, s.units);
+      apply_sched();
       const TimestepInfo ti =
           calc_timestep(cfg, s.units, TimestepMode::Original, 0.0, s.clk, out);
       // Set IO flags (calc_timestep)
@@ -1243,6 +1316,7 @@ int main(int argc, char** argv) {
       }
       const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
       write_stats(d);
+      update_sched_x();
       if (fields || last) {
         sync_mirror();
         write_fields(d);

@@ -328,7 +328,10 @@ struct Config {
   // amrex_refine_box = i0,j0,k0,i1,j1,k1 (level-0 cells, inclusive): a
   // fixed region refined to amrex_max_level in addition to the density
   // tagging (tests: a refined region around a source). Empty = none.
-  int amrex_refine_box[6] = {0, 0, 0, -1, -1, -1};
+  // Up to 4 boxes (6 values each): box l is tagged on level l, so level l+1
+  // covers it (nested regions); the last box serves the deeper levels.
+  int amrex_refine_box[24] = {0, 0, 0, -1, -1, -1};
+  int amrex_refine_nbox = 0;
   // The star-formation sink (docs/stage_f.md section 2; hydro_backend =
   // amrex): a cell above the gas overdensity sf_overdensity loses
   // min(1, sf_efficiency dt/t_ff) of its mass per hydro call, at constant
