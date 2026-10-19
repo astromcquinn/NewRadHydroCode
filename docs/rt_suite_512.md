@@ -20,7 +20,7 @@ stay as they are; the runs of those names were overwritten by this set
 | Box, resolution | 40 Mpc/h, N = 512 gas cells (78 kpc/h), **Ndm = 1024** particles (m_p = 6.4×10⁶ M☉) on the **2048³ PM mesh** (`pm_refine = 4`, the uniform-grid refined mesh of `docs/pm_refine.md`; no AMR) |
 | ICs | Zel'dovich, z = 100, seed 7 with the 512³ large-scale phases: `$RUNS/hmf512_40mpc_r2/ics` (linked) |
 | Flags | `legacy_rt = legacy_physics = 0` (`photon_conserve` with it), `deterministic_parallel`, `rt_substep_carry`, `hydro_scheme = unsplit`, `ray_rotate = 3` (rays), `moment_inject = 1` (moments), `redshift_per_distance = 1` |
-| Sources | `sfr_model = abundance` with `data/uv_lf/am_params_128_10mpc.txt` (the 512³ calibration: the L(M) of the 128³, 10 Mpc/h box, kept with 1024³ particles, user decision), log ξ_ion = 25.38, **f_esc(z) = 0.135 ((1+z)/7)^2.5** (`f_esc = 0.135`, `f_esc_beta = 2.5`, `f_esc_z0 = 6`; no bump, user decision 2026-10-19) |
+| Sources | `sfr_model = abundance` with **`data/uv_lf/am_params_st_fof.txt`** (the Sheth–Tormen refit to the well-resolved FoF halos of the 40 Mpc/h 1024³ run, `docs/pm_refine.md` §6; the sources of `fesc512_b2.5_{uniform,amr}`), `fof_min_npart = 20` (1.3×10⁸ M☉ with 1024³ particles), log ξ_ion = 25.38, **f_esc(z) = 0.135 ((1+z)/7)^2.5** (`f_esc = 0.135`, `f_esc_beta = 2.5`, `f_esc_z0 = 6`; no bump, user decision 2026-10-19) |
 | Light | **the schedule** `c_reduced_schedule = 0.1 0.25 0.2 0.5 0.3 0.75 0.5`: 0.1c below x_HII,V = 0.25, 0.2c to 0.5, 0.3c to 0.75, 0.5c after (each hydro step's ĉ from the previous step's x_HII,V) |
 | Recombination | **case B, no recombination radiation** (`recomb_case = B`, `recomb_rad = 0`) for the base rays and every moment method; the `caseA` ray run: `recomb_case = A`, `recomb_rad = 1`, `recomb_rad_block = 4`, `recomb_rad_cell_onspot = 1` |
 | Cooling, sink | `cool_suppress_overdensity = 200` (the original), no star-formation sink |
@@ -46,11 +46,29 @@ The runs (`$RUNS/<name>`, the names of the 2026-10-11 set):
 ```
 source tools/hyak/env.sh                 # RUNS=/gscratch/astro/$USER/radhydro/runs
 sbatch tools/hyak/build_hyak.sh          # then ctest -R "gamma_avg|c_schedule|movie_slab"
+export AM_PARAMS=data/uv_lf/am_params_st_fof.txt   # the script's default is the 128-box table
 OVERWRITE=1 tools/hyak/rt_suite512.sh probe      # 3 steps at the 2048^3 mesh: memory, PM time
 OVERWRITE=1 tools/hyak/rt_suite512.sh base       # reion512_rays
 OVERWRITE=1 tools/hyak/rt_suite512.sh siblings   # caseA, m1, otvet, split, screen, cone
 tools/hyak/rt_suite512.sh post                   # rt_methods_post.slurm -> $RUNS/rt_methods_512/
 ```
+
+## 1b. The first launch, and why the table changed
+
+The first launch (2026-10-18 20:55, the 128-box table
+`am_params_128_10mpc.txt` of the 512³ f_esc calibration, decision (1) of
+2026-10-18) ionised the box by z ≈ 9: x_V = 0.29 at z = 12.1, 0.83 at
+z = 10.8, 0.99999 at z = 9.2. With 1024³ particles the 20-particle FoF
+floor is 1.3×10⁸ M☉, 8× below the floor of that calibration, and the
+fitted L(M) (L ∝ M^1.19 below the break, plus the +0.4–0.9 dex high-z
+normalisation) applied to those halos gave 20–60× the calibration run's
+source luminosity density at z = 11–13 (the table in `docs/STATUS.md`,
+"STOPPED 2026-10-19"). The seven runs were cancelled after 9–11.5 h. The
+user chose the Sheth–Tormen table (2026-10-19), the source population of
+`fesc512_b2.5_uniform` and `fesc512_b2.5_amr`, so those two runs (0.1c,
+the sink, cooling suppression 0, `ray_deposit = exposure`, the AMReX
+backend) are the reference for the base's early history; f6 = 0.135 and
+β = 2.5 were kept without the precheck.
 
 ## 2. The probe: memory and the PM at the 2048³ mesh
 
