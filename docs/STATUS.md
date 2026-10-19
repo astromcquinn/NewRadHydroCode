@@ -23,7 +23,14 @@ the set is done).
   `restart_smoke_c_schedule`, `movie_slab`, `restart_smoke_det_movie_slab`).
 - **Probe** (`rt_suite512.sh probe`, job 42013527): the old
   `reion512_rays` removed; three steps of the base at the 2048³ PM mesh
-  for the peak memory and the PM time per step (result below when done).
+  for the peak memory and the PM time per step: **peak RSS 311 GB**
+  (326178764 kB; the estimate was ≈ 275 GB of PM arrays plus the fields,
+  no RT yet), **PM 220–235 s per step** (hydro 6–13 s, summaries 5.5 s;
+  13.7 min for the three steps on node n3440, 192 threads). Both are under
+  the stop limits (700 GB, 10 min); the PM adds ≈ 4 min × ≈ 55 steps ≈ 3.7 h
+  to each run against ≈ 1 h with `pm_refine = 1` at 512³.
+- **Base** `reion512_rays` submitted 2026-10-18 20:55 (job 42014611, one
+  cpu-g2 node, 192 threads, 1000 GB, 4 days).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
