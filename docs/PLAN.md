@@ -1289,8 +1289,14 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   `fof_min_npart = 160`), the literal "512³-calibrated luminosities",
   needing a `make_production.py` option and one line in
   `rt_suite512.sh`; (ii) refit L(M) on the 1024³ FoF mass function; (iii)
-  512³ particles (`pm_refine` with Ndm = 512). The runs of the first
-  launch are to be cancelled and the names reused.
+  512³ particles (`pm_refine` with Ndm = 512). **Decided (user,
+  2026-10-19): (ii) in the form of the Sheth–Tormen refit table
+  `am_params_st_fof.txt` already used by `fesc512_b2.5_{uniform,amr}`
+  (the 2026-10-11 calibration decision), with f6 = 0.135 and β = 2.5
+  kept and no precheck; the base first, checked against those two runs'
+  early x_V(z), then the siblings.** The first launch's runs were
+  cancelled and the names reused. The halo floor (i) remains the
+  alternative if the base's history does not match.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
   schedule above; (b) ~~case B~~ decided 2026-10-18: case B for the suite,
   one ray run with case A + RR; (c) ~~the

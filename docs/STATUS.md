@@ -80,6 +80,23 @@ the set is done).
   FoF mass function (`am_fit`, the route the Sheth–Tormen table took,
   whose uniform run ended at z = 5.27 with Γ at half the data at 0.1c
   with the sink).
+- **User decision 2026-10-19 (morning): the Sheth–Tormen table**
+  `data/uv_lf/am_params_st_fof.txt` with the 1024³ particles and
+  `fof_min_npart = 20`, the source population of `fesc512_b2.5_uniform`
+  and `fesc512_b2.5_amr` (the 2026-10-11 decision to calibrate to an
+  analytic mass function); no precheck, f6 = 0.135 and β = 2.5 kept. The
+  seven jobs cancelled at 09:05 after 9–11.5 h; the base relaunched with
+  `AM_PARAMS=data/uv_lf/am_params_st_fof.txt OVERWRITE=1 rt_suite512.sh
+  base` (job 42035621; **every later phase needs the same `AM_PARAMS`**,
+  the script's default is still the 128-box table). Plan: let the base
+  reach x_V ≈ 0.3 and compare its x_V(z) with the two earlier runs
+  (0.1c, the sink, cooling suppression 0, `ray_deposit = exposure`,
+  `fof_dt_myr = 30`, the AMReX backend; identical sources otherwise):
+  they had x_V = 0.023 at z = 12.05, 0.059–0.062 at 11.05, 0.113–0.118 at
+  10.05, 0.170–0.174 at 9.05, 0.204–0.206 at 8.55, 0.263–0.265 at 8.05,
+  0.35–0.36 at 7.55, 0.48–0.49 at 7.05; the schedule stays at 0.1c until
+  x_V = 0.25, so the base should track them to z ≈ 8.1 and then run
+  ahead. Then the siblings.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
