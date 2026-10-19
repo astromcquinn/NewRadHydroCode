@@ -97,6 +97,26 @@ the set is done).
   0.35–0.36 at 7.55, 0.48–0.49 at 7.05; the schedule stays at 0.1c until
   x_V = 0.25, so the base should track them to z ≈ 8.1 and then run
   ahead. Then the siblings.
+- **The base's check, 2026-10-19 12:45 (z = 9.67, 4.2 h, still at
+  0.1c):** the sources are the reference's (`stats.txt`: at the steps
+  where `fesc512_b2.5_uniform` refreshed its FoF catalogue, N and Luv
+  agree to 3 digits: 10191 / 2.964×10²⁵ at z = 13.69, 79664 / 1.412×10²⁶
+  at 11.00, 171906 / 1.354×10²⁶ at 9.73; between refreshes the reference
+  lagged, e.g. 21601 against 36516 sources at z = 12.11). The base runs
+  ≈ 1.3× more ionised at fixed z from z = 13 on (x_V 0.0107 / 0.0085 at
+  z = 13, 0.0563 / 0.0419 at 11.5, 0.116 / 0.086 at 10.5, 0.172 / 0.133 at
+  9.7 against the uniform run; the AMR run is within 0.005 of the
+  uniform one): the reference's 30 Myr FoF cadence (fewer photons), the
+  sink and cooling suppression 0 against none and 200 (more
+  recombinations in dense gas there), and `ray_deposit = exposure`. Same
+  shape, a constant ratio, the sources verified: taken as the rough match
+  asked for.
+- **Siblings relaunched 2026-10-19 12:48** with the same `AM_PARAMS`
+  (the first launch's partial outputs removed, 204 + 104 + 102 GB):
+  `reion512_rays_caseA` 42044005, `_m1` 42044006, `_otvet` 42044007,
+  `_otvet_split` 42044008, `_otvet_screen` 42044011, `_otvet_cone`
+  42044012; each `params.txt` differs from the base's only in the method
+  or recombination keys (diff).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
