@@ -17,6 +17,13 @@ the set is done).
   `/gscratch/astro` was at 97 % (38.8 of 39.9 TB, 1.1 TB free), so the
   suite's ≈ 1.3 TB while running (one checkpoint kept per run) fits only
   with the old set removed and leaves ≈ 0.4 TB for the group.
+- **Build** (2026-10-18, `tools/hyak/build_hyak.sh` on a cpu-g2 node,
+  gcc 13.2.0): `ctest -R "gamma_avg|c_schedule|movie_slab"` 6/6
+  (`gamma_avg_rays`, `gamma_avg_m1`, `c_schedule`,
+  `restart_smoke_c_schedule`, `movie_slab`, `restart_smoke_det_movie_slab`).
+- **Probe** (`rt_suite512.sh probe`, job 42013527): the old
+  `reion512_rays` removed; three steps of the base at the 2048³ PM mesh
+  for the peak memory and the PM time per step (result below when done).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
