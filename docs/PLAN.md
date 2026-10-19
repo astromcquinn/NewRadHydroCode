@@ -1174,7 +1174,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   fitted so that the FoF halos of the 128³, 10 Mpc/h box, the same cell
   and particle mass as 512³ in 40 Mpc/h, reproduce the observed UV LFs;
   with 1024³ particles the halo counts shift a little, which the base run's
-  check absorbs; the Sheth–Tormen table `am_params_st_fof.txt` would have
+  check absorbs — *wrong, found at the launch on 2026-10-19: the 20-particle
+  floor is then 1.3×10⁸ M☉ and the source luminosity density at z = 11–13
+  is 20–60× the calibration's; the box ionised by z ≈ 9; see
+  docs/STATUS.md, "STOPPED 2026-10-19", and the open decision below*; the Sheth–Tormen table `am_params_st_fof.txt` would have
   changed the emissivity by about 0.04 dex); (2) cooling suppression 200
   and no sink; a sink on the serial path is wanted later; (3) overwrite
   the old run names; (7) no dark matter in the outputs, only in the
@@ -1276,6 +1279,18 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   Rough costs at the revised schedule (≈ 1.2× the 0.2c runs): rays
   A + RR 17 h, rays B 10 h, M1 5 h, each OTVET variant 5–6 h; about 60
   node-hours.
+* **Open (2026-10-19, from the launch): the halo-mass floor with 1024³
+  particles.** The suite's first launch ionised the box by z ≈ 9 because
+  `fof_min_npart = 20` with 1024³ particles admits 1.3×10⁸ M☉ halos,
+  8× below the floor of the L(M) calibration, and the fitted L(M)
+  (L ∝ M^1.19 at low mass, plus the high-z boost) makes them 20–60× the
+  calibration's emissivity at z = 11–13 (`docs/STATUS.md`). Choices:
+  (i) `m_min = 1.02e9` M☉ (the calibration's 20 × 5.1×10⁷ M☉; or
+  `fof_min_npart = 160`), the literal "512³-calibrated luminosities",
+  needing a `make_production.py` option and one line in
+  `rt_suite512.sh`; (ii) refit L(M) on the 1024³ FoF mass function; (iii)
+  512³ particles (`pm_refine` with Ndm = 512). The runs of the first
+  launch are to be cancelled and the names reused.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
   schedule above; (b) ~~case B~~ decided 2026-10-18: case B for the suite,
   one ray run with case A + RR; (c) ~~the
