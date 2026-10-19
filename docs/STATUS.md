@@ -30,7 +30,19 @@ the set is done).
   the stop limits (700 GB, 10 min); the PM adds ≈ 4 min × ≈ 55 steps ≈ 3.7 h
   to each run against ≈ 1 h with `pm_refine = 1` at 512³.
 - **Base** `reion512_rays` submitted 2026-10-18 20:55 (job 42014611, one
-  cpu-g2 node, 192 threads, 1000 GB, 4 days).
+  cpu-g2 node, 192 threads, 1000 GB, 4 days); started 20:51 on n3440: 23
+  hydro steps of PM alone (≈ 240 s each) to z = 15 in 1.6 h, the first
+  sources (10191 halos) at z = 13.7 in step 24, steps of 380–760 s with
+  the RT at z = 13.7–12.4.
+- **Siblings** submitted 2026-10-18 23:17 after the base had run four RT
+  steps with sources (f6 is fixed, so the base's check is a report, not a
+  gate): the old `_m1`, `_otvet`, `_otvet_{split,screen,cone}` removed
+  (80–88 GB each by then); `reion512_rays_caseA` 42020712, `_m1`
+  42020713, `_otvet` 42020714, `_otvet_split` 42020715, `_otvet_screen`
+  42020716, `_otvet_cone` 42020717. Each sibling's `params.txt` differs
+  from the base's only in `rt_method` and the closure keys, or the
+  recombination keys (checked with diff). The old `reion512_rays_caseB`
+  (80 GB) is not part of the suite and stays.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
