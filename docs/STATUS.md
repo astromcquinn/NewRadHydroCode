@@ -117,6 +117,28 @@ the set is done).
   `_otvet_split` 42044008, `_otvet_screen` 42044011, `_otvet_cone`
   42044012; each `params.txt` differs from the base's only in the method
   or recombination keys (diff).
+- **Stopped again 2026-10-19 15:30 (user): tune f6 so that reionization
+  ends at z = 5.5.** The base had reached z = 8.02, x_V = 0.345 (7 h; the
+  schedule at 0.2c from z = 8.59); the siblings 2–2.6 h. Two estimates of
+  the base's end disagreed: the lead over `fesc512_b2.5_uniform` at
+  fixed x_V (Δz = 0.41–0.47 from x_V = 0.05 to 0.3) plus the schedule's
+  faster end (≈ 0.4 from the ĉ study) gave z99 ≈ 6.1; a one-zone model
+  (dQ/dt = ṅ/n̄_H − C α_B n̄_e Q with the run's own emissivity, the
+  reference's refresh-step `Luv` below z = 8, C = 4.75 fitted to the
+  base's x_V(z) to 25 %; `scratchpad/onezone.py`) gave z50 = 7.13,
+  z90 = 5.76, z99 = 5.53 at f6 = 0.135, and 5.28 / 5.10 / 4.92 at f6 =
+  0.12 / 0.11 / 0.10 (β = 2.5), 5.46 / 5.42 at β = 2.0 / 1.5 with f6 =
+  0.135. So the calibration is measured instead: **`rt_suite512.sh
+  precheck`** with `AM_PARAMS=data/uv_lf/am_params_st_fof.txt` and
+  `PRECHECK_F6="0.06 0.08 0.1 0.135"` (0.135 anchors the 20 → 40 Mpc/h
+  offset against the cancelled base's history to z = 8): the ICs job
+  42051860 (256³ gas, 512³ particles, 20 Mpc/h, seed 7), the runs
+  `$RUNS/rt512cal256_f{0.06,0.08,0.1,0.135}` 42051864, 42051915–42051917
+  (one node and ≈ 3 h each, the suite's configuration at the suite's
+  cell size and particle mass, `pm_refine = 2`). Then `precheck-post`;
+  pick the f6 whose z99 at 256³ in 20 Mpc/h is ≈ 5.3 (the 40 Mpc/h box
+  ends ≈ 0.2 later, `docs/fesc_evolution.md` §4), β = 2.5 kept; then the
+  base with `F6=<that>` and the siblings.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
