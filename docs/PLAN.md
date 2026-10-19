@@ -1233,6 +1233,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   data per f6); pick the f6 whose z99 lands at 5.3–5.5 and Γ nearest
   Gaikwad at z = 5.1–5.4, allowing for the 40 Mpc/h box ending ≈ 0.2
   later than 20 Mpc/h at fixed f_esc; then the 512³ base with `F6=<that>`.
+  **User decision (2026-10-19): no bump; f6 = 0.135, β = 2.5 stay.** The
+  pre-check phase remains in the script but is not part of the launch;
+  the base run's numbers at z = 5.4 are reported, not used to recalibrate.
+  The launch thread's prompt is "Thread D" below.
   Pre-launch checklist from the assessment of 2026-10-18:
   1. PR #43 is *not* a prerequisite (correction, 2026-10-18): the suite
      is uniform, and `pm_refine = 4` with 1024³ particles is the
@@ -1369,6 +1373,65 @@ thread's work merged into `main`) and two runs.
 > at 128³, the caveats. Leave the AMReX port for thread C but write down
 > what it needs (MLMG on the hierarchy; no Courant limit on fine levels).
 > Update docs/STATUS.md and docs/PLAN.md.
+
+### Thread D: launch the uniform 512³ suite on klone (2026-10-19)
+
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite": the decisions
+> of 2026-10-18/19 and the pre-launch checklist), docs/STATUS.md,
+> docs/cluster.md and the header of tools/hyak/rt_suite512.sh. You are on
+> UW Hyak klone (`source tools/hyak/env.sh`,
+> `RUNS=/gscratch/astro/$USER/radhydro/runs`). Branch `rt-suite-512` off
+> `claude/sleepy-feynman-dx6ic2` (it holds `gammaHI_avg` and the launch
+> script and contains `main` as of 2026-10-19; if that branch's PR has
+> merged, branch off `main`). Commit often and push; one PR at the end.
+>
+> Goal: the uniform 512³ rerun of every RT method for the paper on the
+> moment methods against the rays: 40 Mpc/h, 512³ gas, 1024³ particles on
+> the 2048³ PM mesh, the ĉ schedule, f_esc(z) = 0.135 ((1+z)/7)^2.5 with
+> the 512³-calibrated luminosities (no bump: user decision 2026-10-19),
+> case B for the base and the moment methods plus one ray run with case A
+> + recombination radiation, cooling suppression 200, no sink, no dark
+> matter in the outputs, `gammaHI_avg` in the snapshots and frames. All
+> runs serial, one whole cpu-g2 node each. The old runs of the same names
+> are overwritten (user decision). Everything is in
+> `tools/hyak/rt_suite512.sh`; do not change its defaults except as below.
+>
+> 1. **Build** the branch on a compute node (`tools/hyak/build_hyak.sh`),
+>    then `ctest -R "gamma_avg|c_schedule|movie_slab"` there.
+> 2. **Disk.** `du -sh $RUNS/reion512_rays*` and `df -h /gscratch/astro`;
+>    record the sizes in docs/STATUS.md. The script removes the old
+>    directories itself with `OVERWRITE=1`.
+> 3. **Probe:** `tools/hyak/rt_suite512.sh probe` (3 steps of the base in
+>    `$BASE/probe`, one node, about an hour). From its output record the
+>    peak resident memory (the `/usr/bin/time -v` line) and the PM time
+>    per step (`timing.txt`); the estimate is ≈ 275 GB of PM host arrays
+>    and a few per cent of the RT step. Stop and report if the memory
+>    exceeds 700 GB or the PM step exceeds 10 min.
+> 4. **Base:** `OVERWRITE=1 tools/hyak/rt_suite512.sh base` (about 10 h).
+>    `reion_production.slurm` resumes from the checkpoint by itself and
+>    writes `DONE`; resubmit if a job dies. When it is done, run
+>    `tools/analysis/reion_history.py` and `igm_stats.py` (or
+>    `tools/hyak/igm_diag.slurm`) on it and report z at x_V = 0.5, 0.9,
+>    0.99, τ_es, and Γ_HI, ⟨F⟩ and λ_mfp at z = 5.9, 5.4 and 5.1 against
+>    `data/igm/igm_z5_6.txt`, next to the `fesc512_b2.5` values of
+>    docs/fesc_evolution.md §4. Report only: f6 is not retuned.
+> 5. **Siblings:** `OVERWRITE=1 tools/hyak/rt_suite512.sh siblings` (the
+>    case A + RR rays ≈ 17 h, M1 and the four OTVET variants ≈ 5–6 h
+>    each; they run in parallel on the remaining nodes). Then
+>    `tools/hyak/rt_suite512.sh post` with `--dependency=afterany` on
+>    their jobs, or by hand when they are done.
+> 6. **Report** in a new `docs/rt_suite_512.md` (the configuration table,
+>    costs, the histories, Γ_HI with `gammaHI_avg`: `gamma_power.py
+>    --field gammaHI_avg` and `rt_methods_runs.py --gamma-field
+>    gammaHI_avg`, the IGM table, the movie), as docs/rt_methods_512.md
+>    did for the first set; keep that document and docs/otvet_closure.md
+>    as they are (their figures are in the repository). Note anything that
+>    differs from the first set in the methods' ordering. Update
+>    docs/STATUS.md and docs/PLAN.md.
+>
+> Do not run the pre-check phases, the AMReX backends or AMR. If a run
+> crashes, fix the cause on the branch, rebuild, and resume it from its
+> checkpoint; a bit-identical resume needs the same parameters.
 
 ### Thread C (after A and B): the moment methods and FLD on the AMReX hierarchy
 
