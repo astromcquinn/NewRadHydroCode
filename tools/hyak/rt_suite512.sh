@@ -28,6 +28,15 @@
 #   reion512_rays_otvet_cone     OTVET, HI-attenuated cone tensor
 #
 # usage (repository root, a klone login node, after tools/hyak/build_hyak.sh):
+#   tools/hyak/rt_suite512.sh precheck  # the f_esc law in the suite's exact
+#                                       # configuration at 256^3 in 20 Mpc/h
+#                                       # (the suite's cell size and particle
+#                                       # mass: pm_refine = 2, 512^3 particles),
+#                                       # one run per value of PRECHECK_F6, one
+#                                       # node and ~3 h each; the ICs job first
+#   tools/hyak/rt_suite512.sh precheck-post  # igm_diag.slurm + fesc_summary.py
+#                                       # on them: z99, Gamma_HI, <F>, lambda
+#                                       # against the data per f6, to pick F6
 #   tools/hyak/rt_suite512.sh probe     # PROBE_STEPS steps of the base into
 #                                       # $BASE/probe: peak memory and PM time
 #                                       # at the 2048^3 mesh (/usr/bin/time -v
@@ -44,7 +53,9 @@
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs), ICS
 # (default $RUNS/hmf512_40mpc_r2/ics: 512^3 gas, 1024^3 particles, 40 Mpc/h,
 # seed 7 with the 512^3 large-scale phases, docs/pm_refine.md), BASE
-# (default $RUNS/reion512_rays), F6 (0.135), BETA (2.5), AM_PARAMS
+# (default $RUNS/reion512_rays), F6 (0.135), BETA (2.5), PRECHECK_F6 (default
+# "0.12 0.135 0.15": the runs $RUNS/rt512cal256_f<F6>, their ICs in
+# $RUNS/rt512cal256/ics), AM_PARAMS
 # (data/uv_lf/am_params_128_10mpc.txt), RECOMB (B, or A), SIBLINGS (default
 # "caseA m1 otvet split screen cone"; caseA / caseB is the ray run with the
 # other recombination treatment, skipped when it is the base's), RESTART_KEEP
@@ -85,7 +96,10 @@ EXE="${EXE:-build/radhydro}"
 PROBE_STEPS="${PROBE_STEPS:-3}"
 export EXE THREADS   # reach reion_production.slurm through the sibling scripts' --export=ALL
 phase="${1:-}"
-case "$phase" in probe|base|siblings|post) ;; *) sed -n 2,40p "$0"; exit 2 ;; esac
+case "$phase" in precheck|precheck-post|probe|base|siblings|post) ;; *) sed -n 2,60p "$0"; exit 2 ;; esac
+PRECHECK_F6="${PRECHECK_F6:-0.12 0.135 0.15}"
+CAL="${CAL:-$RUNS/rt512cal256}"
+SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=300G --time=12:00:00}"
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_hyak.sh first"; exit 1; }
 [ -f "$AM_PARAMS" ] || { echo "$AM_PARAMS missing"; exit 1; }
 
@@ -118,22 +132,27 @@ check_ics() {
   fi
 }
 
+make_params() {  # make_params DIR <size args>: the suite's params.txt (the defaults: the schedule,
+  # unsplit hydro, redshift per distance, moment_inject = 1, ray_rotate = 3,
+  # photon_conserve from legacy_physics = 0) plus the size arguments given
+  local dir="$1"; shift
+  python3 tools/production/make_production.py "$dir" "$@" --no-ics \
+    --nray-max-factor 15 --am-params "$AM_PARAMS" --f-esc-beta "$BETA" --f-esc-z0 6 \
+    --xi-ion 25.38 --movie-slab 8 --movie-fields fHI,temp,rhog,gammaHI,gammaHI_avg \
+    --fields fHI,fHeI,fHeII,temp,rhog,gammaHI,gammaHI_avg --zdata1 "15 7 6.5 6.25 6 5.75 5.5 5.25 5" \
+    --restart-every 10 --restart-keep "$RESTART_KEEP" --data-files gas --cool-suppress-overdensity 200 \
+    "${recomb_args[@]}" ${MAKE_EXTRA:-} > /dev/null
+}
+
 make_base() {  # the base's params.txt (fresh; an old run of the name needs OVERWRITE=1) and ics link
   check_ics
   local tmp; tmp="$(mktemp -d)"
   # (the defaults: the schedule, unsplit hydro, redshift per distance,
   # case A + RR with onspot = 1, moment_inject = 1, ray_rotate = 3,
   # photon_conserve from legacy_physics = 0)
-  python3 tools/production/make_production.py "$tmp" --N 512 --box 40 --pm-refine 4 --no-ics \
-    --nray-max-factor 15 --am-params "$AM_PARAMS" --f-esc "$F6" --f-esc-beta "$BETA" --f-esc-z0 6 \
-    --xi-ion 25.38 --movie-dz 0.025 --movie-slab 8 --movie-fields fHI,temp,rhog,gammaHI,gammaHI_avg \
-    --fields fHI,fHeI,fHeII,temp,rhog,gammaHI,gammaHI_avg --zdata1 "15 7 6.5 6.25 6 5.75 5.5 5.25 5" \
-    --restart-every 10 --restart-keep "$RESTART_KEEP" --data-files gas --cool-suppress-overdensity 200 \
-    "${recomb_args[@]}" ${MAKE_EXTRA:-} > /dev/null
-  # 1024^3 particles on the 2048^3 mesh (make_production.py writes
-  # Ndm = pm_refine * N; the code needs only that Ndm divides the mesh)
-  sed -i 's/^Ndm = .*/Ndm = 1024/' "$tmp/params.txt"
-  grep -Eq '^Ndm = 1024$' "$tmp/params.txt" || { echo "could not set Ndm = 1024"; exit 1; }
+  # (1024^3 particles on the 2048^3 mesh: --ndm, make_production.py since PR #43)
+  make_params "$tmp" --N 512 --box 40 --pm-refine 4 --ndm 1024 --f-esc "$F6" --movie-dz 0.025
+  grep -Eq '^Ndm = 1024$' "$tmp/params.txt" || { echo "Ndm = 1024 missing (make_production.py --ndm needs main after PR #43)"; exit 1; }
   grep -Eq '^pm_refine = 4$' "$tmp/params.txt" || { echo "pm_refine = 4 missing"; exit 1; }
   grep -Eq '^c_reduced_schedule' "$tmp/params.txt" || { echo "c_reduced_schedule missing: is this make_production.py from main after PR #46?"; exit 1; }
   grep -Eq "^recomb_case = $RECOMB\$" "$tmp/params.txt" || { echo "recomb_case = $RECOMB missing in the generated params.txt"; exit 1; }
@@ -150,6 +169,61 @@ make_base() {  # the base's params.txt (fresh; an old run of the name needs OVER
 }
 
 case "$phase" in
+precheck)
+  # the ICs: 256^3 gas, 512^3 particles, 20 Mpc/h, seed 7 with the 256^3
+  # large-scale phases (a job: ~40 GB of memory, minutes)
+  mkdir -p "$CAL"
+  dep=""
+  if [ ! -f "$CAL/ics/xv_dm.init" ]; then
+    cat > "$CAL/ics.slurm" <<EOF
+#!/bin/bash
+#SBATCH --job-name=cal256_ics
+#SBATCH --account=astro
+#SBATCH --partition=cpu-g2
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=02:00:00
+#SBATCH --output=$CAL/ics-%j.out
+set -eu
+cd "$PWD"
+source tools/hyak/env.sh
+python3 tools/ics/make_ics.py "$CAL/ics" --kind zeldovich --Ngas 256 --Ndm 512 --z-init 100 --box 20 --seed 7 --phases-from-ndm 256
+EOF
+    if [ "${DRYRUN:-0}" = 1 ]; then echo "DRYRUN: sbatch $CAL/ics.slurm"; else
+      jid="$(sbatch --parsable "$CAL/ics.slurm")"; echo "ICs job $jid"; dep="--dependency=afterok:$jid"
+    fi
+  fi
+  dirs=(); for f in $PRECHECK_F6; do dirs+=("${CAL}_f$f"); done
+  clear_dirs "${dirs[@]}"
+  for f in $PRECHECK_F6; do
+    d="${CAL}_f$f"
+    make_params "$d" --N 256 --box 20 --pm-refine 2 --ndm 512 --f-esc "$f" --movie-dz 0.05
+    grep -Eq '^Ndm = 512$' "$d/params.txt" || { echo "Ndm = 512 missing in $d/params.txt"; exit 1; }
+    ln -s "$CAL/ics" "$d/ics"
+    submit sbatch $SBATCH_ARGS_256 $dep --job-name="cal256_f$f" --output="$d/slurm-%j.out" \
+      --export=ALL,PROB="$d",THREADS="$THREADS",EXE="$EXE",POST=sbatch tools/hyak/reion_production.slurm
+  done
+  ;;
+precheck-post)
+  # IGM statistics of every pre-check run, then one table and figure of
+  # f_esc(z), ndot, the history, Gamma_HI, lambda_mfp and <F> against the
+  # data per f6 (docs/fesc_evolution.md tools)
+  list=""; specs=""
+  for f in $PRECHECK_F6; do list="$list $(basename "$CAL")_f$f:f$f"; specs="$specs ${CAL}_f$f:f$f"; done
+  out="$CAL/igm"
+  if [ "${DRYRUN:-0}" = 1 ]; then
+    echo "DRYRUN: RUNLIST=\"$list\" OUT=$out sbatch tools/hyak/igm_diag.slurm"
+    echo "DRYRUN: python3 tools/analysis/fesc_summary.py$specs --igm-dir $out --zref 5.9,5.7,5.4,5.1 --out $out/summary.png --table $out/summary.md"
+  else
+    jid="$(RUNLIST="$list" OUT="$out" RUNS="$RUNS" sbatch --parsable tools/hyak/igm_diag.slurm)"
+    echo "igm_diag job $jid; the summary follows it: $out/summary.md"
+    sbatch --dependency=afterok:$jid --account=astro --partition=cpu-g2 --cpus-per-task=4 --mem=16G --time=00:30:00 \
+      --job-name=cal256_summary --output="$CAL/summary-%j.out" \
+      --wrap="cd $PWD && source tools/hyak/env.sh && python3 tools/analysis/fesc_summary.py$specs --igm-dir $out --zref 5.9,5.7,5.4,5.1 --out $out/summary.png --table $out/summary.md && cat $out/summary.md"
+  fi
+  ;;
 probe)
   make_base
   clear_dirs "$BASE/probe"

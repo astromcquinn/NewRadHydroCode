@@ -1211,6 +1211,28 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   and 205 GB per moment run while running, ≈ 105 GB each kept, the set
   ≈ 1.9 TB running and 0.75 TB kept, the old set's checkpoints ≈ 1 TB
   freed).
+  **The f_esc level (user question, 2026-10-19: raise the emissivity by
+  10–20 % before launching, towards the data?)** The thread's reading:
+  not blindly, because the suite's configuration already moves away from
+  the calibration in that direction. At the same (f6, β): the schedule
+  ends reionization ≈ 0.2 earlier than the constant 0.2c of the
+  calibration (`runs/sol`: z99 later than 1c by 0.30 at 0.2c, 0.09 at
+  0.5c) and lets Γ relax faster after overlap, so Γ at z = 5.4 rises;
+  case B instead of case A + RR lowers Γ by ≈ 10 %; the 1024³ particles
+  with the 128-box luminosities add a few per cent of ṅ. Net: Γ up,
+  the end earlier, at the calibration's f6. A further +10–20 % in f6 moves
+  Γ and ⟨F⟩ further above the data (at 256³, f6 0.135 → 0.15 raised Γ at
+  z = 5.4 by 25 % and z99 by 0.07) and λ with them; it moves towards the
+  data only on ṅ_ion (0.4–0.7 dex below Becker+21), which this
+  resolution cannot match together with Γ (`docs/fesc_evolution.md` §5).
+  So the plan: **measure, then choose f6**, with `rt_suite512.sh
+  precheck`: the suite's exact configuration at 256³ in 20 Mpc/h (the
+  same cell size and particle mass, `pm_refine = 2` with 512³ particles)
+  at f6 = 0.12, 0.135 and 0.15, one node and ≈ 3 h each in parallel, then
+  `precheck-post` (igm_diag + fesc_summary: z99, Γ, ⟨F⟩, λ against the
+  data per f6); pick the f6 whose z99 lands at 5.3–5.5 and Γ nearest
+  Gaikwad at z = 5.1–5.4, allowing for the 40 Mpc/h box ending ≈ 0.2
+  later than 20 Mpc/h at fixed f_esc; then the 512³ base with `F6=<that>`.
   Pre-launch checklist from the assessment of 2026-10-18:
   1. PR #43 is *not* a prerequisite (correction, 2026-10-18): the suite
      is uniform, and `pm_refine = 4` with 1024³ particles is the
