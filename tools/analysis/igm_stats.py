@@ -169,6 +169,9 @@ class Run:
         self.box = float(self.p.get("box", 5))
         self.c_reduced = float(self.p.get("c_reduced", 1))
         self.f_esc = float(self.p["f_esc"]) if "f_esc" in self.p else None
+        self.f_esc_beta = float(self.p.get("f_esc_beta", 0))
+        self.f_esc_z0 = float(self.p.get("f_esc_z0", 6))
+        self.c_schedule = self.p.get("c_reduced_schedule", "")
 
     def steps(self):
         out = []
@@ -709,7 +712,8 @@ def main():
     else:
         res = [measure(j) for j in jobs]
     out = {"run": run.top, "name": run.name, "N": run.N, "box": run.box,
-           "c_reduced": run.c_reduced, "f_esc": run.f_esc, "options": opt,
+           "c_reduced": run.c_reduced, "f_esc": run.f_esc, "f_esc_beta": run.f_esc_beta,
+           "f_esc_z0": run.f_esc_z0, "c_reduced_schedule": run.c_schedule, "options": opt,
            "snapshots": sorted(res, key=lambda d: -d["z"]), "ndot": run.ndot()}
     path = a.out or f"igm_{run.name}.json"
     with open(path, "w") as fp:

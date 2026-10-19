@@ -249,6 +249,7 @@ int main(int argc, char** argv) {
     }
   } catch (const std::exception& e) {
     std::fprintf(stderr, "pm_driver: %s\n", e.what());
+    backend_abort(1);  // more than one rank: end the job (the others would wait)
     return 1;
   }
   return 0;

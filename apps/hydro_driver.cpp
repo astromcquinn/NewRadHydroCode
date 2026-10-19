@@ -345,6 +345,7 @@ int main(int argc, char** argv) {
         static_cast<long long>(c.advect_subcycled), static_cast<long long>(c.advect_max_nt));
   } catch (const std::exception& e) {
     std::fprintf(stderr, "hydro_driver: error: %s\n", e.what());
+    backend_abort(1);  // more than one rank: end the job (the others would wait)
     return 1;
   }
   return 0;
