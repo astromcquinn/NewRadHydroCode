@@ -177,6 +177,17 @@ the set is done).
   data, ṅ_ion ≈ 0.4 dex below Becker+21 as in `docs/fesc_evolution.md`;
   λ_mfp stays 2–3× the data after overlap (the known resolution excess,
   §5–6 there).
+- **The f6 = 0.11 base's check (2026-10-20 04:05, z = 7.75, x_V = 0.300,
+  7.2 h; 0.2c from z = 7.94):** z at x_V = 0.05, 0.1, 0.2, 0.25, 0.3 is
+  11.32, 10.28, 8.42, 7.98, 7.75 against 10.94, 9.79, 8.26, 7.88, 7.66
+  interpolated (in ln f6) between the 256³ f6 = 0.1 and 0.135 runs: the
+  40 Mpc/h box ahead by 0.4–0.5 early, 0.1 by x_V = 0.3, as the 0.135
+  anchor was. On track for z99 ≈ 5.5. **Siblings launched 04:08** from
+  this base (the cancelled second launch's partial outputs removed, 73 +
+  90 + 88 + 74 GB): `reion512_rays_caseA` 42070978, `_m1` 42070979,
+  `_otvet` 42070980, `_otvet_split` 42070981, `_otvet_screen` 42070982,
+  `_otvet_cone` 42070983; `params.txt` checked (f_esc = 0.11, the ST
+  table; the method or recombination keys the only differences).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
