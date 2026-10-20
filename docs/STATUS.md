@@ -164,8 +164,19 @@ the set is done).
   z99 = 5.5 ± 0.15. **Base relaunched 2026-10-19 20:52 with `F6=0.11`**
   (job 42061340; the cancelled f6 = 0.135 base removed). `precheck-post`
   running (igm_diag 42061305, summary 42061306:
-  `$RUNS/rt512cal256/igm/summary.md`) for Γ_HI, ⟨F⟩ and λ_mfp of the
-  f6 = 0.1 and 0.135 runs against the data.
+  `$RUNS/rt512cal256/igm/summary.md`, done 21:05): the IGM of the grid
+  against the data (ratio in brackets):
+
+  | f6 | τ_es | ṅ(5.4) [log] | Γ(5.4) | Γ(5.1) | ⟨F⟩(5.4) | ⟨F⟩(5.1) | λ(5.4) | λ(5.1) |
+  |---|---|---|---|---|---|---|---|---|
+  | 0.1 | 0.0548 (+0.1σ) | 50.74 | 0.190 (0.51×, x_V = 0.98) | 0.403 (0.79×) | 0.043 (0.5×) | 0.168 (1.2×) | 5.9 (1.2×) | 21.0 (2.3×) |
+  | 0.135 | 0.0614 (+1.1σ) | 50.87 | 1.072 (2.9×) | 1.339 (2.6×) | 0.265 (3.3×) | 0.353 (2.5×) | 39.2 (8.1×) | 60.5 (6.7×) |
+
+  (f6 = 0.08 and 0.06 are unfinished at z = 5.1: Γ 0.16× and 0.07×.)
+  f6 = 0.11 sits between: at z = 5.1 Γ ≈ 1.0–1.2× and ⟨F⟩ ≈ 1.4× the
+  data, ṅ_ion ≈ 0.4 dex below Becker+21 as in `docs/fesc_evolution.md`;
+  λ_mfp stays 2–3× the data after overlap (the known resolution excess,
+  §5–6 there).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
