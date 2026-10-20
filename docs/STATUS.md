@@ -139,6 +139,33 @@ the set is done).
   pick the f6 whose z99 at 256³ in 20 Mpc/h is ≈ 5.3 (the 40 Mpc/h box
   ends ≈ 0.2 later, `docs/fesc_evolution.md` §4), β = 2.5 kept; then the
   base with `F6=<that>` and the siblings.
+- **Precheck results (2026-10-19 20:46; ICs 3 min, the runs 1.6–2.9 h
+  each):**
+
+  | f6 (β = 2.5) | z10 | z25 | z50 | z75 | z90 | z99 | z99.9 | τ_es | x_V(z = 4.95) |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 0.135 | 10.30 | 8.33 | 7.37 | 6.80 | 6.51 | 6.21 | 6.09 | 0.0614 | 1 |
+  | 0.1 | 9.55 | 7.67 | 6.72 | 6.03 | 5.67 | 5.36 | 5.26 | | 1 |
+  | 0.08 | 8.67 | 7.18 | 6.09 | 5.33 | 5.05 | — | — | | 0.944 |
+  | 0.06 | 7.89 | 6.42 | 5.13 | — | — | — | — | | 0.574 |
+
+  z99 moves by 2.8 per e-fold of f6 between 0.1 and 0.135 (the earlier
+  "0.07 per 11 %" reading was wrong; the one-zone model, which gave
+  z99 = 5.53 at f6 = 0.135, is 0.6–0.7 too early and is dropped; the
+  lead-based estimate of ≈ 6.1 for the 40 Mpc/h base was right). The
+  anchor: the 40 Mpc/h base at f6 = 0.135 was *ahead* of the 20 Mpc/h
+  256³ run early (z at x_V = 0.05, 0.1, 0.2, 0.3, 0.34: 11.64 / 11.28,
+  10.74 / 10.30, 9.29 / 8.79, 8.28 / 8.07, 8.05 / 7.93), the gap
+  shrinking from 0.4–0.5 to 0.1 by x_V = 0.34, unlike the 128-table
+  calibration where the big box was later throughout (0.3 at z10, 0.2 at
+  z99). Taking the end offset as ≈ +0.1 (the big box a little later), the
+  target is z99 = 5.6 at 20 Mpc/h, i.e. **f6 = 0.11** by interpolation in
+  ln f6 (5.36 + 2.8 ln(0.11/0.1) = 5.63); the expected 40 Mpc/h end is
+  z99 = 5.5 ± 0.15. **Base relaunched 2026-10-19 20:52 with `F6=0.11`**
+  (job 42061340; the cancelled f6 = 0.135 base removed). `precheck-post`
+  running (igm_diag 42061305, summary 42061306:
+  `$RUNS/rt512cal256/igm/summary.md`) for Γ_HI, ⟨F⟩ and λ_mfp of the
+  f6 = 0.1 and 0.135 runs against the data.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 

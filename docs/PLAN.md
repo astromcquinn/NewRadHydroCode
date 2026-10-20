@@ -1296,7 +1296,13 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   kept and no precheck; the base first, checked against those two runs'
   early x_V(z), then the siblings.** The first launch's runs were
   cancelled and the names reused. The halo floor (i) remains the
-  alternative if the base's history does not match.
+  alternative if the base's history does not match. **2026-10-19 (afternoon,
+  user): tune f6 so that reionization ends at z = 5.5** (the base at
+  f6 = 0.135 was heading for z99 ≈ 6.1; the runs stopped again). Measured
+  with `rt_suite512.sh precheck` at f6 = 0.06, 0.08, 0.1, 0.135 (256³,
+  20 Mpc/h, the suite's configuration): z99 = 6.21 at 0.135, 5.36 at
+  0.1, unfinished below (`docs/STATUS.md`); **f6 = 0.11, β = 2.5** for the
+  suite, launched 2026-10-19 20:52.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
   schedule above; (b) ~~case B~~ decided 2026-10-18: case B for the suite,
   one ray run with case A + RR; (c) ~~the
