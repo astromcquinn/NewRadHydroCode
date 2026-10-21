@@ -239,6 +239,14 @@ the set is done).
   this resolution (the faint 1.3×10⁸ M☉ halos ionise the voids early;
   the 1024³ particles on the 2048³ mesh do not add Lyman-limit opacity,
   the open item of `docs/fesc_evolution.md` §6).
+- **M1 done 2026-10-21 04:52** (job 42070979, 14 h 32 min, peak RSS
+  367 GB; RT 6.7 h, PM 6.2 h) and **OTVET thin done 05:08** (42070980,
+  14 h 45 min, 373 GB; RT 6.8 h). Histories (V-weighted): M1 z50 = 6.93,
+  z90 = 5.98, z99 = 5.67, τ = 0.0593; OTVET 6.92 / 5.99 / 5.64 / 0.0594;
+  the rays 6.92 / 5.95 / 5.59 / 0.0591: the same midpoint, the moment
+  methods end 0.05–0.08 later. Running: the case A + RR rays (z = 5.60 at
+  22 h), `_otvet_split` (z = 9.9), `_otvet_screen` (started 05:10);
+  `_otvet_cone` queued.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
