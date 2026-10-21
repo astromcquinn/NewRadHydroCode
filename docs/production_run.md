@@ -267,6 +267,21 @@ printed (`c_reduced_schedule: c_reduced = …`, also with `--quiet`), and
 default (no schedule) is the original; a one-speed schedule `C x C` is
 `c_reduced = C` byte for byte apart from that line (test `c_schedule`).
 
+**Continuous in x (`c_reduced_schedule_interp = 1`, 2026-10-21; default
+0, the steps above).** Each step switch empties the photon reservoir
+n_γ ≈ ṅ λ_mfp/ĉ at once: Γ_HI jumps by ĉ_new/ĉ_old (2×, 1.5×, 1.67× for the
+production schedule, in the rays and the moment methods alike) and relaxes
+over λ/ĉ, a few hydro steps (`docs/rt_suite_512.md`). With the flag ĉ is
+piecewise linear in x through the midpoints of the plateaus, (x_k +
+x_{k+1})/2 with x_0 = 0 and x_{n+1} = 1, at the value c_k, and constant
+below the first and above the last midpoint; for the production schedule
+the knots are (0.125, 0.1c), (0.375, 0.2c), (0.625, 0.3c), (0.875, 0.5c),
+so ĉ rises by ≈ 0.01c per hydro step around x = 0.5 and the mean of the
+step schedule is kept. Still stateless (x of the previous step), so
+restarts are exact; each change is printed and `stats.txt` carries the
+step's `c_reduced`. `make_production.py --c-schedule-interp 1`. Test:
+`c_schedule` (the rule against the previous step's `xHII_V`).
+
 `make_production.py` writes this schedule by default (`--c-schedule`;
 `--c-schedule none --c-reduced C`, or `--c-reduced C` alone, for a constant
 speed). `calibrate_fesc.py` and the stored-tolerance AMReX test keep their
