@@ -188,6 +188,22 @@ the set is done).
   `_otvet` 42070980, `_otvet_split` 42070981, `_otvet_screen` 42070982,
   `_otvet_cone` 42070983; `params.txt` checked (f_esc = 0.11, the ST
   table; the method or recombination keys the only differences).
+- **Base done 2026-10-21 01:00** (job 42061340, n3476; 28 h 10 min wall,
+  99 hydro steps, 5225 RT substeps, peak RSS 475 GB; `DONE` at z = 4.99;
+  the ray pool guard never fired; 281 GB with the last checkpoint).
+  Cost (`timing.txt`): RT 16.3 h (ray_tracing_1 6.4 h + ray_tracing_3
+  5.8 h + physics 3.1 h), PM 6.3 h (the 2048³ mesh, 230 s per step), I/O
+  4.4 h, halos 0.6 h, P(k) 0.5 h, hydro 0.2 h. Against the 2026-10-11
+  case-B rays (8.6 h): the schedule's 0.5c end, the PM and twice the
+  steps. **History** (`reion_history.py`, volume-weighted): z10 = 10.28,
+  z25 = 7.98, **z50 = 6.92**, z75 = 6.27, **z90 = 5.95**, **z99 = 5.59**,
+  z99.9 = 5.46, **τ_es = 0.059** (+0.7σ); mass-weighted z50 = 7.33, z99 =
+  5.62. The end is 0.09 above the z = 5.5 target (the 256³ interpolation
+  put the 20 Mpc/h box at 5.63; the 40 Mpc/h box ended 0.04 earlier, not
+  0.1 later). Against `fesc512_b2.5` (z50 = 7.11, z99 = 5.51, τ = 0.056):
+  a later start and midpoint, the same end to 0.1. IGM statistics: job
+  42100957 (`$RUNS/rt_methods_512/igm_base/`). The automatic post job
+  42100693 (stills, movie).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
