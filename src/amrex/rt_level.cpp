@@ -324,6 +324,10 @@ struct Level : LevelBase {
   bool in_hierarchy = false;
   std::unique_ptr<ax::iMultiFab> covered, in_patch;
   std::vector<RayP> leaving;
+  rrk::RTP last_P;  // the kernel parameters of the last substep (amrex_split_on_entry)
+  bool have_last_P = false;
+  mutable Long nsplit_entry = 0;  // splits of arriving rays on this rank (amrex_split_on_entry)
+  Long nsplit_entry_total = 0;    // summed over the ranks at each post
   Long sv_loc[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
   Long cmax_loc[3] = {0, 0, 0};
   i128 stats_loc[kSNstat] = {};
@@ -1008,6 +1012,8 @@ struct Level : LevelBase {
                  s.rays.npool_forced, s.raylog, rrk::nray_from_nside(rrk::emit_nside(cells)));
     }
     const rrk::RTP P = params_of(s);
+    last_P = P;  // amrex_split_on_entry: the level's thresholds for arriving rays
+    have_last_P = true;
     double t2 = now();
     T.hist += t2 - t1b;
     s.timers.calc_ray1 += t2 - t1b;
@@ -1863,6 +1869,7 @@ struct Level : LevelBase {
                   T.prep, T.cell, T.hist, T.step1, T.cast1, T.phys, T.cast3, T.sort, T.migrate, T.post, T.sync,
                   T.fillbnd, T.sumbnd, T.zero, T.bins, T.gather, T.writeback, T.depred,
                   static_cast<long long>(ray_substeps));
+    if (nsplit_entry_total > 0) return std::string(buf) + "; splits on entry " + std::to_string(nsplit_entry_total);
     return buf;
   }
 };
@@ -1964,6 +1971,35 @@ struct Hierarchy : LevelBase {
     }
   }
 
+  // amrex_split_on_entry: rays arriving on level F (in its units, their
+  // radius doubled per level crossed) split while r > r_max(nside) and
+  // their photons are above F's split threshold (ngam_ray32 of its last
+  // substep), keeping r: the kernel's split clamps r to [r_min, r_min +
+  // cells] of the new nside, which assumes a ray at most one substep past
+  // its split radius and pulls a ray that arrived far past it back toward
+  // its source by up to r_max(nside) - cells. Local to each rank.
+  void split_on_entry(const L& F, std::vector<RayP>& rays) {
+    if (!F.have_last_P || rays.empty()) return;
+    rrk::RTP P = F.last_P;
+    P.cells = 1 << 30;  // no clamp: the arriving radius is valid for the new nside
+    std::vector<RayP> out, work;
+    out.reserve(rays.size());
+    work.swap(rays);
+    while (!work.empty()) {
+      RayP r = work.back();
+      work.pop_back();
+      if (r.dr < 0 && r.nside < rayp::nside_max && rrk::sum_ngam(r) > P.ngam_ray32) {
+        RayP child[4];
+        rrk::split(r, P, child);
+        for (const RayP& c : child) work.push_back(c);
+        ++F.nsplit_entry;
+      } else {
+        out.push_back(r);
+      }
+    }
+    rays.swap(out);
+  }
+
   // Rays that left a refined level go up, rays under a finer level go down
   // (collective: every level's add_rays is a Redistribute)
   void migrate() {
@@ -1977,7 +2013,12 @@ struct Hierarchy : LevelBase {
       std::vector<RayP> down;
       levels[static_cast<std::size_t>(l)]->collect_down(down);
       levels[static_cast<std::size_t>(l)]->pc->Redistribute();  // drops the invalidated rays
-      levels[static_cast<std::size_t>(l) + 1]->add_rays(down);
+      if (cfg.amrex_split_on_entry) {
+        split_on_entry(*levels[static_cast<std::size_t>(l) + 1], down);
+        place_rays(l + 1, down);  // a child may land outside the level's grids
+      } else {
+        levels[static_cast<std::size_t>(l) + 1]->add_rays(down);
+      }
     }
   }
 
@@ -2003,10 +2044,12 @@ struct Hierarchy : LevelBase {
       auto inp = F.in_patch->const_array(mfi);
       const ax::Box gbx = ax::grow(mfi.validbox(), F.ng);
       const bool tau = c0 == 0;
+      const bool parent_fgam = cfg.amrex_ghost_rule == 1;  // the ray loses what the parent absorbs
       ax::ParallelForOMP(gbx, nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
         if (inp(i, j, k)) return;
         const float v = pc_(i >> 1, j >> 1, k >> 1, m);
-        tf(i, j, k, c0 + m) = tau ? 0.5f * v : static_cast<float>(std::sqrt(static_cast<double>(v)));
+        tf(i, j, k, c0 + m) = tau ? 0.5f * v
+                                  : (parent_fgam ? v : static_cast<float>(std::sqrt(static_cast<double>(v))));
       });
     }
   }
@@ -2067,6 +2110,7 @@ struct Hierarchy : LevelBase {
     gba.grow(F.ng);
     gba.coarsen(2);
     LFab up(gba, F.dm, ND, 0);
+    const bool half = cfg.amrex_ghost_rule == 2;  // a fine cell is half the coarse path
     for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
       auto u = up.array(mfi);
       auto a = F.A.const_array(mfi);
@@ -2081,7 +2125,8 @@ struct Hierarchy : LevelBase {
               if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
               sum += a(fi, fj, fk, m);
             }
-        u(i, j, k, m) = (sum + (sum >= 0 ? 4 : -4)) / 8;  // per the parent's volume, rounded
+        u(i, j, k, m) = half ? (sum + (sum >= 0 ? 8 : -8)) / 16  // and half the path
+                             : (sum + (sum >= 0 ? 4 : -4)) / 8;  // per the parent's volume, rounded
       });
     }
     P.A.ParallelCopy(up, 0, 0, ND, 0, 0, P.period, ax::FabArrayBase::ADD);
@@ -2246,6 +2291,12 @@ struct Hierarchy : LevelBase {
     double ngam_total = 0;
     std::int64_t nray = 0;
     for (std::size_t l = 0; l < levels.size(); ++l) {
+      if (cfg.amrex_split_on_entry) {  // collective, every rank
+        Long n = levels[l]->nsplit_entry;
+        ax::ParallelDescriptor::ReduceLongSum(n);
+        levels[l]->nsplit_entry_total += n;
+        levels[l]->nsplit_entry = 0;
+      }
       levels[l]->post(s);
       ngam_total += s.ngam_total_backend / std::ldexp(1.0, 3 * static_cast<int>(l));
       nray += s.rays.Nray;

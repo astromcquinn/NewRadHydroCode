@@ -273,6 +273,24 @@ struct Config {
   int amrex_max_grid_size = 16;
   int amrex_ghosts = 2;
   int amrex_redist_local = 3;
+  //   amrex_split_on_entry: 1 = a ray moved down to a finer level (Stage F3)
+  //                is split on arrival as often as its new radius needs
+  //                (r <= r_max(nside)), keeping its radius (no clamp to
+  //                r_min + cells, which pulled the children back toward the
+  //                source when they split at the next substep), if it is above
+  //                the level's split threshold; 0 (default) = the next
+  //                substep's split, as before (default 1 since 2026-10-20,
+  //                user decision; it only acts with amrex_max_level > 0)
+  int amrex_split_on_entry = 1;
+  //   amrex_ghost_rule: a refined level's ray in a ghost cell outside the
+  //                level (Stage F3, experimental): 0 = sqrt (default): the
+  //                ray loses 1 - sqrt(fgam_parent), its deposit goes to the
+  //                parent in full; 1 = parent: the ray loses 1 - fgam_parent
+  //                (photon conserving with the parent's absorption of the
+  //                deposit); 2 = half: the deposit goes to the parent with
+  //                weight 1/2 (a fine cell is half the coarse path) and the
+  //                ray keeps sqrt(fgam_parent)
+  int amrex_ghost_rule = 0;
 
   // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
   // in pm_backend.hpp; docs/stage_e_pm.md):
