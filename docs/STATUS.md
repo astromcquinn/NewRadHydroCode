@@ -204,6 +204,16 @@ the set is done).
   a later start and midpoint, the same end to 0.1. IGM statistics: job
   42100957 (`$RUNS/rt_methods_512/igm_base/`). The automatic post job
   42100693 (stills, movie).
+- **The checkout moved (2026-10-21 01:10):** another session checked out
+  `split-on-entry` in `NewRadHydroCode/`. The suite's jobs resolve
+  `build/radhydro` there at start, so the suite's binary (built
+  2026-10-18 20:28 from `rt-suite-512`) was copied to
+  `$RUNS/rt_suite512_bin/radhydro` (with `COMMIT`, `README`) and the
+  three queued closure jobs were resubmitted with `EXE=` that path:
+  `_otvet_split` 42101054, `_otvet_screen` 42101055, `_otvet_cone`
+  42101056 (the running three keep their loaded binary; a resubmission
+  after a failure must use the copy). This thread's docs work continues
+  in the worktree `$RADHYDRO/worktrees/rt-suite-512`.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
