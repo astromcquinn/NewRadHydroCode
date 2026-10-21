@@ -214,6 +214,31 @@ the set is done).
   42101056 (the running three keep their loaded binary; a resubmission
   after a failure must use the copy). This thread's docs work continues
   in the worktree `$RADHYDRO/worktrees/rt-suite-512`.
+- **The base's IGM (2026-10-21, `igm_diag.slurm` 22 min + `fesc_summary.py`;
+  `$RUNS/rt_methods_512/igm_base/`), next to `fesc512_b2.5` (128-box
+  table, 512³ particles, 0.2c, case A + RR; `docs/fesc_evolution.md` §4);
+  ratio to the data in brackets; Γ is the mean over x_HI < 10⁻² as in that
+  table, the PR #48 median estimator (G_medx, the neutral volume as zero)
+  in the last column:**
+
+  | z | run | x_V | Γ_HI [10⁻¹²] | λ_mfp [pMpc] | ⟨F⟩ | A | Γ_medx/obs |
+  |---|---|---|---|---|---|---|---|
+  | 5.9 | `reion512_rays` (f6 = 0.11, this suite) | 0.918 | 0.205 (1.36×) | 3.9 (3.6×) | 0.023 (2.0×) | 1.41 | 1.05 (z = 5.98) |
+  | | `fesc512_b2.5` | 0.924 | 0.237 (1.6×) | 3.2 (2.9×) | 0.022 (1.9×) | 1.40 | |
+  | 5.4 | `reion512_rays` | 0.9999 | 0.462 (1.24×) | 19.0 (3.9×) | 0.149 (1.9×) | 1.82 | 1.10 (z = 5.49) |
+  | | `fesc512_b2.5` | 0.997 | 0.371 (1.00×) | 9.4 (1.9×) | 0.090 (1.1×) | 1.12 | |
+  | 5.1 | `reion512_rays` | 1 | 0.721 (1.42×) | 37.0 (4.1×) | 0.259 (1.8×) | 2.09 | 1.28–1.45 (z = 5.25–4.99) |
+  | | `fesc512_b2.5` | 1 | 0.493 (0.97×) | 16.3 (1.8×) | 0.155 (1.1×) | 1.14 | |
+
+  ṅ_ion = 10^50.73–50.82 at z = 5.9–5.1 (0.4–0.75 dex below Becker+21).
+  Reported only (f6 not retuned): Γ is 1.2–1.4× the data by the mean
+  estimator (1.05–1.1× by the median one at z ≥ 5.5, rising to 1.45× at
+  z = 5), ⟨F⟩ 1.8–2.0× and λ_mfp 3.6–4.1× the data, i.e. about 2× the λ
+  excess of `fesc512_b2.5` at the same Γ: the Sheth–Tormen sources with
+  the schedule's 0.5c end give a more transparent post-overlap IGM at
+  this resolution (the faint 1.3×10⁸ M☉ halos ionise the voids early;
+  the 1024³ particles on the 2048³ mesh do not add Lyman-limit opacity,
+  the open item of `docs/fesc_evolution.md` §6).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
