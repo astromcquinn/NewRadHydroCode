@@ -247,6 +247,28 @@ the set is done).
   methods end 0.05–0.08 later. Running: the case A + RR rays (z = 5.60 at
   22 h), `_otvet_split` (z = 9.9), `_otvet_screen` (started 05:10);
   `_otvet_cone` queued.
+- **The Γ spikes and the continuous schedule (2026-10-21 morning).** The
+  median Γ_HI of the ionised cells (and Γ_V) jumps at every switch of the
+  ĉ schedule, in the rays and M1 alike: ×1.9 at step 52 (0.1 → 0.2c,
+  z = 7.94), ×1.46 at step 63 (0.2 → 0.3c, z = 6.89), ×1.71 at step 74
+  (0.3 → 0.5c, z = 6.25), then a relaxation over 3–5 steps: the photon
+  reservoir n_γ ≈ ṅ λ/ĉ of the old speed is drained at the new one
+  (Γ = σ ĉ n_γ; the steady state σ ṅ λ is ĉ-independent; no photons are
+  created). Built: `c_reduced_schedule_interp = 1` (ĉ linear in x_HII,V
+  between the plateau midpoints, `docs/production_run.md` §1;
+  `make_production.py --c-schedule-interp`; the `c_schedule` test's
+  third check; 4/4 tests on klone, commit df3f26a; the binary
+  `$RUNS/rt_suite512_bin/radhydro_interp`). **User decision: rerun the
+  whole suite with the continuous schedule, overwriting the step-schedule
+  runs; the base first, checked, then the six siblings.** The step-schedule
+  set's record: the histories and IGM tables above, the partial movie
+  `$RUNS/rt_methods_512/compare_partial.mp4` (rays, M1, OTVET, case A + RR
+  to z = 5.2) and `igm_base/`; its runs are overwritten. The four running
+  jobs (case A + RR at z = 5.2 after 27 h, split, screen, cone) cancelled
+  at 09:55; **base relaunched 09:56** (job 42114332; `MAKE_EXTRA="--c-schedule-interp 1"
+  EXE=$RUNS/rt_suite512_bin/radhydro_interp`, submitted from the
+  worktree so the job's scripts are the branch's). Every later phase:
+  the same `AM_PARAMS`, `F6=0.11`, `MAKE_EXTRA`, `EXE`.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 

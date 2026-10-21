@@ -1294,7 +1294,13 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   `am_params_st_fof.txt` already used by `fesc512_b2.5_{uniform,amr}`
   (the 2026-10-11 calibration decision), with f6 = 0.135 and β = 2.5
   kept and no precheck; the base first, checked against those two runs'
-  early x_V(z), then the siblings.** The first launch's runs were
+  early x_V(z), then the siblings.** **2026-10-19 (afternoon, user): f6 tuned
+  so that reionization ends at z = 5.5**: the precheck grid gave
+  f6 = 0.11 (z99 = 5.59 at 40 Mpc/h, τ = 0.059). **2026-10-21 (user): the
+  ĉ schedule made continuous in x_HII,V** (`c_reduced_schedule_interp = 1`,
+  linear between the plateau midpoints) after the Γ_HI jumps of ×1.5–2 at
+  each step switch were traced to the photon reservoir ṅ λ/ĉ; **the whole
+  suite rerun with it, overwriting the step-schedule runs**, base first. The first launch's runs were
   cancelled and the names reused. The halo floor (i) remains the
   alternative if the base's history does not match. **2026-10-19 (afternoon,
   user): tune f6 so that reionization ends at z = 5.5** (the base at
