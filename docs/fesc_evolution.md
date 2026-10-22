@@ -288,8 +288,11 @@ box; Becker+21 and Zhu+23 fit quasar spectra with their own models.
      `reion1024_otvet_cone` (other thread, in progress) against
      `reion512_rays_otvet_cone`, λ at fixed Γ.
    - AMR (Stage F, now on `main`) refines the dense gas where the sinks
-     are. `fesc512_b2.5_amr` (other thread) against `fesc512_b2.5_uniform`
-     is the direct test, same everything except the refinement.
+     are. `fesc512_b2.5_amr` against `fesc512_b2.5_uniform` is the direct
+     test, same everything except the refinement. **Result (2026-10-22,
+     `docs/stage_f.md` §4):** two levels above 8 ρ̄ and 64 ρ̄ (19.5 kpc/h
+     cells) lower λ by 20–33 % at fixed z and by ≈ 10–20 % at fixed Γ, for
+     2.6× the step time (3–4× after z = 6).
    - Expect convergence to be slow: the published λ convergence studies
      need ≲ 10 kpc/h cells.
 2. **A subgrid Lyman-limit opacity, flag-gated** (default off; for
