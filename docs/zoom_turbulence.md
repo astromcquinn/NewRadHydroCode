@@ -574,7 +574,7 @@ decision):
    near-term plan in full: the C26 reproduction (C2 and its variants,
    §3b), Z2 and the first Z3 (≈ 10⁵ core-hours each, §7), with margin for
    the measurements that the next request needs. Draft:
-   `docs/access_supplement_2026.md`.
+   `docs/access_supplement/access_supplement_2026.tex` (Overleaf-ready, with figure placeholders).
 2. **An extension** of the project's end date, up to six months past the
    grant's end, when the end date approaches, so the credits are not lost
    while the plane-parallel mode and the zoom machinery are built.
