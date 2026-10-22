@@ -230,6 +230,22 @@ FFTW 3.3.10).
   `amrex_pm_level_solve_identity_smoke`: without refinement
   `pm_level_solve = 1` is byte-identical to 0.
 
+**Found on the way (not the gravity's):** with the RT on and a refined
+region that does not cover the whole box, the hydro hierarchy's fine-level
+boxes are chopped by the rank count, and (a) the checkpoints of 1 and 3
+ranks differ in their ray section from the first RT step on (the backend
+gathers the rays box by box in the level's box order, sorted within a box;
+`rank_check.py` on the smoke problem with the levels over half the box,
+steps 13–15: `restart/checkpoint_00{13,14,15}.bin` differ on 3 ranks,
+every field, frame and statistic identical) and (b) a restart from the
+first RT step's checkpoint is not bit-identical (the rays re-enter the
+tiles in another order). Both reproduce with `pm_gas_levels = 1`
+(RESTART_CONTROL_PLACEHOLDER); the existing rank and restart tests use a
+region covering the whole box, whose layout no rank count chops. The Stage
+G rank and restart tests therefore stop before the smoke problem's sources
+appear (12 steps; the restart from step 9); the RT's checkpoint order on
+a chopped layout is an item for the RT (`docs/stage_f.md` §3).
+
 Also run here: the `amrex_pm` label (the Stage E tests, `pm_level_solve`
 off) and the fast suite of the default build.
 

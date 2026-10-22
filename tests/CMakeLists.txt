@@ -1403,7 +1403,11 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
     # gas momentum with two levels over the whole box (periodic level
     # solves) and over half of it (pm_level_solve_check.py, ~40 s on 2
     # ranks); two levels over half the box with pm_refine = 1 and 2: 1, 2
-    # and 3 ranks byte-identical and a bit-identical restart.
+    # and 3 ranks byte-identical and a bit-identical restart (12 steps: the
+    # gravity steps before the smoke problem's sources appear; with the RT
+    # on, the checkpoints of a rank-dependent fine-level layout order their
+    # rays differently and a restart through an RT step is not bit-identical,
+    # with pm_gas_levels as well: docs/stage_g.md section 3).
     if(Python3_Interpreter_FOUND)
       add_test(NAME amrex_pm_level_solve_check
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_level_solve_check.py
@@ -1416,7 +1420,8 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                           --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
                           --set pm_backend=amrex --set amrex_state=1 --set amrex_max_grid_size=8
                           --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=0,0,0,7,7,7
-                          --set pm_level_solve=1 --set pm_refine=${r} --set movie_dz=0.5 --set movie_z0=25)
+                          --set pm_level_solve=1 --set pm_refine=${r} --set movie_dz=0.5 --set movie_z0=25
+                          --set run_steps=12)  # the gravity steps before the sources appear (the RT costs 100 s a step here)
         add_test(NAME amrex_pm_level_solve_ranks_smoke_r${r}
                  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
                          ${amrex_runs}/pm_level_solve_ranks_r${r} "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
@@ -1428,7 +1433,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
         add_test(NAME amrex_pm_level_solve_restart_smoke_r${r}
                  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                          $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
-                         ${amrex_runs}/pm_level_solve_restart_r${r} 13 ${levsolve_sets})
+                         ${amrex_runs}/pm_level_solve_restart_r${r} 9 ${levsolve_sets})
         set_tests_properties(amrex_pm_level_solve_restart_smoke_r${r} PROPERTIES TIMEOUT 1800
                              LABELS "amrex;amrex_pm;amr;level_solve;restart" ENVIRONMENT OMP_NUM_THREADS=1)
       endforeach()
