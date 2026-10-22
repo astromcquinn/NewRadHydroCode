@@ -306,7 +306,13 @@ the set is done).
   step 63, 1.24 → 1.29 ×10⁻¹³ at step 74) instead of ×1.46 and ×1.71. IGM
   diagnostics: job 42163385 (`$RUNS/rt_methods_512/igm_base_interp/`).
   Running: case A + RR (z = 5.54 at 19 h), screen (z = 5.24), cone
-  (z = 5.38).
+  (z = 5.38). **Its IGM** (`igm_base_interp/`, done 13:05): the same as
+  the step base's at every snapshot after z = 5.98 (Γ_medx/obs 1.06, 1.06,
+  1.09, 1.28, 1.45 at z = 5.98, 5.70, 5.49, 5.25, 4.99; ⟨F⟩ 1.76–2.03×;
+  λ 2.4–4.3×), but at the z = 6.20 snapshot Γ_medx is 0.118 against 0.153
+  in the step base, whose snapshot there sat inside the 0.3 → 0.5c spike:
+  the continuous schedule removes a 30 % artefact from that snapshot and
+  changes nothing after relaxation.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
