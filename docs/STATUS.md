@@ -287,8 +287,15 @@ the set is done).
   0.02 of the step-schedule runs (6.93 / 5.98 / 5.67 and 6.92 / 5.99 /
   5.64): the continuous ĉ changes the history by nothing measurable. Cost:
   the RT the same (6.6–6.8 h) but the PM 1.65 h against 6.2 h in the step
-  set (60 against 230 s per step on different nodes): the 2048³ PM time
-  is node-dependent, to be noted in the report's cost table. Running: the
+  set (60 against 230 s per step, M1 on the same node n3484 both times):
+  the step set's binary (`rt_suite512_bin/radhydro`, built 2026-10-18 in
+  the main checkout) was linked against the single-threaded FFTW because
+  that checkout's `build/CMakeCache.txt` of 2026-10-12 still named
+  `fftw-3.3.10-float` (`FFTW3F_OMP_LIBRARY-NOTFOUND`), so the 2048³ PM
+  FFTs ran on one thread; the worktree's fresh build (`radhydro_interp`)
+  has `libfftw3f_omp`. The probe's 220–235 s per PM step was this too.
+  The continuous set is consistent within itself (one binary); the
+  cost table of the report uses it. Running: the
   base (z = 5.80 at 15 h), case A + RR (z = 6.57), split (z = 5.17),
   screen and cone (started 03:50–03:59).
 
