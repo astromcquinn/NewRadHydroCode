@@ -45,7 +45,8 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
     if (val == "sqrt" || val == "0") c.amrex_ghost_rule = 0;
     else if (val == "parent" || val == "1") c.amrex_ghost_rule = 1;
     else if (val == "half" || val == "2") c.amrex_ghost_rule = 2;
-    else throw std::runtime_error("amrex_ghost_rule must be sqrt, parent or half");
+    else if (val == "conserve" || val == "3") c.amrex_ghost_rule = 3;
+    else throw std::runtime_error("amrex_ghost_rule must be sqrt, parent, half or conserve");
     return true;
   }
   if (key == "amrex_redist_local") {

@@ -1012,3 +1012,11 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   which λ_mfp doubles (~70 Myr at z = 5.5–5.2): an intermediate step and a
   higher maximum. The RT substeps per hydro step scale with ĉ (the late
   phase at 0.5c costs ~5× the RT time of 0.1c).
+
+## Rays at the refinement boundaries (2026-10-20/21)
+
+* **Decisions (user):** `amrex_split_on_entry = 1` (rays split on arrival
+  in a finer level, no radius clamp) and `amrex_ghost_rule = conserve` (a
+  fine ray's deposit outside its level goes to the parent with weight
+  1/(1 + √fgam): the parent absorbs what the ray loses) are the defaults.
+  Evidence: `docs/stage_f.md` §3, "Rays at the level faces".

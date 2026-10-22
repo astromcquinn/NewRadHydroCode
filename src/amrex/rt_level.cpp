@@ -2111,6 +2111,48 @@ struct Hierarchy : LevelBase {
     gba.coarsen(2);
     LFab up(gba, F.dm, ND, 0);
     const bool half = cfg.amrex_ghost_rule == 2;  // a fine cell is half the coarse path
+    if (cfg.amrex_ghost_rule == 3) {
+      // conserve: the deposit of a fine ray in a ghost cell outside its level
+      // goes to the parent with weight w = 1/(1 + sqrt(fgam)) per frequency
+      // group (fgam: the parent cell's transmitted fraction of the previous
+      // substep), so that the parent absorbs (1 - fgam) w = 1 - sqrt(fgam) of
+      // it, exactly what the ray loses there (its ghost fgam is sqrt(fgam)):
+      // w -> 1/2 in thin gas (a fine cell is half the coarse path), -> 1 in
+      // thick gas. The direction components (dx sum(ngam)) take the
+      // photon-weighted mean of the groups' w.
+      FFab Pf(gba, F.dm, 5, 0);
+      Pf.ParallelCopy(P.TF, 5, 0, 5, 0, 0, P.period);
+      for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
+        auto u = up.array(mfi);
+        auto a = F.A.const_array(mfi);
+        auto inp = F.in_patch->const_array(mfi);
+        auto pf = Pf.const_array(mfi);
+        const ax::Box gbx = ax::grow(ax::refine(mfi.validbox(), 2), 0) & ax::grow(F.ba[mfi.index()], F.ng);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          Long sum[ND];
+          for (int m = 0; m < ND; ++m) sum[m] = 0;
+          for (int kk = 0; kk < 2; ++kk)
+            for (int jj = 0; jj < 2; ++jj)
+              for (int ii = 0; ii < 2; ++ii) {
+                const int fi = 2 * i + ii, fj = 2 * j + jj, fk = 2 * k + kk;
+                if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
+                for (int m = 0; m < ND; ++m) sum[m] += a(fi, fj, fk, m);
+              }
+          double w[5], wn = 0, n = 0;
+          for (int g = 0; g < 5; ++g) {
+            const double f = std::min(1.0, std::max(0.0, static_cast<double>(pf(i, j, k, g))));
+            w[g] = 1.0 / (1.0 + std::sqrt(f));
+            wn += w[g] * static_cast<double>(sum[g]);
+            n += static_cast<double>(sum[g]);
+          }
+          const double wdx = n > 0 ? wn / n : 0.5;
+          for (int m = 0; m < ND; ++m) {
+            const double wm = m < 5 ? w[m] : (m < 10 ? w[m - 5] : wdx);
+            u(i, j, k, m) = static_cast<Long>(std::llround(static_cast<double>(sum[m]) * wm / 8));
+          }
+        });
+      }
+    } else
     for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
       auto u = up.array(mfi);
       auto a = F.A.const_array(mfi);

@@ -447,6 +447,56 @@ And the test problem: `make_ifront.py` now puts the dark matter at rest
 on its lattice, as its description said (above). The refined results
 change; `amrex_max_level = 0` is bitwise as before.
 
+**Rays at the level faces (2026-10-20/21, branch `split-on-entry`).** Two
+changes, both defaults, both only with `amrex_max_level > 0`; tested on the
+8-source problem (one and two levels against uniform 64³ and 128³; the
+x_HII error inside, in two-cell shells on both sides of the level faces,
+and outside):
+
+1. **`amrex_split_on_entry = 1`.** A ray moved down a level arrives with
+   its radius doubled per level crossed, so it is past its split radius
+   with the coarse level's angular sampling (about ¼ ray per fine cell face
+   per level), and it split only at the next substep. The kernel's
+   `split` also clamps the children's radius to [r_min, r_min + cells] of
+   the new nside, which assumes a ray at most one substep past its split
+   radius; for an arriving ray it pulled the children back toward the
+   source by up to r_max(nside) − cells fine cells. Now an arriving ray
+   splits at once, as often as its new radius needs, keeping its radius,
+   if it is above the level's split threshold (`ngam_ray32` of its last
+   substep). Effect: the error just inside the level faces 8–10 % lower
+   late in the run (0.0179 → 0.0159 at step 10, one level); nothing else
+   changes measurably (~9·10⁵ arrival splits over the one-level run).
+2. **`amrex_ghost_rule = conserve`.** A fine ray stepping into a ghost cell
+   outside its level loses 1 − √fgam of its photons (half the coarse path),
+   while its deposit used to go to the parent in full, so the parent
+   absorbed 1 − fgam of it: photons were created just outside the level
+   (fgam = 0.5: the parent absorbed 50 % of the deposit, the ray lost
+   29 %). Now the deposit goes to the parent with weight 1/(1 + √fgam)
+   (the parent's fgam of the previous substep), so the parent absorbs
+   exactly 1 − √fgam of it: photon conserving, half the path in thin gas
+   (weight → ½), the whole deposit in thick gas (→ 1), and a crossing of
+   two fine ghost cells adds up to one coarse crossing. Tested against
+   `sqrt` (the previous rule), `parent` (the ray loses 1 − fgam: conserving
+   but drained as over a whole coarse cell) and `half` (weight ½: accurate
+   in thin gas but it loses half the photons of thick cells; its lower x
+   errors came from that loss). The signed mean Δx_HII in the two-cell
+   shell outside the level faces, against the finer uniform run (step 10;
+   the uniform 32³ run in the same cells for comparison):
+
+   | | uniform 32³ | sqrt | conserve |
+   |---|---|---|---|
+   | 1 level | +0.024 | +0.026 | +0.023 |
+   | 2 levels, level-1 faces | +0.027 | +0.034 | +0.025 |
+
+   `sqrt` added up to +0.005–0.008 to the base grid's own error there
+   (more at the earlier steps, relative); with `conserve` the refined
+   runs are as good as or better than uniform 32³ in those cells at every
+   step: what remains outside a level is the base resolution's own error
+   (the 32³ fronts are slightly too ionized), which only a larger refined
+   region removes. Worst errors over steps 3–10 (x_HII,V; per-source R in
+   base cells): one level 0.031 → 0.030, 0.095 → 0.091; two levels 0.053
+   → 0.046, 0.132 → 0.105.
+
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
 and ray container. A ray lives on the finest level covering its position;
