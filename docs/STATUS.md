@@ -29,8 +29,10 @@ WP5 of `docs/zoom_turbulence.md` (§4.1 item 5, §4.5); `docs/production_run.md`
 - **Tests** (label `cosmology`): `cosmology_runtime` (unit),
   `cosmology_default_identity`, `cosmology_default_identity_fixes`,
   `cosmology_ics`, `cosmology_planck_rt`, `cosmology_planck_full`,
-  `cosmology_floor_cooling`. Fast suite green, stored references and live
-  Fortran comparisons unchanged.
+  `cosmology_floor_cooling`, and in AMReX builds `cosmology_floor_amrex`,
+  `cosmology_planck_full_amrex`. Fast suite green (155/155, gcc 13 with
+  gfortran: stored references and live Fortran comparisons unchanged);
+  AMReX build (26.10, fetched) with the fast `amrex` label run.
 - **Open:** the Planck numbers in the docs and tests are from memory
   (flagged); a Planck production run needs the L_UV(M) fit, the FoF HMF
   fits and f_esc redone in that cosmology; separate baryon/DM transfer

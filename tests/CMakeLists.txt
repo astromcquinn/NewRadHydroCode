@@ -1041,6 +1041,21 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       "launcher flags (OpenMPI defaults; empty for srun)")
   set(RADRAY_MPIEXEC_NP "-np" CACHE STRING "launcher flag for the rank count")
   set(amrex_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_runs)
+  # The preheating floor on the RT backend (bitwise against the serial RT
+  # on the source-free cooling test) and a Planck full loop on the three
+  # backends (docs/production_run.md section 10)
+  add_test(NAME cosmology_floor_amrex
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py floor
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_floor_amrex $<TARGET_FILE:rt_driver>
+                   --amrex ${RADRAY_MPIEXEC} "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+  add_test(NAME cosmology_planck_full_amrex
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py full
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_full_amrex $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke ${PROJECT_SOURCE_DIR}/tools/ics/make_ics.py
+                   --set legacy_rt=0 --set legacy_physics=0 --set hydro_scheme=unsplit
+                   --set rt_backend=amrex --set hydro_backend=amrex --set pm_backend=amrex)
+  set_tests_properties(cosmology_floor_amrex cosmology_planck_full_amrex PROPERTIES
+                       LABELS "amrex;cosmology" ENVIRONMENT OMP_NUM_THREADS=1 TIMEOUT 1800 PROCESSORS 2)
   # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
   # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
   # (ln16p0: the spike's rt_serial keeps the original photon limiter, so

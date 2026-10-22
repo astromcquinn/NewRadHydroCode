@@ -15,12 +15,14 @@ usage: cosmology_check.py MODE WORKDIR [args]
                                  the clock, the RT substep count and the units
                                  in rt_stats.txt follow independent closed
                                  forms of each cosmology, the fields differ.
-  full RADHYDRO PROBLEM MAKE_ICS radhydro with Planck ICs: refused without
+  full RADHYDRO PROBLEM MAKE_ICS [radhydro args]
+                                 radhydro with Planck ICs: refused without
                                  the keys or with another z_init (the
                                  ics_info.txt check), runs with them; the
                                  first step's redshift is the original's and
                                  the year at z_init is Planck's.
-  floor RT_DRIVER                a cooling test: gas of a range of densities,
+  floor RT_DRIVER [--amrex LAUNCHER FLAGS NPFLAG NP]
+                                 a cooling test: gas of a range of densities,
                                  temperatures and ionisation states without
                                  sources. T_min = 0, and a floor at redshifts
                                  the run never reaches, are bit-identical to
@@ -28,7 +30,12 @@ usage: cosmology_check.py MODE WORKDIR [args]
                                  at >= 1000 K, stops the cells that cool
                                  through 1000 K there, lifts the cold neutral
                                  cells the RT physics otherwise skips, and
-                                 leaves the cells that stay warmer bit-identical.
+                                 leaves the cells that stay warmer bit-identical;
+                                 the same with rt_method = m1. --amrex: the
+                                 floored run on rt_backend = amrex (NP ranks,
+                                 FLAGS ;-separated) is bit-identical to the
+                                 serial one (legacy_rt = 0; no sources, so
+                                 no ray order enters).
 
 Exit status 0 = pass.
 """
@@ -200,7 +207,7 @@ def mode_rt(work, drv, prob):
 
 
 # ---------------------------------------------------------------------------
-def mode_full(work, rh, prob, make_ics):
+def mode_full(work, rh, prob, make_ics, *extra_args):
     p = kv(os.path.join(prob, "params.txt"))
     z0 = float(p["z_init"])
     ics = os.path.join(work, "ics_planck")
@@ -209,7 +216,7 @@ def mode_full(work, rh, prob, make_ics):
            "--Ndm", info["Ndm"], "--z-init", info["z_init"], "--box", info["box"],
            "--seed", info["seed"]]
     run(cmd + [x for k, v in PLANCK.items() for x in ("--" + k, str(v))], ics + ".log")
-    common = ["--quiet", "--set", f"ics={ics}"]
+    common = ["--quiet", "--set", f"ics={ics}"] + list(extra_args)
     # refused: the ICs are Planck's, the run the original's
     rc, text = run([rh, prob, os.path.join(work, "nokeys")] + common, os.path.join(work, "nokeys.log"),
                    expect_ok=False)
@@ -223,7 +230,7 @@ def mode_full(work, rh, prob, make_ics):
     # the calc_timestep summary has the year and the redshifts of each step)
     texts = {}
     for name, extra in (("planck", ["--set", f"ics={ics}"] + sets(PLANCK)), ("default", [])):
-        _, texts[name] = run([rh, prob, os.path.join(work, name)] + extra,
+        _, texts[name] = run([rh, prob, os.path.join(work, name)] + extra + list(extra_args),
                              os.path.join(work, name + ".log"))
 
     def first_step(text):
@@ -279,7 +286,7 @@ def write_cooling_problem(d, N=16, seed=3):
     return z0, 1 / (a + 8 * 0.004) - 1
 
 
-def mode_floor(work, drv):
+def mode_floor(work, drv, *amrex):
     prob = os.path.join(work, "problem")
     z0, z1 = write_cooling_problem(prob)
     T_MIN = 1000.0
@@ -339,6 +346,38 @@ def mode_floor(work, drv):
             if f in ("u_gas", "w_gas"):
                 a0, a1 = a0.reshape(-1, nc), a1.reshape(-1, nc)
             check(np.array_equal(a0[warm], a1[warm]), f"floor {st}: {f} differs in cells warmer than T_min")
+    # the moment RT (rt_method = m1) goes through the same cell physics
+    for name, extra in (("m1", []), ("m1_floor", runs["floor"])):
+        o = os.path.join(work, name)
+        shutil.rmtree(o, ignore_errors=True)
+        run([drv, prob, o, "--set", "rt_method=m1"] + extra, o + ".log")
+        out[name] = o
+    Tm0 = np.stack([field("m1", st, "temp")[:, 0] for st in steps])
+    Tm1 = np.stack([field("m1_floor", st, "temp")[:, 0] for st in steps])
+    check(Tm1.min() >= T_MIN * (1 - tol), f"floor m1: a temperature below T_min: {Tm1.min()}")
+    wm = (Tm0 > 1.001 * T_MIN).all(axis=0)
+    check(wm.sum() >= 100 and np.array_equal(Tm0[:, wm], Tm1[:, wm]),
+          "floor m1: the cells warmer than T_min differ")
+    check(((Tm0[0] > 1.05 * T_MIN) & (Tm0[-1] < 0.9 * T_MIN)).sum() >= 20, "floor m1: no cooling test")
+    # the AMReX backend against the serial RT, both legacy_rt = 0, floored
+    if amrex:
+        if amrex[0] != "--amrex" or len(amrex) != 5:
+            sys.exit("floor: --amrex LAUNCHER FLAGS NPFLAG NP")
+        launcher, flags, npflag, np_ = amrex[1:]
+        launch = [launcher] + [f for f in flags.split(";") if f] + [npflag, np_]
+        for name, extra in (("serial0", []), ("amrex", ["--set", "rt_backend=amrex",
+                                                        "--set", "amrex_max_grid_size=8"])):
+            o = os.path.join(work, name)
+            shutil.rmtree(o, ignore_errors=True)
+            run(launch + [drv, prob, o, "--set", "legacy_rt=0"] + runs["floor"] + extra, o + ".log")
+            out[name] = o
+        for st in steps:
+            for f in ("temp", "fHI", "fHeI", "fHeII", "u_gas", "w_gas"):
+                a0 = open(os.path.join(out["serial0"], st, f + ".bin"), "rb").read()
+                a1 = open(os.path.join(out["amrex"], st, f + ".bin"), "rb").read()
+                check(a0 == a1, f"floor amrex {st}: {f} differs from the serial RT")
+        Ta = field("amrex", steps[-1], "temp")[:, 0]
+        check(Ta.min() >= T_MIN * (1 - tol), f"floor amrex: a temperature below T_min: {Ta.min()}")
     print(f"floor: {cooled.sum()} cells cooled through {T_MIN:g} K without the floor and stop at it "
           f"with it; {cold.sum()} cold neutral cells lifted; {warm.sum()} warm cells bit-identical")
 
