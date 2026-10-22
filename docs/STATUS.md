@@ -269,6 +269,18 @@ the set is done).
   EXE=$RUNS/rt_suite512_bin/radhydro_interp`, submitted from the
   worktree so the job's scripts are the branch's). Every later phase:
   the same `AM_PARAMS`, `F6=0.11`, `MAKE_EXTRA`, `EXE`.
+- **The continuous base's check (2026-10-21 17:56, z = 7.70, x_V = 0.305,
+  5.1 h):** ĉ rose from 0.1c at x_V = 0.125 by ≈ 0.0045c per step to 0.169c
+  at x_V = 0.30 (the step schedule would have jumped to 0.2c at 0.25); no
+  spike: Γ_V 2.92 → 3.07 → 3.36 ×10⁻¹⁴ over steps 50–52 (the step base:
+  2.86 → 5.43); z at x_V = 0.05, 0.1, 0.2, 0.25, 0.3 = 11.32, 10.28, 8.46,
+  8.02, 7.72 against 11.32, 10.28, 8.42, 7.98, 7.75 of the step base.
+  **Siblings launched 18:00** (the step-schedule runs removed, 985 GB):
+  `_caseA` 42132367, `_m1` 42132368, `_otvet` 42132369, `_otvet_split`
+  42132370, `_otvet_screen` 42132374, `_otvet_cone` 42132375, all with
+  `c_reduced_schedule_interp = 1`, f6 = 0.11 and the `radhydro_interp`
+  binary (checked). Another session's `conserve-test` job holds one of
+  the account's five nodes.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
