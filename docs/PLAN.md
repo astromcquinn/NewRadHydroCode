@@ -1488,3 +1488,9 @@ be designed); `recomb_rad` on the backend (block emission and
   50–100 Myr hydro step, must be shortened while the front crosses the
   zoom, which the T4 test is to size); regions are chosen by ionization
   time as well as by density.
+* **Request (user, 2026-10-22):** a stage that reproduces C26's uniform
+  small boxes and the turbulence they show, before and alongside the
+  zooms: `docs/zoom_turbulence.md` §3b (WP0: the plane-parallel RT-domain
+  mode of `docs/plane_parallel.md`, the 0.25 h⁻¹ Mpc resolution ladder
+  C1–C2, the E(k) comparison), a parallel track from now and the content
+  of the ACCESS Discover request.

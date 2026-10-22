@@ -26,6 +26,7 @@ What a zoom needs on top, in order of size:
 
 | Work package | What | Size |
 |---|---|---|
+| WP0 C26 reproduction | the uniform small boxes of C26 in this code: the plane-parallel RT-domain mode (`docs/plane_parallel.md`), the 0.25 h⁻¹ Mpc resolution ladder, E(k) and the turbulence diagnostics; the code-to-code check and the first science (user request 2026-10-22) | 3–4 weeks, in parallel with WP1–WP5 |
 | WP1 zoom ICs | hierarchical white noise, nested displacement fields, multi-mass particles, per-level gas files, separate baryon/DM transfer functions, runtime cosmology | 2–3 weeks |
 | WP2 static zoom levels | levels tagged by particle mass class (they follow the Lagrangian region), per-level IC read, multi-mass DM in the PM container and the FoF | 1–2 weeks |
 | WP3 gravity on the hierarchy (Stage G) | multigrid Poisson per level with particles on their levels; the uniform mesh cannot reach 0.3 kpc/h in a 40 Mpc/h box | 3–4 weeks |
@@ -125,6 +126,56 @@ ICs (the checkpoints hold the particles with their ids), and the zoom's
 particle set is their Lagrangian bounding box plus a pad for the
 differential displacement (a few 100 kpc/h at z = 4–6; the bulk flow is
 followed by the levels, §4.2).
+
+## 3b. WP0: the uniform small boxes of C26 first (user request 2026-10-22)
+
+Before (and alongside) the zooms, reproduce C26's set-up in this code:
+0.25 h⁻¹ Mpc uniform boxes, plane-parallel fronts from the faces of RT
+domains at z_re, the resolution ladder of their Fig. 3 (bottom), and the
+turbulence they found. It needs none of the zoom machinery, only:
+
+* **The plane-parallel RT-domain mode** of `docs/plane_parallel.md`
+  (specified from DM20 and C26, not built): rays from chosen faces of
+  cubic RT domains, one per face cell per substep, no splitting or
+  merging, deleted at the domain's far face; J_ν ∝ ν⁻¹·⁵ in five
+  equal-photon bins; the amplitude set by Γ_HI in the source cells
+  (C26: 3 × 10⁻¹³ s⁻¹); turn-on at z_re; ĉ reduced after the fronts have
+  crossed. On the uniform grid, serial and backend. The open questions
+  of that document (cooling in dense gas, one or both faces per domain,
+  the Supplemental §C 2 procedure) go to the user; C26's text says the
+  fronts come from the domain boundaries and the gas before z_re evolves
+  with hydro and gravity only.
+* **ICs:** MUSIC in uniform mode (no zoom): 0.25 h⁻¹ Mpc, 64³ to 1024³,
+  z_init = 300, separate CAMB baryon and dark-matter transfer functions,
+  Planck cosmology, 1LPT: the WP1 converter's uniform case, and the WP5
+  runtime cosmology.
+* **Physics:** cooling on everywhere (no sink, no 200× suppression: the
+  `cool_suppress_overdensity = 0` flag exists), Compton heating (in the
+  original), the T_min floor of WP5 for the preheated variants later.
+* **Diagnostics:** WP6's E(k), N_τ, PDFs and slices, applied here first.
+
+Rungs, each against C26's published curves (their Figs. 1–3):
+
+| Rung | Runs | Where | Checks |
+|---|---|---|---|
+| C1 | 0.25 h⁻¹ Mpc at 64³, 128³, 256³, 512³ (Δx = 3.9 → 0.49 kpc/h), z_re = 7, no preheating | one klone node each (hours to a day) | the onset of turbulence with resolution (their Fig. 3 bottom: no k⁻⁵ᐟ³ range above 0.5 kpc/h, one at 0.47), the temperature maps, the sound-crossing bump and its drift |
+| C2 | 1024³ (Δx = 0.24 kpc/h), z_re = 7; then T_min = 100 K and 1000 K | the backends on 2–5 nodes (≈ the cost of Z3's finest level, §7) | their fiducial run: E(k) at z = 7.2 … 4, the k⁻⁵ᐟ³ range, N_τ ≈ 1 at z = 4, the suppression by preheating (their Fig. 2) |
+| C3 (optional) | 2048³, flash-ionized as in their convergence run | proposal scale | convergence of the dissipation scale |
+
+What it buys: a direct code-to-code check against the modified RadHydro
+of C26 (this code is a port of the same original), the diagnostics and
+the coupling-interval test (T4, §4.4) in exactly the setting where the
+answer is known, a reference for the zooms (a Z3 region in a C26-like
+environment should reproduce C2's statistics), and the first science
+(preheating and z_re variants) at a cost klone carries alone. C2 is also
+the natural content of the ACCESS Discover request (§8), with Z2 and Z3
+following under Accelerate.
+
+Thread prompt: "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md,
+docs/zoom_turbulence.md §3b and docs/plane_parallel.md. Implement the
+plane-parallel RT-domain mode behind parameters (defaults unchanged, the
+bitwise suite untouched) with the tests listed in docs/plane_parallel.md,
+then the C1 ladder on klone and the E(k) comparison with C26 Fig. 3."
 
 ## 4. Design
 
@@ -404,7 +455,8 @@ klone run at the next size up, in the repo's existing style
 | T1 | 32³ base, 2 zoom levels over the central eighth, gravity only (WP2, WP3) | uniform 128³: halo masses, positions, density PDF in the region |
 | T2 | the same with hydro and the sink | uniform 128³ gas fields in the region |
 | T3 | 8 sources (`uniform_8src`) with a 3-level zoom; rays split to level 3 (WP4) | uniform 256³: x_HII,V, photons in flight, front radii (the F3 metrics) |
-| T4 | plane-parallel front on the uniform grid at `rt_cells_per_substep` 16–256 | k = 1: front profiles, post-front E(k) |
+| C1, C2 | C26's uniform 0.25 h⁻¹ Mpc boxes with the plane-parallel mode (§3b) | C26's published E(k), maps and preheating dependence |
+| T4 | plane-parallel front on the uniform grid at `rt_cells_per_substep` 16–256 (in the C1 setting) | k = 1: front profiles, post-front E(k) |
 | T5 | 128³ base, 10 Mpc/h, Z1-like zoom (4 levels) on 2 nodes | the uniform 512³ run of the same box (hours on 5 nodes): everything inside the region |
 | Z1 | 512³ base, level 4 over 2.5 Mpc/h | the base run's level-0 composite outside the region; cost and ray counts |
 | Z2 | level 6, 1024³ over 1.25 Mpc/h | C26's convergence sequence (their Fig. 3 bottom); first science |
@@ -418,6 +470,7 @@ before the ladder goes beyond two levels.
 ## 6. Order and threads
 
 ```
+WP0 C26 boxes: plane-parallel mode ── C1 ── C2 ── (T4 in this setting)   [parallel track, from now]
 WP1 ICs ──────────┐
 WP3 gravity ──────┼── T1/T2 ── WP2 levels ── T3 (WP4 cap) ── T5 ── Z1 ── Z2 ── Z3
 WP5 knobs ────────┘                 │
@@ -427,7 +480,7 @@ WP8 MHD ── after Z2 (kinematic first), on the hydro suite, then Z2-MHD
 Proposal ── after Z1's cost and scaling numbers (§8), in parallel with Z2
 ```
 
-WP1, WP3, WP5 and T4 are independent and can run as parallel threads
+WP0, WP1, WP3, WP5 and T4 are independent and can run as parallel threads
 (worktrees, one branch and PR each). Suggested opening prompts:
 
 1. *ICs:* "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md and
@@ -533,6 +586,9 @@ about three months of threads from now.
    the I-fronts are wanted (§4.8).
 8. **Proposal:** ACCESS Discover first (quick, under ~10⁶ core-hours),
    then Accelerate (under ~3 × 10⁶) for the suite (§8).
+10. **C26 reproduction first (user, 2026-10-22):** the uniform small
+   boxes with the plane-parallel mode as WP0 (§3b), a parallel track
+   from now, and the content of the Discover request.
 9. **Speed of light:** a slow ĉ (0.1c) is fine provided light crosses
    the smallest subregion more slowly than sound crosses a cell (§4.4:
    ĉ ≲ 0.07c on a 1024³ rung at 20 km/s).
