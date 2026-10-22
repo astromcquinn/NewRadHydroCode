@@ -1048,3 +1048,11 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   user asked why extending `make_ics.py` was recommended over MUSIC; the
   answer (`docs/zoom_turbulence.md` §4.1) proposes MUSIC with a
   converter, to be confirmed.
+* **Decisions (user, 2026-10-22, later):** MUSIC with a converter for the
+  zoom ICs (confirmed); a slow ĉ such as 0.1c is acceptable provided the
+  light-crossing time of the smallest subregion exceeds the sound-crossing
+  time of one of its cells (`docs/zoom_turbulence.md` §4.4: ĉ ≲ 0.07c on
+  a 1024³ rung at 20 km/s; and the RT–hydro coupling interval, today the
+  50–100 Myr hydro step, must be shortened while the front crosses the
+  zoom, which the T4 test is to size); regions are chosen by ionization
+  time as well as by density.

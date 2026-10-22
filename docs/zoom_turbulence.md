@@ -117,6 +117,9 @@ Region selection (WP6): from the base run, by the ionization-time field
 output) and the density: a mean-density IGM patch far from the massive
 halos, ionized at a chosen time by a front from a known direction; later
 a void and a filament-crossing patch for the volume-filling question.
+**User (2026-10-22): the regions are chosen on both axes, density and
+ionization time** (early and late in the base run's history), since the
+relaxation and the front's speed and spectrum differ between them.
 The region is Lagrangian: its particles at z_re are traced back to the
 ICs (the checkpoints hold the particles with their ids), and the zoom's
 particle set is their Lagrangian bounding box plus a pad for the
@@ -127,9 +130,8 @@ followed by the levels, §4.2).
 
 ### 4.1 WP1: zoom initial conditions
 
-**Route (proposed 2026-10-22 after the user's question, to confirm):
-MUSIC (Hahn & Abel 2011) generates, a converter in `tools/ics` writes
-the code's files.** MUSIC already does the hard parts: hierarchical white
+**Route (user decision 2026-10-22): MUSIC (Hahn & Abel 2011)
+generates, a converter in `tools/ics` writes the code's files.** MUSIC already does the hard parts: hierarchical white
 noise with a seed per level (the ladder property for free), the nested
 displacement solves with padding, CAMB transfer functions with separate
 baryon and dark-matter fields, 1LPT (the user's choice) or 2LPT, and
@@ -282,8 +284,41 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   crossed (the schedule by ionization state exists; a zoom-aware
   trigger is a few lines) or transport sub-cycling inside the zoom
   levels only, which reverses the Stage F decision there (§9).
-* **Spectrum and ĉ:** the base run's 5 Pop II groups and schedule carry
-  over; nothing to add.
+* **Spectrum:** the base run's 5 Pop II groups carry over.
+* **Speed of light (user, 2026-10-22): a slow ĉ such as 0.1c is
+  acceptable, under the condition that light crosses the smallest
+  subregion more slowly than sound crosses one of its cells,
+  L/ĉ > Δx/c_s, so that the gas can respond while the front sweeps the
+  region.** With L/Δx = 1024 on every 1024³ rung and c_s = 20 km/s in
+  the heated gas, that is ĉ ≲ 1024 c_s ≈ 0.07c: 0.1c misses it by 1.5×,
+  0.05c meets it with margin, and a 2048³ rung (Z4) allows 0.14c. The
+  ĉ schedule by ionization state can carry a zoom-aware entry (a lower
+  ĉ while the region is being crossed), and a lower ĉ is cheaper (the
+  substep count scales with ĉ).
+* **The RT–hydro coupling interval is the real constraint, and today it
+  is the hydro step.** The RT runs all its substeps inside one hydro
+  step and the hydro of every level follows; the base step is set by
+  `ra_max` (da/a ≤ 0.1) and the base-cell signal, 50–100 Myr at z ≈ 6–8
+  (the 512³ runs take ~55 steps from z = 100 to 5.5), in which light at
+  0.1c travels 16–24 Mpc/h and a front 1–3 Mpc/h: the whole zoom region
+  is ionized and heated within one step and relaxes only in the next.
+  C26's uniform boxes couple every cell-crossing of light. So the
+  condition above only buys something together with a short coupling
+  interval while the front is in the zoom. Two cheap parameters, both
+  default-off: a cap on the hydro step in Myr (`dt_max_myr`, next to
+  `ra_max`), and a cap in RT substeps per hydro step, down to one
+  (hydro step = the light crossing of a base cell at ĉ: 0.46 Myr at
+  0.1c and z = 7, about 17 finest-level CFL steps at Z3, 200 hydro
+  steps during a 100-Myr passage). Coupling at the finest CFL step
+  itself would need RT substeps shorter than a base-cell crossing (rays
+  crossing ~15 fine cells), i.e. transport sub-cycling in the zoom, the
+  Stage F question again. The T4 test decides how short the coupling
+  must be: the uniform plane-parallel problem with the heating applied
+  in one lump per 100, 10, 1 and 0.1 Myr against the per-substep
+  coupling, compared on the post-front E(k) and the filament expansion.
+  The base-level overheads per hydro step (FoF by time already, the
+  summaries, `post_rt`) multiply with the step count and are to be
+  measured at Z1.
 
 ### 4.5 WP5: physics knobs
 
@@ -486,10 +521,10 @@ about three months of threads from now.
    configuration; 8 levels to 0.3 kpc/h.
 2. **Rungs:** Z1 → Z2 → Z3 → Z4 as in §3.
 3. **Regions:** one mean-density IGM patch first, then a void and a
-   filament-crossing patch; selection as in §3.
-4. **ICs:** MUSIC + a converter proposed (§4.1; the user asked why the
-   generator was recommended, answered there; to confirm); 1LPT; Planck
-   cosmology, which needs runtime cosmology in the code.
+   filament-crossing patch, and on the second axis regions ionized
+   early and late; selection as in §3.
+4. **ICs:** MUSIC + a converter (confirmed); 1LPT; Planck cosmology,
+   which needs runtime cosmology in the code.
 5. **RT:** raise the HEALPix cap first and measure the ray counts;
    beams only if needed. Whether the coarse-substep rule may be relaxed
    inside the zoom waits for the T4 test.
@@ -498,6 +533,10 @@ about three months of threads from now.
    the I-fronts are wanted (§4.8).
 8. **Proposal:** ACCESS Discover first (quick, under ~10⁶ core-hours),
    then Accelerate (under ~3 × 10⁶) for the suite (§8).
+9. **Speed of light:** a slow ĉ (0.1c) is fine provided light crosses
+   the smallest subregion more slowly than sound crosses a cell (§4.4:
+   ĉ ≲ 0.07c on a 1024³ rung at 20 km/s).
 
-Still open: the sink threshold inside the zoom (§4.5), and the
-non-ideal MHD term (7).
+Still open: the sink threshold inside the zoom (§4.5), the non-ideal
+MHD term (7), and how short the RT–hydro coupling interval must be
+while the front crosses the zoom (§4.4, the T4 test).
