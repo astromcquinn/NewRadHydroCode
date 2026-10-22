@@ -1403,7 +1403,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
     # gas momentum with two levels over the whole box (periodic level
     # solves) and over half of it (pm_level_solve_check.py, ~40 s on 2
     # ranks); two levels over half the box with pm_refine = 1 and 2: 1, 2
-    # and 3 ranks byte-identical and a bit-identical restart (to z = 26: the
+    # and 3 ranks byte-identical and a bit-identical restart (to z = 28: the
     # gravity steps before the smoke problem's sources appear; with the RT
     # on, the checkpoints of a rank-dependent fine-level layout order their
     # rays differently and a restart through an RT step is not bit-identical,
@@ -1421,7 +1421,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                           --set pm_backend=amrex --set amrex_state=1 --set amrex_max_grid_size=8
                           --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=0,0,0,7,7,7
                           --set pm_level_solve=1 --set pm_refine=${r} --set movie_dz=0.5 --set movie_z0=25
-                          --set "zdata1=30 26")  # the run ends at z = 26 (step 12), before the smoke problem's sources appear at z = 24.7
+                          --set "zdata1=30 28")  # the run ends at z = 27.5 (step 12), before the smoke problem's sources appear at z = 24.7 (step 13)
                                                  # (the RT costs 100 s a step here; the restart must end where the run does)
         add_test(NAME amrex_pm_level_solve_ranks_smoke_r${r}
                  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
