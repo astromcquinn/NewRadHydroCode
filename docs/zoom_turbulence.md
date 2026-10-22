@@ -523,6 +523,39 @@ part of which is the whole-box refinement), the step count (the cold
 pre-reionization gas with 10–30 km/s flows), and the ray population. The
 ladder exists to pin these before the proposal is written.
 
+**A first measurement of the AMR overhead** (2026-10-22: `fesc512_b2.5_amr`
+against its unrefined control `fesc512_b2.5_uniform`, `docs/stage_f.md`
+§4; 40 Mpc/h, 512³ base grid + 2 levels above 8 ρ̄ and 64 ρ̄, 1024³ particles
+on the 2048³ mesh, 5 klone cpu-g2 nodes, 120 ranks × 8 threads, z = 90 → 5):
+
+| | uniform 512³ | + 2 levels | ratio |
+|---|---|---|---|
+| refined cells at z = 5 (level 1 / level 2, lower bounds from the density thresholds) | – | ≥ 6.4 M / ≥ 2.0 M (≈ 6 % of the 134 M base cells) | |
+| step time z = 90 → 5 (the per-step timers; without checkpoints) | 4.3 h | 11.3 h | 2.6 (3–4 per step after z = 6) |
+| of which RT | 2.15 h | 7.96 h | 3.7 |
+| of which hydro | 0.03 h | 1.15 h | 46 |
+| rays in flight at z = 5 | 1.5 × 10⁹ | 4.4 × 10⁹ | 2.9 |
+| hydro cell-substeps (the kernel's counter, all levels; sub-cycling 1482 substeps in 248 calls, up to 56 in one, against 1 per call) | 1.5 × 10¹⁰ | 4.9 × 10¹⁰ | 3.4 |
+| hydro core-seconds per counted cell-substep | 6 µs | 78 µs | 13 |
+| memory, typical rank (peak RSS, min over ranks) | 17 GB | 39 GB | 2.3 |
+| one checkpoint (`restart_every = 1`, 4 × 10⁹ rays) | 290 s | 760 s | 2.6 |
+| core-hours, step time / job wall-clock | 4 100 / 12 900 | 10 900 / 36 000 | 2.6 / 2.8 |
+
+(The refined run's wall-clock includes two crashes, a 9.5 h hang before
+the abort-on-error fix and the checkpoint of every step.) Two lessons for
+the estimates above. (i) The hydro's AMR overhead is per box, not per cell:
+with the refined cells scattered over the halos, FillPatch (2150 s),
+refluxing (1010 s) and the CFL reduction (660 s) are 95 % of the 4020 s of
+hydro, and a counted cell-substep costs 13× the uniform run's, far from
+the 3 µs line, which came from the whole-box Sedov test. The zoom's one region
+is the favourable case (few large boxes), so the truth lies between; Z1
+measures it. (ii) The sources sit in the refined gas, so most rays are
+born at the finest level and split there: 6 % more cells cost 2.9× the
+rays and 3.7× the RT. The "rays" line above assumes 10⁸–10⁹ in flight;
+with the zoom region holding the sources of interest, size the ray pool
+from the finest level's cell count, not the base grid's, and expect the RT
+to dominate the hydro until the refined cell count is large.
+
 ## 8. The allocation proposal
 
 klone builds and validates the machinery (T0–T5, Z1, Z2 and probably one
