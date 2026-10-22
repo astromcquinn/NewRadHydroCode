@@ -240,7 +240,7 @@ steps 13–15: `restart/checkpoint_00{13,14,15}.bin` differ on 3 ranks,
 every field, frame and statistic identical) and (b) a restart from the
 first RT step's checkpoint is not bit-identical (the rays re-enter the
 tiles in another order). Both reproduce with `pm_gas_levels = 1`
-(RESTART_CONTROL_PLACEHOLDER); the existing rank and restart tests use a
+(the same `rank_check.py` run: checkpoints 13 and 14 differ on 3 ranks; `restart_check.py` from step 13: every field of steps 14–15 differs); the existing rank and restart tests use a
 region covering the whole box, whose layout no rank count chops. The Stage
 G rank and restart tests therefore stop before the smoke problem's sources
 appear (12 steps; the restart from step 9); the RT's checkpoint order on
