@@ -120,6 +120,22 @@ struct Simulation {
   std::shared_ptr<TensorDiag> tdiag;
   // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
   FofCache fof;
+
+  // The substep-averaged HI photoionization rate (fields / movie_fields
+  // gammaHI_avg, docs/igm_diagnostics.md): per RT cell the sum over the
+  // current hydro step's RT substeps of gamma(1) * dtsec_rt, and the
+  // summed time, reset by radiative_transfer at the start of each hydro
+  // step's RT (rt.hpp gamma_avg_*). Output only: never read by the RT,
+  // not in the checkpoint (a restart begins at a step boundary; only a
+  // step without RT right after a restart would write zeros where the
+  // uninterrupted run writes the previous step's average). Serial RT
+  // only (the backend's cells live on the level between the host syncs).
+  struct GammaAvg {
+    bool on = false;
+    std::vector<double> acc;  // per RT cell, s^-1 * s
+    double time = 0;          // s
+    std::int64_t substeps = 0;
+  } gamma_avg;
 };
 
 }  // namespace radray

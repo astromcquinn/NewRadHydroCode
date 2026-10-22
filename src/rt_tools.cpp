@@ -312,6 +312,39 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
 // radiative_transfer
 // ---------------------------------------------------------------------------
 
+// The substep-averaged Gamma_HI (rt.hpp): per-cell sums in double, each
+// cell its own (thread-count independent); the serial RT writes gamma(1)
+// of every cell in rt_step_2, so the sum after a substep is exact.
+void gamma_avg_begin(Simulation& s) {
+  Simulation::GammaAvg& A = s.gamma_avg;
+  A.acc.assign(static_cast<std::size_t>(s.rt.ncell), 0.0);
+  A.time = 0;
+  A.substeps = 0;
+}
+
+void gamma_avg_add(Simulation& s) {
+  Simulation::GammaAvg& A = s.gamma_avg;
+  const RTGrid& G = s.rt;
+  const std::int64_t nc = G.ncell;
+  if (A.acc.size() != static_cast<std::size_t>(nc)) gamma_avg_begin(s);
+  const double dt = s.clk.dtsec_rt;
+  double* acc = A.acc.data();
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) acc[c] += static_cast<double>(G.gamma[c * 3]) * dt;
+  A.time += dt;
+  A.substeps += 1;
+}
+
+void gamma_avg_field(const Simulation& s, std::vector<float>& out) {
+  const Simulation::GammaAvg& A = s.gamma_avg;
+  const std::int64_t nc = s.rt.ncell;
+  out.assign(static_cast<std::size_t>(nc), 0.0f);
+  if (A.acc.size() != static_cast<std::size_t>(nc) || !(A.time > 0)) return;
+  const double inv = 1.0 / A.time;
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) out[c] = static_cast<float>(A.acc[c] * inv);
+}
+
 // rt_tools.f90: radiative_transfer
 void radiative_transfer(Simulation& s) {
   SimClock& clk = s.clk;
@@ -326,6 +359,7 @@ void radiative_transfer(Simulation& s) {
   if (L) *L << " Hydro step : " << clk.istep << " " << static_cast<float>(clk.redshift) << "\n";
 
   prep_rt(s);
+  if (s.gamma_avg.on) gamma_avg_begin(s);  // gammaHI_avg: this step's sums
 
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
@@ -345,6 +379,7 @@ void radiative_transfer(Simulation& s) {
         if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
         if (s.raydump_state) ray_dump_after_substep(s);
       }
+      if (s.gamma_avg.on) gamma_avg_add(s);  // gammaHI_avg: after this substep's physics
     }
 
     const std::int64_t nr = s.rays.Nray - s.rays.save.nfree;

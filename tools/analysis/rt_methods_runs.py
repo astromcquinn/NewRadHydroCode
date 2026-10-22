@@ -88,10 +88,14 @@ def match_outputs(outs, tol=0.05):
     return sets
 
 
+GAMMA_FIELD = "gammaHI"  # --gamma-field: gammaHI_avg for the substep-averaged rate
+
+
 def load_gamma(d, N):
-    """Gamma_HI [s^-1] of a step directory as [k, j, i]: gammaHI.bin, or the
+    """Gamma_HI [s^-1] of a step directory as [k, j, i]: GAMMA_FIELD.bin
+    (gammaHI.bin, or gammaHI_avg.bin with --gamma-field gammaHI_avg), or the
     first component of gamma.bin (float32 (3, N^3)); None if neither."""
-    p = os.path.join(d, "gammaHI.bin")
+    p = os.path.join(d, GAMMA_FIELD + ".bin")
     if os.path.exists(p):
         return np.fromfile(p, dtype=np.float32).reshape(N, N, N)
     p = os.path.join(d, "gamma.bin")
@@ -159,7 +163,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--outdir", required=True)
+    ap.add_argument("--gamma-field", default="gammaHI",
+                    help="the Gamma_HI file of each snapshot: gammaHI (default) or gammaHI_avg, "
+                         "the substep-averaged rate (fields = ...,gammaHI_avg)")
     a = ap.parse_args()
+    global GAMMA_FIELD
+    GAMMA_FIELD = a.gamma_field
     os.makedirs(a.outdir, exist_ok=True)
     runs, labels = [], []
     for r in a.runs:

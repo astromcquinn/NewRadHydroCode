@@ -86,6 +86,18 @@ restart. `compare_movie.py` adds a log Γ_HI row (fixed range
 Γ_HI of the ionised cells when every run has `gammaHI` frames;
 `stills.py` adds a Γ_HI column when the frames have it.
 
+**Substep-averaged Γ_HI (2026-10-18).** `gammaHI_avg` in `movie_fields` (and
+in `fields`) is Γ_HI averaged over the RT substeps of the hydro step so far,
+weighted by the substep length: in a frame written inside a hydro step the
+running average up to that substep, in a `step_NNNN` snapshot the average
+over the whole step. It removes the single-substep sampling noise of the
+rays' Γ (`docs/rt_methods_512.md` §6) without the tensor dump. Serial RT only
+(`rt_backend = serial`, rays and moment methods); the AMReX backend refuses
+it. `movie_every_substep = 1` writes a frame after every RT substep (with
+`movie_dz > 0`), for the tests (`gamma_avg_check.py`). The analysis tools
+read it with `gamma_power.py --field gammaHI_avg` and `rt_methods_runs.py
+--gamma-field gammaHI_avg`.
+
 **Frames before the RT starts are skipped.** The C++ writes movie frames from
 `movie_z0` (by default the first zdata1, z = 15). Before the first step with
 a source, though, the RT grid is not set up yet: fHI = rhog = 0, and

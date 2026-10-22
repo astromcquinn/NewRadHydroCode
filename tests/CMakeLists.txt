@@ -809,6 +809,21 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/c_schedule --set legacy_rt=0 --set legacy_physics=0)
     set_tests_properties(c_schedule PROPERTIES TIMEOUT 600 LABELS physics)
+    # gammaHI_avg (docs/igm_diagnostics.md): the substep-averaged Gamma_HI in
+    # fields and movie frames is the mean of the per-substep gammaHI frames,
+    # thread-independent and output only; the rays and M1
+    add_test(NAME gamma_avg_rays
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/gamma_avg_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/gamma_avg/rays --set legacy_rt=0
+                     --set legacy_physics=0 --set deterministic_parallel=1)
+    set_tests_properties(gamma_avg_rays PROPERTIES TIMEOUT 1200 LABELS "physics;threads")
+    add_test(NAME gamma_avg_m1
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/gamma_avg_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/gamma_avg/m1 --set legacy_rt=0
+                     --set legacy_physics=0 --set rt_method=m1)
+    set_tests_properties(gamma_avg_m1 PROPERTIES TIMEOUT 1200 LABELS "physics;threads;moments")
     # ray_rotate = 3 (B16 fix): the per-substep rotation is keyed on the clock
     add_test(NAME restart_smoke_rotate
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
