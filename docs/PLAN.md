@@ -1020,3 +1020,39 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   fine ray's deposit outside its level goes to the parent with weight
   1/(1 + √fgam): the parent absorbs what the ray loses) are the defaults.
   Evidence: `docs/stage_f.md` §3, "Rays at the level faces".
+
+## Zoom-in turbulence programme (2026-10-22)
+
+* **Request (user):** a plan to zoom repeatedly on one region of the box
+  and resolve the turbulence an I-front drives as it passes, the physics
+  of Cain, McQuinn, Scannapieco, D'Aloisio & Trac 2026 (PRD 113, 023050;
+  uniform 0.25 h⁻¹ Mpc boxes with plane-parallel fronts) inside a full
+  reionization run. The ICs are seeded at the region's resolution; the
+  region holds at least 1024³ cells; klone builds it up and a proposal
+  for allocation time funds the suite; magnetic fields come later.
+* **Plan:** `docs/zoom_turbulence.md` (work packages WP1–WP8, the
+  ladder Z1–Z4, the validation rungs T0–T5, cost estimates, the proposal
+  skeleton). No decision taken yet: the open choices are its §9 (base
+  box, rungs, regions, IC tool and cosmology, the RT's HEALPix cap or
+  beams and the coarse-substep rule in the zoom, preheating variants,
+  MHD scope, proposal venue).
+* **Decisions (user, 2026-10-22):** base 40 h⁻¹ Mpc / 512³; the rungs
+  Z1–Z4 of `docs/zoom_turbulence.md` §3; one mean-density region first,
+  then a void and a filament patch; 1LPT ICs with Planck cosmology (so
+  the cosmology becomes a runtime parameter set, the original as the
+  default); raise the HEALPix cap first, beams only if the ray counts
+  demand it; no preheating in the first runs; MHD later, with the
+  Biermann battery and one more non-ideal term at the I-fronts; the
+  proposal to NSF ACCESS as Discover (< ~10⁶ core-hours, a paragraph,
+  quick) then Accelerate (< ~3 × 10⁶, a few pages). On the IC tool the
+  user asked why extending `make_ics.py` was recommended over MUSIC; the
+  answer (`docs/zoom_turbulence.md` §4.1) proposes MUSIC with a
+  converter, to be confirmed.
+* **Decisions (user, 2026-10-22, later):** MUSIC with a converter for the
+  zoom ICs (confirmed); a slow ĉ such as 0.1c is acceptable provided the
+  light-crossing time of the smallest subregion exceeds the sound-crossing
+  time of one of its cells (`docs/zoom_turbulence.md` §4.4: ĉ ≲ 0.07c on
+  a 1024³ rung at 20 km/s; and the RT–hydro coupling interval, today the
+  50–100 Myr hydro step, must be shortened while the front crosses the
+  zoom, which the T4 test is to size); regions are chosen by ionization
+  time as well as by density.
