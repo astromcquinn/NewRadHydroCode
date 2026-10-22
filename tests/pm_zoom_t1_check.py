@@ -89,22 +89,21 @@ def cic(x, n, lo, hi):
 
 
 def main():
+    # the eight positionals first (the launcher flags start with "--", which
+    # argparse would take for options), then the options
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("work")
-    ap.add_argument("launch")
-    ap.add_argument("flags")
-    ap.add_argument("npflag")
-    ap.add_argument("np")
-    ap.add_argument("exe")
-    ap.add_argument("find_halos")
-    ap.add_argument("src")
+    pos = ("work", "launch", "flags", "npflag", "np", "exe", "find_halos", "src")
+    if len(sys.argv) < 9:
+        ap.error("usage: pm_zoom_t1_check.py " + " ".join(pos.upper() for pos in pos) + " [options]")
     ap.add_argument("--base", type=int, default=32)
     ap.add_argument("--fine", type=int, default=128)
     ap.add_argument("--box", type=float, default=10.0)
     ap.add_argument("--zend", type=float, default=5.0)
     ap.add_argument("--max-steps", type=int, default=400)
     ap.add_argument("--keep", action="store_true", help="reuse existing runs")
-    a = ap.parse_args()
+    a = ap.parse_args(sys.argv[9:])
+    for name, val in zip(pos, sys.argv[1:9]):
+        setattr(a, name, val)
     flags = [f for f in a.flags.replace(";", " ").split() if f]
     if a.launch.endswith("srun") and not any("cpus-per-task" in f for f in flags):
         flags.append("--cpus-per-task=" + os.environ.get("OMP_NUM_THREADS", "1"))
