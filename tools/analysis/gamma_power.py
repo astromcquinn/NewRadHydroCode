@@ -8,8 +8,9 @@ usage: gamma_power.py RUN[+RUN2...]:label [...] --outdir DIR [--zmin 4.8] [--zma
 RUN is a run directory (<problem>/run); several directories of one run can
 be joined with '+' (e.g. the run and its extra field cubes,
 <problem>/run+<problem>/run_cubes, tools/hyak/field_cubes.slurm). Every
-step_NNNN with gammaHI.bin (or gamma.bin, first component) and fHI.bin and
-zmin <= z <= zmax is used. The first run is the reference: for each of its
+step_NNNN with gammaHI.bin (or gamma.bin, first component; --field for
+another one-float-per-cell field such as gammaHI_avg, the substep-averaged
+rate) and fHI.bin and zmin <= z <= zmax is used. The first run is the reference: for each of its
 snapshots, every other run's snapshot nearest in redshift (within --tol) is
 compared.
 
@@ -68,8 +69,8 @@ def snapshots(spec, zmin, zmax):
             if S0_MODE:
                 if not os.path.exists(os.path.join(d, "tensor.bin")):
                     continue
-            elif not (os.path.exists(os.path.join(d, "gammaHI.bin"))
-                      or os.path.exists(os.path.join(d, "gamma.bin"))):
+            elif not (os.path.exists(os.path.join(d, FIELD + ".bin"))
+                      or (FIELD == "gammaHI" and os.path.exists(os.path.join(d, "gamma.bin")))):
                 continue
             z = read_z(d)
             if z is not None and zmin <= z <= zmax:
@@ -89,6 +90,7 @@ def box_of(spec):
 
 
 S0_MODE = False
+FIELD = "gammaHI"  # --field: the one-float-per-cell Gamma_HI file of each step
 QS = (0.001, 0.01, 0.16, 0.5, 0.84, 0.99, 0.999)
 
 
@@ -98,7 +100,7 @@ def load_gamma(d):
         g = np.ascontiguousarray(m[:, 0])
         N = round(g.size ** (1 / 3))
         return g.reshape(N, N, N)
-    p = os.path.join(d, "gammaHI.bin")
+    p = os.path.join(d, FIELD + ".bin")
     if os.path.exists(p):
         g = np.fromfile(p, dtype=np.float32)
         N = round(g.size ** (1 / 3))
@@ -156,9 +158,13 @@ def main():
                     "these redshifts")
     ap.add_argument("--s0", action="store_true",
                     help="use the step-averaged S0 of the tensor dump instead of gammaHI.bin")
+    ap.add_argument("--field", default="gammaHI",
+                    help="the Gamma_HI field file of each step (default gammaHI; gammaHI_avg for "
+                         "the substep-averaged rate, fields = ...,gammaHI_avg)")
     a = ap.parse_args()
-    global S0_MODE
+    global S0_MODE, FIELD
     S0_MODE = a.s0
+    FIELD = a.field
     os.makedirs(a.outdir, exist_ok=True)
     specs, labels = [], []
     for r in a.runs:

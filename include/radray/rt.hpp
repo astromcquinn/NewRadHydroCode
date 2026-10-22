@@ -52,6 +52,15 @@ void radiative_physics(Simulation& s, int krt);
 // The end of rt_step_3: the per-hydro-step sums of rt_stat / ray_stat
 void accumulate_rt_stats(Simulation& s);
 
+// The substep-averaged Gamma_HI (Simulation::gamma_avg; output only, serial
+// RT): begin zeroes the per-cell sums at the start of a hydro step's RT, add
+// accumulates gamma(1) * dtsec_rt after a substep's physics, field gives the
+// average over the substeps so far of the last hydro step with RT (zeros
+// before the first), one float per RT cell.
+void gamma_avg_begin(Simulation& s);
+void gamma_avg_add(Simulation& s);
+void gamma_avg_field(const Simulation& s, std::vector<float>& out);
+
 // rt_step_1 / calc_ray_1: the ngam_ray thresholds from the photon-count
 // histogram ngam_pdf[1..N_pdf] (rrk::pdf_bin) of the live rays, and the F3
 // ray-pool guard (legacy_rt = 0) from the histogram spl_pdf of the rays that
