@@ -1530,6 +1530,9 @@ struct MomentLevel : CellLevel {
   void remap(const ax::DistributionMapping&) override {
     throw std::runtime_error("amrex_balance = 1 does not support the moment RT");
   }
+  void level_slice(int, int, std::vector<float>&, int&, int&, int&) const override {
+    throw std::runtime_error("fields_levels = 1 is not implemented for the moment RT on the level");
+  }
   std::int64_t nrays() const override { return 0; }
   int bytes_per_ray() const override { return 0; }
   void gather_rays(std::vector<RayP>& out) const override { out.clear(); }

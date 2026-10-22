@@ -16,15 +16,16 @@ namespace {
 bool amrex_available() { return false; }
 void backend_init(int&, char**&) {}
 void backend_finalize() {}
+void backend_abort(int) {}
 void backend_bcast(double*, int) {}
 void backend_bcast_bytes(void*, std::size_t) {}
 void amrex_state_gather_rt(Simulation&, bool) { no_amrex(); }
 void amrex_state_gather_rt_movie(Simulation&) { no_amrex(); }
+void amrex_rt_level_slice(Simulation&, int, int, std::vector<float>&, int&, int&, int&) { no_amrex(); }
 void amrex_state_scatter_rt(Simulation&) { no_amrex(); }
 bool io_rank() { return true; }
 int backend_rank() { return 0; }
 int backend_nranks() { return 1; }
-void backend_abort(int) {}
 void backend_barrier() {}
 void backend_reduce_minmax(double&, double&) {}
 void amrex_rt_prep(Simulation&) { no_amrex(); }

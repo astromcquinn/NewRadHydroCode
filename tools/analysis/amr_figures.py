@@ -10,13 +10,18 @@ usage: amr_figures.py [--runs DIR] [--work DIR] [--out DIR] [--only sedov,slices
           RUNS/rt_amr_ifront8c): x_HII slices and differences -> amr_ifront8_slices.png
   errors  their error histories, docs/data/stage_f/ifront8_L{1,2}.json
           -> amr_ifront8_errors.png
+  fine    the 8-source runs with fields_levels = 1 (WORK/fields_levels/{L1,L2},
+          fields_levels_index = 16): x_HII at the finest resolution from
+          levels_slice.bin, the levels outlined, beside the uniform 64^3 and
+          128^3 runs at the same planes -> amr_ifront8_fine.png
   fgam    the photons in flight before and after the covered-cell fgam fix:
           WORK/f3_8src/static/{p_amr (before), p_amr2 (after), p_k2 (uniform
           64^3, rt_cells_per_substep = 2)} with fields = fHI,ngam -> amr_fgam_fix.png
 
-The refined runs write only the level-0 composite (every refined cell's
-children averaged down), so their panels show the base resolution; the
-uniform runs are shown at their own resolution. Defaults: the klone paths,
+The refined runs' field files are the level-0 composite (every refined
+cell's children averaged down), so those panels show the base resolution;
+the uniform runs are shown at their own resolution, and `fine` uses the
+plane fields_levels writes at the finest resolution. Defaults: the klone paths,
 out = docs/figures.
 """
 import argparse
@@ -247,6 +252,69 @@ def fig_ifront_errors():
     fig.savefig(os.path.join(OUT, "amr_ifront8_errors.png"), dpi=140, bbox_inches="tight")
 
 
+# ------------------------------------- 3b. fields_levels: the fine slices
+def read_levels_slice(d):
+    t = {}
+    for line in open(os.path.join(d, "levels_slice.txt")):
+        if " = " in line and not line.startswith("#"):
+            k, v = line.split(" = ", 1)
+            t[k.strip()] = v.strip()
+    n = int(t["n"])
+    a = np.fromfile(os.path.join(d, "levels_slice.bin"), dtype=np.float32).reshape(n, n, int(t["ncomp"]))
+    return a, t  # a[b, a, comp]: the first in-plane axis fastest
+
+
+def level_outline(ax, lev, level, **kw):
+    """the edges between pixels of level >= `level` and the rest, in base cells"""
+    n = lev.shape[0]
+    m = lev >= level
+    f = 32.0 / n
+    segs = []
+    for j in range(n):
+        for i in range(n):
+            if not m[j, i]:
+                continue
+            if i == 0 or not m[j, i - 1]:
+                segs.append(((i * f, j * f), (i * f, (j + 1) * f)))
+            if i == n - 1 or not m[j, i + 1]:
+                segs.append((((i + 1) * f, j * f), ((i + 1) * f, (j + 1) * f)))
+            if j == 0 or not m[j - 1, i]:
+                segs.append(((i * f, j * f), ((i + 1) * f, j * f)))
+            if j == n - 1 or not m[j + 1, i]:
+                segs.append(((i * f, (j + 1) * f), ((i + 1) * f, (j + 1) * f)))
+    from matplotlib.collections import LineCollection
+    ax.add_collection(LineCollection(segs, **kw))
+
+
+def fig_fine():
+    W = os.path.join(WORK, "fields_levels")
+    R = os.path.join(RUNS, "rt_amr_ifront8c")
+    st = "0010"
+    a1, t1 = read_levels_slice(os.path.join(W, "L1", f"step_{st}"))
+    a2, t2 = read_levels_slice(os.path.join(W, "L2", f"step_{st}"))
+    u64 = 1 - load_fhi(os.path.join(R, "uniform64"), st)[int(t1["plane"])]
+    u128 = 1 - load_fhi(os.path.join(R, "uniform128"), st)[int(t2["plane"])]
+    fig, axs = plt.subplots(1, 4, figsize=(15, 4.3), gridspec_kw={"wspace": 0.05})
+    panels = [("32³ + 1 level (64³ in the box)", 1 - a1[:, :, 1], a1[:, :, 5], 1),
+              ("uniform 64³", u64, None, 0),
+              ("32³ + 2 levels (128³ in the inner box)", 1 - a2[:, :, 1], a2[:, :, 5], 2),
+              ("uniform 128³", u128, None, 0)]
+    for ax, (name, img, lev, L) in zip(axs, panels):
+        im = ax.imshow(img, origin="lower", cmap=SEQ, vmin=0, vmax=1, extent=(0, 32, 0, 32), interpolation="nearest")
+        img_axes(ax)
+        ax.set_title(name)
+        if lev is not None:
+            for l in range(1, L + 1):
+                level_outline(ax, lev, l, colors=C_L1 if l == 1 else C_L2, linewidths=1.6,
+                              linestyles="solid" if l == 1 else "dashed")
+    cb = fig.colorbar(im, ax=axs, fraction=0.012, pad=0.01)
+    cb.set_label("x_HII", color=INK)
+    cb.outline.set_visible(False)
+    fig.suptitle("fields_levels = 1: the slice at the finest resolution (step 10, z ≈ 11.6, the plane through "
+                 "base cell 16).  Outlines: level 1 (orange), level 2 (green)", x=0.06, ha="left", fontsize=11.5)
+    fig.savefig(os.path.join(OUT, "amr_ifront8_fine.png"), dpi=140, bbox_inches="tight")
+
+
 # ----------------------------------------------- 4. the covered-fgam fix
 def load_ngam(run, st):
     x = np.fromfile(os.path.join(run, f"step_{st}", "ngam.bin"), dtype=np.float32).astype(float)
@@ -304,12 +372,13 @@ if __name__ == "__main__":
     ap.add_argument("--runs", default=RUNS)
     ap.add_argument("--work", default=WORK)
     ap.add_argument("--out", default=OUT)
-    ap.add_argument("--only", default="sedov,slices,errors,fgam")
+    ap.add_argument("--only", default="sedov,slices,errors,fine,fgam")
     a = ap.parse_args()
     RUNS, WORK, OUT = a.runs, a.work, a.out
     os.makedirs(OUT, exist_ok=True)
-    figs = {"sedov": fig_sedov, "slices": fig_ifront_slices, "errors": fig_ifront_errors, "fgam": fig_fgam_fix}
+    figs = {"sedov": fig_sedov, "slices": fig_ifront_slices, "errors": fig_ifront_errors, "fine": fig_fine,
+            "fgam": fig_fgam_fix}
     for name in a.only.split(","):
         figs[name]()
         print("wrote", os.path.join(OUT, "amr_" + {"sedov": "sedov", "slices": "ifront8_slices",
-                                                     "errors": "ifront8_errors", "fgam": "fgam_fix"}[name] + ".png"))
+                                                     "errors": "ifront8_errors", "fine": "ifront8_fine", "fgam": "fgam_fix"}[name] + ".png"))

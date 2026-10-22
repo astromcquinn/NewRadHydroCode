@@ -64,6 +64,20 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
       throw std::runtime_error("amrex_slab_planes must be 0 (about N / ranks) or a positive even number");
     return true;
   }
+  if (key == "amrex_split_on_entry") {
+    c.amrex_split_on_entry = std::stoi(val);
+    if (c.amrex_split_on_entry != 0 && c.amrex_split_on_entry != 1)
+      throw std::runtime_error("amrex_split_on_entry must be 0 or 1");
+    return true;
+  }
+  if (key == "amrex_ghost_rule") {
+    if (val == "sqrt" || val == "0") c.amrex_ghost_rule = 0;
+    else if (val == "parent" || val == "1") c.amrex_ghost_rule = 1;
+    else if (val == "half" || val == "2") c.amrex_ghost_rule = 2;
+    else if (val == "conserve" || val == "3") c.amrex_ghost_rule = 3;
+    else throw std::runtime_error("amrex_ghost_rule must be sqrt, parent, half or conserve");
+    return true;
+  }
   if (key == "amrex_redist_local") {
     c.amrex_redist_local = std::stoi(val);
     if (c.amrex_redist_local < 0) throw std::runtime_error("amrex_redist_local must be >= 0");
@@ -82,6 +96,8 @@ void copy_rt_backend_param(const Config& from, Config& to) {
   to.amrex_slab_planes = from.amrex_slab_planes;
   to.amrex_moment_stats = from.amrex_moment_stats;
   to.amrex_moment_fft_threads = from.amrex_moment_fft_threads;
+  to.amrex_split_on_entry = from.amrex_split_on_entry;
+  to.amrex_ghost_rule = from.amrex_ghost_rule;
 }
 
 std::string rt_backend_summary(const Config& c) {

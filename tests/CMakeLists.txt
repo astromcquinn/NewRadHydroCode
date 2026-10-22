@@ -1347,6 +1347,41 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      ${amrex_runs}/sink_restart 13 ${sink_sets})
     set_tests_properties(amrex_sink_restart_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;sink;restart"
                          ENVIRONMENT OMP_NUM_THREADS=1)
+    # The PM on the refined gas levels (pm_gas_levels, docs/stage_f.md
+    # section 4, label amr): a 16^3 run refined everywhere to level 1 with
+    # the 32^3 mesh against the uniform 32^3 run with the same particles
+    # (gas, momenta and particles; 10x better than the level-0 coupling),
+    # the DM + gas momentum with two levels and pm_refine = 1, 2, 4
+    # (pm_gas_levels_check.py, ~30 s on 2 ranks); and with two levels and
+    # pm_refine = 4, 1, 2 and 3 ranks byte-identical and a bit-identical
+    # restart.
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME amrex_pm_gas_levels_check
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_gas_levels_check.py
+                       ${amrex_runs}/pm_gas_levels "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_pm_gas_levels_check PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_pm;amr"
+                           ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+      set(gaslev_sets --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                      --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                      --set pm_backend=amrex --set amrex_state=1 --set amrex_max_grid_size=8
+                      --set amrex_max_level=2 --set amrex_refine_mass=0.05 --set pm_refine=4
+                      --set movie_dz=0.5 --set movie_z0=25)
+      add_test(NAME amrex_pm_gas_levels_ranks_smoke
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                       ${amrex_runs}/pm_gas_levels_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${gaslev_sets}
+                       --set restart_every=1 --set restart_keep_latest=0)
+      set_tests_properties(amrex_pm_gas_levels_ranks_smoke PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_pm;amr;full"
+                           ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+      add_test(NAME amrex_pm_gas_levels_restart_smoke
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${amrex_runs}/pm_gas_levels_restart 13 ${gaslev_sets})
+      set_tests_properties(amrex_pm_gas_levels_restart_smoke PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_pm;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1)
+    endif()
     # Stage F3 (docs/stage_f.md section 3): the I-front of one source in
     # uniform gas with a refined level over the central region, the front
     # crossing the level boundary, against the uniform runs at the base and
@@ -1381,6 +1416,15 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       if(NOT RADRAY_NIGHTLY_TESTS)
         set_tests_properties(amrex_rt_amr_ifront8 PROPERTIES DISABLED TRUE)
       endif()
+      # fields_levels = 1: the plane at the finest resolution of two nested
+      # refined levels on 2 ranks (the level map, the level-0 pixels equal to
+      # the base field)
+      add_test(NAME amrex_fields_levels
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/levels_slice_check.py
+                       ${amrex_runs}/fields_levels "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_fields_levels PROPERTIES TIMEOUT 900 LABELS "amrex;amr"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 4)
     endif()
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro

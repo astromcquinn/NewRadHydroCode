@@ -7,7 +7,7 @@
                        [--hydro-scheme unsplit] [--redshift-per-distance 1]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
-Ngas = N, Ndm = pm_refine*N) in OUTDIR/ics. Run with
+Ngas = N, Ndm = pm_refine*N or --ndm) in OUTDIR/ics. Run with
 
     OMP_NUM_THREADS=4 build/radhydro OUTDIR OUTDIR/run --quiet
 
@@ -23,7 +23,8 @@ and source (ray_rotate = 3, the B16 fix; --ray-rotate), the unsplit hydro with d
 travelled (redshift_per_distance = 1; --redshift-per-distance), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5 (Lyman-alpha forest comparison), movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
-docs/movies.md), a checkpoint every --restart-every hydro steps (default 1).
+docs/movies.md), a checkpoint every --restart-every hydro steps (default 10: a 512^3 refined
+checkpoint is ~240 GB and ~9 min to write; user decision 2026-10-18).
 
 --backend amrex writes the AMReX backends with the state on the levels and
 load balancing into params.txt (rt/hydro/pm_backend = amrex, amrex_state =
@@ -94,7 +95,7 @@ def main():
                     help="f_esc(z) = f_esc ((1+z)/(1+f_esc_z0))^beta, capped at 1 "
                          "(tools/analysis/emissivity.py); 0: constant f_esc")
     ap.add_argument("--f-esc-z0", type=float, default=6.0)
-    ap.add_argument("--restart-every", type=int, default=1)
+    ap.add_argument("--restart-every", type=int, default=10)
     ap.add_argument("--recomb-case", default="B", choices=("A", "B"),
                     help="recombination case (docs/recomb_radiation.md). Default B: on the spot, "
                          "the original (user decision 2026-10-12, so that the production "
@@ -116,9 +117,10 @@ def main():
                          "after the transport, so they are absorbed in their own cell first "
                          "(moment_inject; default 1, docs/rt_moments.md); 0: before, the original "
                          "order, which leaves dense source cells neutral")
-    ap.add_argument("--data-files", default="norays", choices=("all", "norays", "dm", "gas"),
-                    help="files of the zdata1 snapshots besides the fields: norays (DM, Gas, "
-                         "RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
+    ap.add_argument("--data-files", default="nodm", choices=("all", "norays", "nodm", "dm", "gas"),
+                    help="files of the zdata1 snapshots besides the fields: nodm (default, user "
+                         "decision 2026-10-18: Gas and RT/rt_grid, no particles; they stay in "
+                         "the checkpoints), norays (DM, Gas, RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
                          "the source-start mean free path), dm (only the particles: 26 GB "
                          "per output at 1024^3, docs/pm_refine.md)")
     ap.add_argument("--restart-keep", type=int, default=0,
@@ -169,6 +171,14 @@ def main():
                          "seed (--phases-from-ndm N); 1: the original, Ndm = N. The abundance matching (any box, "
                          "any pm_refine): --am-params data/uv_lf/am_params_st_fof.txt "
                          "(docs/pm_refine.md section 6)")
+    ap.add_argument("--ndm", type=int, default=0,
+                    help="dark-matter particles per dimension (default 0: pm_refine*N); must divide "
+                         "the mesh pm_refine*N, e.g. --pm-refine 4 --ndm 1024 at N = 512 (the 2048^3 "
+                         "mesh with 1024^3 particles; ICs with --phases-from-ndm N when ndm > N)")
+    ap.add_argument("--pm-gas-levels", type=int, default=1, choices=(0, 1),
+                    help="with --amrex-max-level > 0: the refined gas levels enter the PM deposit and "
+                         "kick (pm_gas_levels, docs/stage_f.md section 4; default 1, no line written); "
+                         "0: the level-0 coupling")
     ap.add_argument("--backend", default="serial", choices=("serial", "amrex"),
                     help="amrex: the AMReX RT, hydro and PM backends with the state on the levels "
                          "and load balancing (rt/hydro/pm_backend = amrex, amrex_state = 1, "
@@ -186,7 +196,9 @@ def main():
         a.c_schedule = "none" if a.c_reduced is not None else "0.1,0.25,0.2,0.5,0.3,0.75,0.5"
     if a.c_reduced is None:
         a.c_reduced = 0.01 if a.c_schedule in ("", "none") else float(a.c_schedule.split(",")[0])
-    ndm = a.pm_refine * a.N
+    ndm = a.ndm if a.ndm > 0 else a.pm_refine * a.N
+    if (a.pm_refine * a.N) % ndm:
+        sys.exit(f"--ndm {ndm} must divide the PM mesh pm_refine*N = {a.pm_refine * a.N}")
     if a.backend == "amrex":
         if a.hydro_scheme != "unsplit":
             sys.exit("--backend amrex needs --hydro-scheme unsplit")
@@ -206,7 +218,7 @@ def main():
         cmd = [sys.executable, os.path.join(here, "..", "ics", "make_ics.py"), ics,
                "--kind", "zeldovich", "--Ngas", str(a.N), "--Ndm", str(ndm),
                "--z-init", str(a.z_init), "--box", str(a.box), "--seed", str(a.seed)]
-        if a.pm_refine > 1:
+        if ndm > a.N:
             cmd += ["--phases-from-ndm", str(a.N)]
         subprocess.run(cmd, check=True)
     lines = [
@@ -284,6 +296,8 @@ def main():
         lines.append(f"amrex_max_level = {a.amrex_max_level}")
         if a.amrex_refine_mass != 8.0:
             lines.append(f"amrex_refine_mass = {a.amrex_refine_mass:g}")
+        if a.pm_gas_levels != 1:
+            lines.append(f"pm_gas_levels = {a.pm_gas_levels}")
     if a.sf_overdensity > 0:
         lines.append(f"sf_overdensity = {a.sf_overdensity:g}")
         if a.sf_efficiency != 1.0:

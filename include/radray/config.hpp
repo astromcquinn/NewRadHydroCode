@@ -292,6 +292,31 @@ struct Config {
   int amrex_slab_planes = 0;
   int amrex_moment_stats = 0;  // 0 exact, 1 fixed
   int amrex_moment_fft_threads = 0;  // threads of the OTVET FFT plans (0: OpenMP's)
+  //   amrex_split_on_entry: 1 = a ray moved down to a finer level (Stage F3)
+  //                is split on arrival as often as its new radius needs
+  //                (r <= r_max(nside)), keeping its radius (no clamp to
+  //                r_min + cells, which pulled the children back toward the
+  //                source when they split at the next substep), if it is above
+  //                the level's split threshold; 0 (default) = the next
+  //                substep's split, as before (default 1 since 2026-10-20,
+  //                user decision; it only acts with amrex_max_level > 0)
+  int amrex_split_on_entry = 1;
+  //   amrex_ghost_rule: a refined level's ray in a ghost cell outside the
+  //                level (Stage F3): 3 = conserve (default since 2026-10-21,
+  //                user decision; see below); 0 = sqrt (before): the
+  //                ray loses 1 - sqrt(fgam_parent), its deposit goes to the
+  //                parent in full; 1 = parent: the ray loses 1 - fgam_parent
+  //                (photon conserving with the parent's absorption of the
+  //                deposit); 2 = half: the deposit goes to the parent with
+  //                weight 1/2 (a fine cell is half the coarse path) and the
+  //                ray keeps sqrt(fgam_parent); 3 = conserve: the deposit
+  //                goes to the parent with weight 1/(1 + sqrt(fgam_parent))
+  //                (the previous substep's), the ray keeps sqrt(fgam_parent):
+  //                the parent absorbs what the ray loses, half the path in
+  //                thin gas, the full deposit in thick gas (docs/stage_f.md
+  //                section 3: sqrt created photons just outside the level;
+  //                half loses them in thick gas)
+  int amrex_ghost_rule = 3;
 
   // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
   // in pm_backend.hpp; docs/stage_e_pm.md):
@@ -300,9 +325,18 @@ struct Config {
   //   amrex_pm_fft: fft of the Poisson solve: pencil (default; 1-D FFTW
   //                transforms per pencil, bitwise rank- and thread-
   //                independent) | amrex (the amrex::FFT::R2C solver).
+  //   pm_gas_levels: with a refined gas hierarchy (amrex_max_level > 0,
+  //                amrex_state = 1) the gas of every level enters the PM:
+  //                1 (default) the mesh takes the density of the finest
+  //                level covering each mesh cell and every level's cells
+  //                are kicked by the mesh force over their own volume
+  //                (docs/stage_f.md section 4); 0 the level-0 coupling of
+  //                Stage F1 (the fine cells get the level-0 kick through
+  //                the hydro's push-down). No effect without refinement.
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
+  int pm_gas_levels = 1;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in

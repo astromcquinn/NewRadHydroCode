@@ -39,6 +39,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -155,6 +156,61 @@ void zero(ax::Gpu::DeviceVector<Long>& v) {
 }
 
 
+// One plane through the levels' RT cells at the finest resolution (the
+// plane of amrex_rt_level_slice): each level's plane reduced onto rank 0
+// (every cell of a level has one owner, so the sum is a copy), then
+// composed coarse to fine, a coarse cell filling its fine pixels.
+template <class L>
+void slice_of_levels(const std::vector<const L*>& lv, int axis, int base_index, std::vector<float>& out, int& nf,
+                     int& finest, int& plane) {
+  constexpr int NCOMP = kLevelSliceComps;
+  finest = static_cast<int>(lv.size()) - 1;
+  const int N0 = lv[0]->N;
+  if (axis < 0 || axis > 2 || base_index < 0 || base_index >= N0)
+    throw std::runtime_error("fields_levels: the axis must be x, y or z and the index within 0..N-1");
+  const int F = 1 << finest;
+  nf = N0 * F;
+  plane = base_index * F + F / 2;
+  const int ia = axis == 0 ? 1 : 0, ib = axis == 2 ? 1 : 2;  // the in-plane axes, ia < ib
+  const bool io = ax::ParallelDescriptor::IOProcessor();
+  const int root = ax::ParallelDescriptor::IOProcessorNumber();
+  const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+  if (io) out.assign(static_cast<std::size_t>(NCOMP) * nf * nf, 0.0f);
+  for (int l = 0; l <= finest; ++l) {
+    const L& V = *lv[static_cast<std::size_t>(l)];
+    const int Nl = V.N, sh = finest - l, pl = plane >> sh;
+    std::vector<float> buf(static_cast<std::size_t>(NCOMP) * Nl * Nl, 0.0f);  // 5 fields + coverage
+    for (ax::MFIter mfi(V.C); mfi.isValid(); ++mfi) {
+      const ax::Box bx = mfi.validbox();
+      if (pl < bx.smallEnd(axis) || pl > bx.bigEnd(axis)) continue;
+      ax::Box b2 = bx;
+      b2.setSmall(axis, pl);
+      b2.setBig(axis, pl);
+      auto c = V.C.const_array(mfi);
+      const auto lo = ax::lbound(b2), hi = ax::ubound(b2);
+      for (int k = lo.z; k <= hi.z; ++k)
+        for (int j = lo.y; j <= hi.y; ++j)
+          for (int i = lo.x; i <= hi.x; ++i) {
+            const int ijk[3] = {i, j, k};
+            float* q = buf.data() + (static_cast<std::size_t>(ijk[ia]) + static_cast<std::size_t>(Nl) * ijk[ib]) * NCOMP;
+            for (int m = 0; m < 5; ++m) q[m] = cf(c, i, j, k, m);
+            q[5] = 1.0f;
+          }
+    }
+    MPI_Reduce(io ? MPI_IN_PLACE : buf.data(), buf.data(), static_cast<int>(buf.size()), MPI_FLOAT, MPI_SUM, root,
+               comm);
+    if (!io) continue;
+    for (int fb = 0; fb < nf; ++fb)
+      for (int fa = 0; fa < nf; ++fa) {
+        const float* q = buf.data() + (static_cast<std::size_t>(fa >> sh) + static_cast<std::size_t>(Nl) * (fb >> sh)) * NCOMP;
+        if (!(q[5] > 0)) continue;
+        float* o = out.data() + (static_cast<std::size_t>(fa) + static_cast<std::size_t>(nf) * fb) * NCOMP;
+        for (int m = 0; m < 5; ++m) o[m] = q[m];
+        o[5] = static_cast<float>(l);
+      }
+  }
+}
+
 template <class Enc>
 struct Level : LevelBase {
   using RayPC = ax::ParticleContainerPureSoA<Enc::kNR, Enc::kNI>;
@@ -177,6 +233,10 @@ struct Level : LevelBase {
   bool in_hierarchy = false;
   std::unique_ptr<ax::iMultiFab> covered, in_patch;
   std::vector<RayP> leaving;
+  rrk::RTP last_P;  // the kernel parameters of the last substep (amrex_split_on_entry)
+  bool have_last_P = false;
+  mutable Long nsplit_entry = 0;  // splits of arriving rays on this rank (amrex_split_on_entry)
+  Long nsplit_entry_total = 0;    // summed over the ranks at each post
   Long sv_loc[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
   Long cmax_loc[3] = {0, 0, 0};
   i128 stats_loc[kSNstat] = {};
@@ -339,10 +399,47 @@ struct Level : LevelBase {
     }
   }
   // Rays (in this level's units) appended to this rank's first tile and
-  // moved to their owners (global; also drops the invalidated rays).
-  // Collective.
-  void add_rays(const std::vector<RayP>& in) {
+  // moved to their owners (global; also drops the invalidated rays). A rank
+  // without a box of this level (a refined level with fewer boxes than
+  // ranks: rays parked or leaving from a finer level) hands its rays to the
+  // owner of box 0 first. Collective.
+  void add_rays(const std::vector<RayP>& in_) {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const std::vector<RayP>* inp = &in_;
+    std::vector<RayP> gathered;
+    {
+      const bool have_box = ax::MFIter(C).isValid();
+      int need = (!in_.empty() && !have_box) ? 1 : 0;
+      ax::ParallelDescriptor::ReduceIntMax(need);
+      if (need) {
+        const int nproc = ax::ParallelDescriptor::NProcs();
+        const int owner = dm[0];
+        const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+        const int nsend = have_box ? 0 : static_cast<int>(in_.size() * sizeof(RayP));
+        std::vector<int> counts(static_cast<std::size_t>(nproc), 0), displ(static_cast<std::size_t>(nproc), 0);
+        MPI_Gather(&nsend, 1, MPI_INT, counts.data(), 1, MPI_INT, owner, comm);
+        std::size_t total = 0;
+        if (ax::ParallelDescriptor::MyProc() == owner)
+          for (int r = 0; r < nproc; ++r) {
+            displ[static_cast<std::size_t>(r)] = static_cast<int>(total);
+            total += static_cast<std::size_t>(counts[static_cast<std::size_t>(r)]);
+          }
+        if (total > static_cast<std::size_t>(INT32_MAX))
+          throw std::runtime_error("rt_backend = amrex: add_rays: more than 2 GB of rays to hand over");
+        if (ax::ParallelDescriptor::MyProc() == owner) {
+          gathered = in_;
+          gathered.resize(in_.size() + total / sizeof(RayP));
+        }
+        char* recv = ax::ParallelDescriptor::MyProc() == owner
+                         ? reinterpret_cast<char*>(gathered.data() + in_.size())
+                         : nullptr;
+        MPI_Gatherv(have_box ? nullptr : in_.data(), nsend, MPI_BYTE, recv, counts.data(), displ.data(), MPI_BYTE,
+                    owner, comm);
+        static const std::vector<RayP> none;
+        inp = ax::ParallelDescriptor::MyProc() == owner ? &gathered : (have_box ? &in_ : &none);
+      }
+    }
+    const std::vector<RayP>& in = *inp;
     if (!in.empty()) {
       ax::MFIter mfi(C);
       if (!mfi.isValid()) throw std::runtime_error("rt_backend = amrex: a rank with rays to add but no box");
@@ -835,6 +932,8 @@ struct Level : LevelBase {
                  s.rays.npool_forced, s.raylog, rrk::nray_from_nside(rrk::emit_nside(cells)));
     }
     const rrk::RTP P = params_of(s);
+    last_P = P;  // amrex_split_on_entry: the level's thresholds for arriving rays
+    have_last_P = true;
     double t2 = now();
     T.hist += t2 - t1b;
     s.timers.calc_ray1 += t2 - t1b;
@@ -1676,6 +1775,10 @@ struct Level : LevelBase {
     }
   }
 
+  void level_slice(int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
+                   int& plane) const override {
+    slice_of_levels(std::vector<const Level*>{this}, axis, base_index, out, nf, finest, plane);
+  }
   std::string timers() const override {
     char buf[512];
     std::snprintf(buf, sizeof buf,
@@ -1686,6 +1789,7 @@ struct Level : LevelBase {
                   T.prep, T.cell, T.hist, T.step1, T.cast1, T.phys, T.cast3, T.sort, T.migrate, T.post, T.sync,
                   T.fillbnd, T.sumbnd, T.zero, T.bins, T.gather, T.writeback, T.depred,
                   static_cast<long long>(ray_substeps));
+    if (nsplit_entry_total > 0) return std::string(buf) + "; splits on entry " + std::to_string(nsplit_entry_total);
     return buf;
   }
 };
@@ -1738,18 +1842,82 @@ struct Hierarchy : LevelBase {
         levels[static_cast<std::size_t>(l)] = std::move(nl);
       else
         levels.push_back(std::move(nl));
-      levels[static_cast<std::size_t>(l) - 1]->add_rays(parked);  // (empty on most ranks: collective)
+      place_rays(l - 1, parked);  // (empty on most ranks: collective)
     }
     while (static_cast<int>(levels.size()) > nf + 1) {
       std::vector<RayP> parked;
       levels.back()->take_all(parked);
       levels.pop_back();
-      levels.back()->add_rays(parked);
+      place_rays(static_cast<int>(levels.size()) - 1, parked);
     }
     finest = nf;
     for (int l = 0; l <= finest; ++l)
       levels[static_cast<std::size_t>(l)]->set_covered(l < finest ? &levels[static_cast<std::size_t>(l) + 1]->ba : nullptr);
     migrate();
+  }
+
+  // Rays (in level-l units) onto level l, or, where level l has no grid
+  // there, onto the next coarser level that has one (level 0 covers the
+  // domain): a regrid can park rays where the rebuilt parent has no grid,
+  // and a ray leaving a deep level moves up to 2^l + 1 of its cells, which
+  // can carry it past a thin nesting margin (AMReX aborts on a particle
+  // outside every box of its level: fesc512_b2.5_amr, 2026-10-17). The
+  // rays that go down again do so at the next migration's collect_down.
+  // Collective; the coarser levels are visited only when some rank has a
+  // ray for them.
+  void place_rays(int l, std::vector<RayP> rays) {
+    for (int k = l;; --k) {
+      std::vector<RayP> up;
+      if (k > 0) {
+        const L& Lk = *levels[static_cast<std::size_t>(k)];
+        const int Nk = Lk.N;
+        std::vector<RayP> keep;
+        keep.reserve(rays.size());
+        for (const RayP& r : rays) {
+          const ax::IntVect iv(rrk::cell_of(r.x[0], Nk), rrk::cell_of(r.x[1], Nk), rrk::cell_of(r.x[2], Nk));
+          if (Lk.ba.contains(iv))
+            keep.push_back(r);
+          else
+            up.push_back(L::rescaled(r, 0.5));
+        }
+        rays.swap(keep);
+      }
+      levels[static_cast<std::size_t>(k)]->add_rays(rays);
+      if (k == 0) break;
+      Long nup = static_cast<Long>(up.size());
+      ax::ParallelDescriptor::ReduceLongSum(nup);
+      if (nup == 0) break;
+      rays.swap(up);
+    }
+  }
+
+  // amrex_split_on_entry: rays arriving on level F (in its units, their
+  // radius doubled per level crossed) split while r > r_max(nside) and
+  // their photons are above F's split threshold (ngam_ray32 of its last
+  // substep), keeping r: the kernel's split clamps r to [r_min, r_min +
+  // cells] of the new nside, which assumes a ray at most one substep past
+  // its split radius and pulls a ray that arrived far past it back toward
+  // its source by up to r_max(nside) - cells. Local to each rank.
+  void split_on_entry(const L& F, std::vector<RayP>& rays) {
+    if (!F.have_last_P || rays.empty()) return;
+    rrk::RTP P = F.last_P;
+    P.cells = 1 << 30;  // no clamp: the arriving radius is valid for the new nside
+    std::vector<RayP> out, work;
+    out.reserve(rays.size());
+    work.swap(rays);
+    while (!work.empty()) {
+      RayP r = work.back();
+      work.pop_back();
+      if (r.dr < 0 && r.nside < rayp::nside_max && rrk::sum_ngam(r) > P.ngam_ray32) {
+        RayP child[4];
+        rrk::split(r, P, child);
+        for (const RayP& c : child) work.push_back(c);
+        ++F.nsplit_entry;
+      } else {
+        out.push_back(r);
+      }
+    }
+    rays.swap(out);
   }
 
   // Rays that left a refined level go up, rays under a finer level go down
@@ -1759,13 +1927,18 @@ struct Hierarchy : LevelBase {
       L& Ll = *levels[static_cast<std::size_t>(l)];
       std::vector<RayP> up;
       up.swap(Ll.leaving);
-      levels[static_cast<std::size_t>(l) - 1]->add_rays(up);
+      place_rays(l - 1, up);
     }
     for (int l = 0; l < finest; ++l) {
       std::vector<RayP> down;
       levels[static_cast<std::size_t>(l)]->collect_down(down);
       levels[static_cast<std::size_t>(l)]->pc->Redistribute();  // drops the invalidated rays
-      levels[static_cast<std::size_t>(l) + 1]->add_rays(down);
+      if (cfg.amrex_split_on_entry) {
+        split_on_entry(*levels[static_cast<std::size_t>(l) + 1], down);
+        place_rays(l + 1, down);  // a child may land outside the level's grids
+      } else {
+        levels[static_cast<std::size_t>(l) + 1]->add_rays(down);
+      }
     }
   }
 
@@ -1791,10 +1964,12 @@ struct Hierarchy : LevelBase {
       auto inp = F.in_patch->const_array(mfi);
       const ax::Box gbx = ax::grow(mfi.validbox(), F.ng);
       const bool tau = c0 == 0;
+      const bool parent_fgam = cfg.amrex_ghost_rule == 1;  // the ray loses what the parent absorbs
       ax::ParallelForOMP(gbx, nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
         if (inp(i, j, k)) return;
         const float v = pc_(i >> 1, j >> 1, k >> 1, m);
-        tf(i, j, k, c0 + m) = tau ? 0.5f * v : static_cast<float>(std::sqrt(static_cast<double>(v)));
+        tf(i, j, k, c0 + m) = tau ? 0.5f * v
+                                  : (parent_fgam ? v : static_cast<float>(std::sqrt(static_cast<double>(v))));
       });
     }
   }
@@ -1855,6 +2030,49 @@ struct Hierarchy : LevelBase {
     gba.grow(F.ng);
     gba.coarsen(2);
     LFab up(gba, F.dm, ND, 0);
+    const bool half = cfg.amrex_ghost_rule == 2;  // a fine cell is half the coarse path
+    if (cfg.amrex_ghost_rule == 3) {
+      // conserve: the deposit of a fine ray in a ghost cell outside its level
+      // goes to the parent with weight w = 1/(1 + sqrt(fgam)) per frequency
+      // group (fgam: the parent cell's transmitted fraction of the previous
+      // substep), so that the parent absorbs (1 - fgam) w = 1 - sqrt(fgam) of
+      // it, exactly what the ray loses there (its ghost fgam is sqrt(fgam)):
+      // w -> 1/2 in thin gas (a fine cell is half the coarse path), -> 1 in
+      // thick gas. The direction components (dx sum(ngam)) take the
+      // photon-weighted mean of the groups' w.
+      FFab Pf(gba, F.dm, 5, 0);
+      Pf.ParallelCopy(P.TF, 5, 0, 5, 0, 0, P.period);
+      for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
+        auto u = up.array(mfi);
+        auto a = F.A.const_array(mfi);
+        auto inp = F.in_patch->const_array(mfi);
+        auto pf = Pf.const_array(mfi);
+        const ax::Box gbx = ax::grow(ax::refine(mfi.validbox(), 2), 0) & ax::grow(F.ba[mfi.index()], F.ng);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          Long sum[ND];
+          for (int m = 0; m < ND; ++m) sum[m] = 0;
+          for (int kk = 0; kk < 2; ++kk)
+            for (int jj = 0; jj < 2; ++jj)
+              for (int ii = 0; ii < 2; ++ii) {
+                const int fi = 2 * i + ii, fj = 2 * j + jj, fk = 2 * k + kk;
+                if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
+                for (int m = 0; m < ND; ++m) sum[m] += a(fi, fj, fk, m);
+              }
+          double w[5], wn = 0, n = 0;
+          for (int g = 0; g < 5; ++g) {
+            const double f = std::min(1.0, std::max(0.0, static_cast<double>(pf(i, j, k, g))));
+            w[g] = 1.0 / (1.0 + std::sqrt(f));
+            wn += w[g] * static_cast<double>(sum[g]);
+            n += static_cast<double>(sum[g]);
+          }
+          const double wdx = n > 0 ? wn / n : 0.5;
+          for (int m = 0; m < ND; ++m) {
+            const double wm = m < 5 ? w[m] : (m < 10 ? w[m - 5] : wdx);
+            u(i, j, k, m) = static_cast<Long>(std::llround(static_cast<double>(sum[m]) * wm / 8));
+          }
+        });
+      }
+    } else
     for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
       auto u = up.array(mfi);
       auto a = F.A.const_array(mfi);
@@ -1869,7 +2087,8 @@ struct Hierarchy : LevelBase {
               if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
               sum += a(fi, fj, fk, m);
             }
-        u(i, j, k, m) = (sum + (sum >= 0 ? 4 : -4)) / 8;  // per the parent's volume, rounded
+        u(i, j, k, m) = half ? (sum + (sum >= 0 ? 8 : -8)) / 16  // and half the path
+                             : (sum + (sum >= 0 ? 4 : -4)) / 8;  // per the parent's volume, rounded
       });
     }
     P.A.ParallelCopy(up, 0, 0, ND, 0, 0, P.period, ax::FabArrayBase::ADD);
@@ -1991,8 +2210,18 @@ struct Hierarchy : LevelBase {
       }
       if (lev == 0) continue;  // the base cell emits as before
       const double share = q.L / lsum[gc];
-      const float Luv = static_cast<float>(static_cast<double>(G.Luv[static_cast<std::size_t>(gc)]) * share);
-      const float sfr = static_cast<float>(static_cast<double>(G.sfr[static_cast<std::size_t>(gc)]) * share);
+      // the cell's Luv and sfr from calc_halo's sparse list (the ranks other
+      // than 0 hold no dense Luv / sfr with amrex_state = 1); 0 if absent,
+      // as the dense grid
+      float gLuv = 0.0f, gsfr = 0.0f;
+      const auto it = std::lower_bound(G.src_cell.begin(), G.src_cell.end(), gc);
+      if (it != G.src_cell.end() && *it == gc) {
+        const std::size_t n = static_cast<std::size_t>(it - G.src_cell.begin());
+        gLuv = G.src_Luv[n];
+        gsfr = G.src_sfr[n];
+      }
+      const float Luv = static_cast<float>(static_cast<double>(gLuv) * share);
+      const float sfr = static_cast<float>(static_cast<double>(gsfr) * share);
       L& Ll = *levels[static_cast<std::size_t>(lev)];
       int cl[3];
       for (int d = 0; d < 3; ++d) cl[d] = rrk::cell_of(q.x[d] * (1 << lev), N0 << lev);
@@ -2034,6 +2263,12 @@ struct Hierarchy : LevelBase {
     double ngam_total = 0;
     std::int64_t nray = 0;
     for (std::size_t l = 0; l < levels.size(); ++l) {
+      if (cfg.amrex_split_on_entry) {  // collective, every rank
+        Long n = levels[l]->nsplit_entry;
+        ax::ParallelDescriptor::ReduceLongSum(n);
+        levels[l]->nsplit_entry_total += n;
+        levels[l]->nsplit_entry = 0;
+      }
       levels[l]->post(s);
       ngam_total += s.ngam_total_backend / std::ldexp(1.0, 3 * static_cast<int>(l));
       nray += s.rays.Nray;
@@ -2042,6 +2277,12 @@ struct Hierarchy : LevelBase {
     s.rays.Nray = nray;
     average_down();
     amrex_hydro_level0_is_current();  // the hydro must not push this change down again
+  }
+  void level_slice(int axis, int base_index, std::vector<float>& out, int& nf, int& fin,
+                   int& plane) const override {
+    std::vector<const L*> lv;
+    for (int l = 0; l <= finest; ++l) lv.push_back(levels[static_cast<std::size_t>(l)].get());
+    slice_of_levels(lv, axis, base_index, out, nf, fin, plane);
   }
   void sync_fields(Simulation& s) override { base().sync_fields(s); }
   void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
@@ -2185,13 +2426,15 @@ void backend_finalize() {
   amrex::Finalize();
   g_initialized = false;
 }
+void backend_abort(int code) {
+  if (!g_initialized || amrex::ParallelDescriptor::NProcs() <= 1) return;
+  std::fflush(stdout);
+  std::fflush(stderr);
+  MPI_Abort(MPI_COMM_WORLD, code);
+}
 bool io_rank() { return !g_initialized || amrex::ParallelDescriptor::IOProcessor(); }
 int backend_rank() { return g_initialized ? amrex::ParallelDescriptor::MyProc() : 0; }
 int backend_nranks() { return g_initialized ? amrex::ParallelDescriptor::NProcs() : 1; }
-void backend_abort(int code) {
-  if (amrex::Initialized() && amrex::ParallelDescriptor::NProcs() > 1) amrex::ParallelDescriptor::Abort(code, false);
-}
-
 void backend_barrier() {
   if (g_initialized) amrex::ParallelDescriptor::Barrier();
 }
@@ -2215,6 +2458,10 @@ void backend_bcast_bytes(void* p, std::size_t n) {
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
 void amrex_state_gather_rt_movie(Simulation& s) { level_of(s).gather_movie(s); }
+void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
+                          int& plane) {
+  level_of(s).level_slice(axis, base_index, out, nf, finest, plane);
+}
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }

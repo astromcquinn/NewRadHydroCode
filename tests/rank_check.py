@@ -39,7 +39,12 @@ def main():
     files = sorted(os.path.relpath(f, outs[base])
                    for f in glob.glob(os.path.join(outs[base], "**", "*"), recursive=True)
                    if os.path.isfile(f) and os.path.basename(f) not in SKIP
-                   and not os.path.relpath(f, outs[base]).startswith("Log/"))
+                   and not os.path.relpath(f, outs[base]).startswith("Log/")
+                   # the refined levels' VisMF files (<checkpoint>.amr/) hold
+                   # the hierarchy's grids, which it chops per rank count, and
+                   # one data file per writing rank: a layout, not a result
+                   # (the restart tests read them back bit-identically)
+                   and ".amr" + os.sep not in os.path.relpath(f, outs[base]))
     bad = []
     for npr, o in outs.items():
         if npr == base:
