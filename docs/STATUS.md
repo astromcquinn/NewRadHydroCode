@@ -295,9 +295,18 @@ the set is done).
   FFTs ran on one thread; the worktree's fresh build (`radhydro_interp`)
   has `libfftw3f_omp`. The probe's 220–235 s per PM step was this too.
   The continuous set is consistent within itself (one binary); the
-  cost table of the report uses it. Running: the
-  base (z = 5.80 at 15 h), case A + RR (z = 6.57), split (z = 5.17),
-  screen and cone (started 03:50–03:59).
+  cost table of the report uses it.
+- **Continuous set: OTVET split done 2026-10-22 05:00** (10 h 38 min;
+  z50 = 6.94, z90 = 5.98, z99 = 5.64, τ = 0.0594; RT 7.5 h) and **the base
+  done 12:41** (job 42114332, 23 h 52 min, peak RSS 475 GB; RT 16.4 h, PM
+  1.9 h, I/O 4.4 h; `DONE` at z = 4.99). Base history: z10 = 10.28, z25 =
+  8.02, **z50 = 6.94, z90 = 5.94, z99 = 5.58**, z99.9 = 5.46, **τ_es =
+  0.0591**, within 0.02 of the step-schedule base. Across the former
+  switch points Γ_V now moves by 4–5 % per step (7.62 → 7.96 ×10⁻¹⁴ at
+  step 63, 1.24 → 1.29 ×10⁻¹³ at step 74) instead of ×1.46 and ×1.71. IGM
+  diagnostics: job 42163385 (`$RUNS/rt_methods_512/igm_base_interp/`).
+  Running: case A + RR (z = 5.54 at 19 h), screen (z = 5.24), cone
+  (z = 5.38).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
