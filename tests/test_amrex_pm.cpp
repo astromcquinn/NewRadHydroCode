@@ -260,7 +260,7 @@ void test_momentum() {
       amrex_pm_step_unsplit(s, u.data(), nullptr, 1e-3, clk, un);
     else
       amrex_pm_step(s, u.data(), v.data(), clk, un);
-    const double mdm = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;
+    const double mdm = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;
     const int r = cs.r;
     double P[3] = {0, 0, 0}, sabs = 0;
     for (std::int64_t ip = 1; ip <= s.pc.Npart; ++ip)

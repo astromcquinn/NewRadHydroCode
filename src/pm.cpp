@@ -33,7 +33,7 @@ namespace {
 // pm_tools.f90: cic_mass_assignment, local parameter
 //   mass = (1-omegab/omegam)*N_dm_gas_c
 // (N_dm_gas_c = (Nm/Ndm)^3: the PM mesh is the gas grid in the original)
-inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.N_dm_m_c; }
+inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.dm_mass_ratio; }
 
 // CIC weights shared by cic_mass_assignment and accelerate_dm
 // (rpk::cic_weights, kernels/pm_kernels.hpp: the same arithmetic as the
@@ -113,13 +113,15 @@ inline double sinc(double x) {
 
 PMConfig PMConfig::make(int Ngas, int Ndm, bool mf, int refine) {
   if (refine < 1) throw std::runtime_error("PMConfig: pm_refine must be >= 1");
-  if (refine == 1) {
-    if (Ngas <= 0 || Ndm <= 0 || Ngas % Ndm != 0)
-      throw std::runtime_error("PMConfig: Ngas must be a positive multiple of Ndm");
-  } else if (Ngas <= 0 || Ndm <= 0 || (static_cast<std::int64_t>(refine) * Ngas) % Ndm != 0) {
-    throw std::runtime_error("PMConfig: the PM mesh pm_refine*Ngas must be a positive "
-                             "multiple of Ndm");
-  }
+  // the mesh a multiple of Ndm (the original: N_dm_gas particles' spacings
+  // per cell), or Ndm a multiple of the mesh (more particles than mesh
+  // cells: the zoom tests of pm_level_solve, docs/stage_g.md, whose refined
+  // levels resolve them)
+  const std::int64_t nm = static_cast<std::int64_t>(refine) * Ngas;
+  if (Ngas <= 0 || Ndm <= 0 || (nm % Ndm != 0 && Ndm % nm != 0))
+    throw std::runtime_error(refine == 1 ? "PMConfig: Ngas must be a positive multiple of Ndm, or Ndm of Ngas"
+                                         : "PMConfig: the PM mesh pm_refine*Ngas must be a positive "
+                                           "multiple of Ndm, or Ndm of the mesh");
   if (Ngas % 2 != 0) throw std::runtime_error("PMConfig: Ngas must be even");
   PMConfig c;
   c.Ngas = Ngas;
@@ -134,9 +136,10 @@ PMConfig PMConfig::make(int Ngas, int Ndm, bool mf, int refine) {
   c.ngasr = Ngas;
   c.ndmr = Ndm;
   c.nmr = c.Nm;
-  c.N_dm_m = c.Nm / Ndm;
+  c.N_dm_m = c.Nm / Ndm;  // 0 with more particles than mesh cells
   c.N_dm_m_c = c.N_dm_m * c.N_dm_m * c.N_dm_m;
-  c.x_dm_m = c.N_dm_m;
+  c.x_dm_m = static_cast<double>(c.Nm) / Ndm;
+  c.dm_mass_ratio = c.x_dm_m * c.x_dm_m * c.x_dm_m;
   c.x_dm_gas = static_cast<double>(Ngas) / Ndm;
   c.mf = mf;
   return c;

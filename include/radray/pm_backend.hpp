@@ -49,6 +49,14 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
 // potential, as calc_gravity_field leaves it) and s.fmesh (fmesh_valid =
 // true), so the host's force_at and gas_force read the backend's mesh.
 void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor);
+// pm_level_solve tests (docs/stage_g.md): after amrex_pm_fields, the force
+// a particle at each position of xs (DM-grid units, 3 per point) would
+// receive from the finest level covering it, in level-0 mesh units (what
+// kick_dm adds to its velocity times x_dm_m / dt_sim), 3 per point into F.
+// Collective; the result on every rank. levels (optional): the level each
+// point's force came from.
+void amrex_pm_force_at(pm::PMState& s, const std::vector<float>& xs, std::vector<double>& F,
+                       std::vector<int>* levels = nullptr);
 // One line of the backend's phase timers ("" without the level)
 std::string amrex_pm_timers(const pm::PMState& s);
 // amrex_state = 1 (amrex_state.hpp, docs/stage_e_state.md): the particles

@@ -62,7 +62,7 @@ At the start of a session, read:
 | `include/radray/`, `src/` | C++17 library, namespace `radray` |
 | `apps/rt_driver.cpp` | RT only (`docs/validation_spec.md`) |
 | `src/rt_moments.cpp` | moment RT, `rt_method = m1 \| otvet` (`docs/rt_moments.md`) |
-| `src/amrex/` | the AMReX backends: `rt_level.cpp` (`rt_backend = amrex`, `docs/stage_d.md`), `pm_level.cpp` (`pm_backend = amrex`, `docs/stage_e_pm.md`), stubs for builds without AMReX |
+| `src/amrex/` | the AMReX backends: `rt_level.cpp` (`rt_backend = amrex`, `docs/stage_d.md`), `pm_level.cpp` (`pm_backend = amrex`, `docs/stage_e_pm.md`; the level Poisson solve `pm_level_solve`, `docs/stage_g.md`), stubs for builds without AMReX |
 | `apps/hydro_driver.cpp` | hydro only |
 | `apps/pm_driver.cpp` | PM gravity only |
 | `apps/radhydro.cpp` | full `radhydro.f90` loop (`docs/full_run.md`) |

@@ -33,6 +33,19 @@
 // u_gas/v_gas: each rank writes its own cells into a zeroed array, then an
 // MPI bitwise-OR all-reduce; exact). The level holds no state between
 // steps, so checkpoints and restarts are the host's.
+//
+// Stage G (pm_level_solve = 1, docs/stage_g.md): with a refined gas
+// hierarchy the particles live on the finest level covering them (one
+// ParticleContainer with the hierarchy's levels, Redistribute by level),
+// every level deposits its own particles and gas on its own mesh (the
+// level's gas boxes refined by pm_refine, dx = 2^-l level-0 mesh cells),
+// the deposits are restricted onto the parents (so level 0 sees all the
+// mass), level 0 keeps the FFT and each refined level solves
+// lap phi = (2a/3)(rho - mean) with AMReX's MLMG (MLPoisson, Dirichlet
+// values from the parent's potential, a fixed number of V-cycles, the
+// smoother as the bottom solver: every operation is per cell, so the solve
+// is bitwise rank-independent), then the 4-point gradient and the kicks on
+// each level. See FineMesh below.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -50,9 +63,13 @@
 #include <AMReX_FabArray.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_GpuComplex.H>
+#include <AMReX_MLMG.H>
+#include <AMReX_MLPoisson.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_ParticleLocator.H>
 #include <AMReX_Particles.H>
+#include <AMReX_iMultiFab.H>
 #include <fftw3.h>
 #ifdef AMREX_USE_OMP
 #include <omp.h>
@@ -142,6 +159,7 @@ inline int thread_id() { return 0; }
 struct Timers {
   double prep = 0, drift = 0, deposit = 0, sumbnd = 0, fft = 0, force = 0, kick_dm = 0, kick_gas = 0, gather = 0;
   double d_fine = 0, k_fine = 0;  // pm_gas_levels: the refined levels' deposit and kick (+ average-down)
+  double sync = 0, d_lev = 0, solve = 0, f_lev = 0, k_lev = 0;  // pm_level_solve: the refined levels
   double g_vwrite = 0, g_vred = 0, g_vcopy = 0, g_gas = 0, g_pot = 0, p_locate = 0, p_fill = 0;
   Long steps = 0;
 };
@@ -293,6 +311,86 @@ struct PencilFFT {
 };
 
 // ---------------------------------------------------------------------------
+// pm_level_solve (Stage G): a refined level's mesh
+// ---------------------------------------------------------------------------
+//
+// Level l (1..max_level) of the gas hierarchy (gs::GasState::fine[l - 1])
+// gets a PM mesh of its gas boxes refined by pm_refine: Nm 2^l cells per
+// dimension in the periodic domain, dx = 2^-l level-0 mesh cells. Its
+// particles are those of the hierarchy's ParticleContainer at level l (the
+// finest level whose boxes hold the particle's home cell). Deposits are in
+// int64 fixed point as on level 0, in density units (mass per level-0
+// mesh-cell volume: a particle of mass m in a level-l cell is a density
+// m 8^l), with `bits` fractional bits: 38 to level 2 and 3 fewer per level
+// below (26 at most), so that the range (2^(63-bits) per cell) holds the
+// deep levels' densities; the parent's value is the sum of the 8 children
+// (exact when the bits differ by 3). own = the CIC deposit of the level's
+// own particles (after SumBoundary), tot = own + the restricted deposits of
+// the finer levels + the finer levels' ghost deposits that fell outside
+// them (their mass lumped into the adjacent parent cell). The density the
+// level solves is gas + tot + own(parent) prolonged (the parent-level
+// particles whose CIC cloud reaches into the level).
+struct FineMesh {
+  int lev = 0;
+  int bits = kDensBits;
+  ax::Box domain;
+  ax::Geometry geom;
+  ax::Periodicity period;
+  ax::BoxArray ba, bag;  // the mesh (the level's gas boxes refined by pm_refine), the gas boxes
+  ax::DistributionMapping dm;
+  FFab pot, frc, gas;
+  LFab acc, own, tot;
+  ax::iMultiFab cov;  // 1 where a mesh cell (valid or one of the 3 ghost layers) lies in the level
+  ax::ParticleLocator<ax::DenseBins<ax::Box>> locator;
+  bool aggable = false;  // the boxes fill their bounding box (MLMG may agglomerate: deeper multigrid)
+  int mg_depth = 0;      // the multigrid coarsenings (layout-independent)
+  int iters = 0;         // the last solve: V-cycles, final / initial residual
+  double resid = 0;
+};
+
+// The fractional bits of level l's fixed-point deposits (density units)
+inline int bits_of(int l) { return std::max(26, kDensBits - 3 * std::max(0, l - 2)); }
+
+// Interpolation of a parent-level array at the centre of fine cell (i, j,
+// k), which sits at (i + 1/2)/2 - 1/2 in parent index space: 1/4 past the
+// parent cell's centre for an odd i, 1/4 before it for an even i.
+// Trilinear (the initial guess of the level solve; 2 parent ghosts):
+AMREX_FORCE_INLINE double interp_parent(const ax::Array4<const float>& q, int i, int j, int k) {
+  const int i0 = (i >> 1) - (1 - (i & 1)), j0 = (j >> 1) - (1 - (j & 1)), k0 = (k >> 1) - (1 - (k & 1));
+  const double wx = (i & 1) ? 0.25 : 0.75, wy = (j & 1) ? 0.25 : 0.75, wz = (k & 1) ? 0.25 : 0.75;
+  double v = 0;
+  for (int dk = 0; dk < 2; ++dk)
+    for (int dj = 0; dj < 2; ++dj)
+      for (int di = 0; di < 2; ++di) {
+        const double w = (di ? wx : 1 - wx) * (dj ? wy : 1 - wy) * (dk ? wz : 1 - wz);
+        v += w * static_cast<double>(q(i0 + di, j0 + dj, k0 + dk));
+      }
+  return v;
+}
+// Tri-quadratic (the potential's ghost cells outside a level, which the
+// 4-point gradient of the boundary cells and the force of the ghost layer
+// read: the trilinear error, h^2 phi''/8, is a few per cent of the force
+// 8 cells from a mass; the quadratic one is O(h^3 phi''')); the 3 parent
+// cells nearest in each direction: 3 parent ghosts around the coarsened box
+AMREX_FORCE_INLINE double interp_parent_quad(const ax::Array4<const float>& q, int i, int j, int k) {
+  const int c[3] = {i >> 1, j >> 1, k >> 1};  // the parent cell holding the fine cell
+  double w[3][3];
+  const int idx[3] = {i, j, k};
+  for (int d = 0; d < 3; ++d) {
+    const double t = (idx[d] & 1) ? 0.25 : -0.25;  // the fine centre relative to the parent centre
+    w[d][0] = t * (t - 1) / 2;
+    w[d][1] = 1 - t * t;
+    w[d][2] = t * (t + 1) / 2;
+  }
+  double v = 0;
+  for (int dk = 0; dk < 3; ++dk)
+    for (int dj = 0; dj < 3; ++dj)
+      for (int di = 0; di < 3; ++di)
+        v += w[0][di] * w[1][dj] * w[2][dk] * static_cast<double>(q(c[0] + di - 1, c[1] + dj - 1, c[2] + dk - 1));
+  return v;
+}
+
+// ---------------------------------------------------------------------------
 // The level
 // ---------------------------------------------------------------------------
 struct PMLevel {
@@ -318,6 +416,18 @@ struct PMLevel {
   bool loaded = false;            // amrex_state = 1: the particles live on the level
   bool gas_levels = false;        // pm_gas_levels: the state's refined levels enter the PM
   int lr = 0;                     // log2(pm_refine) (a power of 2 with gas_levels)
+  // pm_level_solve (Stage G): the hierarchy's depth (the particle container
+  // has max_level + 1 levels), the refined meshes in use (fm[l - 1] = level
+  // l), level 0's own and total deposits, the mean density (the k = 0 mode
+  // the FFT drops; subtracted on the refined levels), the solver settings
+  bool level_solve = false;
+  int max_level = 0;
+  int bf = 8;  // the hierarchy's blocking factor (the multigrid depth)
+  int mlmg_iters = 20, mlmg_verbose = 0;
+  double mlmg_tol = 1e-10;
+  std::vector<FineMesh> fm;
+  LFab own0, tot0;
+  double rho_mean = 0;
   Timers T;
 
   explicit PMLevel(const pm::PMConfig& pc_) {
@@ -357,15 +467,166 @@ struct PMLevel {
       if (gas_levels && (r & (r - 1)) != 0)
         throw std::runtime_error("pm_gas_levels = 1 needs pm_refine a power of 2");
       while ((1 << lr) < r) ++lr;
+      level_solve = pc_.level_solve;
+      max_level = level_solve ? pc_.max_level : 0;
+      bf = pc_.blocking_factor;
+      mlmg_iters = pc_.mlmg_iters;
+      mlmg_tol = pc_.mlmg_tol;
+      mlmg_verbose = pc_.mlmg_verbose;
+      if (level_solve && static_cast<std::int64_t>(Nm) * (std::int64_t(1) << max_level) > (std::int64_t(1) << 23))
+        throw std::runtime_error("pm_level_solve = 1: the finest mesh exceeds 2^23 cells per dimension (the "
+                                 "particle positions are floats)");
     }
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
     acc.define(ba, dm, 1, 1);
     gas.define(bag, dm, 8, 0);
-    pc = std::make_unique<PC>(geom, dm, ba);
+    if (level_solve) {
+      // the hierarchy's levels in one container: level l's domain is the
+      // mesh refined 2^l times in the same box; the refined levels get their
+      // boxes from the gas state at every step (sync_levels)
+      own0.define(ba, dm, 1, 0);
+      tot0.define(ba, dm, 1, 0);
+      ax::Vector<ax::Geometry> geoms(static_cast<std::size_t>(max_level) + 1);
+      ax::Vector<ax::DistributionMapping> dms(static_cast<std::size_t>(max_level) + 1);
+      ax::Vector<ax::BoxArray> bas(static_cast<std::size_t>(max_level) + 1);
+      ax::Vector<int> rr(static_cast<std::size_t>(max_level), 2);
+      for (int l = 0; l <= max_level; ++l)
+        geoms[static_cast<std::size_t>(l)] =
+            ax::Geometry(ax::Box(ax::IntVect(0), ax::IntVect((Nm << l) - 1)), rb, ax::CoordSys::cartesian, per);
+      bas[0] = ba;
+      dms[0] = dm;
+      pc = std::make_unique<PC>(geoms, dms, bas, rr);
+    } else {
+      pc = std::make_unique<PC>(geom, dm, ba);
+    }
     for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi)
       pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
     locator.build(ba, geom);
+  }
+
+  // ---- pm_level_solve: the levels ---------------------------------------------
+
+  int finest() const { return static_cast<int>(fm.size()); }  // the refined levels in use (0 without level_solve)
+  FFab& POT(int l) { return l == 0 ? pot : fm[static_cast<std::size_t>(l) - 1].pot; }
+  FFab& FRC(int l) { return l == 0 ? frc : fm[static_cast<std::size_t>(l) - 1].frc; }
+  FFab& GAS(int l) { return l == 0 ? gas : fm[static_cast<std::size_t>(l) - 1].gas; }
+  LFab& ACC(int l) { return l == 0 ? acc : fm[static_cast<std::size_t>(l) - 1].acc; }
+  LFab& OWN(int l) { return l == 0 ? own0 : fm[static_cast<std::size_t>(l) - 1].own; }
+  LFab& TOT(int l) { return l == 0 ? tot0 : fm[static_cast<std::size_t>(l) - 1].tot; }
+  const ax::Periodicity& PER(int l) const { return l == 0 ? period : fm[static_cast<std::size_t>(l) - 1].period; }
+  const ax::BoxArray& BA(int l) const { return l == 0 ? ba : fm[static_cast<std::size_t>(l) - 1].ba; }
+  const ax::DistributionMapping& DM(int l) const { return l == 0 ? dm : fm[static_cast<std::size_t>(l) - 1].dm; }
+  int BITS(int l) const { return l == 0 ? kDensBits : fm[static_cast<std::size_t>(l) - 1].bits; }
+  const ax::ParticleLocator<ax::DenseBins<ax::Box>>& LOC(int l) const {
+    return l == 0 ? locator : fm[static_cast<std::size_t>(l) - 1].locator;
+  }
+  // The CIC geometry of level l's mesh (Nm 2^l cells, x_dm_m 2^l mesh cells
+  // per DM-grid cell: exact scalings of level 0's)
+  rpk::MeshGeom mesh_geom(int l) const {
+    return rpk::MeshGeom{Nm << l, static_cast<double>(Nm << l), x_dm_m * static_cast<double>(1 << l)};
+  }
+  // The AMReX position of a particle at x (DM-grid units): the centre of
+  // its home cell at the finest level's resolution (max_level = 0: level
+  // 0's, as before), so that floor(pos 2^l) is the home cell at every
+  // level l; exact in float while Nm 2^max_level <= 2^23
+  AMREX_FORCE_INLINE float fpos(float x) const {
+    if (max_level == 0) return static_cast<float>(home(x)) + 0.5f;
+    const int L = max_level;
+    const int c = f::mod(f::int4(static_cast<double>(x) * x_dm_m * static_cast<double>(1 << L)), Nm << L);
+    return (static_cast<float>(c) + 0.5f) / static_cast<float>(1 << L);
+  }
+  // The home cell at level l of an AMReX position
+  static AMREX_FORCE_INLINE int home_l(float pos, int l) {
+    return static_cast<int>(std::floor(pos * static_cast<float>(1 << l)));
+  }
+  // Every particle tile of every level: f(lev, mfi) with mfi over the
+  // level's mesh FabArray
+  template <class F>
+  void for_tiles(F&& f) {
+    for (int l = 0; l <= finest(); ++l)
+      for (ax::MFIter mfi(POT(l)); mfi.isValid(); ++mfi) f(l, mfi);
+  }
+  PC::ParticleTileType& tile(int l, const ax::MFIter& mfi) {
+    return pc->DefineAndReturnParticleTile(l, mfi.index(), mfi.LocalTileIndex());
+  }
+
+  // The refined meshes from the gas state's levels (after the hydro's
+  // regrid): redefined when a level's boxes or mapping changed, and the
+  // particle container's levels set accordingly (the caller's Redistribute
+  // then moves the particles onto them). Collective.
+  bool sync_levels() {
+    if (!level_solve) return false;
+    const double t0 = now();
+    const int nf = state->finest;
+    if (nf > max_level) throw std::runtime_error("pm_level_solve: the gas state has more levels than amrex_max_level");
+    bool changed = finest() != nf;
+    for (int l = 1; l <= nf && !changed; ++l) {
+      const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      const FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
+      if (M.lev != l || !(M.bag == F.ba) || !(M.dm == F.dm)) changed = true;
+    }
+    if (!changed) {
+      T.sync += now() - t0;
+      return false;
+    }
+    const ax::RealBox rb({0., 0., 0.}, {double(Nm), double(Nm), double(Nm)});
+    const ax::Array<int, 3> per{1, 1, 1};
+    fm.resize(static_cast<std::size_t>(nf));
+    for (int l = 1; l <= nf; ++l) {
+      FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
+      const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      if (M.lev == l && M.bag == F.ba && M.dm == F.dm) continue;
+      M.lev = l;
+      M.bits = bits_of(l);
+      M.domain = ax::Box(ax::IntVect(0), ax::IntVect((Nm << l) - 1));
+      M.geom = ax::Geometry(M.domain, rb, ax::CoordSys::cartesian, per);
+      M.period = M.geom.periodicity();
+      M.bag = F.ba;
+      M.ba = F.ba;
+      M.ba.refine(r);
+      M.dm = F.dm;
+      M.pot.define(M.ba, M.dm, 1, 3);
+      M.frc.define(M.ba, M.dm, 3, 1);
+      M.gas.define(M.bag, M.dm, 8, 0);
+      M.acc.define(M.ba, M.dm, 1, 1);
+      M.own.define(M.ba, M.dm, 1, 0);
+      M.tot.define(M.ba, M.dm, 1, 0);
+      M.cov.define(M.ba, M.dm, 1, 3);
+      M.cov.setVal(0);
+      M.cov.setVal(1, 0, 1, 0);
+      M.cov.FillBoundary(M.period);
+      M.locator.build(M.ba, M.geom);
+      M.aggable = M.ba.minimalBox().numPts() == M.ba.numPts();
+      // the boxes are multiples of the blocking factor (bf gas cells = bf r
+      // mesh cells) however the rank count chops them, so log2(bf r) - 1
+      // coarsenings (to a width of 2) are possible on any layout; a level
+      // whose boxes fill their bounding box can be agglomerated and coarsened
+      // further by MLMG, again independently of the layout
+      int depth = -1;
+      for (int w = bf * r; w > 1; w >>= 1) ++depth;
+      M.mg_depth = M.aggable ? 30 : std::max(0, depth);
+      // proper nesting: the parent's cells must cover 3 parent cells around
+      // the level (the Dirichlet data and the ghost potential come from them;
+      // AmrMesh nests by blocking_factor / 2 = 4 cells)
+      {
+        ax::iMultiFab m2(ax::coarsen(M.ba, 2), M.dm, 1, 3), ones(BA(l - 1), DM(l - 1), 1, 0);
+        m2.setVal(0);
+        ones.setVal(1);
+        m2.ParallelCopy(ones, 0, 0, 1, 0, 3, PER(l - 1));
+        if (m2.min(0, 3) < 1)
+          throw std::runtime_error("pm_level_solve: level " + std::to_string(l) +
+                                   " is not nested 3 parent cells inside level " + std::to_string(l - 1));
+      }
+      pc->SetParticleBoxArray(l, M.ba);
+      pc->SetParticleDistributionMap(l, M.dm);
+    }
+    for (int l = nf + 1; l <= max_level; ++l) {
+      pc->SetParticleBoxArray(l, ax::BoxArray());
+      pc->SetParticleDistributionMap(l, ax::DistributionMapping());
+    }
+    T.sync += now() - t0;
+    return true;
   }
 
   // ---- host state -> level ------------------------------------------------
@@ -384,6 +645,10 @@ struct PMLevel {
     frc.define(ba, dm, 3, 1);
     acc.define(ba, dm, 1, 1);
     gas.define(bag, dm, 8, 0);
+    if (level_solve) {
+      own0.define(ba, dm, 1, 0);
+      tot0.define(ba, dm, 1, 0);
+    }
     pc->SetParticleDistributionMap(0, dm);
     pc->Redistribute();
     for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi)
@@ -437,10 +702,8 @@ struct PMLevel {
         for (std::size_t q = 0; q < L.size(); ++q) {
           const float* p = &buf[static_cast<std::size_t>(6 * L[q])];
           const int n_ = static_cast<int>(n0 + q);
-          pd.m_rdata[0][n_] = static_cast<float>(home(p[0])) + 0.5f;
-          pd.m_rdata[1][n_] = static_cast<float>(home(p[1])) + 0.5f;
-          pd.m_rdata[2][n_] = static_cast<float>(home(p[2])) + 0.5f;
           for (int c = 0; c < 3; ++c) {
+            pd.m_rdata[c][n_] = fpos(p[c]);
             pd.m_rdata[kX + c][n_] = p[c];
             pd.m_rdata[kV + c][n_] = p[3 + c];
           }
@@ -461,11 +724,10 @@ struct PMLevel {
   // calc_drift on the level: x = mod(x + v dt/2 + ndmr, ndmr) per particle
   // (the host arithmetic), then the home cells and a Redistribute
   void drift(double dt_sim, double ndmr) {
+    sync_levels();  // the hydro may have regridded: the Redistribute below moves the particles onto the levels
     const double t0 = now();
-    const double xdg = x_dm_m;
-    const int NN = Nm;
-    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    for_tiles([&](int l, const ax::MFIter& mfi) {
+      auto& pt = tile(l, mfi);
       const int np = static_cast<int>(pt.numParticles());
       const PTD pd = pt.getParticleTileData();
 #pragma omp parallel for schedule(static)
@@ -475,10 +737,10 @@ struct PMLevel {
                            static_cast<double>(pd.m_rdata[kV + c][n]) * dt_sim / 2 + ndmr;
           const float x = static_cast<float>(f::mod(t, ndmr));
           pd.m_rdata[kX + c][n] = x;
-          pd.m_rdata[c][n] = static_cast<float>(f::mod(f::int4(static_cast<double>(x) * xdg), NN)) + 0.5f;
+          pd.m_rdata[c][n] = fpos(x);
         }
       }
-    }
+    });
     pc->Redistribute();
     T.drift += now() - t0;
   }
@@ -492,8 +754,8 @@ struct PMLevel {
       float xv[6];
     };
     std::vector<Rec> mine;
-    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    for_tiles([&](int l, const ax::MFIter& mfi) {
+      auto& pt = tile(l, mfi);
       const int np = static_cast<int>(pt.numParticles());
       const PTD pd = pt.getParticleTileData();
       const std::size_t n0 = mine.size();
@@ -509,7 +771,7 @@ struct PMLevel {
         }
       }
       mine.resize(nn);
-    }
+    });
     const bool io = ax::ParallelDescriptor::IOProcessor();
     if (io && static_cast<std::int64_t>(s.xv.size()) != 6 * Npart)
       throw std::runtime_error("amrex_state = 1: rank 0's xv is not allocated");
@@ -612,8 +874,6 @@ struct PMLevel {
 #endif
     const double scale = s.pc.ndmr / s.pc.ngasr;
     const int myproc = ax::ParallelDescriptor::MyProc();
-    const double xdg = x_dm_m;
-    const int NN = Nm;
     if (nmine > 0) {
       ax::MFIter mfi(pot);
       if (!mfi.isValid()) throw std::runtime_error("add_stars: a rank with events but no box");
@@ -628,7 +888,7 @@ struct PMLevel {
           const float x = static_cast<float>(f::mod(static_cast<double>(e.x[c]) * scale, s.pc.ndmr));
           pd.m_rdata[kX + c][n_] = x;
           pd.m_rdata[kV + c][n_] = static_cast<float>(static_cast<double>(e.v[c]) * scale);
-          pd.m_rdata[c][n_] = static_cast<float>(f::mod(f::int4(static_cast<double>(x) * xdg), NN)) + 0.5f;
+          pd.m_rdata[c][n_] = fpos(x);
         }
         pd.m_rdata[kM][n_] = e.mass;
         pd.m_rdata[kA][n_] = static_cast<float>(a_form);
@@ -645,8 +905,8 @@ struct PMLevel {
   // Every star into rank 0's s.stars (sorted by id). Collective.
   Long gather_stars(pm::PMState& s) {
     std::vector<pm::Star> mine;
-    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    for_tiles([&](int l, const ax::MFIter& mfi) {
+      auto& pt = tile(l, mfi);
       const int np = static_cast<int>(pt.numParticles());
       const PTD pd = pt.getParticleTileData();
       for (int n = 0; n < np; ++n) {
@@ -661,7 +921,7 @@ struct PMLevel {
         st.a_form = pd.m_rdata[kA][n];
         mine.push_back(st);
       }
-    }
+    });
     const bool io = ax::ParallelDescriptor::IOProcessor();
     const int nranks = ax::ParallelDescriptor::NProcs();
     Long total = static_cast<Long>(mine.size());
@@ -712,7 +972,7 @@ struct PMLevel {
       const PTD pd = pt.getParticleTileData();
       const int n_ = static_cast<int>(n0);
       for (int c = 0; c < 3; ++c) {
-        pd.m_rdata[c][n_] = static_cast<float>(h[c]) + 0.5f;
+        pd.m_rdata[c][n_] = fpos(st.x[c]);
         pd.m_rdata[kX + c][n_] = st.x[c];
         pd.m_rdata[kV + c][n_] = st.v[c];
       }
@@ -732,14 +992,18 @@ struct PMLevel {
       // drift); only the gas below
       if (!loaded) throw std::runtime_error("amrex_state = 1: amrex_pm_load_particles was not called");
       if (kind != 2) throw std::runtime_error("amrex_state = 1 needs hydro_scheme = unsplit");
-      for (ax::MFIter mfi(gas); mfi.isValid(); ++mfi) {
-        auto g = gas.array(mfi);
-        auto ga = state->G.const_array(mfi);
-        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
-          for (int m = 0; m < 5; ++m) g(i, j, k, m) = ga(i, j, k, gs::kU + m);
-          g(i, j, k, 5) = ga(i, j, k, gs::kE);
-          g(i, j, k, 6) = g(i, j, k, 7) = 0.0f;
-        });
+      for (int l = 0; l <= finest(); ++l) {
+        FFab& G = GAS(l);
+        const FFab& S = l == 0 ? state->G : state->fine[static_cast<std::size_t>(l) - 1].G;
+        for (ax::MFIter mfi(G); mfi.isValid(); ++mfi) {
+          auto g = G.array(mfi);
+          auto ga = S.const_array(mfi);
+          ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+            for (int m = 0; m < 5; ++m) g(i, j, k, m) = ga(i, j, k, gs::kU + m);
+            g(i, j, k, 5) = ga(i, j, k, gs::kE);
+            g(i, j, k, 6) = g(i, j, k, 7) = 0.0f;
+          });
+        }
       }
       T.prep += now() - t0;
       return;
@@ -833,36 +1097,39 @@ struct PMLevel {
 
   // ---- calc_density_field: CIC in int64 fixed point + the gas -------------
 
-  void density(double mass) {
-    const double t0 = now();
-    acc.setVal(0);
-    const int NN = Nm;
+  // The CIC deposit of level l's particles into ACC(l) (its own mesh, in
+  // density units: mass 8^l, with the level's fixed point), then
+  // SumBoundary. bad counts the corners outside the ghost layer.
+  void deposit_level(int l, double mass, Long& bad) {
+    LFab& A = ACC(l);
+    A.setVal(0);
+    const int NN = Nm << l;
+    const int bits = BITS(l);
+    const double scale = std::ldexp(1.0, 3 * l);  // mass per level-l cell -> density per level-0 mesh cell
     const double r3 = static_cast<double>(r) * r * r;
-    const rpk::MeshGeom g = mg;
-    Long bad = 0;
-    for (ax::MFIter mfi(acc); mfi.isValid(); ++mfi) {
+    const rpk::MeshGeom g = l == 0 ? mg : mesh_geom(l);
+    for (ax::MFIter mfi(A); mfi.isValid(); ++mfi) {
       const ax::Box bx = mfi.validbox();
       const ax::Box gbx = ax::grow(bx, 1);
       const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx), glen = ax::length(gbx);
       const Long ngc = gbx.numPts();
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      auto& pt = tile(l, mfi);
       const int np = static_cast<int>(pt.numParticles());
       const PTD pd = pt.getParticleTileData();
       const int nt = nthreads_max();
       std::vector<Long> buf(static_cast<std::size_t>(nt) * ngc, 0);
-      auto a = acc.array(mfi);
+      auto a = A.array(mfi);
 #pragma omp parallel reduction(+ : bad)
       {
         Long* mine = buf.data() + static_cast<std::size_t>(thread_id()) * ngc;
 #pragma omp for schedule(static)
         for (int n = 0; n < np; ++n) {
           const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
-          const int h[3] = {static_cast<int>(pd.m_rdata[0][n]), static_cast<int>(pd.m_rdata[1][n]),
-                            static_cast<int>(pd.m_rdata[2][n])};
+          const int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
           // dark matter: the particle mass; a star: its gas mass (mean-matter
           // x level-0 gas-cell volumes) spread over the r^3 mesh cells of a
           // gas cell, i.e. mass_gas r^3 per mesh cell of full weight
-          const double m = pd.m_idata[kType][n] == 0 ? mass : static_cast<double>(pd.m_rdata[kM][n]) * r3;
+          const double m = (pd.m_idata[kType][n] == 0 ? mass : static_cast<double>(pd.m_rdata[kM][n]) * r3) * scale;
           const rpk::Cic c = rpk::cic_weights(g, x);
           rpk::cic_corners(c, [&](int i, int j, int k, double w) {
             const int ii = near_image(i - 1, h[0], NN), jj = near_image(j - 1, h[1], NN),
@@ -872,7 +1139,7 @@ struct PMLevel {
               return;
             }
             mine[(ii - glo.x) + glen.x * ((jj - glo.y) + static_cast<Long>(glen.y) * (kk - glo.z))] +=
-                to_fx(w * m, kDensBits);
+                to_fx(w * m, bits);
           });
         }
       }
@@ -883,10 +1150,173 @@ struct PMLevel {
         a(i, j, k) += sum;
       });
     }
-    if (bad) throw std::runtime_error("pm_backend = amrex: a CIC corner fell outside the ghost layer");
     const double t1 = now();
-    acc.SumBoundary(period);  // fold the ghost deposits into their owners (int64: exact)
+    A.SumBoundary(PER(l));  // fold the ghost deposits into their owners (int64: exact)
     T.sumbnd += now() - t1;
+  }
+
+  // pm_level_solve: level l's deposits restricted onto its parent and added
+  // into TOT(l - 1): the total of its valid cells and, in its uncovered
+  // ghost cells, the CIC mass of its own particles that fell outside the
+  // level. The restriction is the [1, 3, 3, 1]/8 stencil per dimension
+  // (the parent cell's two children and their outer neighbours), not the
+  // plain mean of the 8 children: a fine CIC cloud restricted by the mean
+  // is a sharper source than the parent's own CIC (NGP-like at the parent's
+  // resolution), whose 7-point Laplacian then gives 5-8 % force errors 8
+  // parent cells away (the lattice anisotropy that the CIC smoothing
+  // cancels); the parent CIC's spectrum is the fine one's times
+  // cos^2(k h_f / 2), i.e. the fine field filtered with [1, 2, 1]/4, and
+  // sampling that at the parent centres (half a fine cell off the fine
+  // centres) with the two-point mean gives [1, 3, 3, 1]/8: the parent sees
+  // every fine level's mass as its own CIC would, times one more
+  // half-fine-cell top-hat. Mass is conserved (each fine cell's weights
+  // sum to 1/8 in 3-D: the mean density). Integer arithmetic: exact and
+  // layout-independent. Collective.
+  void restrict_and_spill(int l) {
+    FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
+    const int db = BITS(l - 1) - BITS(l);  // 0 or 3
+    const Long mul = Long(1) << db;
+    LFab cr(ax::coarsen(M.ba, 2), M.dm, 1, 1);
+    cr.setVal(0);
+    for (ax::MFIter mfi(cr); mfi.isValid(); ++mfi) {
+      const ax::Box cbx = mfi.validbox();
+      const ax::Box fbx = M.ba[mfi.index()];
+      const ax::Box fgb = ax::grow(fbx, 1);
+      auto c = cr.array(mfi);
+      auto t = M.tot.const_array(mfi);
+      auto a = M.acc.const_array(mfi);
+      auto cv = M.cov.const_array(mfi);
+      ax::ParallelForOMP(ax::grow(cbx, 1), [=](int i, int j, int k) {
+        static constexpr int kw[4] = {1, 3, 3, 1};
+        i128 sum = 0;
+        for (int dk = -1; dk <= 2; ++dk)
+          for (int dj = -1; dj <= 2; ++dj)
+            for (int di = -1; di <= 2; ++di) {
+              const ax::IntVect f(2 * i + di, 2 * j + dj, 2 * k + dk);
+              Long v;
+              if (fbx.contains(f))
+                v = t(f);  // this box's own cells: the level's total there
+              else if (fgb.contains(f) && cv(f) == 0)
+                v = a(f);  // outside the level: this box's particles' spill
+              else
+                continue;  // another box's cell (it adds it) or beyond the reach of any CIC cloud
+              sum += static_cast<i128>(v) * (kw[di + 1] * kw[dj + 1] * kw[dk + 1]);
+            }
+        c(i, j, k) = static_cast<Long>((sum * mul) / 512);
+      });
+    }
+    TOT(l - 1).ParallelAdd(cr, 0, 0, 1, 1, 0, PER(l - 1));
+  }
+
+  // pm_level_solve: the density of level l into POT(l): the level's gas,
+  // its total deposit and, below level 0, the parent level's own deposit
+  // prolonged (piecewise constant), rounded to float once
+  void rho_level(int l) {
+    FFab& P = POT(l);
+    const LFab& Tt = TOT(l);
+    const FFab& G = GAS(l);
+    const int rr = r;
+    const int bits = BITS(l);
+    if (l == 0) {
+      for (ax::MFIter mfi(P); mfi.isValid(); ++mfi) {
+        auto p = P.array(mfi);
+        auto t = Tt.const_array(mfi);
+        auto gsa = G.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+          const double rho = gsa(i / rr, j / rr, k / rr, 0);
+          p(i, j, k) = static_cast<float>(rho + std::ldexp(static_cast<double>(t(i, j, k)), -bits));
+        });
+      }
+      return;
+    }
+    FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
+    LFab po(ax::coarsen(M.ba, 2), M.dm, 1, 0);
+    po.setVal(0);
+    po.ParallelCopy(OWN(l - 1), 0, 0, 1, 0, 0, PER(l - 1));
+    const int bp = BITS(l - 1);
+    for (ax::MFIter mfi(P); mfi.isValid(); ++mfi) {
+      auto p = P.array(mfi);
+      auto t = Tt.const_array(mfi);
+      auto o = po.const_array(mfi);
+      auto gsa = G.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        const double rho = gsa(i / rr, j / rr, k / rr, 0);
+        p(i, j, k) = static_cast<float>(rho + std::ldexp(static_cast<double>(t(i, j, k)), -bits) +
+                                        std::ldexp(static_cast<double>(o(i >> 1, j >> 1, k >> 1)), -bp));
+      });
+    }
+  }
+
+  void density(double mass) {
+    const double t0 = now();
+    Long bad = 0;
+    const int nf = finest();
+    for (int l = 0; l <= nf; ++l) {
+      if (l == 1) T.deposit += now() - t0;
+      // the fixed point's range: a particle of full weight must fit the level
+      if (l > 0 && mass * std::ldexp(1.0, 3 * l) > std::ldexp(1.0, 62 - BITS(l)))
+        throw std::runtime_error("pm_level_solve: the particle mass overflows level " + std::to_string(l) +
+                                 "'s fixed point (lighter particles or fewer levels)");
+      deposit_level(l, mass, bad);
+    }
+    if (bad) throw std::runtime_error("pm_backend = amrex: a CIC corner fell outside the ghost layer");
+    if (level_solve) {
+      // own and total deposits per level, the finer levels restricted onto
+      // their parents, the densities, the mean of level 0's (fixed point:
+      // exact and layout-independent)
+      const double t2 = now();
+      for (int l = 0; l <= nf; ++l) {
+        ax::Copy(OWN(l), ACC(l), 0, 0, 1, 0);
+        ax::Copy(TOT(l), ACC(l), 0, 0, 1, 0);
+      }
+      for (int l = nf; l >= 1; --l) restrict_and_spill(l);
+      for (int l = 0; l <= nf; ++l) rho_level(l);
+      i128 S = 0;
+      for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+        auto p = pot.const_array(mfi);
+        const ax::Box bx = mfi.validbox();
+        const int nt = nthreads_max();
+        std::vector<i128> part(static_cast<std::size_t>(nt), 0);
+#pragma omp parallel
+        {
+          i128 mine = 0;
+          const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+#pragma omp for schedule(static) collapse(2)
+          for (int k = lo.z; k <= hi.z; ++k)
+            for (int j = lo.y; j <= hi.y; ++j)
+              for (int i = lo.x; i <= hi.x; ++i) mine += to_fx128(static_cast<double>(p(i, j, k)), kDensBits);
+          part[static_cast<std::size_t>(thread_id())] = mine;
+        }
+        for (int t = 0; t < nt; ++t) S += part[static_cast<std::size_t>(t)];
+      }
+      allreduce_i128(&S, 1);
+      rho_mean = from_fx128(S, kDensBits) / (static_cast<double>(Nm) * Nm * Nm);
+      if (std::getenv("RADRAY_PM_LEVEL_DEBUG")) {
+        // the mass of every level's deposits (density x cell volume): the
+        // total on level 0 must be the particles' (DM + stars)
+        for (int l = 0; l <= nf; ++l) {
+          i128 so = 0, st = 0;
+          for (ax::MFIter mfi(TOT(l)); mfi.isValid(); ++mfi) {
+            auto t = TOT(l).const_array(mfi);
+            auto o = OWN(l).const_array(mfi);
+            ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+              st += t(i, j, k);
+              so += o(i, j, k);
+            });
+          }
+          i128 v[2] = {so, st};
+          allreduce_i128(v, 2);
+          if (ax::ParallelDescriptor::IOProcessor())
+            std::fprintf(stderr, "PM level debug: level %d: own mass %.9e, total mass %.9e (mesh cells %lld, mean density %.9e)\n",
+                         l, from_fx128(v[0], BITS(l)) / std::ldexp(1.0, 3 * l),
+                         from_fx128(v[1], BITS(l)) / std::ldexp(1.0, 3 * l), static_cast<long long>(BA(l).numPts()),
+                         rho_mean);
+        }
+      }
+      T.d_lev += now() - t2;
+      if (nf == 0) T.deposit += now() - t0;
+      return;
+    }
     // density = the gas density of the gas cell the mesh cell lies in + the
     // DM mass (the original: float, added particle by particle; here one
     // rounding of the exact sum)
@@ -1013,9 +1443,47 @@ struct PMLevel {
         });
       }
     }
-    // u(2:5) of every refined level averaged onto its parent's covered
-    // cells (the plain mean of the 8 children in double, rounded once, as
-    // the RT hierarchy's average_down)
+    average_down_momenta();
+    T.k_fine += now() - t0;
+  }
+
+  // pm_level_solve: the unsplit kick of every refined level's gas by its
+  // own mesh force (gas_force over its r^3 mesh cells), then the
+  // average-down onto the parents. After gather (level 0's kick is in the
+  // state). Collective.
+  void kick_levels(double dt_sim, const Units& u, double eta1) {
+    const double t0 = now();
+    const double Dmin = u.Dgas_min;
+    for (int l = 1; l <= finest(); ++l) {
+      gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      const FFab& Fr = FRC(l);
+      for (ax::MFIter mfi(F.G); mfi.isValid(); ++mfi) {
+        auto g = F.G.array(mfi);
+        auto fa = Fr.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=, this](int i, int j, int k) {
+          double Fc[3];
+          gas_force(fa, i, j, k, Fc);
+          double U[5];
+          for (int m = 0; m < 5; ++m) U[m] = g(i, j, k, gs::kU + m);
+          const double eD = g(i, j, k, gs::kE);
+          const double eth = rrh::thermal_energy(U, eD, eta1);
+          const double rho = f::max(U[0], Dmin);
+          for (int m = 0; m < 3; ++m) U[1 + m] = U[1 + m] + rho * Fc[m] * dt_sim;
+          U[4] = rrh::kinetic_energy(U) + eth;
+          for (int m = 1; m < 5; ++m) g(i, j, k, gs::kU + m) = static_cast<float>(U[m]);
+        });
+      }
+    }
+    average_down_momenta();
+    T.k_lev += now() - t0;
+  }
+
+  // u(2:5) of every refined level averaged onto its parent's covered cells
+  // (the plain mean of the 8 children in double, rounded once, as the RT
+  // hierarchy's average_down), finest first, so level 0 is the composite;
+  // then the hydro is told not to push the level-0 kick down again
+  void average_down_momenta() {
+    const int nf = state->finest;
     constexpr int nc = 4;  // u(2:5)
     for (int l = nf; l >= 1; --l) {
       const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
@@ -1050,7 +1518,6 @@ struct PMLevel {
       }
     }
     amrex_hydro_level0_is_current();  // the hydro must not push the level-0 kick down again
-    T.k_fine += now() - t0;
   }
 
   // RADRAY_PM_MOMENTUM_CHECK=1 (amrex_state = 1; a diagnostic for the tests):
@@ -1065,15 +1532,15 @@ struct PMLevel {
   void momentum(double out[6], double mass) {
     for (int m = 0; m < 6; ++m) out[m] = 0;
     const double xg = x_dm_gas, r3 = static_cast<double>(r) * r * r;
-    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+    for_tiles([&](int l, const ax::MFIter& mfi) {
+      auto& pt = tile(l, mfi);
       const int np = static_cast<int>(pt.numParticles());
       const PTD pd = pt.getParticleTileData();
       for (int n = 0; n < np; ++n) {
         const double mp = pd.m_idata[kType][n] == 0 ? mass : static_cast<double>(pd.m_rdata[kM][n]) * r3;
         for (int m = 0; m < 3; ++m) out[m] += mp * xg * pd.m_rdata[kV + m][n];
       }
-    }
+    });
     for (ax::MFIter mfi(state->G); mfi.isValid(); ++mfi) {
       auto g = state->G.const_array(mfi);
       const ax::Box bx = mfi.validbox();
@@ -1132,16 +1599,100 @@ struct PMLevel {
     }
     pot.FillBoundary(period);
     T.fft += now() - t0;
+    for (int l = 1; l <= finest(); ++l) solve_level(l, scalefactor);
+  }
+
+  // ---- pm_level_solve: the Poisson solve of a refined level ------------------
+  //
+  // lap phi = (2a/3)(rho - mean) on the level's mesh (dx = 2^-l), the
+  // 7-point Laplacian that the FFT's Green's function inverts on level 0,
+  // with MLMG: Dirichlet values on the level's boundary from the parent's
+  // potential (setCoarseFineBC), periodic domain, the parent's potential
+  // interpolated as the initial guess, mlmg_iters V-cycles (or until the
+  // residual is below mlmg_tol of the initial one), red-black Gauss-Seidel
+  // and the smoother as the bottom solver: every operation is per cell and
+  // the norms are maxima, so the result is bitwise rank-, thread- and
+  // layout-independent (the multigrid depth is fixed by sync_levels). The
+  // potential's ghost cells outside the level take the parent's potential
+  // interpolated (the 4-point gradient of the boundary cells and the force
+  // of the ghost layer the kicks read).
+  void solve_level(int l, double scalefactor) {
+    const double t0 = now();
+    FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
+    const int lp = l - 1;
+    FFab pc2(ax::coarsen(M.ba, 2), M.dm, 1, 3);
+    pc2.setVal(0.0f);
+    pc2.ParallelCopy(POT(lp), 0, 0, 1, 0, 3, PER(lp));
+    ax::MultiFab sol(M.ba, M.dm, 1, 1), rhs(M.ba, M.dm, 1, 0);
+    sol.setVal(0.0);
+    const double c = 2 * scalefactor / 3;  // -Aphi
+    const double mean = rho_mean;
+    for (ax::MFIter mfi(rhs); mfi.isValid(); ++mfi) {
+      auto b = rhs.array(mfi);
+      auto sa = sol.array(mfi);
+      auto p = M.pot.const_array(mfi);
+      auto q = pc2.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        b(i, j, k) = c * (static_cast<double>(p(i, j, k)) - mean);
+        sa(i, j, k) = interp_parent(q, i, j, k);
+      });
+    }
+    ax::MultiFab phic(BA(lp), DM(lp), 1, 0);
+    {
+      const FFab& PP = POT(lp);
+      for (ax::MFIter mfi(phic); mfi.isValid(); ++mfi) {
+        auto d = phic.array(mfi);
+        auto p = PP.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) { d(i, j, k) = p(i, j, k); });
+      }
+    }
+    ax::LPInfo info;
+    info.setMaxCoarseningLevel(M.mg_depth);
+    ax::MLPoisson mlp({M.geom}, {M.ba}, {M.dm}, info);
+    const auto P = ax::LinOpBCType::Periodic;
+    mlp.setDomainBC({P, P, P}, {P, P, P});
+    mlp.setCoarseFineBC(&phic, 2);
+    mlp.setLevelBC(0, nullptr);
+    mlp.setEnforceSingularSolvable(false);
+    ax::MLMG mlmg(mlp);
+    mlmg.setVerbose(mlmg_verbose);
+    mlmg.setBottomVerbose(0);
+    mlmg.setFixedIter(mlmg_iters);
+    mlmg.setBottomSolver(ax::BottomSolver::smoother);
+    mlmg.solve({&sol}, {&rhs}, mlmg_tol, 0.0);
+    M.iters = mlmg.getNumIters();
+    const double r0 = mlmg.getInitResidual();
+    M.resid = r0 > 0 ? mlmg.getFinalResidual() / r0 : 0.0;
+    for (ax::MFIter mfi(M.pot); mfi.isValid(); ++mfi) {
+      auto p = M.pot.array(mfi);
+      auto sa = sol.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) { p(i, j, k) = static_cast<float>(sa(i, j, k)); });
+    }
+    M.pot.FillBoundary(M.period);
+    for (ax::MFIter mfi(M.pot); mfi.isValid(); ++mfi) {
+      auto p = M.pot.array(mfi);
+      auto q = pc2.const_array(mfi);
+      auto cv = M.cov.const_array(mfi);
+      ax::ParallelForOMP(ax::grow(mfi.validbox(), 3), [=](int i, int j, int k) {
+        if (cv(i, j, k) == 0) p(i, j, k) = static_cast<float>(interp_parent_quad(q, i, j, k));
+      });
+    }
+    T.solve += now() - t0;
   }
 
   // ---- the mesh force on the box and its ghost layer ------------------------
 
-  void force() {
-    const double t0 = now();
-    const int NN = Nm;
-    for (ax::MFIter mfi(frc); mfi.isValid(); ++mfi) {
-      auto f = frc.array(mfi);
-      auto p = pot.const_array(mfi);
+  // Level l: the stencil's differences are per level-l cell; divided by
+  // dx = 2^-l (an exact float scaling) the force is in level-0 mesh units
+  // on every level
+  void force_level(int l) {
+    const int NN = Nm << l;
+    FFab& Fr = FRC(l);
+    const FFab& P = POT(l);
+    const float scale = static_cast<float>(1 << l);
+    for (ax::MFIter mfi(Fr); mfi.isValid(); ++mfi) {
+      auto f = Fr.array(mfi);
+      auto p = P.const_array(mfi);
       ax::ParallelForOMP(ax::grow(mfi.validbox(), 1), [=](int i, int j, int k) {
         double F[3];
         rpk::force_stencil(
@@ -1150,27 +1701,37 @@ struct PMLevel {
               return p(near_image(ii - 1, i, NN), near_image(jj - 1, j, NN), near_image(kk - 1, k, NN));
             },
             F);
-        for (int m = 0; m < 3; ++m) f(i, j, k, m) = static_cast<float>(F[m]);  // exact: F is a float
+        if (l == 0)
+          for (int m = 0; m < 3; ++m) f(i, j, k, m) = static_cast<float>(F[m]);  // exact: F is a float
+        else
+          for (int m = 0; m < 3; ++m) f(i, j, k, m) = static_cast<float>(F[m]) * scale;
       });
     }
+  }
+
+  void force() {
+    const double t0 = now();
+    force_level(0);
     T.force += now() - t0;
+    const double t1 = now();
+    for (int l = 1; l <= finest(); ++l) force_level(l);
+    T.f_lev += now() - t1;
   }
 
   // ---- calc_kick: accelerate_dm ---------------------------------------------
 
-  void kick_dm(double dt_sim, double& amax, double& arms, double& vmax, double& vrms) {
-    const double t0 = now();
-    const int NN = Nm;
+  // The particles of level l kicked by its mesh force (the CIC at the
+  // level's resolution); the statistics accumulated into the sums and maxima
+  void kick_dm_level(int l, double dt_sim, i128& s_a, i128& s_v, double& mx_a, double& mx_v, Long& bad) {
+    const int NN = Nm << l;
     const double xdg = x_dm_m;
-    const rpk::MeshGeom g = mg;
-    i128 s_a = 0, s_v = 0;
-    double mx_a = 0, mx_v = 0;
-    Long bad = 0;
-    for (ax::MFIter mfi(frc); mfi.isValid(); ++mfi) {
+    const rpk::MeshGeom g = l == 0 ? mg : mesh_geom(l);
+    const FFab& Fr = FRC(l);
+    for (ax::MFIter mfi(Fr); mfi.isValid(); ++mfi) {
       const ax::Box gbx = ax::grow(mfi.validbox(), 1);
       const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx);
-      auto fa = frc.const_array(mfi);
-      auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+      auto fa = Fr.const_array(mfi);
+      auto& pt = tile(l, mfi);
       const int np = static_cast<int>(pt.numParticles());
       const PTD pd = pt.getParticleTileData();
       const int nt = nthreads_max();
@@ -1184,8 +1745,7 @@ struct PMLevel {
 #pragma omp for schedule(static)
         for (int n = 0; n < np; ++n) {
           const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
-          const int h[3] = {static_cast<int>(pd.m_rdata[0][n]), static_cast<int>(pd.m_rdata[1][n]),
-                            static_cast<int>(pd.m_rdata[2][n])};
+          const int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
           const rpk::Cic c = rpk::cic_weights(g, x);
           double fv[3];
           rpk::particle_force(
@@ -1230,6 +1790,14 @@ struct PMLevel {
         mx_v = f::max(mx_v, tmv[t]);
       }
     }
+  }
+
+  void kick_dm(double dt_sim, double& amax, double& arms, double& vmax, double& vrms) {
+    const double t0 = now();
+    i128 s_a = 0, s_v = 0;
+    double mx_a = 0, mx_v = 0;
+    Long bad = 0;
+    for (int l = 0; l <= finest(); ++l) kick_dm_level(l, dt_sim, s_a, s_v, mx_a, mx_v, bad);
     if (bad) throw std::runtime_error("pm_backend = amrex: a CIC corner of the kick fell outside the ghost layer");
     i128 sums[2] = {s_a, s_v};
     allreduce_i128(sums, 2);
@@ -1393,8 +1961,12 @@ struct PMLevel {
   // ---- the fields for the tests: potential and mesh force onto the host -------
 
   void fields(pm::PMState& s, const float* u_gas, double scalefactor) {
-    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;
-    prep(s, u_gas, nullptr, nullptr, mf ? 0 : 1);
+    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;
+    if (state) {
+      sync_levels();
+      pc->Redistribute();
+    }
+    prep(s, u_gas, nullptr, nullptr, state ? 2 : (mf ? 0 : 1));
     density(mass);
     gravity(scalefactor);
     force();
@@ -1427,13 +1999,67 @@ struct PMLevel {
     s.gather_potential = keep;
   }
 
+  // ---- the force at given positions (tests) -----------------------------------
+
+  // The force a particle at each position of xs (DM-grid units) would get
+  // from the finest level covering its home cell: the CIC interpolation of
+  // that level's mesh force, in level-0 mesh units. Collective.
+  void force_at(const std::vector<float>& xs, std::vector<double>& out, std::vector<int>* levels) {
+    const int n = static_cast<int>(xs.size() / 3);
+    out.assign(static_cast<std::size_t>(3) * n, 0.0);
+    std::vector<int> lv(static_cast<std::size_t>(n), 0);
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    for (int q = 0; q < n; ++q) {
+      const float* x = &xs[static_cast<std::size_t>(3) * q];
+      for (int l = finest(); l >= 0; --l) {
+        const int NN = Nm << l;
+        const double xdg = x_dm_m * static_cast<double>(1 << l);
+        const int h[3] = {f::mod(f::int4(static_cast<double>(x[0]) * xdg), NN),
+                          f::mod(f::int4(static_cast<double>(x[1]) * xdg), NN),
+                          f::mod(f::int4(static_cast<double>(x[2]) * xdg), NN)};
+        const auto gt = LOC(l).getGridAssignor()(ax::IntVect(h[0], h[1], h[2]), ax::IntVect(0));
+        if (gt.first < 0) continue;
+        if (DM(l)[gt.first] == myproc) {
+          const FFab& Fr = FRC(l);
+          const ax::Box gbx = ax::grow(BA(l)[gt.first], 1);
+          const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx);
+          auto fa = Fr.const_array(gt.first);
+          const rpk::Cic c = rpk::cic_weights(l == 0 ? mg : mesh_geom(l), x);
+          double fv[3];
+          bool bad = false;
+          rpk::particle_force(
+              c,
+              [&](int ii, int jj, int kk, double F[3]) {
+                const int i = near_image(ii - 1, h[0], NN), j = near_image(jj - 1, h[1], NN),
+                          k = near_image(kk - 1, h[2], NN);
+                if (i < glo.x || i > ghi.x || j < glo.y || j > ghi.y || k < glo.z || k > ghi.z) {
+                  bad = true;
+                  F[0] = F[1] = F[2] = 0;
+                  return;
+                }
+                for (int m = 0; m < 3; ++m) F[m] = fa(i, j, k, m);
+              },
+              fv);
+          if (bad) throw std::runtime_error("amrex_pm_force_at: a CIC corner fell outside the ghost layer");
+          for (int m = 0; m < 3; ++m) out[static_cast<std::size_t>(3) * q + m] = fv[m];
+          lv[static_cast<std::size_t>(q)] = l;
+        }
+        break;
+      }
+    }
+    ax::ParallelDescriptor::ReduceRealSum(out.data(), 3 * n);
+    ax::ParallelDescriptor::ReduceIntMax(lv.data(), n);
+    if (levels) *levels = lv;
+  }
+
   // ---- one PM step ------------------------------------------------------------
 
   // kind: 0 MF, 1 non-MF, 2 unsplit (e_gas may be null: dual_energy = 0)
   void step(pm::PMState& s, float* u_gas, float* v_gas, const float* e_gas, int kind, double eta1,
             SimClock& clk, const Units& u) {
-    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;  // dm_mass of src/pm.cpp
+    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;  // dm_mass of src/pm.cpp
     const bool pcheck = state && std::getenv("RADRAY_PM_MOMENTUM_CHECK") != nullptr;
+    if (sync_levels()) pc->Redistribute();  // (a no-op after the drift's; the tests call the step without a drift)
     double P0[6];
     FFab before;
     if (pcheck) {
@@ -1450,6 +2076,7 @@ struct PMLevel {
     kick_gas(kind, clk.dt_sim, u, eta1);
     gather(s, u_gas, v_gas, kind);
     if (fine_levels() > 0) kick_fine(clk.dt_sim, u, eta1);
+    if (finest() > 0) kick_levels(clk.dt_sim, u, eta1);
     if (pcheck) {
       double P1[6];
       momentum(P1, mass);
@@ -1461,7 +2088,7 @@ struct PMLevel {
       }
       if (ax::ParallelDescriptor::IOProcessor())
         std::fprintf(stderr, "PM momentum check: levels %d, |dP_dm + dP_gas| / sum|dp_gas| = %.3e (sum|dp_gas| %.6e)\n",
-                     fine_levels(), rel, sabs);
+                     std::max(fine_levels(), finest()), rel, sabs);
     }
     // set_kick_globals (PM grid units)
     const double npart = static_cast<double>(s.pc.Npart);
@@ -1480,10 +2107,25 @@ struct PMLevel {
                   "copy %.3f, gas %.3f, potential %.3f); steps %lld",
                   T.prep, T.p_locate, T.p_fill, T.drift, T.deposit, T.sumbnd, T.fft, T.force, T.kick_dm, T.kick_gas,
                   T.gather, T.g_vwrite, T.g_vred, T.g_vcopy, T.g_gas, T.g_pot, static_cast<long long>(T.steps));
-    if (!gas_levels) return buf;
-    char b2[128];
-    std::snprintf(b2, sizeof b2, "; gas levels: deposit %.3f kick %.3f", T.d_fine, T.k_fine);
-    return std::string(buf) + b2;
+    if (gas_levels) {
+      char b2[128];
+      std::snprintf(b2, sizeof b2, "; gas levels: deposit %.3f kick %.3f", T.d_fine, T.k_fine);
+      return std::string(buf) + b2;
+    }
+    if (level_solve) {
+      char b2[256];
+      std::snprintf(b2, sizeof b2, "; level solve: sync %.3f deposit %.3f solve %.3f force %.3f kick %.3f; levels %d",
+                    T.sync, T.d_lev, T.solve, T.f_lev, T.k_lev, finest());
+      std::string out = std::string(buf) + b2;
+      for (const FineMesh& M : fm) {
+        char b3[128];
+        std::snprintf(b3, sizeof b3, " [%d: %lld cells, mg depth %d, %d iters, resid %.2e]", M.lev,
+                      static_cast<long long>(M.ba.numPts()), M.mg_depth, M.iters, M.resid);
+        out += b3;
+      }
+      return out;
+    }
+    return buf;
   }
 };
 
@@ -1521,6 +2163,10 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
 
 void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor) {
   level_of(s).fields(s, u_gas, scalefactor);
+}
+void amrex_pm_force_at(pm::PMState& s, const std::vector<float>& xs, std::vector<double>& F,
+                       std::vector<int>* levels) {
+  level_of(s).force_at(xs, F, levels);
 }
 
 void amrex_pm_load_particles(pm::PMState& s) { level_of(s).load_particles(s); }

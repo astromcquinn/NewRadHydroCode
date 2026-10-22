@@ -54,10 +54,12 @@ set(RADRAY_HAVE_AMREX OFF)
 if(RADRAY_AMREX)
   # (the PM backend, pm_backend = amrex, docs/stage_e_pm.md, adds the FFT
   # component: AMReX built with -DAMReX_FFT=ON, which needs FFTW3 on the CPU)
-  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE FFT)
+  # (the level Poisson solve of pm_level_solve, docs/stage_g.md, adds the
+  # linear solvers: AMReX built with -DAMReX_LINEAR_SOLVERS=ON, the default)
+  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE FFT LSOLVERS)
   if(NOT AMReX_FOUND)
     if(NOT RADRAY_FETCH_AMREX)
-      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE, FFT) was not "
+      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE, FFT, LSOLVERS) was not "
                           "found: set -DAMReX_DIR=<install>/lib/cmake/AMReX or -DRADRAY_FETCH_AMREX=ON")
     endif()
     include(FetchContent)
@@ -68,7 +70,7 @@ if(RADRAY_AMREX)
     set(AMReX_PARTICLES_PRECISION SINGLE CACHE STRING "" FORCE)
     set(AMReX_FORTRAN OFF CACHE BOOL "" FORCE)
     set(AMReX_FASTMATH OFF CACHE BOOL "" FORCE)
-    set(AMReX_LINEAR_SOLVERS OFF CACHE BOOL "" FORCE)
+    set(AMReX_LINEAR_SOLVERS ON CACHE BOOL "" FORCE)
     set(AMReX_FFT ON CACHE BOOL "" FORCE)
     set(AMReX_PROBINIT OFF CACHE BOOL "" FORCE)
     set(AMReX_AMRLEVEL OFF CACHE BOOL "" FORCE)

@@ -230,7 +230,7 @@ void test_momentum() {
       pm::calc_kick_unsplit(s, u.data(), nullptr, 1e-3, clk, un);
     else
       pm::calc_kick(s, u.data(), v.data(), clk, un);
-    const double mdm = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;  // mesh units
+    const double mdm = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;  // mesh units
     const int r = cs.r;
     double P[3] = {0, 0, 0}, sabs = 0;
     for (std::int64_t ip = 1; ip <= s.pc.Npart; ++ip)
