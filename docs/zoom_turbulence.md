@@ -127,12 +127,23 @@ followed by the levels, §4.2).
 
 ### 4.1 WP1: zoom initial conditions
 
-Extend `tools/ics/make_ics.py` rather than adopt an external generator,
-because the code's conventions (cell-centred gas at (i+½), particles on
-the lattice, `u_gas` without the thermal energy, DM-grid velocity units,
-the Fortran-order stream files) are already encoded there and the tests
-are cheap. MUSIC (Hahn & Abel 2011) is the cross-check if it builds on
-klone, and its refinement rule is what to implement:
+**Route (proposed 2026-10-22 after the user's question, to confirm):
+MUSIC (Hahn & Abel 2011) generates, a converter in `tools/ics` writes
+the code's files.** MUSIC already does the hard parts: hierarchical white
+noise with a seed per level (the ladder property for free), the nested
+displacement solves with padding, CAMB transfer functions with separate
+baryon and dark-matter fields, 1LPT (the user's choice) or 2LPT, and
+years of zoom validation; rewriting that in numpy would cost two weeks
+and reintroduce the failure modes it solved. The user installs MUSIC on
+klone (cloud sessions cannot fetch it). The converter maps MUSIC's generic
+per-level output (grids of density and velocity per level, particles per
+level) onto the code's conventions below; `make_ics.py` keeps a small
+built-in zoom (the steps below, 1–2 levels) for the fast-suite problems,
+which cannot depend on MUSIC. To check when MUSIC is set up: how it sets
+the gas velocity with separate transfer functions, and that its growth
+rates match the code's runtime Planck cosmology (item 5).
+
+The steps, whichever tool produces them:
 
 1. **Hierarchical white noise.** Level 0: the base run's draws (the
    `--seed 7 --phases-from-ndm 512` stream of the production ICs, so the
@@ -164,9 +175,10 @@ klone, and its refinement rule is what to implement:
    (WP2).
 5. **Transfer functions and cosmology.** Separate baryon and dark-matter
    transfer functions from a CAMB table supplied by the user (the cloud
-   cannot fetch them; `docs/plane_parallel.md`), 2LPT optional, z_init a
-   parameter (C26 used 300; the gas Jeans-scale structure of a cold IGM
-   starts earlier than our z = 100). Planck parameters need the cosmology
+   cannot fetch them; `docs/plane_parallel.md`), 1LPT (user decision),
+   z_init a parameter (C26 used 300; the gas Jeans-scale structure of a
+   cold IGM starts earlier than our z = 100). Planck parameters (user
+   decision) need the cosmology
    to become a runtime parameter set in the code (`constants.hpp` holds
    the original's float literals as `constexpr`; the defaults stay the
    original for the bitwise tests, `omegam`, `omegab`, `hubble0`, `sigma8`,
@@ -277,7 +289,8 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
 
 * **Preheating floor** T_min from z_floor (C26: 100 K and 1000 K for
   z < 15; `docs/plane_parallel.md`), applied in the RT cell physics; the
-  default 0 keeps every reference.
+  default 0 keeps every reference. **User decision 2026-10-22: the first
+  runs are unheated; preheating is added later.**
 * **Runtime cosmology and z_init** (§4.1 item 5).
 * Cooling stays on in the dense gas (the Stage F decision) with the sink
   above a few thousand × mean; C26 had no sink and no star formation in
@@ -334,9 +347,12 @@ from the smallest change:
    front (new physics only this code can do self-consistently); the
    induction equation in the code's comoving variables to be derived and
    documented (the original has no MHD; nothing to keep bitwise).
-5. **Not planned:** explicit resistivity or ambipolar diffusion; the
-   effective magnetic Reynolds number is set by the grid and reported
-   from the resolution ladder, as C26 does for the kinetic cascade.
+   **User (2026-10-22): the Biermann battery and one more non-ideal MHD
+   term at the I-fronts are wanted; which term, and the details, are
+   deferred until the hydrodynamic zooms exist.**
+5. **Not planned:** explicit resistivity beyond that; the effective
+   magnetic Reynolds number is set by the grid and reported from the
+   resolution ladder, as C26 does for the kinetic cascade.
 
 Cost: HLLD + CT roughly 1.5–2× the hydro; three extra face fields and
 the EMFs about +50 % memory on the fine levels.
@@ -425,15 +441,18 @@ klone builds and validates the machinery (T0–T5, Z1, Z2 and probably one
 Z3); the proposal asks for the suite that klone cannot hold at once:
 several regions × preheating (none, 100 K, 1000 K) × MHD seeds, and Z4.
 
-Venue: NSF ACCESS is the natural one (the group held TG-PHY230158 and
-TG-PHY240332 for C26's runs); the size of a 3–5 × 10⁶ core-hour request
-is the largest ACCESS tier, which has fixed submission rounds and needs
-scaling data on the target machine or a comparable one; the current
-thresholds and deadlines are to be checked on the ACCESS site. NASA HEC
-(the group's NASA grants) is a second route. A GPU request only makes
-sense once the AMReX backends run on GPUs (Stage D §5: prepared, not
-built), where the H200 was 5× a `cpu-g2` node on the RT; the hydro at
-the finest level is the part that would gain most.
+Venue (user decision 2026-10-22): **NSF ACCESS, in two steps.** First a
+**Discover** request (under about 10⁶ core-hours, a paragraph of
+justification, awarded quickly): enough for the Z2 and first Z3 runs
+beyond what klone can hold, and it can go in as soon as Z1 has produced
+timings. Then an **Accelerate** request (under about 3 × 10⁶, a few
+pages, scaling data required) for the suite and Z4, written after Z2.
+(The thresholds are the user's figures; confirm them on the ACCESS site
+at submission.) NASA HEC (the group's NASA grants) remains a fallback. A
+GPU request only makes sense once the AMReX backends run on GPUs
+(Stage D §5: prepared, not built), where the H200 was 5× a `cpu-g2` node
+on the RT; the hydro at the finest level is the part that would gain
+most.
 
 Skeleton, with the numbers each section needs:
 
@@ -461,26 +480,24 @@ Before writing: Z1 and Z2 done with their timings and scaling runs
 and the venue's deadline. A realistic date is after WP1–WP6 and Z2,
 about three months of threads from now.
 
-## 9. Decisions needed from the user
+## 9. Decisions (user, 2026-10-22)
 
-1. **Base box:** 40 h⁻¹ Mpc / 512³ (the calibrated production
-   configuration, 8 levels to 0.3 kpc/h) or 20 h⁻¹ Mpc (7 levels, cheaper
-   base, fewer sources in the box).
-2. **Target rungs:** Z2 (1.2 kpc/h) → Z3 (0.3 kpc/h) → Z4 (0.15 kpc/h,
-   2048³) as above, or a different finest cell (C26's 244 pc/h needs a
-   non-power-of-two base).
-3. **Region(s):** one mean-density IGM patch first; which others (void,
-   filament; early- vs late-ionized) and how many.
-4. **ICs:** extend `make_ics.py` (recommended) or MUSIC + a converter;
-   z_init (300 as C26, or 100); 1LPT or 2LPT; the CAMB transfer-function
-   tables (the user supplies them); Planck cosmology (needs runtime
-   cosmology in the code) or the original's.
-5. **RT:** raise the HEALPix cap first and measure (recommended), or
-   build the beam boundary at once; and whether the coarse-substep rule
-   may be relaxed inside the zoom if T4 shows it must.
-6. **Preheating variants** for the suite and the sink threshold in the
-   zoom.
-7. **MHD scope:** kinematic induction first (recommended), seeds to
-   include (uniform B₀, Biermann), and whether MHD waits for Z2.
-8. **Proposal venue and round** (ACCESS, NASA HEC), and whether a GPU
-   port is on the path.
+1. **Base box:** 40 h⁻¹ Mpc / 512³, the calibrated production
+   configuration; 8 levels to 0.3 kpc/h.
+2. **Rungs:** Z1 → Z2 → Z3 → Z4 as in §3.
+3. **Regions:** one mean-density IGM patch first, then a void and a
+   filament-crossing patch; selection as in §3.
+4. **ICs:** MUSIC + a converter proposed (§4.1; the user asked why the
+   generator was recommended, answered there; to confirm); 1LPT; Planck
+   cosmology, which needs runtime cosmology in the code.
+5. **RT:** raise the HEALPix cap first and measure the ray counts;
+   beams only if needed. Whether the coarse-substep rule may be relaxed
+   inside the zoom waits for the T4 test.
+6. **Preheating:** none in the first runs; added later.
+7. **MHD:** later; the Biermann battery and one more non-ideal term at
+   the I-fronts are wanted (§4.8).
+8. **Proposal:** ACCESS Discover first (quick, under ~10⁶ core-hours),
+   then Accelerate (under ~3 × 10⁶) for the suite (§8).
+
+Still open: the sink threshold inside the zoom (§4.5), and the
+non-ideal MHD term (7).

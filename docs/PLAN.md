@@ -1036,3 +1036,15 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   box, rungs, regions, IC tool and cosmology, the RT's HEALPix cap or
   beams and the coarse-substep rule in the zoom, preheating variants,
   MHD scope, proposal venue).
+* **Decisions (user, 2026-10-22):** base 40 h⁻¹ Mpc / 512³; the rungs
+  Z1–Z4 of `docs/zoom_turbulence.md` §3; one mean-density region first,
+  then a void and a filament patch; 1LPT ICs with Planck cosmology (so
+  the cosmology becomes a runtime parameter set, the original as the
+  default); raise the HEALPix cap first, beams only if the ray counts
+  demand it; no preheating in the first runs; MHD later, with the
+  Biermann battery and one more non-ideal term at the I-fronts; the
+  proposal to NSF ACCESS as Discover (< ~10⁶ core-hours, a paragraph,
+  quick) then Accelerate (< ~3 × 10⁶, a few pages). On the IC tool the
+  user asked why extending `make_ics.py` was recommended over MUSIC; the
+  answer (`docs/zoom_turbulence.md` §4.1) proposes MUSIC with a
+  converter, to be confirmed.
