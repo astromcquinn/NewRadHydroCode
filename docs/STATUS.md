@@ -313,6 +313,11 @@ the set is done).
   in the step base, whose snapshot there sat inside the 0.3 → 0.5c spike:
   the continuous schedule removes a 30 % artefact from that snapshot and
   changes nothing after relaxation.
+- **OTVET screen done 2026-10-22 13:59** (10 h 08 min, peak 370 GB; z50 =
+  6.96, z90 = 6.01, z99 = 5.68, τ = 0.0596) and **OTVET cone done 14:34**
+  (10 h 35 min, 376 GB; z50 = 6.94, z90 = 5.96, z99 = 5.60, τ = 0.0594;
+  RT 7.4 h of which the cone tensor 0.5 h). Six of seven done; the case
+  A + RR rays at z = 5.39 after 20.8 h (job 42132367), then the post phase.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
