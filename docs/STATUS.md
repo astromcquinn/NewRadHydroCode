@@ -87,6 +87,23 @@ suite with two levels. Five decisions are listed for the user there.
     deleted.
   - Every other remote branch is merged.
 
+## Done 2026-10-22: two refined levels rank-independent (branch `rank-independent-deposits`)
+
+The open item of 2026-10-16 is fixed. Two refined levels differed between
+rank counts from about step 8 (relative 1e-10). It was a dependence on the
+fine levels' box layout, which AMReX chops by the rank count (level 1 of
+the 8-source test: 1, 2, 4 boxes for 1, 2, 3 ranks; on one rank, fine boxes
+of 16 instead of 32 cells also changed the result from step 6): the
+deposits a fine level's rays leave in ghost cells outside the level were
+summed per fine box, and each box's partial sum was divided (by 8, or the
+`conserve` weight) and rounded before the boxes' sums were added in the
+parent. Now the raw int64 sums are added in the parent and divided or
+weighted once per parent cell. 1 rank (fine boxes 32 or 16) and 2 and 3
+ranks give byte-identical outputs (all 51 files of the 8-source two-level
+run). New nightly CTest `amrex_rt_amr_layout` (16³, two nested levels; 1 rank
+with two box sizes, 2 and 3 ranks; ~18 min). `ctest -L amrex -LE nightly`
+183/183 on klone. Refined results change in the last digits.
+
 ## Done 2026-10-22: `fesc512_b2.5_amr` against `fesc512_b2.5_uniform` (branch `amr512-analysis`)
 
 `docs/stage_f.md` §4 (results, cost, figures `docs/figures/amr512_*`,
@@ -128,8 +145,8 @@ a ghost cell outside its level goes to the parent with weight
 outside the level: up to +0.008 in x_HII there). With both, the cells
 outside a refined level are as accurate as a uniform base-grid run. The
 `parent` and `half` rules stay as options (not recommended: `half` loses
-photons in thick cells). Also open from before: two refined levels are not
-rank-independent at the 1e-10 level.
+photons in thick cells). Two refined levels were not rank-independent at the 1e-10 level
+(fixed 2026-10-22, above).
 
 ## Done 2026-10-17: the reduced speed of light by ionisation state (branch `c-schedule`)
 

@@ -497,6 +497,14 @@ and outside):
    base cells): one level 0.031 → 0.030, 0.095 → 0.091; two levels 0.053
    → 0.046, 0.132 → 0.105.
 
+**Rank and layout independence with two levels (2026-10-22).** The
+deposits of a fine level's rays in ghost cells outside the level are summed
+per parent cell over the fine boxes in exact int64, and only then divided
+(or weighted, `conserve`) and rounded, once per parent cell. Rounding each
+fine box's partial sum, as before, made two-level runs depend on the fine
+box layout and so on the rank count (relative 1e-10 from about step 8).
+Test: `amrex_rt_amr_layout`.
+
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,
 and ray container. A ray lives on the finest level covering its position;

@@ -1440,6 +1440,17 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                        ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
       set_tests_properties(amrex_fields_levels PROPERTIES TIMEOUT 900 LABELS "amrex;amr"
                            ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 4)
+      # two refined levels: byte-identical for 1 rank (two fine box sizes)
+      # and 2 and 3 ranks (the fine grids are chopped by the rank count)
+      add_test(NAME amrex_rt_amr_layout
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/amr_layout_check.py
+                       ${amrex_runs}/amr_layout "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_rt_amr_layout PROPERTIES TIMEOUT 2400 LABELS "amrex;amr;nightly"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 6)
+      if(NOT RADRAY_NIGHTLY_TESTS)  # ~18 min on klone
+        set_tests_properties(amrex_rt_amr_layout PROPERTIES DISABLED TRUE)
+      endif()
     endif()
     # the full loop with both backends: 1, 2 and 3 ranks byte-identical to
     # each other (rank_check) and to the run with the serial hydro

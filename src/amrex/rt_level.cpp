@@ -2025,54 +2025,17 @@ struct Hierarchy : LevelBase {
     L& F = *levels[static_cast<std::size_t>(l)];
     L& P = *levels[static_cast<std::size_t>(l) - 1];
     constexpr int ND = rrk::kNdep;
-    // fine ghosts outside the level -> parent cells
+    // fine ghosts outside the level -> parent cells. Each fine box sums its
+    // ghost deposits per parent cell exactly (int64); the partial sums of
+    // the boxes are added in the parent, and only then divided (or
+    // weighted) and rounded, once per parent cell: rounding each box's
+    // partial sum made the result depend on where the fine level's box
+    // boundaries fall, i.e. on the rank count (AMReX chops the fine grids
+    // by it; docs/stage_f.md section 3)
     ax::BoxArray gba = F.ba;
     gba.grow(F.ng);
     gba.coarsen(2);
     LFab up(gba, F.dm, ND, 0);
-    const bool half = cfg.amrex_ghost_rule == 2;  // a fine cell is half the coarse path
-    if (cfg.amrex_ghost_rule == 3) {
-      // conserve: the deposit of a fine ray in a ghost cell outside its level
-      // goes to the parent with weight w = 1/(1 + sqrt(fgam)) per frequency
-      // group (fgam: the parent cell's transmitted fraction of the previous
-      // substep), so that the parent absorbs (1 - fgam) w = 1 - sqrt(fgam) of
-      // it, exactly what the ray loses there (its ghost fgam is sqrt(fgam)):
-      // w -> 1/2 in thin gas (a fine cell is half the coarse path), -> 1 in
-      // thick gas. The direction components (dx sum(ngam)) take the
-      // photon-weighted mean of the groups' w.
-      FFab Pf(gba, F.dm, 5, 0);
-      Pf.ParallelCopy(P.TF, 5, 0, 5, 0, 0, P.period);
-      for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
-        auto u = up.array(mfi);
-        auto a = F.A.const_array(mfi);
-        auto inp = F.in_patch->const_array(mfi);
-        auto pf = Pf.const_array(mfi);
-        const ax::Box gbx = ax::grow(ax::refine(mfi.validbox(), 2), 0) & ax::grow(F.ba[mfi.index()], F.ng);
-        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-          Long sum[ND];
-          for (int m = 0; m < ND; ++m) sum[m] = 0;
-          for (int kk = 0; kk < 2; ++kk)
-            for (int jj = 0; jj < 2; ++jj)
-              for (int ii = 0; ii < 2; ++ii) {
-                const int fi = 2 * i + ii, fj = 2 * j + jj, fk = 2 * k + kk;
-                if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
-                for (int m = 0; m < ND; ++m) sum[m] += a(fi, fj, fk, m);
-              }
-          double w[5], wn = 0, n = 0;
-          for (int g = 0; g < 5; ++g) {
-            const double f = std::min(1.0, std::max(0.0, static_cast<double>(pf(i, j, k, g))));
-            w[g] = 1.0 / (1.0 + std::sqrt(f));
-            wn += w[g] * static_cast<double>(sum[g]);
-            n += static_cast<double>(sum[g]);
-          }
-          const double wdx = n > 0 ? wn / n : 0.5;
-          for (int m = 0; m < ND; ++m) {
-            const double wm = m < 5 ? w[m] : (m < 10 ? w[m - 5] : wdx);
-            u(i, j, k, m) = static_cast<Long>(std::llround(static_cast<double>(sum[m]) * wm / 8));
-          }
-        });
-      }
-    } else
     for (ax::MFIter mfi(up); mfi.isValid(); ++mfi) {
       auto u = up.array(mfi);
       auto a = F.A.const_array(mfi);
@@ -2087,11 +2050,48 @@ struct Hierarchy : LevelBase {
               if (!gbx.contains(ax::IntVect(fi, fj, fk)) || inp(fi, fj, fk)) continue;
               sum += a(fi, fj, fk, m);
             }
-        u(i, j, k, m) = half ? (sum + (sum >= 0 ? 8 : -8)) / 16  // and half the path
-                             : (sum + (sum >= 0 ? 4 : -4)) / 8;  // per the parent's volume, rounded
+        u(i, j, k, m) = sum;
       });
     }
-    P.A.ParallelCopy(up, 0, 0, ND, 0, 0, P.period, ax::FabArrayBase::ADD);
+    LFab tot(P.ba, P.dm, ND, 0);
+    tot.setVal(0);
+    tot.ParallelCopy(up, 0, 0, ND, 0, 0, P.period, ax::FabArrayBase::ADD);
+    const int rule = cfg.amrex_ghost_rule;
+    for (ax::MFIter mfi(P.A); mfi.isValid(); ++mfi) {
+      auto pa = P.A.array(mfi);
+      auto t = tot.const_array(mfi);
+      auto tf = P.TF.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+        if (rule == 3) {
+          // conserve: weight w = 1/(1 + sqrt(fgam)) per frequency group
+          // (fgam: this parent cell's transmitted fraction of the previous
+          // substep), so that the parent absorbs (1 - fgam) w = 1 - sqrt(fgam)
+          // of the deposit, what the ray loses in the ghost cell (its ghost
+          // fgam is sqrt(fgam)): w -> 1/2 in thin gas, -> 1 in thick gas. The
+          // direction components (dx sum(ngam)) take the photon-weighted mean
+          // of the groups' w.
+          double w[5], wn = 0, n = 0;
+          for (int g = 0; g < 5; ++g) {
+            const double f = std::min(1.0, std::max(0.0, static_cast<double>(tf(i, j, k, 5 + g))));
+            w[g] = 1.0 / (1.0 + std::sqrt(f));
+            wn += w[g] * static_cast<double>(t(i, j, k, g));
+            n += static_cast<double>(t(i, j, k, g));
+          }
+          const double wdx = n > 0 ? wn / n : 0.5;
+          for (int m = 0; m < ND; ++m) {
+            const double wm = m < 5 ? w[m] : (m < 10 ? w[m - 5] : wdx);
+            pa(i, j, k, m) += static_cast<Long>(std::llround(static_cast<double>(t(i, j, k, m)) * wm / 8));
+          }
+        } else {
+          // sqrt and parent: per the parent's volume (/8); half: and half the path (/16)
+          const Long d = rule == 2 ? 16 : 8;
+          for (int m = 0; m < ND; ++m) {
+            const Long v = t(i, j, k, m);
+            pa(i, j, k, m) += (v + (v >= 0 ? d / 2 : -(d / 2))) / d;
+          }
+        }
+      });
+    }
     // parent cells under the level -> the children
     const ax::BoxArray cba = ax::coarsen(F.ba, 2);
     LFab down(cba, F.dm, ND, 0);
