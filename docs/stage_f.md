@@ -604,8 +604,138 @@ container with AMReX 26.10 fetched, OpenMPI 4.1.6):
 case B, f_esc(z) = 0.135 ((1+z)/7)^2.5 from the f_esc thread, the exposure
 deposit, cooling in dense gas with the sink at 3000× the mean, FoF every
 30 Myr, the ICs of `hmf512_40mpc_r2`) and its control `fesc512_b2.5_uniform`
-(the same without refinement), 5 nodes each. Estimated 4–8 h for the
-refined run (to be replaced by the probe's numbers).
+(the same without refinement), 5 nodes each (120 ranks × 8 threads).
+Both finished (2026-10-16 / 2026-10-18; the refined run crashed twice,
+"a rank with rays to add but no box" at step 23 and a UCX segfault at step
+57, and resumed from its checkpoints). Analysis below (2026-10-22:
+`tools/hyak/igm_diag.slurm`, `tools/hyak/fesc_post.slurm` with
+`REF=fesc512_b2.5_uniform`, `fesc_summary.py`).
+
+**Cost** (the per-step timers of `run/timing.txt`, which exclude the
+checkpoints and movie frames; z = 90 → 5):
+
+| | `fesc512_b2.5_uniform` | `fesc512_b2.5_amr` | ratio |
+|---|---|---|---|
+| hydro steps | 114 | 124 | |
+| cells above 8 ρ̄ / 64 ρ̄ at z = 7 (lower bounds on the level-1 / level-2 cells ÷ 8 / 64) | | 4.0 × 10⁵ / 6.8 × 10³ | |
+| the same at z = 5 | | 8.0 × 10⁵ / 3.1 × 10⁴ (≥ 6.4 M + 2.0 M fine cells, ≈ 6 % of the base grid) | |
+| step time, total | 4.30 h | 11.34 h | 2.6 |
+| per step, z = 12–9 / 8–7 / 6–5 | 215 / 149 / 157 s | 263 / 358 / 484 s | 1.2 / 2.4 / 3.1 |
+| RT | 2.15 h | 7.96 h | 3.7 |
+| hydro | 0.03 h | 1.15 h | 46 |
+| PM | 0.17 h | 0.22 h | 1.3 |
+| halos, summaries, I/O | 1.04, 0.30, 0.62 h | 1.10, 0.32, 0.59 h | 1.0 |
+| rays in flight at z = 7 / 5.5 / 5 | 1.3 / 1.5 / 1.5 × 10⁹ | 2.6 / 4.0 / 4.4 × 10⁹ | 2.0 / 2.6 / 2.9 |
+| hydro cell-substeps counted by the kernel (p from e) | 1.45 × 10¹⁰ | 4.93 × 10¹⁰ | 3.4 |
+| hydro sub-cycling (substeps per unsplit call, max) | 1 | 6.0 (56) | |
+| peak RSS, min / max over ranks | 17 / 246 GB | 39 / 245 GB | 2.3 / 1.0 |
+| one checkpoint at `restart_every = 1` (outside the step timers: job wall-clock − step time, per step) | 290 s | 760 s | 2.6 |
+| sink mass at z = 5 (level-0 cell units; mean cell mass 0.165) | 2.7 × 10³ | 2.3 × 10⁵ (1.0 % of the gas) | 84 |
+| core-hours: step time / job wall-clock | 4 100 / 12 900 | 10 900 / 36 000 | 2.6 / 2.8 |
+
+- **Where the factor 2.6 goes.** The RT is 70 % of the refined run's step
+  time and 3.7× the uniform run's: the sources sit in the refined gas, so
+  most rays are born at the finest level and split there, and 6 % more
+  cells carry 2.9× the rays (4.4 × 10⁹ at z = 5; `nray_max_factor = 15`).
+  The hydro is 46× (4020 s): FillPatch 2150 s, refluxing 1010 s, the CFL
+  reduction 660 s, the kernels (predict + flux + update) 640 s. Per counted
+  cell-substep that is 78 µs against 6 µs: the overhead is per box, not
+  per cell, with the refined cells scattered over the halos in small
+  boxes on 119 ranks. The fine levels also sub-cycle hard (up to 56
+  substeps in one call: cold dense gas at the sink), so the finest-level
+  cell count is well above the density-threshold bound.
+- **Checkpoints dominated the wall-clock.** With `restart_every = 1` the
+  last job wrote 68 checkpoints in 23.2 h of which 8.8 h were steps: 760 s
+  per checkpoint (the 4 × 10⁹ rays), 290 s for the uniform run. Hence the
+  2026-10-18 production default `restart_every = 10`
+  (`docs/production_run.md`).
+- **Wall-clock of the refined run:** 10.0 h (job 1: steps 1–23, then the
+  9.5 h hang before `backend_abort` existed) + 4.3 h (steps 24–56, UCX
+  segfault) + 23.2 h (steps 57–124) = 37.5 h on 5 nodes; the uniform run
+  13.4 h.
+- Memory: a typical rank 39 GB against 17 GB (the rays and the levels);
+  the 245 GB maximum is rank 0 in both (the IC read and the FoF).
+- For the zoom-in plan's estimates: `docs/zoom_turbulence.md` §7.
+
+**What the refinement does to the IGM** (`fesc_summary.py`; tables
+[`figures/amr512.md`](figures/amr512.md), the per-snapshot IGM table
+`$RUNS/igm_diag/amr512/igm.txt`, the P_Γ tables
+[`figures/amr512_gamma_pk.txt`](figures/amr512_gamma_pk.txt)):
+
+![summary](figures/amr512_summary.png)
+
+*Blue: `fesc512_b2.5_uniform`; orange: `fesc512_b2.5_amr`. The same
+sources (ṅ_ion within 0.02 dex), so every difference is the refined gas.*
+
+| run | z10 | z50 | z90 | z99 | x_V(z = 5) | τ_es |
+|---|---|---|---|---|---|---|
+| uniform | 10.27 | 7.02 | 5.83 | 5.27 | 0.9993 | 0.0595 |
+| + 2 levels | 10.34 | 6.97 | 5.73 | 5.16 | 0.9968 | 0.0590 |
+
+| z | run | x_V | Γ_HI [10⁻¹²] (÷ Gaikwad) | λ_mfp [pMpc] (÷ data) | ⟨F⟩ (÷ Bosman) |
+|---|---|---|---|---|---|
+| 5.9 | uniform | 0.881 | 0.153 (1.01×) | 2.6 (2.4×) | 0.008 (0.7×) |
+| | + 2 levels | 0.851 | 0.136 (0.90×) | 2.1 (2.0×) | 0.006 (0.5×) |
+| 5.7 | uniform | 0.932 | 0.166 (0.74×) | 3.8 (1.3×) | 0.016 (0.6×) |
+| | + 2 levels | 0.907 | 0.145 (0.65×) | 2.9 (1.0×) | 0.012 (0.5×) |
+| 5.4 | uniform | 0.980 | 0.196 (0.53×) | 7.0 (1.4×) | 0.037 (0.5×) |
+| | + 2 levels | 0.966 | 0.164 (0.44×) | 5.0 (1.0×) | 0.027 (0.3×) |
+| 5.1 | uniform | 0.997 | 0.246 (0.49×) | 13.2 (1.5×) | 0.079 (0.6×) |
+| | + 2 levels | 0.993 | 0.205 (0.40×) | 8.9 (1.0×) | 0.061 (0.4×) |
+
+- **Reionization ends 0.1 later** (z99 5.16 against 5.27; x_V 0.9968
+  against 0.9993 at z = 5; the mass-weighted x reaches 0.986 only) with
+  the same photon budget: the refined dense gas absorbs more.
+- **Γ_HI is 10–17 % lower** at fixed z (0.90× → 0.83× from z = 5.9 to
+  5.1) and **λ_mfp 20–33 % lower** (0.81× → 0.67×). At fixed Γ (λ ∝ Γ^≈1
+  between runs, `docs/fesc_evolution.md` §4) the refinement shortens λ by
+  about 10–20 %: in the expected direction (`docs/fesc_evolution.md` §6,
+  option 1) but a small step, as predicted there. The level-2 cells are
+  19.5 kpc/h, still far above the ≲ 10 kpc/h of the published λ
+  convergence studies, and only cells above 8 ρ̄ (64 ρ̄) are refined.
+- With this configuration (0.1c, case B, the sink; not recalibrated) both
+  runs are under the Gaikwad Γ by 2× at z ≤ 5.4 while the refined run's λ
+  sits on Becker+21/Zhu+23 (1.0×); at the calibrated Γ its λ would be
+  ≈ 1.5× the data (the uniform run's 1.4–1.5× times 0.85).
+- **The sink** took 1.0 % of the gas by z = 5 in the refined run against
+  0.012 % in the uniform run (the 3000 ρ̄ threshold is reached in 19.5 kpc/h
+  cells, not in 78 kpc/h ones): the refined run removes 84× more gas from
+  the hydro, which by itself would lengthen λ; the extra absorption in the
+  resolved 10–100 ρ̄ gas outweighs it.
+- **Slices** (`fesc_post.slurm` maps, `compare.txt`): the ionization
+  pattern is the same (|Δx| > 0.1 in 5 % of the cells at x_V ≈ 0.5–0.85,
+  2 % at 0.96; corr(log T) 0.98 at z = 7, 0.84–0.92 after z = 5.5 where
+  the refined run's x_HII power is 1.2–2× at k = 2–16); the refined run
+  keeps small self-shielded neutral specks inside the ionized regions
+  (the movie, below) that the uniform run does not resolve.
+- **P_Γ** (`gamma_power.py`, δ = Γ/⟨Γ⟩ − 1, relative to the uniform run;
+  r(k) in brackets):
+
+  | k [h/Mpc] | z = 5.50 | z = 5.22 | z = 4.99 | capped at 3⟨Γ⟩, z = 4.99 |
+  |---|---|---|---|---|
+  | 0.16 (box) | 1.34 (1.00) | 1.54 (1.00) | 1.53 (1.00) | 1.53 |
+  | 0.49 | 1.28 (0.99) | 1.41 (0.99) | 1.42 (0.99) | 1.34 |
+  | 1.4 | 1.28 (0.98) | 1.66 (0.97) | 1.62 (0.96) | 1.51 |
+  | 3.0 | 1.46 (0.95) | 1.76 (0.94) | 1.71 (0.93) | 1.75 |
+  | 13.6 | 1.26 (0.80) | 1.48 (0.79) | 1.41 (0.75) | |
+  | 57.5 (cell) | 0.54 (0.33) | 0.64 (0.39) | 0.64 (0.32) | |
+
+  ![P_Gamma](figures/amr512_gamma_pk.png)
+
+  The relative Γ fluctuations are 1.3–1.5× larger on the box scale and
+  1.4–1.8× at k = 1–5 h/Mpc, with the same pattern (r ≥ 0.99 at
+  k ≤ 0.5 h/Mpc; 0.93 at 3 h/Mpc); the shorter mean free path makes the
+  UVB patchier, at fixed sources. At the cell scale the refined run has
+  less power (0.6×): the fine levels' Γ is averaged down onto the base
+  cells.
+- **Movie** ([`movies/amr512.mp4`](movies/amr512.mp4), 1600×900; full
+  resolution `$RUNS/fesc_evolution/512_amr/compare.mp4`): x_HII and log T
+  slices of uniform | refined, and the histories.
+
+![z = 5.80](figures/amr512_z5.80.png)
+
+*z = 5.80, x_V 0.909 against 0.881: the same islands, slightly larger in
+the refined run, and the resolved self-shielded specks in its ionized gas.*
 
 **Not done (Stage G):** the particles still see one uniform mesh, so the
 force resolution is the mesh's everywhere; a level finer than the mesh
@@ -631,6 +761,7 @@ Poisson on the hierarchy remains the long-term route.
 | `src/amrex/pm_level.cpp` (`composite_density`, `kick_fine`, `momentum`), `src/pm_backend.cpp`, `include/radray/pm.hpp`, `config.hpp` | `pm_gas_levels` (§4) |
 | `tests/pm_gas_levels_check.py` | the equivalence and momentum tests of §4 |
 | `tools/hyak/amr512_runs.sh` | the refined 512³ production run and its unrefined control (§4) |
+| `tools/hyak/igm_diag.slurm`, `tools/hyak/fesc_post.slurm` (`REF`, `REFLAB`, `REFTITLE`, `NEWTITLE`, `SPREAD=`), `tools/analysis/fesc_summary.py` | the analysis of the pair (§4): IGM statistics, P_Γ, maps, movie, the summary tables and figure |
 | `tests/problems_full/make_ifront.py` | the I-front problems of §3: one source or `--sources 8src`, the dark matter at rest, `sources_pos.txt` |
 | `tools/analysis/ifront_full.py`, `tools/analysis/ifront_multi.py` | the front radius of one source; per-source ionised volumes, x_HII,V/M, photons in flight and the checks for several |
 | `tools/analysis/amr_figures.py` | the figures of §2 and §3 (`docs/figures/amr_*.png`) |
