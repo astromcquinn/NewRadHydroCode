@@ -41,7 +41,19 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   cells); 1, 2 and 3 ranks byte-identical and bit-identical restarts with
   two levels over half the box for `pm_refine` 1 and 2; the identity
   without refinement.
-* **T1** (`tests/pm_zoom_t1_check.py`, nightly `amrex_pm_zoom_t1`): T1_PLACEHOLDER
+* **T1** (`tests/pm_zoom_t1_check.py`, nightly `amrex_pm_zoom_t1`, 3 min
+  on 2 ranks; `docs/stage_g.md` §4): a 32³ base with two levels over the
+  central eighth and the level solve (B), the same hierarchy with the
+  uniform 128³ mesh (C), both with 128³ particles, against the uniform
+  128³ run (A), 10 Mpc/h, z = 100 → 5, gravity and uniform gas. C's
+  particles are A's to 6e-3 fine cells (the fine mesh everywhere); B's
+  are within 0.14 cells rms in the inner half of the region, 0.30 over
+  the region and 0.84 outside: the coarse base's resolution carried into
+  the region by the infalling matter, not the solver's (the
+  refined-everywhere test is 1e-4 cells). All 12 of A's halos above 128
+  particles in the region are found in B within 0.5 cells, 11 within 25 %
+  in mass (two at the region's edge at 0.64 and 0.75); the density PDF
+  fractions above overdensity 1 and 10 agree to 10 % and 4 %.
 * **Timing:** TIMING_PLACEHOLDER
 * **Open:** the klone profile (`tools/hyak/pm_level_solve_profile.slurm`,
   ready to submit; no cluster access from this session); the composite

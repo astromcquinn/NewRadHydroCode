@@ -251,8 +251,41 @@ off) and the fast suite of the default build.
 
 ## 4. T1: the zoom ladder's first rung
 
-(`tests/pm_zoom_t1_check.py`, nightly `amrex_pm_zoom_t1`) [filled below
-after the run]
+`tests/pm_zoom_t1_check.py` (nightly `amrex_pm_zoom_t1`, 2 ranks, 3.2
+min here): the same Zel'dovich particles (128³, seed 7, 10 Mpc/h, z =
+100 → 5, uniform gas, no RT) in three runs:
+
+| run | gas | PM |
+|---|---|---|
+| A | 128³ | the uniform 128³ mesh (the reference) |
+| B | 32³ + levels 1 and 2 over the central eighth (`amrex_refine_box=8,8,8,23,23,23`, `amrex_n_error_buf=0`: level 2 at the fine resolution there) | `pm_level_solve = 1`, `pm_refine = 1`: the 32³ mesh outside the region by the FFT, the levels by MLMG |
+| C | the same hierarchy | `pm_gas_levels = 1`, `pm_refine = 4`: the uniform 128³ mesh everywhere (the Stage F coupling, the comparison) |
+
+Inside the region (64³ fine cells; 238 000 particles at z = 5):
+
+| | B (level solve) | C (uniform fine mesh) |
+|---|---|---|
+| particle displacement from A, rms [fine cells]: inner half of the region / whole region / outside | 0.14 / 0.30 / 0.84 | 0.002 / 0.006 / 0.07 |
+| by distance from the centre (half-widths 0–0.25 / 0.5–0.75 / 0.75–1 / 1–1.25) | 0.17 / 0.14 / 0.38 / 0.49 | 0.001 / 0.002 / 0.009 / 0.03 |
+| velocities, rms of the difference / rms velocity | 5.0e-2 | 2.0e-3 |
+| cells above overdensity 1 / 10 (A: 0.0669 / 0.0023) | 0.0739 / 0.0024 | 0.0669 / 0.0023 |
+| density on the fine grid, rms difference / rms | 0.33 | 0.011 |
+| A's 12 halos with ≥ 128 particles in the region: found within 2 fine cells / within 40 % in mass | 12 / 11 | 12 / 12 |
+| their mass ratios | 0.64–1.17 (rms Δlog₁₀ M 0.09) | 0.88–1.01 (0.018) |
+| FoF halos ≥ 32 particles in the whole box / in the region | 99 / 47 | 394 / 41 |
+
+Reading: C has the fine mesh everywhere, so its particles are A's to
+1e-2 cells; B's base is 4× coarser outside the region, and the matter
+that flows into the region carries the base's errors (0.8 cells rms
+outside, 0.4 at the region's edge, 0.14 in its inner half). That is the
+zoom's resolution, not the solver's: the solver's own accuracy is the
+refined-everywhere test of §3 (1e-4 cells). Every halo of A above 128
+particles is found at its position in B, with masses within 25 % but for
+two (0.64, 0.75: halos at the region's edge, fed from the coarse base).
+The test passes when B's inner-half particles stay within 0.3 fine cells
+rms of A's, 90 % of those halos are found within 2 cells and 75 % of
+them within 40 % in mass, and the density PDF fractions agree with A's to
+25 % where A has ≥ 100 cells above the threshold.
 
 ## 5. Timing
 
