@@ -12,6 +12,9 @@
 // --set rt_cells_per_substep=k (legacy_rt = 0); --set rt_substep_carry=1;
 // --set photon_conserve=1 (the B17 fix of photo_cell's photon limit);
 // --set ray_deposit=exposure.
+// Runtime cosmology and the preheating floor (docs/production_run.md
+// section 10): --set omegam=..|omegab=..|hubble0=..|sigma8=..|ns=..,
+// --set T_min=K --set z_floor=z.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
 // hydro and PM switched off:
@@ -103,6 +106,11 @@ int main(int argc, char** argv) {
       s.cfg.rt_substep_carry = true;
     }
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
+    // The runtime cosmology and the preheating floor (cosmology.hpp);
+    // init_simulation set the clock in the default cosmology: again here
+    copy_cosmology_param(P.rtm, s.cfg);
+    init_variables(s.cfg.cosmo, P.z_init, s.clk);
+    calc_sim_var(s.cfg, s.clk, s.units);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
@@ -152,7 +160,9 @@ int main(int argc, char** argv) {
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
               << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"
               << " threads    : " << par::max_threads() << "\n"
-              << " sources    : " << sources.size() << "\n";
+              << " sources    : " << sources.size() << "\n"
+              << (cosmology_summary(s.cfg).empty() ? std::string()
+                                                   : " cosmology  : " + cosmology_summary(s.cfg) + "\n");
 
     calc_sim_var(s.cfg, s.clk, s.units);
     for (int step = 1; step <= P.nsteps; ++step) {

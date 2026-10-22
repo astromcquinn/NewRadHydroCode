@@ -23,6 +23,7 @@ endif()
 add_library(radray
   src/healpix.cpp
   src/cosmology.cpp
+  src/cosmo_params.cpp
   src/rt_rates.cpp
   src/ray_tracing.cpp
   src/rt_tools.cpp

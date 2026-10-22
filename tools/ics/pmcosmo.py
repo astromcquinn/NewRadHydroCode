@@ -2,7 +2,11 @@
 
 The parameters reproduce reference/Radhydro/cosmo_parameters.f90, including
 its single-precision literals: ``omegam = 0.27`` is a real(4) literal stored
-in a real(8) parameter, so the code really uses float32(0.27).
+in a real(8) parameter, so the code really uses float32(0.27). They are the
+defaults of the runtime cosmology (params.txt keys omegam, omegab, hubble0,
+sigma8, ns; docs/production_run.md section 10): ``set_cosmology`` replaces
+them, rounded to float32 as the code rounds the params.txt values, and
+``cosmology()`` returns the values in use.
 
 Units are the code's "supercomoving" grid units (cosmo_tools.f90:
 calc_sim_var):
@@ -35,6 +39,58 @@ SIGMA8 = f32(0.80)
 TCMB0 = f32(2.725)
 OMEGAR = f32(4.48e-7) * (1 + f32(0.69)) * TCMB0 ** 4 / HUBBLE0 ** 2
 FB = OMEGAB / OMEGAM
+
+COSMO_KEYS = ("omegam", "omegab", "hubble0", "sigma8", "ns")
+
+
+def cosmology():
+    """The cosmology in use, as params.txt keys -> values (float32-rounded)."""
+    return {"omegam": OMEGAM, "omegab": OMEGAB, "hubble0": HUBBLE0,
+            "sigma8": SIGMA8, "ns": NS}
+
+
+def set_cosmology(omegam=None, omegab=None, hubble0=None, sigma8=None, ns=None):
+    """Replace the cosmology of this module (None keeps a value).
+
+    Every value is rounded to float32, as radhydro rounds the params.txt keys
+    (the original's real(4) literals), so the ICs and the run agree exactly
+    and ics_info.txt can be checked against params.txt. The derived values
+    follow cosmo_parameters.f90: OMEGAL = 1 - OMEGAM (flat, OMEGAR not
+    subtracted), OMEGAR = 4.48e-7 (1 + 0.69) Tcmb0^4 / h^2.
+    """
+    global OMEGAM, OMEGAL, OMEGAB, HUBBLE0, NS, SIGMA8, OMEGAR, FB
+    if omegam is not None:
+        OMEGAM = f32(omegam)
+    if omegab is not None:
+        OMEGAB = f32(omegab)
+    if hubble0 is not None:
+        HUBBLE0 = f32(hubble0)
+    if sigma8 is not None:
+        SIGMA8 = f32(sigma8)
+    if ns is not None:
+        NS = f32(ns)
+    if not (0 < OMEGAM <= 1 and 0 < OMEGAB < OMEGAM and 0 < HUBBLE0 < 2
+            and SIGMA8 > 0 and NS > 0):
+        raise ValueError(f"bad cosmology {cosmology()}")
+    OMEGAL = 1.0 - OMEGAM
+    OMEGAR = f32(4.48e-7) * (1 + f32(0.69)) * TCMB0 ** 4 / HUBBLE0 ** 2
+    FB = OMEGAB / OMEGAM
+
+
+def set_cosmology_from_info(path):
+    """The cosmology recorded in an ics_info.txt (make_ics.py) or a
+    params.txt; keys that are absent keep the original's values."""
+    vals = {}
+    with open(path) as f:
+        for line in f:
+            line = line.split("#", 1)[0]
+            if "=" not in line:
+                continue
+            k, v = (t.strip() for t in line.split("=", 1))
+            if k in COSMO_KEYS:
+                vals[k] = float(v.replace("d", "e").replace("D", "e"))
+    set_cosmology(**vals)
+    return cosmology()
 
 
 def E(a):

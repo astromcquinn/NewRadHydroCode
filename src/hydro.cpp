@@ -972,7 +972,7 @@ inline double alpha_B(double x) {
 
 GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
                          GasGrid& gas, HydroState& hs, std::ostream* out) {
-  const double ob = omegab, om = omegam;
+  const double ob = cfg.cosmo.omegab, om = cfg.cosmo.omegam;
   const double fb = ob / om;
   const double Zsolar = static_cast<double>(0.02f);
   const int N = cfg.Ngas;

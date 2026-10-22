@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
     Domains dom;
     pm::PMState pms;
 
-    init_variables(P.z_init, clk);
+    init_variables(cfg.cosmo, P.z_init, clk);
     init_domain_gas(cfg, dom);
     init_hydro(cfg, gas, hs);
     if (P.cosmo) {
@@ -334,12 +334,12 @@ int main(int argc, char** argv) {
           dt = 0.5 * remain;  // avoid a tiny last step
         }
         clk.dt_sim = dt;
-        calc_da_from_dt(a, clk.da_sim, dt, clk.dt_yr);
+        calc_da_from_dt(cfg.cosmo, a, clk.da_sim, dt, clk.dt_yr);
       } else {
         const double dt_vg = 2 * stepp::dt_gas_factor / clk.cmax_gas;
         const double dt_ap = clk.amax_dm > 0 ? stepp::dt_pm_factor / std::sqrt(clk.amax_dm) : inf;
         double da;
-        calc_da_from_dt(a, da, P.courant * std::min(dt_vg, dt_ap), clk.dt_yr);
+        calc_da_from_dt(cfg.cosmo, a, da, P.courant * std::min(dt_vg, dt_ap), clk.dt_yr);
         da = std::min(da, a * stepp::ra_max / (1 - stepp::ra_max));
         da = std::min(da, a * P.dlna_max);
         const double a_out = 1 / (1 + P.z_out[next]);
@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
           da = 0.5 * remain;
         }
         clk.da_sim = da;
-        calc_dt_from_da(a, da, clk.dt_sim, clk.dt_yr);
+        calc_dt_from_da(cfg.cosmo, a, da, clk.dt_sim, clk.dt_yr);
       }
       clk.dt_sec = clk.dt_yr * pc::yr2sec;
       clk.istep = clk.istep + 1;

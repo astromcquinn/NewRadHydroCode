@@ -57,12 +57,21 @@ rescaled), the rest come from an independent stream. The large scales then
 match that run's ICs (e.g. the 512^3 production ICs, seed 7, under a
 1024^3-particle pm_refine = 2 run).
 
+Cosmology (docs/production_run.md section 10): --omegam, --omegab,
+--hubble0, --sigma8, --ns set the runtime cosmology (default: the original's
+cosmo_parameters.f90, rounded to float32 as the code does); the run's
+params.txt must carry the same keys and z_init (radhydro and pm_driver check
+them against ics_info.txt). The P(k) is still the Eisenstein & Hu no-wiggle
+shape for the total matter, with the gas following the dark matter.
+
 Usage:
   make_ics.py OUTDIR --kind zeldovich --Ngas 32 [--Ndm 16] [--z-init 300]
               [--seed 1] [--gas zeldovich|uniform] [--growth full|frozen-gas]
-              [--phases-from-ndm N]
+              [--phases-from-ndm N] [--omegam X --omegab X --hubble0 X
+              --sigma8 X --ns X]
   make_ics.py OUTDIR --kind pancake --axis x --a-cross 0.05 ...
-Also writes OUTDIR/ics_info.txt with the parameters used.
+Also writes OUTDIR/ics_info.txt with the parameters used, including z_init
+and the cosmology (omegam, omegab, hubble0, sigma8, ns).
 """
 
 import argparse
@@ -225,7 +234,12 @@ def main(argv=None):
     ap.add_argument("--box", type=float, default=None,
                     help="box size in Mpc/h (default 5, cosmo_parameters.f90); only "
                          "the P(k) normalisation depends on it")
+    for k in pc.COSMO_KEYS:
+        ap.add_argument("--" + k, type=float, default=None,
+                        help=f"runtime cosmology: {k} (default the original's, "
+                             f"{pc.cosmology()[k]:.7g})")
     args = ap.parse_args(argv)
+    pc.set_cosmology(**{k: getattr(args, k) for k in pc.COSMO_KEYS})
 
     ngas = args.Ngas
     ndm = args.Ndm or ngas // 2
@@ -253,12 +267,16 @@ def main(argv=None):
         av = [os.path.basename(os.path.normpath(x)) if x == args.outdir else x for x in av]
         f.write("command = make_ics.py " + " ".join(av) + "\n")
         for k, v in vars(args).items():
-            if (k == "box" and v is None) or (k == "phases_from_ndm" and not v):
+            if (k == "box" and v is None) or (k == "phases_from_ndm" and not v) \
+                    or k in pc.COSMO_KEYS:
                 continue
             if k == "outdir":
                 v = os.path.basename(os.path.normpath(v))
             f.write(f"{k} = {v}\n")
         f.write(f"Ndm = {ndm}\na_init = {a_init!r}\n")
+        # the cosmology in use (float32-rounded; checked by radhydro)
+        for k, v in pc.cosmology().items():
+            f.write(f"{k} = {v!r}\n")
         for k, v in info.items():
             f.write(f"{k} = {v}\n")
     print(f"wrote {args.outdir}: Npart = {ndm**3}, Ngas = {ngas}, " +

@@ -56,7 +56,10 @@ void usage() {
   std::cerr << "usage: am_fit --lf FILE --out DIR [--hmf st|tinker] [--dust 0|1] "
                "[--beta0 B] [--dbeta D] [--extend-faint M] [--logM-min X] [--logM-max X] "
                "[--free l0,l1,...] [--set am_x=v] [--zlo Z] [--zhi Z] [--tinker-zmax Z] [--st-params A,a,p] [--sim-hmf FILE] "
-               "[--only-confirmed]\n";
+               "[--only-confirmed] [--cosmo key=value]\n"
+               "  --cosmo omegam=..|omegab=..|hubble0=..|sigma8=..|ns=..: the runtime cosmology of\n"
+               "  the simulation (params.txt keys, docs/production_run.md section 10; repeatable;\n"
+               "  default the original's)\n";
 }
 
 int par_index(const std::string& name) {
@@ -79,6 +82,7 @@ int main(int argc, char** argv) {
     free.fill(true);
     bool only_confirmed = false;
     double zlo = -1, zhi = -1, shape_zmax = 9.5;
+    Cosmology cosmo;  // --cosmo key=value (the original's by default)
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       auto next = [&]() -> std::string {
@@ -120,6 +124,11 @@ int main(int argc, char** argv) {
         const auto eq = kv.find('=');
         if (eq == std::string::npos) throw std::runtime_error("--set name=value");
         start.p[par_index(kv.substr(0, eq))] = std::stod(kv.substr(eq + 1));
+      } else if (a == "--cosmo") {
+        const std::string kv = next();
+        const auto eq = kv.find('=');
+        if (eq == std::string::npos || !set_cosmology_key(cosmo, kv.substr(0, eq), kv.substr(eq + 1)))
+          throw std::runtime_error("--cosmo omegam|omegab|hubble0|sigma8|ns=value");
       } else if (a == "-h" || a == "--help") {
         usage();
         return 0;
@@ -128,6 +137,8 @@ int main(int argc, char** argv) {
         throw std::runtime_error("unknown option " + a);
       }
     }
+    cosmo.derive();
+    opt.cosmo = MassFunctionCosmology::from(cosmo);
     if (opt.sim_hmf.enabled)
       opt.logM_min = std::max(opt.logM_min,
                               std::log10(opt.sim_hmf.nmin * opt.sim_hmf.mpart_msun) + 1e-9);

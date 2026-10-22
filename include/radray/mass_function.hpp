@@ -7,16 +7,27 @@
 #pragma once
 
 #include "radray/constants.hpp"
+#include "radray/cosmo_params.hpp"
 
 namespace radray {
 
 struct MassFunctionCosmology {
-  // cosmo_parameters.f90 (sigma8, nsinit are not in constants.hpp)
+  // cosmo_parameters.f90 by default; from a runtime cosmology with
+  // from(Config::cosmo) (cosmo_params.hpp)
   double omegam = cp::omegam;
   double omegab = cp::omegab;
   double hubble0 = cp::hubble0;
-  double sigma8 = static_cast<double>(0.80f);
-  double ns = static_cast<double>(0.96f);
+  double sigma8 = cp::sigma8;
+  double ns = cp::nsinit;
+  static MassFunctionCosmology from(const Cosmology& c) {
+    MassFunctionCosmology m;
+    m.omegam = c.omegam;
+    m.omegab = c.omegab;
+    m.hubble0 = c.hubble0;
+    m.sigma8 = c.sigma8;
+    m.ns = c.ns;
+    return m;
+  }
 };
 
 class MassFunction {

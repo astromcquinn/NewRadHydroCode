@@ -241,7 +241,7 @@ void init_rt(Simulation& s) {
 
 void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init) {
   s.cfg = Config::make(N, nray_max_factor);
-  init_variables(z_init, s.clk);
+  init_variables(s.cfg.cosmo, z_init, s.clk);
   init_domain_rt(s.cfg, s.dom);
   s.gas.allocate(s.cfg.Ngas);
   init_rt(s);
@@ -302,7 +302,7 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
       G.sfr[G.src_cell[n]] = G.src_sfr[n];
     }
   }
-  const double vbox = f::pow3(s.cfg.box / hubble0);
+  const double vbox = f::pow3(s.cfg.box / s.cfg.cosmo.hubble0);
   s.rt_save.Luv = s.rt_stat.Luv / vbox;
   s.rt_save.sfr = s.rt_stat.sfr / vbox;
   s.Nsource = static_cast<std::int64_t>(sources.size());
@@ -1118,7 +1118,19 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
       // Effective frequency and unit direction vector; skip neutral cells
       // without photons
       double ngam_tot = 0;
-      if (!rrk::cell_radiation_prep(cr, u, ngam_tot)) continue;
+      if (!rrk::cell_radiation_prep(cr, u, ngam_tot)) {
+        // The preheating floor (Config::T_min) also holds in the cells the
+        // original skips; off by default (rrk::floor_gas_cell)
+        if (rrk::temp_floor_active(u)) {
+          make_index_gas_rt(s, irt, jrt, krt, index_gas_rt);
+          for (const auto& gi : index_gas_rt) {
+            const std::int64_t gc = s.gas.cell(gi[0], gi[1], gi[2]);
+            rrk::floor_gas_cell(&s.gas.u[gc * 5], &s.gas.w[gc * 4],
+                                s.gas.e.empty() ? nullptr : &s.gas.e[gc], u);
+          }
+        }
+        continue;
+      }
 
       if (ngam_tot > u.ngam_min) sink.ngfill += 1;
 

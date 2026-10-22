@@ -1,5 +1,6 @@
 #include "radray/io.hpp"
 
+#include "radray/cosmology.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
@@ -39,6 +40,8 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   if (set_rt_backend_param(p.rtm, key, val)) return;  // rt_backend.hpp
   for (auto& ch : val)
     if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
+  // omegam, omegab, hubble0, sigma8, ns, T_min, z_floor (cosmology.hpp)
+  if (set_cosmology_param(p.rtm, key, val)) return;
   if (key == "N")
     p.N = std::stoi(val);
   else if (key == "z_init")

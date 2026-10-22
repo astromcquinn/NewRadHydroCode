@@ -1540,3 +1540,17 @@ be designed); `recomb_rad` on the backend (block emission and
   mode of `docs/plane_parallel.md`, the 0.25 h⁻¹ Mpc resolution ladder
   C1–C2, the E(k) comparison), a parallel track from now and the content
   of the ACCESS Discover request.
+* **Request (user, 2026-10-22, later):** WP5's runtime cosmology
+  (`omegam`, `omegab`, `hubble0`, `sigma8`, `ns` as params.txt keys, the
+  original's float literals as defaults so that every stored reference and
+  Fortran comparison stays bitwise, threaded through cosmology.hpp, the
+  rates' and halo units and `tools/ics`), `z_init` as a parameter, and a
+  temperature floor `T_min` from a redshift `z_floor` in the RT cell
+  physics, off by default; tests and `docs/production_run.md`. Done:
+  `docs/production_run.md` §10. Choices made there (no user decision
+  needed, recorded for review): params.txt values are rounded to real(4)
+  like the original's literals; the floor applies at z < `z_floor` and
+  `T_min > 0` without `z_floor` is an error; the floor also lifts the
+  neutral photon-free cells the original's RT physics skips, but not the
+  hydro/PM limits; `radhydro` and `pm_driver` check the ICs' `ics_info.txt`
+  (z_init and cosmology) unless `ics_check = 0`.
