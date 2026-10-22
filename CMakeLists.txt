@@ -83,7 +83,7 @@ if(RADRAY_AMREX)
   endif()
   set(RADRAY_HAVE_AMREX ON)
   add_library(radray_amrex src/amrex/rt_level.cpp src/amrex/pm_level.cpp src/amrex/hydro_level.cpp
-                           src/amrex/gas_state.cpp)
+                           src/amrex/gas_state.cpp src/amrex/moment_level.cpp)
   target_link_libraries(radray_amrex PUBLIC radray AMReX::amrex)
   # the PM level's pencil FFT uses FFTW3f directly (the library of the
   # serial port and of AMReX's own FFT module)
@@ -202,6 +202,8 @@ if(RADRAY_WITH_PM)
       # load balancing), so every consumer of radray_amrex needs it too
       if(TARGET radray_amrex)
         target_link_libraries(radray_amrex PRIVATE ${FFTW3F_OMP_LIBRARY} ${FFTW3F_LIBRARY})
+        # the moment level's threaded OTVET FFT plans (moment_level.cpp)
+        target_compile_definitions(radray_amrex PRIVATE RADRAY_FFTW_OMP)
       endif()
       message(STATUS "Threaded FFTW (pm_refine > 1): ${FFTW3F_OMP_LIBRARY}")
     else()

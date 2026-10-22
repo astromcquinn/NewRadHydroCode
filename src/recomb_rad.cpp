@@ -10,6 +10,7 @@
 #include "radray/fortran.hpp"
 #include "radray/healpix.hpp"
 #include "radray/kernels/ray_kernels.hpp"
+#include "radray/rt_backend.hpp"
 #include "radray/rt_rates.hpp"
 #include "radray/parallel.hpp"
 #include "radray/ray_tracing.hpp"
@@ -207,15 +208,21 @@ void recomb_init(Simulation& s) {
   RecombState& Rc = *s.recomb;
   const std::size_t nc = static_cast<std::size_t>(s.cfg.Nrtc);
   const std::size_t n = nc * kNfreq;
-  if (Rc.ngam.size() != n) {
+  // the moment RT on the AMReX level keeps its buffers on the slabs: the
+  // tables only here
+  const bool level = use_amrex(s.cfg) && s.cfg.rt_method != RTMethod::Rays;
+  if (level) {
+  } else if (Rc.ngam.size() != n) {
     Rc.ngam.assign(n, 0.0f);
     Rc.egam.assign(n, 0.0f);
     Rc.ots.assign(nc, 0.0f);
     Rc.mode.assign(nc, 1);  // launch until a block has shown its production
   }
-  Rc.emit_ngam.assign(n, 0.0f);
-  Rc.emit_egam.assign(n, 0.0f);
-  Rc.emit.assign(nc, 0);
+  if (!level) {
+    Rc.emit_ngam.assign(n, 0.0f);
+    Rc.emit_egam.assign(n, 0.0f);
+    Rc.emit.assign(nc, 0);
+  }
   if (Rc.dE.empty()) {
     const int NT = RecombState::kNT;
     Rc.dE.assign(4 * NT, 0.0);
@@ -250,10 +257,15 @@ void recomb_init(Simulation& s) {
 void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], const double nrB[3],
                   double T, double vol_gas) {
   RecombState& Rc = *s.recomb;
-  const Units& u = s.units;
+  const std::size_t k0 = static_cast<std::size_t>(c) * kNfreq;
+  recomb_count_cell(Rc, s.units, recomb_onspot(Rc, c), nrab, nrB, T, vol_gas, &Rc.ngam[k0], &Rc.egam[k0], 1,
+                    &Rc.ots[c]);
+}
+
+void recomb_count_cell(const RecombState& Rc, const Units& u, bool onspot, const double nrab[3], const double nrB[3],
+                       double T, double vol_gas, float* ngam, float* egam, std::int64_t stride, float* ots) {
   static constexpr int grp[3] = {0, 2, 4};
   const double nu0[3] = {pc::HI_eV, pc::HeI_eV, pc::HeII_eV};
-  const bool onspot = recomb_onspot(Rc, c);
   // log T interpolation in the energy tables
   const int NT = RecombState::kNT;
   double ft = (std::log10(std::max(T, 1.0)) - RecombState::kLogT0) / RecombState::kDLogT;
@@ -263,15 +275,16 @@ void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], const dou
   auto tab = [&](const double* t) { return (1 - wt) * t[it] + wt * t[it + 1]; };
   const double conv = vol_gas / (u.nH_avg * u.vol_rt);
   auto add = [&](int g, double ng, double nu) {
-    const std::size_t k = static_cast<std::size_t>(c) * kNfreq + g;
-    Rc.ngam[k] = static_cast<float>(static_cast<double>(Rc.ngam[k]) + ng);
-    Rc.egam[k] = static_cast<float>(static_cast<double>(Rc.egam[k]) + ng * nu);
+    float& n = ngam[g * stride];
+    float& e = egam[g * stride];
+    n = static_cast<float>(static_cast<double>(n) + ng);
+    e = static_cast<float>(static_cast<double>(e) + ng * nu);
   };
   for (int sp = 0; sp < 3; ++sp) {
     if (!(nrab[sp] > 0)) continue;
     const double ng = nrab[sp] * conv;
     if (onspot) {
-      Rc.ots[c] = static_cast<float>(static_cast<double>(Rc.ots[c]) + ng);
+      *ots = static_cast<float>(static_cast<double>(*ots) + ng);
       continue;
     }
     const double nu = std::min(nu0[sp] + tab(&Rc.dE[sp * NT]), kEdge[grp[sp] + 1]);
@@ -289,7 +302,7 @@ void recomb_count(Simulation& s, std::int64_t c, const double nrab[3], const dou
     for (int g = 0; g < kNfreq; ++g) tot += Rc.line_n[h][g];
     if (sp == 2) tot += tab(Rc.fBC.data());
     if (onspot) {
-      Rc.ots[c] = static_cast<float>(static_cast<double>(Rc.ots[c]) + nb * tot);
+      *ots = static_cast<float>(static_cast<double>(*ots) + nb * tot);
       continue;
     }
     for (int g = 0; g < kNfreq; ++g)

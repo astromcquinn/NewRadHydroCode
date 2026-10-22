@@ -38,7 +38,9 @@
 // Everything is deterministic and independent of the thread count.
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -130,5 +132,150 @@ void otvet_fft_convolve_kernel(int N, const std::vector<double>& rho, OtvetKerne
                                const char* cache_tag = nullptr, double cache_param = 0);
 // Smallest eigenvalue of the symmetric tensor (xx, yy, zz, xy, xz, yz).
 double otvet_min_eigenvalue(const double h[6]);
+
+// The pieces of otvet_fft_convolve_kernel (src/rt_moments_fft.cpp), for a
+// caller that computes some components only (the moment level's component
+// tasks, docs/stage_e_moments.md section 4.1): the same FFTW plans and
+// buffers (fftwf_malloc), the same arithmetic, so every component is
+// bitwise the one otvet_fft_convolve_kernel returns. Needs FFTW3f.
+class OtvetConvolver {
+ public:
+  explicit OtvetConvolver(int N);
+  ~OtvetConvolver();
+  OtvetConvolver(const OtvetConvolver&) = delete;
+  OtvetConvolver& operator=(const OtvetConvolver&) = delete;
+  // N^3 float buffers (fftwf-aligned): the input of forward() and an output
+  float* r();
+  float* out();
+  // rho (in r()) -> its spectrum, kept for convolve()
+  void forward();
+  // The spectrum of kernel component m: cached as otvet_fft_convolve_kernel
+  // does (tag, N, param; tag null: this convolver's own copy, recomputed
+  // every call); buf: an N^3 float scratch for the fill (fftwf-aligned).
+  // Returns an opaque pointer for convolve().
+  const void* kernel(int m, OtvetKernelFill fill, const void* ctx, const char* tag, double param, float* buf);
+  // The product with a kernel spectrum and the inverse transform into out
+  // (N^3 floats, unnormalised: P = out / N^3 in double)
+  void convolve(const void* kspec, float* out);
+  // The guard of threaded plans (the planner's thread count when the
+  // convolver was made): convolve(kspec, out), and the forward transform of
+  // r() and this inverse repeated with single-threaded plans; true if both
+  // are bitwise equal. Once per run: it needs N^2 (N/2+1) complex and N^3
+  // float scratch on top.
+  bool convolve_checked(const void* kspec, float* out);
+
+ private:
+  struct Impl;
+  Impl* impl_;
+};
+
+// The kernels of the thin, screened and near-field tensors (fills of
+// otvet_fft_convolve_kernel)
+void otvet_thin_fill(int N, int m, const void* ctx, float* K);
+struct OtvetScreenCtx {
+  double lam;
+};
+void otvet_screen_fill(int N, int m, const void* ctx, float* K);
+struct OtvetNearCtx {
+  double rc;
+};
+void otvet_near_fill(int N, int m, const void* ctx, float* K);
+// h = P / tr P (isotropic where tr P <= 0; compute_otvet_tensor's store),
+// and the screened / cone version: isotropic where tr P <= trmin, the
+// eigenvalues clamped to >= 0
+void otvet_normalise(const double P[6], float* h);
+void otvet_normalise_safe(const double P[6], double trmin, float* h);
+// The FFT noise floor of tr P for sources rho (normalised units): trmin =
+// kOtvetNoiseFloor * sum rho
+constexpr double kOtvetNoiseFloor = 1e-6;
+
+// ---- the cone closure in pieces (otvet_closure_tensor, closure = cone),
+// for the moment level's slabs (docs/stage_e_moments.md section 4.2) ------
+
+// A mip-map level: n^3 cells (i + n (j + n k))
+struct OtvetMip {
+  int n = 0;
+  std::vector<float> a;
+};
+// Planes kc0 <= k < kc1 of the next coarser level (the means of 2^3 cells,
+// a double sum in a fixed order): fine = the fine level's planes from 2 kc0
+// on (n x n each), coarse = the coarse planes from kc0 on (n/2 x n/2 each)
+void otvet_mip_coarsen(const float* fine, int n, int kc0, int kc1, float* coarse);
+
+inline int otvet_wrapi(long long i, int n) {
+  long long r = i % n;
+  if (r < 0) r += n;
+  return static_cast<int>(r);
+}
+
+// The march of the cones (the same on every rank)
+struct OtvetCone {
+  int N = 0, co = 0, ncr = 0, nb = 0, npix = 0, nlev = 0;
+  int lmin = 0;  // the finest mip level a march samples
+  double rc = 0, smax = 0, omega = 0, tanth = 0;
+  std::vector<double> edges;
+  std::vector<std::array<double, 3>> dirs;
+  std::array<double, kNfreq> W{}, sigma18{};
+  OtvetCone(const OtvetClosureParams& p, const std::array<double, kNfreq>& q,
+            const std::array<double, kNfreq>& sigma18, int N);
+  // Gamma-weighted transmission of the source spectrum through a column
+  double trans(double col) const;
+  // The per-bin direct light (nb x 6 floats) at receiver (ix, iy, iz): the
+  // emissivity and column mip-maps R[l], C[l] for l >= lmin
+  void march(const OtvetMip* R, const OtvetMip* C, int ix, int iy, int iz, float* o) const;
+  // The budget: lambda_x (0 = none) with the light of the near field
+  // (near_tr) and of the bins (tb) equal to target; fac[b] the factors of
+  // the bins; ratio the light over the target
+  double budget(int cone_budget, const std::vector<double>& tb, double near_tr, double target, double unit,
+                std::vector<double>& fac, double& ratio) const;
+};
+
+// The receivers' P (pr(ix, iy, iz) -> q with q[m], m < 6; periodic indices) at fine
+// cell (i, j, k), trilinear, added to the near field P (in: Pn)
+template <class PrAt>
+inline void otvet_cone_prolong(int co, int ncr, int i, int j, int k, PrAt&& pr, double P[6]) {
+  double t[3];
+  int a0[3], a1[3];
+  const int fi[3] = {i, j, k};
+  for (int d = 0; d < 3; ++d) {
+    const double cc = (fi[d] + 0.5) / co - 0.5;
+    const double fl = std::floor(cc);
+    t[d] = cc - fl;
+    a0[d] = otvet_wrapi(static_cast<long long>(fl), ncr);
+    a1[d] = a0[d] + 1 == ncr ? 0 : a0[d] + 1;
+  }
+  for (int dz = 0; dz < 2; ++dz)
+    for (int dy = 0; dy < 2; ++dy)
+      for (int dx = 0; dx < 2; ++dx) {
+        const double wgt = (dx ? t[0] : 1 - t[0]) * (dy ? t[1] : 1 - t[1]) * (dz ? t[2] : 1 - t[2]);
+        const auto q = pr(dx ? a1[0] : a0[0], dy ? a1[1] : a0[1], dz ? a1[2] : a0[2]);
+        for (int m = 0; m < 6; ++m) P[m] += wgt * q[m];
+      }
+}
+
+// The blend's split thin tensor h_s of a cell: h -> I/3 + beta (h - I/3),
+// beta = min(1, q_w nd / N_w) (nothing where N_w <= 0)
+inline void otvet_blend_hs(float* h, double nd, double Nw, double qw) {
+  if (!(Nw > 0)) return;
+  const double beta = std::min(1.0, qw * nd / Nw);
+  for (int m = 0; m < 6; ++m) {
+    const double iso = m < 3 ? 1.0 / 3 : 0.0;
+    h[m] = static_cast<float>(iso + beta * (static_cast<double>(h[m]) - iso));
+  }
+}
+// The blend's last step: h = h_s + d (d = the blurred h_cone - h_s),
+// normalised to trace 1, eigenvalues clamped to >= 0
+void otvet_blend_finish(const float* hs, const float* d, float* h);
+// The periodic Gaussian of the blend (scipy.ndimage.gaussian_filter,
+// truncated at 4 sigma): the weights w[k + R], R = int(4 sigma + 0.5)
+std::vector<double> otvet_gauss_weights(double sigma);
+// One output point t of a line of length N (line(t') the input values)
+template <class Line>
+inline double otvet_gauss_point(const std::vector<double>& w, int t, int N, Line&& line) {
+  const int R = static_cast<int>(w.size() / 2);
+  double s = 0;
+  for (int k = -R; k <= R; ++k) s += w[k + R] * line(otvet_wrapi(t + k, N));
+  return s;
+}
 
 }  // namespace radray

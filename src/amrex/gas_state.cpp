@@ -7,14 +7,17 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <AMReX.H>
 #include <AMReX_MFIter.H>
 
+#include <AMReX_BoxList.H>
 #include <AMReX_DistributionMapping.H>
 
 #include "radray/amrex_state.hpp"
+#include "radray/config.hpp"
 #include "radray/fortran.hpp"
 #include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
@@ -42,6 +45,30 @@ void check_mirror(const Simulation& s) {
 
 gs::GasState* gs::active() { return g_active; }
 
+void gs::make_decomposition(const Config& cfg, int N, ax::BoxArray& ba, ax::DistributionMapping& dm) {
+  const ax::Box domain(ax::IntVect(0), ax::IntVect(N - 1));
+  if (!cfg.amrex_slab) {
+    ba = ax::BoxArray(domain);
+    ba.maxSize(cfg.amrex_max_grid_size);
+    dm = ax::DistributionMapping(ba);
+    return;
+  }
+  const int nranks = ax::ParallelDescriptor::NProcs();
+  const int nz = amrex_slab_planes(cfg, N, nranks);
+  if (nz < 2 || N % nz != 0)
+    throw std::runtime_error("amrex_slab = 1: " + std::to_string(nz) + " planes per slab do not divide N = " +
+                             std::to_string(N));
+  const int nslab = N / nz;
+  ax::BoxList bl;
+  ax::Vector<int> owner(nslab);
+  for (int s = 0; s < nslab; ++s) {
+    bl.push_back(ax::Box(ax::IntVect(0, 0, s * nz), ax::IntVect(N - 1, N - 1, s * nz + nz - 1)));
+    owner[s] = static_cast<int>(static_cast<long long>(s) * nranks / nslab);
+  }
+  ba = ax::BoxArray(bl);
+  dm = ax::DistributionMapping(owner);
+}
+
 AmrexState::~AmrexState() {
   if (g_active == &gas) g_active = nullptr;
 }
@@ -61,9 +88,7 @@ void amrex_state_init(Simulation& s) {
   const ax::Array<int, 3> per{1, 1, 1};
   g.geom = ax::Geometry(g.domain, rb, ax::CoordSys::cartesian, per);
   g.period = g.geom.periodicity();
-  g.ba = ax::BoxArray(g.domain);
-  g.ba.maxSize(s.cfg.amrex_max_grid_size);
-  g.dm = ax::DistributionMapping(g.ba);
+  gs::make_decomposition(s.cfg, g.N, g.ba, g.dm);
   g.G.define(g.ba, g.dm, gs::kNC, 0);
   g.G.setVal(0.0f);
   s.state = st;

@@ -863,6 +863,52 @@ policy on klone, and deleting the merged branches.
   and the after-overlap P_Γ figure as for OTVET and M1 (`docs/otvet_closure.md`
   §7, `$RUNS/otvet_closure_512/compare.mp4`).
 
+## Moments-on-AMReX thread (2026-10-13): the moment RT across nodes
+
+* **Request (user):** branch `moments-amrex` (worktree from `main` after
+  PR #36): run the moment RT (`rt_method = m1 | otvet`, with `otvet_split`
+  and `otvet_closure = screen | cone`) across nodes on the AMReX backend.
+  Design first and **show the plan before implementing**; then implement
+  behind a flag (serial defaults byte-identical); validate bitwise against
+  the serial moment RT on 1, 2 and 4 nodes for M1, thin, split, screen and
+  cone, with every sum in the serial order, plus amrex/thread/restart
+  tests; time 512³ on 1/2/4 nodes per part with peak memory per rank;
+  then a 1024³, 40 Mpc/h cone run (defaults) on four nodes with movie
+  slices, compared with the 512³ cone (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`). Check
+  `hyakalloc` before taking four nodes.
+* **Proposed** (`docs/stage_e_moments.md`):
+  z-slab decomposition (`amrex_slab = 1`) shared by every level; a
+  separate `MomentLevel` reusing the `rrk::` cell kernels; the OTVET
+  FFTs on component ranks with the serial FFTW plans (no grid gather);
+  `amrex_moment_stats = exact | fixed` for the photochemistry statistics;
+  sparse per-rank sources as a prerequisite for 1024³.
+* **User decisions (2026-10-13):**
+  - the z-slab decomposition (`amrex_slab = 1`): yes;
+  - `amrex_moment_stats = exact` by default, `fixed` for production: yes;
+  - the 1024³ run on the preemptible `ckpt-g2` partition;
+  - `recomb_rad = 1` must work with moments on AMReX eventually: phase 3b.
+  - Asked how much faster a distributed FFT would be. Measured
+    (`docs/stage_e_moments.md` §4.1): the serial 3-D FFTW plan with
+    FFTW's threads is bitwise the single-threaded plan at 256³, 512³ and
+    1024³ (8 and 32 threads), and 31× faster at 1024³ on 32 threads
+    (0.70 s against 21.8 s). A distributed pencil FFT would be no faster
+    at 4 nodes (its transposes) and is not bitwise. Proposed: threaded
+    plans on the component ranks, with a once-per-run bitwise guard.
+* **User decisions (2026-10-14):** follow every recommendation:
+  - threaded serial 3-D FFTW plans on the component ranks, with the
+    once-per-run bitwise guard (threaded against single-threaded forward
+    transform; stop on a mismatch) and a ctest at small sizes; no
+    distributed FFT;
+  - the base: Stage E4 (PR #37) had already merged into `main`, so
+    `moments-amrex` was rebased onto `origin/main` (`b243df9`);
+  - `amrex_balance = 1` with moments is refused for now.
+* **Found 2026-10-14:** the 512³ cone run (`reion512_rays_otvet_cone`) used
+  `recomb_case = A`, `recomb_rad = 1` (block 4) and `rt_substep_carry = 1`.
+  A like-for-like 1024³ comparison therefore needs `recomb_rad = 1` with
+  moments on the level (phase 3b), done before phase 5;
+  `rt_substep_carry` is a clock setting, the same on every backend.
+
 ## Stage F decisions (2026-10-14): AMR for gas and RT
 
 Taken by the user after Stage E closed (PR #37), on the questions listed
@@ -1013,6 +1059,438 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   higher maximum. The RT substeps per hydro step scale with ĉ (the late
   phase at 0.5c costs ~5× the RT time of 0.1c).
 
+## Unified RT-methods suite (2026-10-17): one ĉ, 512³, one f_esc, AMR, and FLD
+
+*Assessment requested by the user on 2026-10-17 (session
+`sleepy-feynman`); no code changed. The tables and estimates come from
+`docs/rt_methods_512.md`, `docs/otvet_closure.md` §7,
+`docs/production_run.md` §8–9, `docs/stage_e_state.md`, `docs/stage_f.md`,
+`docs/fesc_evolution.md` and the PRs open on 2026-10-17 (#42–#44; by
+2026-10-18 #42, #44, #45 and #46 were merged into `main`, #43 open).*
+
+* **Goal (user):** every RT method run with the same, motivated reduced
+  speed of light, at 512³, with the same f_esc, ideally with AMR; and a
+  flux-limited-diffusion method added to the comparison.
+* **Where each set stands today:**
+
+  | | rays, serial | rays, AMReX backend | M1 / OTVET / cone |
+  |---|---|---|---|
+  | MPI | no | yes (Stage E) | no |
+  | AMR | no | yes (Stage F3) | no: `rt_backend = amrex` refuses `rt_method ≠ rays`; the serial solvers are single-level |
+  | case A + recombination radiation | yes | no: the backend refuses `recomb_rad` (the emission kernel exists, the block and on-the-spot logic do not) | yes |
+  | 512³ runs so far | 0.2c, f_esc = 0.23, case A + RR (`reion512_rays`) | 0.1c, f_esc(z) β = 2.5, case B (`fesc512_b2.5_{amr,uniform}`, PR #43) | 0.2c, f_esc = 0.23, case A + RR |
+
+* **The gaps, in order of size:**
+  1. **The moment methods are serial-only.** Porting the explicit solver
+     to the AMReX level hierarchy is the largest piece of new work
+     (weeks): the 7-point stencil maps onto the ghost exchange; the OTVET
+     tensors need the global FFT the PM backend already has on AMReX, the
+     cone also its near-field march; on a level-l grid the explicit
+     transport needs 2^l × `moment_nsub` subcycles per coarse substep
+     (time sub-cycling, declined for rays in the Stage F decision but
+     cheap for a stencil) and refluxing of the moment fluxes.
+  2. **The backend has no recombination radiation**, while case A + RR
+     is the production default the method comparison used. Either port
+     `recomb_rad` to the backend or run the whole suite as case B.
+  3. **The existing ĉ study covers the history, not the post-overlap Γ**
+     (the ĉ itself is decided below: a three-stage schedule). Measured: at 128³ in the 10 Mpc/h box with constant f_esc, 0.1c
+     delays the end of reionization by Δz = 0.4 and the midpoint by 0.15
+     against full c, 0.3c halves both, τ_es 2.5 % and 0.7 % low
+     (`docs/production_run.md` §9, runs `$RUNS/cal128{,_c03,_c10}`);
+     0.01c delays it by Δz ≈ 2 (`docs/cluster.md` §7). Not measured: Γ_HI,
+     its PDF and P_Γ after overlap against full c, in a box with the 512³
+     mean free path (the lag scales with λ_mfp, 5× longer at 40 Mpc/h
+     than the data), with the f_esc(z) sources. *Correction (2026-10-18):*
+     the 20 Mpc/h 256³ constant-ĉ study (`runs/sol`) was run by another
+     thread after all; it delays x_V = 0.99 against 1c by Δz = 0.09
+     (0.5c), 0.19 (0.3c), 0.30 (0.2c) and 0.56 (0.1c), and it set the
+     revised schedule below (recorded on branch `c-schedule`, PR #46).
+     Two physical limits: before overlap the fronts crossing the
+     last voids approach ĉ (the Δz lag above); after overlap Γ relaxes on
+     λ_mfp/ĉ, the regime of the Γ-fluctuation comparison:
+
+     | ĉ | λ_mfp/ĉ at z = 5.4 (λ = 23 pMpc) |
+     |---|---|
+     | 1c | 75 Myr |
+     | 0.4c | 190 Myr |
+     | 0.2c | 375 Myr |
+     | 0.1c | 750 Myr, about the age of the universe then |
+
+     Cost is linear in ĉ for every method (one substep is one cell of
+     light travel). Rough 512³ costs at full c, scaled from the 0.2c
+     runs: rays on 5 backend nodes ≈ 10 h in case B; M1 or OTVET on one
+     node ≈ 22 h (143–146 GB). A constant ĉ of 0.5–1 is therefore
+     affordable. A higher ĉ also shrinks the AMR failure mode of
+     light-limited fronts at two levels (`docs/rt_multicell.md` §7–8).
+  4. **f_esc.** Constant 0.23 overshoots Γ by 2.5× and λ_mfp by 5× at
+     z ≈ 5.5; the falling law f_esc(z) = 0.135 ((1+z)/7)^2.5 lands on the
+     Γ and forest data at 256³ and, confirmed at 512³ (PR #45, merged:
+     Γ 0.97–1.00× and ⟨F⟩ 1.1× the data at z = 5.1–5.4, z99 = 5.51,
+     τ_es = 0.056), is the law for the suite. It was calibrated at a
+     constant 0.2c with 512³ particles, so it needs a check in the suite's
+     configuration (the schedule, 1024³ particles). Whatever the law, it
+     must be held fixed
+     across methods: a per-method forest calibration would move f_esc by
+     ≈ 30 % through ⟨F⟩ (`docs/rt_methods_512.md` §7) and defeat the
+     comparison.
+  5. **AMR readiness.** Two refined levels are not rank-independent
+     (1e-10, `fields-levels`); gravity on refined levels is at the PM-mesh
+     resolution only (Stage G); the flux-register and FillPatch overheads
+     are unprofiled; the 512³ cost probe has no usable checkpoint; PR #43
+     is open. The first refined 512³ run is also the test of whether
+     refinement shortens λ_mfp, the physics reason for AMR here (the
+     user's reading on 2026-10-18: AMR works but changes the results
+     little).
+* **Decision (user, 2026-10-17): the default reduced speed of light is a
+  schedule on the ionized fraction,** given by the user to another
+  thread, which implemented it as `c_reduced_schedule` (branch
+  `c-schedule`, PR #46; the C++ default stays the constant). **Revised by
+  the user on 2026-10-18** on the `runs/sol` study (above), now the
+  `make_production.py` default:
+
+  | x_HII,V | ĉ (2026-10-17) | ĉ (revised 2026-10-18) |
+  |---|---|---|
+  | < 0.25 | 0.1c | 0.1c |
+  | 0.25 – 0.3 | 0.1c | 0.2c |
+  | 0.3 – 0.5 | 0.2c | 0.2c |
+  | 0.5 – 0.75 | 0.2c | 0.3c |
+  | 0.75 – 0.8 | 0.2c | 0.5c |
+  | > 0.8 | 0.4c | 0.5c |
+
+  It follows the 128³ measurements: at 0.1c the history is converged to
+  0.01 in x_V up to x_V ≈ 0.2 and the midpoint lags by Δz = 0.15, which
+  0.2c halves; the last fronts and the post-overlap Γ are where ĉ
+  matters, and 0.4c sits between 0.3c (end lag Δz = 0.14) and 1c. The
+  schedule applies to every RT method (the moment solvers read the same
+  ĉ), so it is the "same motivated ĉ" of the suite. Cost: the revised
+  schedule is about 1.2× a constant 0.2c run (a rough ∫ ĉ (1+z) dt count;
+  the 0.5c phase after x_V = 0.75 dominates), so the 512³ costs of
+  `docs/rt_methods_512.md` §3 scale by about that. As built (PR #46): ĉ
+  of each hydro step from the box's x_HII,V at the end of the previous
+  step, stateless (so restarts are exact without a checkpoint change), no
+  hysteresis, rank 0 broadcasts x on the backends; tests `c_schedule`,
+  `restart_smoke_c_schedule` and the backend pair. The (f6, β) of the
+  f_esc law were calibrated at a constant 0.2c and need a check with the
+  schedule (PR #46's STATUS). Thread A below checks the schedule against
+  full c.
+* **FLD is not an isotropic Eddington tensor in the two-moment sense.**
+  It drops the flux equation: F = −ĉ λ(R) ∇N/κ with a limiter keeping
+  |F| ≤ ĉN (Levermore & Pomraning 1981, from memory: λ(R) = (2+R)/(6+3R+R²),
+  R = |∇N|/(κN); the paper is needed to confirm the coefficients,
+  CLAUDE.md's network rule). The pressure is isotropic in the diffusion
+  limit and the Eddington factor rises to 1 in free streaming, but the
+  defining feature is that the flux is slaved to ∇N: no shadows, no beams
+  (Wu et al. 2021 lump OTVET and FLD on this point,
+  `docs/otvet_closure_literature.md`). Two things can be built:
+  - **P1**: χ = 1/3 in the M1 pressure of the existing GLF solver, a few
+    lines and a new `rt_method` value. The telegraph approximation,
+    signal speed ĉ/√3, no beams. Not FLD; must not be labelled FLD.
+  - **FLD proper**: a new implicit solver per group (explicit diffusion is
+    unstable where κ → 0 with a smooth gradient, since D = ĉ/(3κ)
+    diverges). The 7-point system is SPD: PCG with OpenMP on the periodic
+    grid; AMReX MLMG on the backend, where FLD has no Courant limit and so
+    needs no sub-cycling on fine levels. Coupling reuses the moment path
+    (deposit N, absorption through `fgam`, 5 groups with the cell's
+    HI/HeI/HeII opacities, `redshift_spectrum`). Tests: the Iliev I-front,
+    a shadow test, photon conservation. One to two weeks in the serial
+    code, plus the backend port.
+  Recommendation: build FLD proper; P1 optional as a cheap extra point.
+* **Proposed order:**
+  1. ~~Merge PRs #42, #44–#46; finish the 512³ f_esc(z) run; land the ĉ
+     schedule~~ done 2026-10-18 (PR #43, AMR gravity, is not needed for
+     the uniform suite); check the schedule against full c on the
+     post-overlap Γ (thread A below: two runs). Decide the f_esc law and
+     case B against case A + RR.
+  2. Add FLD (and optionally P1) to the serial moment framework (thread B).
+     Run the uniform 512³ suite of all methods at the shared ĉ, f_esc and
+     recombination treatment, one node per run; every analysis tool
+     (`gamma_power.py`, `reion_power.py`, `igm_stats.py`,
+     `rt_methods_runs.py`, the movies) exists. This gives the consistent
+     comparison within weeks, without AMR.
+  3. Port the moment solvers and FLD to the AMReX hierarchy and
+     `recomb_rad` to the backend (thread C), then repeat with two levels.
+* **The uniform 512³ rerun of every RT method (user, 2026-10-18):** the
+  schedule, the f_esc(z) law, a uniform grid with `pm_refine = 4` and
+  1024³ particles, no dark matter in the outputs (`data_files = nodm`,
+  PR #43), the previous outputs overwritten; a short paper on the moment
+  methods against the rays and the improved closures. The AMR run is
+  working but changes the results little, so the suite stays uniform.
+  **Decisions (user, 2026-10-18):** (1) the luminosities stay those of
+  the 512³ calibration, `data/uv_lf/am_params_128_10mpc.txt` (the L(M)
+  fitted so that the FoF halos of the 128³, 10 Mpc/h box, the same cell
+  and particle mass as 512³ in 40 Mpc/h, reproduce the observed UV LFs;
+  with 1024³ particles the halo counts shift a little, which the base run's
+  check absorbs; the Sheth–Tormen table `am_params_st_fof.txt` would have
+  changed the emissivity by about 0.04 dex); (2) cooling suppression 200
+  and no sink; a sink on the serial path is wanted later; (3) overwrite
+  the old run names; (7) no dark matter in the outputs, only in the
+  checkpoints (`data_files = gas`); **the recombination treatment (user,
+  2026-10-18): case B without recombination radiation is the default of
+  the suite** (the base rays and every moment method), **plus one ray run
+  with case A + transported recombination radiation** and
+  `recomb_rad_cell_onspot = 1` (`reion512_rays_caseA`); the case-B
+  configuration is also `make_production.py`'s default. Note for the
+  base run's check: the f_esc law was calibrated with case A + RR, and
+  case B gives about 10 % less Γ after overlap and a slightly later end
+  (`docs/rt_methods_512.md` §4). Disk (user question, 2026-10-18): per
+  run the suite needs about what the 2026-10-11 set needed (a case-B ray
+  run ≈ 390 GB while running with two checkpoints kept against ≈ 410 GB
+  then; the additions are the averaged Γ frames, three more snapshots and
+  the 1024³ particles in the checkpoints, 23 GB each); the checkpoints
+  dominate, so the script keeps one (`RESTART_KEEP=1`, the writes are
+  atomic), which brings the set to ≈ 1.3 TB while running and 0.75 TB
+  kept; (4) the substep-averaged Γ_HI, built
+  the same day as `gammaHI_avg` (below); (5) the launch script
+  `tools/hyak/rt_suite512.sh` (below); (6) the 2048³-mesh probe runs in a
+  thread of the user's on klone.
+  **Built 2026-10-18 (branch `claude/sleepy-feynman-dx6ic2`):**
+  `gammaHI_avg` in `fields` and `movie_fields` (`Simulation::gamma_avg`,
+  `gamma_avg_*` in `rt.hpp`; the sum of Γ_HI × dt over the hydro step's
+  substeps in double, after each substep's physics; the step average in
+  the snapshots, the running average in frames; serial RT only, the
+  backend refuses it; `movie_every_substep = 1` for the tests;
+  `gamma_power.py --field`, `rt_methods_runs.py --gamma-field`; tests
+  `gamma_avg_rays`, `gamma_avg_m1`: the mean of the per-substep frames,
+  thread independence, output only), and `tools/hyak/rt_suite512.sh`
+  (phases `probe`, `base`, `siblings`, `post`; `OVERWRITE=1` removes the
+  old directories; the disk estimate in its header: ≈ 450 GB per ray run
+  and 205 GB per moment run while running, ≈ 105 GB each kept, the set
+  ≈ 1.9 TB running and 0.75 TB kept, the old set's checkpoints ≈ 1 TB
+  freed).
+  **The f_esc level (user question, 2026-10-19: raise the emissivity by
+  10–20 % before launching, towards the data?)** The thread's reading:
+  not blindly, because the suite's configuration already moves away from
+  the calibration in that direction. At the same (f6, β): the schedule
+  ends reionization ≈ 0.2 earlier than the constant 0.2c of the
+  calibration (`runs/sol`: z99 later than 1c by 0.30 at 0.2c, 0.09 at
+  0.5c) and lets Γ relax faster after overlap, so Γ at z = 5.4 rises;
+  case B instead of case A + RR lowers Γ by ≈ 10 %; the 1024³ particles
+  with the 128-box luminosities add a few per cent of ṅ. Net: Γ up,
+  the end earlier, at the calibration's f6. A further +10–20 % in f6 moves
+  Γ and ⟨F⟩ further above the data (at 256³, f6 0.135 → 0.15 raised Γ at
+  z = 5.4 by 25 % and z99 by 0.07) and λ with them; it moves towards the
+  data only on ṅ_ion (0.4–0.7 dex below Becker+21), which this
+  resolution cannot match together with Γ (`docs/fesc_evolution.md` §5).
+  So the plan: **measure, then choose f6**, with `rt_suite512.sh
+  precheck`: the suite's exact configuration at 256³ in 20 Mpc/h (the
+  same cell size and particle mass, `pm_refine = 2` with 512³ particles)
+  at f6 = 0.12, 0.135 and 0.15, one node and ≈ 3 h each in parallel, then
+  `precheck-post` (igm_diag + fesc_summary: z99, Γ, ⟨F⟩, λ against the
+  data per f6); pick the f6 whose z99 lands at 5.3–5.5 and Γ nearest
+  Gaikwad at z = 5.1–5.4, allowing for the 40 Mpc/h box ending ≈ 0.2
+  later than 20 Mpc/h at fixed f_esc; then the 512³ base with `F6=<that>`.
+  **User decision (2026-10-19): no bump; f6 = 0.135, β = 2.5 stay.** The
+  pre-check phase remains in the script but is not part of the launch;
+  the base run's numbers at z = 5.4 are reported, not used to recalibrate.
+  The launch thread's prompt is "Thread D" below.
+  Pre-launch checklist from the assessment of 2026-10-18:
+  1. PR #43 is *not* a prerequisite (correction, 2026-10-18): the suite
+     is uniform, and `pm_refine = 4` with 1024³ particles is the
+     uniform-grid PM mesh of `docs/pm_refine.md`, on `main` since
+     2026-10-12 (the code needs only that Ndm divides the 2048³ mesh).
+     #43 adds AMR-only gravity plus two script conveniences, `--ndm` and
+     `data_files = nodm`. On `main` alone: `make_production.py --pm-refine
+     4 --no-ics ...`, then `Ndm = 1024` in params.txt and `ics` linked to
+     the existing 1024³ ICs (`$RUNS/hmf512_40mpc_r2/ics`: 512³ gas,
+     1024³ particles, 40 Mpc/h, seed 7); `--data-files gas` already omits
+     the dark matter, as the first 512³ comparison did;
+     `--restart-every 10` is an existing option;
+  2. everything runs on the serial path (the moment methods exist only
+     there), one node per run, so every run gets case A + RR; raise the
+     `--mem` of `rt_methods_runs.sh` and `otvet_closure_runs.sh`;
+  3. `pm_refine = 4` with 1024³ particles has never run serially at 512³:
+     the host PM arrays at the 2048³ mesh are ≈ 275 GB (mesh force 103,
+     int64 hash table 69, density and the P(k) buffer 68, particles and
+     links 35) on top of the RT's 150–250 GB, within a 1.5 TB node; a
+     two-step test from the existing 1024³ ICs first;
+  4. the f_esc law was calibrated at a constant 0.2c with 512³ particles:
+     the faster late ĉ raises Γ, the Sheth–Tormen L(M) with 1024³
+     particles lowered it (the other thread's uniform run ended at
+     z = 5.27 with Γ at half the data, also at 0.1c, case B and with the
+     sink); so run the ray base first, check z99 and Γ at z = 5.4, adjust
+     f6 if needed, then the siblings from its params.txt;
+  5. ~~no star-formation sink on the serial path~~ decided: cooling
+     suppression 200, no sink (the sink needs the AMReX hydro backend; a
+     serial-path sink is a later item);
+  6. ~~Γ for P_Γ without the rays' single-substep noise~~ done: the field
+     `gammaHI_avg`, in the suite's `fields` and `movie_fields`;
+  7. ~~new run names rather than overwriting~~ the user chose to overwrite
+     (the figures of `docs/rt_methods_512.md` and `docs/otvet_closure.md`
+     stay in the repository; their snapshots go); `rt_suite512.sh
+     OVERWRITE=1` removes the old directories, checkpoints included;
+  8. FLD can join later as a sibling of the same base.
+  Rough costs at the revised schedule (≈ 1.2× the 0.2c runs): rays
+  A + RR 17 h, rays B 10 h, M1 5 h, each OTVET variant 5–6 h; about 60
+  node-hours.
+* **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
+  schedule above; (b) ~~case B~~ decided 2026-10-18: case B for the suite,
+  one ray run with case A + RR; (c) ~~the
+  f_esc law~~ β = 2.5, f6 = 0.135 with the 512³-calibrated luminosities,
+  checked on the base run first; (d) ~~the uniform-grid suite first~~ yes
+  (2026-10-18); open: (e) FLD proper alone, or P1 as well; (f) the paper
+  for the FLD limiter. Superseded text follows for the record: (b) case B for the whole
+  suite, or port recombination radiation to the backend first; (c) the
+  f_esc law once the 512³ run reports; (d) whether the uniform-grid suite
+  (step 2) is worth running before the moment methods have AMR; (e) FLD
+  proper alone, or P1 as well; (f) the paper for the FLD limiter.
+
+### Thread A: the ĉ schedule against full c (Hyak)
+
+A check of the decided schedule, an extension of `docs/production_run.md`
+§9 to the post-overlap Γ. It needs the schedule in the code (the other
+thread's work merged into `main`) and two runs.
+
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite": the ĉ
+> schedule decision), docs/STATUS.md, docs/production_run.md §9 (the
+> 128³ convergence set: 0.1c lags the end of reionization by Δz = 0.4,
+> 0.3c by 0.14) and docs/cluster.md §7. You are on UW Hyak klone
+> (docs/cluster.md: `source tools/hyak/env.sh`,
+> `RUNS=/gscratch/astro/$USER/radhydro/runs`). Branch `c-schedule-check`
+> off `main`; commit often and push. Stop and report if `main` does not
+> yet have `c_reduced_schedule` (PR #46; the production default 0.1c
+> below x_HII,V = 0.25, 0.2c to 0.5, 0.3c to 0.75, 0.5c after).
+>
+> Goal: what the 128³ set did not measure, i.e. the history and Γ_HI
+> after overlap with the schedule against full c, in a box with the 512³
+> mean free path. Base: the 20 Mpc/h, 256³, 0.2c ray run with the
+> f_esc(z) = 0.135 ((1+z)/7)^2.5 sources of the `fesc-evolution` grid
+> (the β = 2.5 run of `tools/hyak/fesc_runs.sh`; the 512³ cell size,
+> production flags, case A + RR with `recomb_rad_cell_onspot = 1`), or
+> `otvcl256` (constant f_esc = 0.23) if docs/PLAN.md says the f_esc(z)
+> law was dropped. Make two siblings that differ only in the speed of
+> light: the schedule, and constant `c_reduced = 1` (same ICs, slab movie
+> frames with the Γ columns, snapshots at z = 15 7 6.5 6.25 6 5.75 5.5
+> 5.25 5, `restart_keep = 2`), one whole cpu-g2 node each, about 3 and
+> 14 h (the base took 2.7 h at 0.2c). The base itself is the constant
+> 0.2c point.
+>
+> Measure the schedule and the 0.2c base against 1c: z at x_V = 0.1,
+> 0.5, 0.9, 0.99, 0.999 and τ_es (`reion_history.py`); ⟨Γ⟩, its PDF in
+> ionised cells and P_Γ with r(k) at every snapshot after z = 6
+> (`rt_methods_runs.py`, `gamma_power.py`); λ_mfp and ⟨F⟩
+> (`igm_stats.py`, `tools/hyak/igm_diag.slurm`); and the lag time
+> λ_mfp/ĉ against the run's own λ_mfp(z). Deliverable: a new §10 of
+> docs/production_run.md (or docs/speed_of_light.md if it outgrows a
+> section) with the tables and figures, and a verdict: the schedule
+> passes if x_V(z) is within 0.01 of 1c, Δz(99 %) ≤ 0.1, and ⟨Γ⟩ within
+> 5 % and P_Γ within 10 % of 1c at k ≤ 2 h/Mpc after overlap; if it
+> fails, say which stage is responsible and propose the smallest change
+> of its value or threshold, with the cost it adds. Also confirm the
+> restart through a stage switch is bit-identical. Update docs/STATUS.md
+> and record the result in docs/PLAN.md.
+
+### Thread B: flux-limited diffusion in the serial RT (cloud)
+
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite", "Moment RT
+> thread", "OTVET-closure thread"), docs/STATUS.md, docs/rt_moments.md,
+> docs/otvet_closure.md §5, then src/rt_moments.cpp and
+> include/radray/rt_moments.hpp. Branch `rt-fld` off `main`; commit often
+> and push; one PR.
+>
+> Add `rt_method = fld`: flux-limited diffusion per frequency group in the
+> serial RT, beside M1 and OTVET, sharing their injection, deposit
+> (`ngam`, `nu`, `dx`), `fgam` absorption, redshifting, tensor dump,
+> checkpoint and photon budget. Physics: F = −ĉ λ(R) ∇N/κ with the
+> Levermore–Pomraning limiter λ(R) = (2+R)/(6+3R+R²), R = |∇N|/(κ N),
+> where κ_g is the cell's absorption coefficient of group g from its HI,
+> HeI and HeII densities and the group cross sections (the same κ
+> `photo_cell` uses, `rrk::photoion_sigma`). The user supplies the paper
+> for the limiter: confirm the coefficients against it before relying on
+> them, and flag them until then. Solve N^{n+1} implicitly per RT substep
+> (the explicit form is unstable where κ → 0): a 7-point SPD system on
+> the periodic grid, PCG with a Jacobi preconditioner, OpenMP with
+> fixed-order reductions so the result is thread-independent, λ(R) lagged
+> from N^n, a tolerance parameter. Put the absorption either inside the
+> solve or in the `fgam` scaling the moments use: choose one, document
+> why, and conserve photons to float precision in the `ray.log` budget
+> line. Deposit N as the moments do; store F = −D ∇N for the `dx` deposit,
+> the flux diagnostics and the tensor dump (D from the LP Eddington factor
+> f = λ + λ²R², so the tensor tools can compare it). Optional and cheap:
+> `rt_method = p1`, the two-moment solver with χ = 1/3, labelled P1 and
+> never FLD.
+>
+> Tests (label `moments`): photon conservation; the Iliev test 1 I-front
+> against the finite-c solution as `ifront_rsla_m1`; a shadow test showing
+> FLD casts none (documented behaviour, not a failure); thread
+> independence for 1, 2 and 4 threads; a bit-identical restart; and the
+> whole fast suite unchanged, every existing method byte-identical. Then
+> `tools/analysis/rt_methods.py` at 32³ with FLD (and P1) added, and
+> docs/rt_fld.md: the method, the solver, the cost per substep against M1
+> at 128³, the caveats. Leave the AMReX port for thread C but write down
+> what it needs (MLMG on the hierarchy; no Courant limit on fine levels).
+> Update docs/STATUS.md and docs/PLAN.md.
+
+### Thread D: launch the uniform 512³ suite on klone (2026-10-19)
+
+> Read CLAUDE.md, docs/PLAN.md ("Unified RT-methods suite": the decisions
+> of 2026-10-18/19 and the pre-launch checklist), docs/STATUS.md,
+> docs/cluster.md and the header of tools/hyak/rt_suite512.sh. You are on
+> UW Hyak klone (`source tools/hyak/env.sh`,
+> `RUNS=/gscratch/astro/$USER/radhydro/runs`). Branch `rt-suite-512` off
+> `claude/sleepy-feynman-dx6ic2` (it holds `gammaHI_avg` and the launch
+> script and contains `main` as of 2026-10-19; if that branch's PR has
+> merged, branch off `main`). Commit often and push; one PR at the end.
+>
+> Goal: the uniform 512³ rerun of every RT method for the paper on the
+> moment methods against the rays: 40 Mpc/h, 512³ gas, 1024³ particles on
+> the 2048³ PM mesh, the ĉ schedule, f_esc(z) = 0.135 ((1+z)/7)^2.5 with
+> the 512³-calibrated luminosities (no bump: user decision 2026-10-19),
+> case B for the base and the moment methods plus one ray run with case A
+> + recombination radiation, cooling suppression 200, no sink, no dark
+> matter in the outputs, `gammaHI_avg` in the snapshots and frames. All
+> runs serial, one whole cpu-g2 node each. The old runs of the same names
+> are overwritten (user decision). Everything is in
+> `tools/hyak/rt_suite512.sh`; do not change its defaults except as below.
+>
+> 1. **Build** the branch on a compute node (`tools/hyak/build_hyak.sh`),
+>    then `ctest -R "gamma_avg|c_schedule|movie_slab"` there.
+> 2. **Disk.** `du -sh $RUNS/reion512_rays*` and `df -h /gscratch/astro`;
+>    record the sizes in docs/STATUS.md. The script removes the old
+>    directories itself with `OVERWRITE=1`.
+> 3. **Probe:** `tools/hyak/rt_suite512.sh probe` (3 steps of the base in
+>    `$BASE/probe`, one node, about an hour). From its output record the
+>    peak resident memory (the `/usr/bin/time -v` line) and the PM time
+>    per step (`timing.txt`); the estimate is ≈ 275 GB of PM host arrays
+>    and a few per cent of the RT step. Stop and report if the memory
+>    exceeds 700 GB or the PM step exceeds 10 min.
+> 4. **Base:** `OVERWRITE=1 tools/hyak/rt_suite512.sh base` (about 10 h).
+>    `reion_production.slurm` resumes from the checkpoint by itself and
+>    writes `DONE`; resubmit if a job dies. When it is done, run
+>    `tools/analysis/reion_history.py` and `igm_stats.py` (or
+>    `tools/hyak/igm_diag.slurm`) on it and report z at x_V = 0.5, 0.9,
+>    0.99, τ_es, and Γ_HI, ⟨F⟩ and λ_mfp at z = 5.9, 5.4 and 5.1 against
+>    `data/igm/igm_z5_6.txt`, next to the `fesc512_b2.5` values of
+>    docs/fesc_evolution.md §4. Report only: f6 is not retuned.
+> 5. **Siblings:** `OVERWRITE=1 tools/hyak/rt_suite512.sh siblings` (the
+>    case A + RR rays ≈ 17 h, M1 and the four OTVET variants ≈ 5–6 h
+>    each; they run in parallel on the remaining nodes). Then
+>    `tools/hyak/rt_suite512.sh post` with `--dependency=afterany` on
+>    their jobs, or by hand when they are done.
+> 6. **Report** in a new `docs/rt_suite_512.md` (the configuration table,
+>    costs, the histories, Γ_HI with `gammaHI_avg`: `gamma_power.py
+>    --field gammaHI_avg` and `rt_methods_runs.py --gamma-field
+>    gammaHI_avg`, the IGM table, the movie), as docs/rt_methods_512.md
+>    did for the first set; keep that document and docs/otvet_closure.md
+>    as they are (their figures are in the repository). Note anything that
+>    differs from the first set in the methods' ordering. Update
+>    docs/STATUS.md and docs/PLAN.md.
+>
+> Do not run the pre-check phases, the AMReX backends or AMR. If a run
+> crashes, fix the cause on the branch, rebuild, and resume it from its
+> checkpoint; a bit-identical resume needs the same parameters.
+
+### Thread C (after A and B): the moment methods and FLD on the AMReX hierarchy
+
+Outline only; to be written when A and B are done. Scope: `rt_method =
+m1 | otvet | fld` with `rt_backend = amrex` on one level (bitwise against
+the serial solvers for the explicit methods, round-off for FLD's PCG
+against MLMG), then on the refined levels: 2^l × `moment_nsub` subcycles
+per coarse substep for the explicit transport with refluxing of the
+moment fluxes, MLMG for FLD, the OTVET tensors on the fine cells (the thin
+and screened kernels by the backend's FFT; the cone's near-field march to
+be designed); `recomb_rad` on the backend (block emission and
+`recomb_rad_cell_onspot`); then the 512³ suite with two levels.
+
 ## Rays at the refinement boundaries (2026-10-20/21)
 
 * **Decisions (user):** `amrex_split_on_entry = 1` (rays split on arrival
@@ -1020,3 +1498,45 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   fine ray's deposit outside its level goes to the parent with weight
   1/(1 + √fgam): the parent absorbs what the ray loses) are the defaults.
   Evidence: `docs/stage_f.md` §3, "Rays at the level faces".
+
+## Zoom-in turbulence programme (2026-10-22)
+
+* **Request (user):** a plan to zoom repeatedly on one region of the box
+  and resolve the turbulence an I-front drives as it passes, the physics
+  of Cain, McQuinn, Scannapieco, D'Aloisio & Trac 2026 (PRD 113, 023050;
+  uniform 0.25 h⁻¹ Mpc boxes with plane-parallel fronts) inside a full
+  reionization run. The ICs are seeded at the region's resolution; the
+  region holds at least 1024³ cells; klone builds it up and a proposal
+  for allocation time funds the suite; magnetic fields come later.
+* **Plan:** `docs/zoom_turbulence.md` (work packages WP1–WP8, the
+  ladder Z1–Z4, the validation rungs T0–T5, cost estimates, the proposal
+  skeleton). No decision taken yet: the open choices are its §9 (base
+  box, rungs, regions, IC tool and cosmology, the RT's HEALPix cap or
+  beams and the coarse-substep rule in the zoom, preheating variants,
+  MHD scope, proposal venue).
+* **Decisions (user, 2026-10-22):** base 40 h⁻¹ Mpc / 512³; the rungs
+  Z1–Z4 of `docs/zoom_turbulence.md` §3; one mean-density region first,
+  then a void and a filament patch; 1LPT ICs with Planck cosmology (so
+  the cosmology becomes a runtime parameter set, the original as the
+  default); raise the HEALPix cap first, beams only if the ray counts
+  demand it; no preheating in the first runs; MHD later, with the
+  Biermann battery and one more non-ideal term at the I-fronts; the
+  proposal to NSF ACCESS as Discover (< ~10⁶ core-hours, a paragraph,
+  quick) then Accelerate (< ~3 × 10⁶, a few pages). On the IC tool the
+  user asked why extending `make_ics.py` was recommended over MUSIC; the
+  answer (`docs/zoom_turbulence.md` §4.1) proposes MUSIC with a
+  converter, to be confirmed.
+* **Decisions (user, 2026-10-22, later):** MUSIC with a converter for the
+  zoom ICs (confirmed); a slow ĉ such as 0.1c is acceptable provided the
+  light-crossing time of the smallest subregion exceeds the sound-crossing
+  time of one of its cells (`docs/zoom_turbulence.md` §4.4: ĉ ≲ 0.07c on
+  a 1024³ rung at 20 km/s; and the RT–hydro coupling interval, today the
+  50–100 Myr hydro step, must be shortened while the front crosses the
+  zoom, which the T4 test is to size); regions are chosen by ionization
+  time as well as by density.
+* **Request (user, 2026-10-22):** a stage that reproduces C26's uniform
+  small boxes and the turbulence they show, before and alongside the
+  zooms: `docs/zoom_turbulence.md` §3b (WP0: the plane-parallel RT-domain
+  mode of `docs/plane_parallel.md`, the 0.25 h⁻¹ Mpc resolution ladder
+  C1–C2, the E(k) comparison), a parallel track from now and the content
+  of the ACCESS Discover request.

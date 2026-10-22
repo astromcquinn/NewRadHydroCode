@@ -137,6 +137,9 @@ struct RunParams {
   // movie/slab.txt
   int movie_slab = 0;
   std::string movie_slab_axes = "xyz";
+  // movie_every_substep = 1: a frame after every RT substep (movie_dz > 0
+  // still turns the movie on; for the tests of the substep-averaged fields)
+  int movie_every_substep = 0;
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
   // (without Ray/, which holds every ray: 96 B each), nodm (norays without
@@ -249,6 +252,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.movie_z0 = to_double(val);
   else if (key == "movie_fields")
     P.movie_fields = val;
+  else if (key == "movie_every_substep")
+    P.movie_every_substep = std::stoi(val);
   else if (key == "movie_slab") {
     P.movie_slab = std::stoi(val);
     if (P.movie_slab < 0) throw std::runtime_error("movie_slab must be >= 0");
@@ -679,6 +684,16 @@ int main(int argc, char** argv) {
     s.raylog = io ? &raylog : nullptr;
     s.out = out;
     const Config& cfg = s.cfg;
+    // gammaHI_avg in fields or movie_fields: the substep-averaged Gamma_HI
+    // (Simulation::gamma_avg, rt.hpp; docs/igm_diagnostics.md). Serial RT
+    // only: the backend's cells live on the level between the host syncs.
+    if (("," + P.fields + ",").find(",gammaHI_avg,") != std::string::npos ||
+        ("," + P.movie_fields + ",").find(",gammaHI_avg,") != std::string::npos) {
+      if (use_amrex(cfg))
+        throw std::runtime_error(
+            "gammaHI_avg (the substep-averaged Gamma_HI) is implemented for rt_backend = serial only");
+      s.gamma_avg.on = true;
+    }
 
     Domains gdom;
     HydroState hs;
@@ -967,6 +982,13 @@ int main(int argc, char** argv) {
         for (std::int64_t c = 0; c < G.ncell; ++c) g1[c] = G.gamma[c * 3];
         W("gammaHI", g1);
       }
+      // gammaHI_avg: the substep-averaged HI rate of the last hydro step with
+      // RT (written only when listed in fields)
+      if (("," + P.fields + ",").find(",gammaHI_avg,") != std::string::npos) {
+        std::vector<float> ga;
+        gamma_avg_field(s, ga);
+        W("gammaHI_avg", ga);
+      }
       // Luv: the source luminosity per RT cell (written only when listed)
       if (("," + P.fields + ",").find(",Luv,") != std::string::npos) W("Luv", G.Luv);
       W("lambda", G.lambda);
@@ -1075,7 +1097,7 @@ int main(int argc, char** argv) {
       write_f32(path, slabbuf.data(), slabbuf.size());
     };
     // gammaHI: the HI component of rt_grid%gamma alone (one float per cell)
-    std::vector<float> gammahi_buf, gion;
+    std::vector<float> gammahi_buf, gion, gavg_buf;
     auto gamma_hi = [&](const RTGrid& G) -> const std::vector<float>& {
       gammahi_buf.resize(static_cast<std::size_t>(G.ncell));
       for (std::int64_t c = 0; c < G.ncell; ++c) gammahi_buf[c] = G.gamma[c * 3];
@@ -1084,7 +1106,17 @@ int main(int argc, char** argv) {
     auto write_frame = [&](const Simulation& ss) {
       // amrex_state = 1: the cells onto rank 0's mirror (collective); the
       // other ranks only advance the frame counters
-      if (on_level) amrex_state_gather_rt(s, false);
+      if (on_level) {
+        // only a frame's fields when they are all it writes
+        bool few = true;
+        for (const std::string& fld : mfields)
+          few = few && (fld == "fHI" || fld == "fHeI" || fld == "fHeII" || fld == "temp" || fld == "rhog" ||
+                        fld == "gammaHI");
+        if (few)
+          amrex_state_gather_rt_movie(s);
+        else
+          amrex_state_gather_rt(s, false);
+      }
       if (!io) {
         dst.movie_frame += 1;
         dst.movie_next -= P.movie_dz;
@@ -1102,7 +1134,10 @@ int main(int argc, char** argv) {
         else if (fld == "ngam") v = &G.ngam;
         else if (fld == "gamma") v = &G.gamma;
         else if (fld == "gammaHI") v = &gamma_hi(G);
-        else throw std::runtime_error("movie_fields: unknown field " + fld);
+        else if (fld == "gammaHI_avg") {  // the running substep average of this hydro step
+          gamma_avg_field(ss, gavg_buf);
+          v = &gavg_buf;
+        } else throw std::runtime_error("movie_fields: unknown field " + fld);
         if (P.movie_slab > 0) {
           std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.slab", dst.movie_frame, fld.c_str());
           if (io) write_slabs(odir + name, *v);
@@ -1193,6 +1228,11 @@ int main(int argc, char** argv) {
         dst.movie_next = P.movie_z0 > 0 ? P.movie_z0 : zdata1.front();
       }
       s.substep_hook = [&](Simulation& ss) {
+        if (P.movie_every_substep) {  // a frame after every RT substep
+          if (use_amrex(cfg) && !on_level) amrex_rt_sync_fields(ss);
+          write_frame(ss);
+          return;
+        }
         if (!(ss.clk.redshift <= dst.movie_next)) return;
         // rt_backend = amrex: the fields live on the level inside a hydro step
         // (amrex_state = 1: write_frame gathers them onto rank 0 itself)

@@ -17,6 +17,8 @@
 
 namespace radray {
 
+struct Config;
+
 namespace gs {
 
 namespace ax = amrex;
@@ -52,6 +54,13 @@ struct GasState {
 // The active gas state (null unless amrex_state = 1 and amrex_state_init
 // has run); the levels take their BoxArray and DistributionMapping from it.
 GasState* active();
+
+// The decomposition of an N^3 level (cfg: amrex_slab, amrex_slab_planes,
+// amrex_max_grid_size): boxes of amrex_max_grid_size with AMReX's default
+// mapping, or for amrex_slab = 1 z-slabs (whole i, j planes) mapped to the
+// ranks in z order, slab s to rank s * nranks / nslab (the exact chains of
+// docs/stage_e_moments.md need that order). Same on every rank.
+void make_decomposition(const Config& cfg, int N, ax::BoxArray& ba, ax::DistributionMapping& dm);
 
 // k-planes per slab of the transfers (a one-box FabArray of the slab on
 // rank 0, ParallelCopy): rank 0's transient is one slab, not the grid.

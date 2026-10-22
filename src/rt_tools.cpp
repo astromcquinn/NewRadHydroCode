@@ -223,17 +223,15 @@ void RTGrid::allocate(int n) {
   htoc.assign(4 * ncell, 0);
 }
 
-void RTGrid::allocate_sources_only(int n) {
+void RTGrid::allocate_none(int n) {
   N = n;
   ncell = static_cast<std::int64_t>(n) * n * n;
-  Luv.assign(ncell, 0.0f);
-  sfr.assign(ncell, 0.0f);
 }
 
 // rt_tools.f90: init_rt
 void init_rt(Simulation& s) {
   if (use_amrex_state(s.cfg) && !io_rank())
-    s.rt.allocate_sources_only(s.cfg.Nrt);  // the mirror is rank 0's (amrex_state.hpp)
+    s.rt.allocate_none(s.cfg.Nrt);  // the mirror is rank 0's (amrex_state.hpp)
   else
     s.rt.allocate(s.cfg.Nrt);
   s.rt_save = RTStat{};
@@ -261,33 +259,49 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
   s.rt_save.sfr = 0;
   s.rt_stat.Luv = 0;
   s.rt_stat.sfr = 0;
-  std::fill(G.Luv.begin(), G.Luv.end(), 0.0f);
-  std::fill(G.sfr.begin(), G.sfr.end(), 0.0f);
-
   // hoc_source/ll_source: per cell, sources in ascending input order
-  // (link_halo reverses twice). Luv/sfr summed in real(8).
-  std::vector<std::vector<int>> per_cell(G.ncell);
+  // (link_halo reverses twice): a stable sort of the source indices by
+  // cell. Luv/sfr summed in real(8).
+  std::vector<std::int64_t> cellof(sources.size());
+  std::vector<std::size_t> order(sources.size());
   for (std::size_t n = 0; n < sources.size(); ++n) {
     const Source& src = sources[n];
     if (src.i < 1 || src.i > G.N || src.j < 1 || src.j > G.N || src.k < 1 || src.k > G.N)
       throw std::runtime_error("source outside the grid");
-    per_cell[G.cell(src.i, src.j, src.k)].push_back(static_cast<int>(n));
+    cellof[n] = G.cell(src.i, src.j, src.k);
+    order[n] = n;
   }
-  // add_halo_to_rt loops k, j, i; rt_stat accumulates in that order.
-  for (int k = 1; k <= G.N; ++k)
-    for (int j = 1; j <= G.N; ++j)
-      for (int i = 1; i <= G.N; ++i) {
-        const std::int64_t c = G.cell(i, j, k);
-        double Luv = 0, sfr = 0;
-        for (int n : per_cell[c]) {
-          Luv = Luv + static_cast<double>(sources[n].Luv);
-          sfr = sfr + static_cast<double>(sources[n].sfr);
-        }
-        G.Luv[c] = static_cast<float>(Luv);
-        G.sfr[c] = static_cast<float>(sfr);
-        s.rt_stat.Luv = s.rt_stat.Luv + Luv;
-        s.rt_stat.sfr = s.rt_stat.sfr + sfr;
-      }
+  std::stable_sort(order.begin(), order.end(),
+                   [&](std::size_t a, std::size_t b) { return cellof[a] < cellof[b]; });
+  // add_halo_to_rt loops k, j, i (ascending linear index); rt_stat
+  // accumulates in that order. The empty cells add 0, which leaves the
+  // sums unchanged, so only the source cells are visited.
+  G.src_cell.clear();
+  G.src_Luv.clear();
+  G.src_sfr.clear();
+  for (std::size_t a = 0; a < order.size();) {
+    const std::int64_t c = cellof[order[a]];
+    double Luv = 0, sfr = 0;
+    for (; a < order.size() && cellof[order[a]] == c; ++a) {
+      Luv = Luv + static_cast<double>(sources[order[a]].Luv);
+      sfr = sfr + static_cast<double>(sources[order[a]].sfr);
+    }
+    G.src_cell.push_back(c);
+    G.src_Luv.push_back(static_cast<float>(Luv));
+    G.src_sfr.push_back(static_cast<float>(sfr));
+    s.rt_stat.Luv = s.rt_stat.Luv + Luv;
+    s.rt_stat.sfr = s.rt_stat.sfr + sfr;
+  }
+  // the dense fields (all ranks of the serial backends; rank 0's mirror
+  // with amrex_state = 1)
+  if (!G.Luv.empty()) {
+    std::fill(G.Luv.begin(), G.Luv.end(), 0.0f);
+    std::fill(G.sfr.begin(), G.sfr.end(), 0.0f);
+    for (std::size_t n = 0; n < G.src_cell.size(); ++n) {
+      G.Luv[G.src_cell[n]] = G.src_Luv[n];
+      G.sfr[G.src_cell[n]] = G.src_sfr[n];
+    }
+  }
   const double vbox = f::pow3(s.cfg.box / hubble0);
   s.rt_save.Luv = s.rt_stat.Luv / vbox;
   s.rt_save.sfr = s.rt_stat.sfr / vbox;
@@ -297,6 +311,39 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
 // ---------------------------------------------------------------------------
 // radiative_transfer
 // ---------------------------------------------------------------------------
+
+// The substep-averaged Gamma_HI (rt.hpp): per-cell sums in double, each
+// cell its own (thread-count independent); the serial RT writes gamma(1)
+// of every cell in rt_step_2, so the sum after a substep is exact.
+void gamma_avg_begin(Simulation& s) {
+  Simulation::GammaAvg& A = s.gamma_avg;
+  A.acc.assign(static_cast<std::size_t>(s.rt.ncell), 0.0);
+  A.time = 0;
+  A.substeps = 0;
+}
+
+void gamma_avg_add(Simulation& s) {
+  Simulation::GammaAvg& A = s.gamma_avg;
+  const RTGrid& G = s.rt;
+  const std::int64_t nc = G.ncell;
+  if (A.acc.size() != static_cast<std::size_t>(nc)) gamma_avg_begin(s);
+  const double dt = s.clk.dtsec_rt;
+  double* acc = A.acc.data();
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) acc[c] += static_cast<double>(G.gamma[c * 3]) * dt;
+  A.time += dt;
+  A.substeps += 1;
+}
+
+void gamma_avg_field(const Simulation& s, std::vector<float>& out) {
+  const Simulation::GammaAvg& A = s.gamma_avg;
+  const std::int64_t nc = s.rt.ncell;
+  out.assign(static_cast<std::size_t>(nc), 0.0f);
+  if (A.acc.size() != static_cast<std::size_t>(nc) || !(A.time > 0)) return;
+  const double inv = 1.0 / A.time;
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c) out[c] = static_cast<float>(A.acc[c] * inv);
+}
 
 // rt_tools.f90: radiative_transfer
 void radiative_transfer(Simulation& s) {
@@ -312,6 +359,7 @@ void radiative_transfer(Simulation& s) {
   if (L) *L << " Hydro step : " << clk.istep << " " << static_cast<float>(clk.redshift) << "\n";
 
   prep_rt(s);
+  if (s.gamma_avg.on) gamma_avg_begin(s);  // gammaHI_avg: this step's sums
 
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
@@ -331,6 +379,7 @@ void radiative_transfer(Simulation& s) {
         if (s.ray_quant.enabled()) ray_quantise(s, s.ray_quant);  // research only
         if (s.raydump_state) ray_dump_after_substep(s);
       }
+      if (s.gamma_avg.on) gamma_avg_add(s);  // gammaHI_avg: after this substep's physics
     }
 
     const std::int64_t nr = s.rays.Nray - s.rays.save.nfree;
@@ -1273,10 +1322,11 @@ std::int64_t count_live_rays(const Simulation& s) {
 }
 
 double ngam_rays_total(const Simulation& s) {
+  // rt_backend = amrex: the level's sum (the rays in fixed point, the
+  // moments in cell order)
+  if (use_amrex(s.cfg)) return s.ngam_total_backend;
   // rt_method = m1 | otvet: the photons of the moment solver
   if (use_moments(s.cfg)) return moment_photons_total(s);
-  // rt_backend = amrex: the fixed-point sum over the level's rays
-  if (use_amrex(s.cfg)) return s.ngam_total_backend;
   return ngam_rays_total_serial(s);
 }
 

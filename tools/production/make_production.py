@@ -81,7 +81,8 @@ def main():
                          "at >= 15")
     ap.add_argument("--fields", default="fHI,fHeI,fHeII,temp,rhog,gamma",
                     help="step_NNNN field files at each zdata1 output; gammaHI writes only the "
-                         "HI photoionization rate (1 float per cell, gamma has 3)")
+                         "HI photoionization rate (1 float per cell, gamma has 3); gammaHI_avg its "
+                         "average over the hydro step's RT substeps (serial RT only)")
     ap.add_argument("--no-ics", action="store_true", help="params.txt only")
     ap.add_argument("--am-params", default="",
                     help="am_params.txt from apps/am_fit: abundance-matched sources "
