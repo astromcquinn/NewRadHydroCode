@@ -281,6 +281,16 @@ the set is done).
   `c_reduced_schedule_interp = 1`, f6 = 0.11 and the `radhydro_interp`
   binary (checked). Another session's `conserve-test` job holds one of
   the account's five nodes.
+- **Continuous set, M1 and OTVET thin done 2026-10-22 03:5x** (9 h 47 min
+  and 9 h 56 min; peak RSS 367 / 373 GB). Histories: M1 z50 = 6.95, z90 =
+  5.97, z99 = 5.66, τ = 0.0594; OTVET 6.94 / 5.98 / 5.64 / 0.0594, within
+  0.02 of the step-schedule runs (6.93 / 5.98 / 5.67 and 6.92 / 5.99 /
+  5.64): the continuous ĉ changes the history by nothing measurable. Cost:
+  the RT the same (6.6–6.8 h) but the PM 1.65 h against 6.2 h in the step
+  set (60 against 230 s per step on different nodes): the 2048³ PM time
+  is node-dependent, to be noted in the report's cost table. Running: the
+  base (z = 5.80 at 15 h), case A + RR (z = 6.57), split (z = 5.17),
+  screen and cone (started 03:50–03:59).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
