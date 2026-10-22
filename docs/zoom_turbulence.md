@@ -1,0 +1,486 @@
+# Zoom-in runs: reionization-driven turbulence (and later magnetic fields) in one region of a cosmological box
+
+*Plan written 2026-10-22 from the user's request and Cain, McQuinn,
+Scannapieco, D'Aloisio & Trac 2026 (PRD 113, 023050, "C26"; the user
+uploaded the PDF). Nothing here is implemented yet. The decisions the plan
+needs from the user are collected in §9; the request itself is recorded in
+`docs/PLAN.md`, "Zoom-in turbulence programme".*
+
+## 0. Summary
+
+C26 resolved kpc-scale turbulence in the post-reionization IGM with
+uniform 1024³ and 2048³ boxes of 0.25 h⁻¹ Mpc, ionized by plane-parallel
+fronts at a chosen z_re. The goal now is the same physics inside a real
+reionization simulation: one region of a 40 (or 20) h⁻¹ Mpc box, refined
+to ≥ 1024³ cells at ≤ 0.3–0.6 kpc/h, that an I-front from the box's own
+sources sweeps through, with the ICs seeded at the region's resolution and
+re-usable for repeated, deeper zooms. Later: magnetic fields.
+
+What the code already has (Stages D–F): an AMReX hierarchy for gas, RT
+and (through a uniform mesh) gravity, validated to two refinement levels,
+running 512³ over 5 klone nodes; a fixed refinement region per level
+(`amrex_refine_box`); nested-phase ICs (`--phases-from-ndm`); particles
+with a mass component (the star sink); checkpoints and restarts.
+
+What a zoom needs on top, in order of size:
+
+| Work package | What | Size |
+|---|---|---|
+| WP1 zoom ICs | hierarchical white noise, nested displacement fields, multi-mass particles, per-level gas files, separate baryon/DM transfer functions, runtime cosmology | 2–3 weeks |
+| WP2 static zoom levels | levels tagged by particle mass class (they follow the Lagrangian region), per-level IC read, multi-mass DM in the PM container and the FoF | 1–2 weeks |
+| WP3 gravity on the hierarchy (Stage G) | multigrid Poisson per level with particles on their levels; the uniform mesh cannot reach 0.3 kpc/h in a 40 Mpc/h box | 3–4 weeks |
+| WP4 RT into the zoom | raise the HEALPix cap (nside 8192 today) so rays can split into 0.3 kpc/h cells 10 Mpc/h from their source; measure; a plane-parallel "beam" boundary only if needed; the coarse-substep rule at 8 levels | 1–3 weeks |
+| WP5 physics knobs | preheating floor T_min(z), z_init, Planck cosmology | 1 week |
+| WP6 diagnostics | finest-level cube of the region, E(k), eddy turnover, ionization-time field, region selection | 1 week |
+| WP7 production and cost | the ladder Z1 → Z3 on klone, scaling data, the proposal | continuous |
+| WP8 MHD | kinematic induction with constrained transport first, full MHD second, AMR coupling, seeds | 6–10 weeks, after Z2 |
+
+Rough cost of the target run (1024³ at 0.3 kpc/h, §7): about 10⁵
+core-hours and under 1 TB, i.e. days on the group's 1000 klone cores. The
+suite the proposal should ask for (several regions, preheating variants,
+MHD, one 2048³ convergence run) is a few 10⁶ core-hours.
+
+## 1. What C26 established, and what the zoom adds
+
+C26 (§II–III, Appendix A): a modified RadHydro, plane-parallel rays cast
+from the faces of cubic RT domains, 0.25 h⁻¹ Mpc, 1024³ gas, RT and DM
+(Δx = 244 pc/h, 2048³ for convergence), from z = 300 with separate CAMB
+transfer functions, hydro + gravity to z_re ≈ 7, then I-fronts with
+Γ_HI = 3 × 10⁻¹³ s⁻¹ and J_ν ∝ ν⁻¹·⁵ in five bins, reduced c after the
+fronts cross, to z = 4. Findings that set the requirements:
+
+* Turbulence appears only for Δx ≲ 0.5 kpc/h (their Fig. 3 bottom, Appendix
+  A: Re_num ≈ 2 Δx_turb/Δx_cell must reach ≈ 50 on the driving scale
+  Δx_turb ≈ 10 kpc/h × (Δt/100 Myr)). Eq. (A4): the maximum cell size for
+  any turbulence before pressure smoothing finishes is ≈ 1.2 kpc/h.
+* The driving is the expansion of filaments and minihalos after impulsive
+  heating; E(k) follows k⁻⁵ᐟ³ from ≈ 200 Myr after z_re, between the
+  sound-crossing scale and the numerical dissipation scale.
+* Preheating suppresses it: T_min = 100 K leaves patchy turbulence around
+  the massive filaments, T_min = 1000 K removes it (eq. A6).
+* The box size is converged at 0.25 vs 0.5 h⁻¹ Mpc; the fronts are
+  plane-parallel and instantaneous for the whole box at z_re.
+
+What a zoom in a full reionization run adds, and the proposal's science
+case: the front's real arrival time, direction, speed and spectrum
+(hardening, the ĉ-limited phase), the large-scale environment of the
+region (its density, the bulk flow, the nearby filaments; C26's tiny
+boxes are void-like), the self-consistent relaxation during an extended
+reionization rather than a flash, and a volume-filling answer by zooming
+on several regions chosen from the base run's ionization history. For
+magnetic fields it adds the one thing a uniform box cannot: the Biermann
+battery at the front itself, with the front's true geometry.
+
+## 2. What exists (inventory, with the gaps that matter)
+
+| Need | Exists | Gap |
+|---|---|---|
+| Refined gas levels | F1/F2: `amrex_max_level`, tagging on overdensity, sub-cycled hydro with refluxing, `cool_suppress_overdensity`, the sink | levels are density-tagged; a fixed region only through `amrex_refine_box` (one box per level, tests) |
+| RT across levels | F3: the coarse substep (`rt_cells_per_substep` = 2^l), split on entry, ghost rule `conserve`, validated with one and two levels (8 sources) | never run beyond two levels; HEALPix `lside_max = 13` (nside 8192, `constants.hpp`): a ray cannot resolve cells smaller than r/8192 (1.2 kpc/h at r = 10 Mpc/h); two levels are rank-dependent at 1e-10 |
+| Gravity with refinement | F4: `pm_gas_levels = 1`, every level kicked from the uniform `pm_refine` mesh (2048³ at 512³ gas) | force resolution is the mesh's everywhere: 20 kpc/h at best; Stage G (multigrid on the hierarchy) not started |
+| Particles | `pm_level.cpp` container with a type and a mass component (stars), int64 fixed-point deposit, load balancing with the boxes | dark matter is single-mass (`mass` from `N_dm_m_c`), one `Ndm` per run, the FoF counts particles |
+| ICs | `tools/ics/make_ics.py`: Zel'dovich at z = 100, one EH no-wiggle P(k), `--phases-from-ndm` (the coarse modes of a smaller run reused) | one uniform grid; one transfer function; the hierarchy only up to the whole-box Ndm; the cosmology is compile-time (`constants.hpp`, the original's Ω_m = 0.27, σ₈ = 0.80) |
+| Plane-parallel RT, T_min floor, DC modes | specified in `docs/plane_parallel.md` | not implemented |
+| Outputs | `fields_levels = 1` (a plane at the finest resolution), snapshots of the level-0 composite, movies | no cube of a region at the finest level |
+| Production | 512³ + 2 levels on 5 nodes (`amr512_runs.sh`), checkpoints every 10 steps (~240 GB), `fesc512_b2.5_uniform` done (13.4 h), `fesc512_b2.5_amr` resumed after the crash fix | the AMR cost probe and the refined run's timing are not in the docs yet |
+
+## 3. The zoom ladder
+
+Base: the production configuration of the f_esc thread, 40 h⁻¹ Mpc, 512³
+gas (Δx₀ = 78.1 kpc/h), 1024³ particles, the ĉ schedule, f_esc(z), the
+sink. (A 20 h⁻¹ Mpc base saves one level; the 40 h⁻¹ Mpc box keeps the
+calibrated sources and a more representative front geometry. User's
+call, §9.) Refinement ratio 2; cell sizes and the region that holds 1024³
+cells at each level:
+
+| level l | Δx_l [kpc/h] | 1024³ region [Mpc/h] | particle mass, 1 per cell [M☉/h] | role |
+|---|---|---|---|---|
+| 0 | 78.1 | — | 4.5 × 10⁶ (the 1024³ base particles) | the box |
+| 2 | 19.5 | 20 | 5.6 × 10⁵ | buffer |
+| 4 | 4.88 | 5.0 | 8.7 × 10³ | **Z1**: 512³ over 2.5 Mpc/h, the machinery test |
+| 6 | 1.22 | 1.25 | 136 | **Z2**: 1024³ over 1.25 Mpc/h; C26's "minimum for any turbulence" (eq. A4) |
+| 7 | 0.610 | 0.625 | 17 | (optional rung) |
+| 8 | 0.305 | 0.3125 | 2.1 | **Z3**: 1024³ over 0.31 Mpc/h; C26's fiducial class (244 pc/h, 1.2 M☉/h) |
+| 9 | 0.153 | 0.156 | 0.27 | **Z4**: 2048³ over 0.31 Mpc/h, convergence (C26's 122 pc/h), proposal scale |
+
+"Repeatedly zoom in" is this ladder: every rung is nested in the previous
+one and shares every coarser mode of the ICs (WP1), so Z1, Z2 and Z3 are
+the same region at increasing resolution, and a deeper rung (Z4, or a
+sub-region of Z3 at level 10) is added without regenerating anything above
+it. The intermediate levels are thin shells (a pad of 4–8 of their own
+cells around the next finer region, §4.2), so the cell count is dominated
+by the finest level: Z3 holds about 1.1 × 10⁹ refined cells plus the 1.3 ×
+10⁸ base cells, and about 1.2 × 10⁹ particles.
+
+Region selection (WP6): from the base run, by the ionization-time field
+(the redshift at which each base cell passed x_HII = 0.5, a new cheap
+output) and the density: a mean-density IGM patch far from the massive
+halos, ionized at a chosen time by a front from a known direction; later
+a void and a filament-crossing patch for the volume-filling question.
+The region is Lagrangian: its particles at z_re are traced back to the
+ICs (the checkpoints hold the particles with their ids), and the zoom's
+particle set is their Lagrangian bounding box plus a pad for the
+differential displacement (a few 100 kpc/h at z = 4–6; the bulk flow is
+followed by the levels, §4.2).
+
+## 4. Design
+
+### 4.1 WP1: zoom initial conditions
+
+Extend `tools/ics/make_ics.py` rather than adopt an external generator,
+because the code's conventions (cell-centred gas at (i+½), particles on
+the lattice, `u_gas` without the thermal energy, DM-grid velocity units,
+the Fortran-order stream files) are already encoded there and the tests
+are cheap. MUSIC (Hahn & Abel 2011) is the cross-check if it builds on
+klone, and its refinement rule is what to implement:
+
+1. **Hierarchical white noise.** Level 0: the base run's draws (the
+   `--seed 7 --phases-from-ndm 512` stream of the production ICs, so the
+   zoom's box is the base run's box exactly). Level l + 1 over its region:
+   draw unit white noise on the 2× grid, subtract each block's mean of 8
+   and add the parent's value scaled by 1/√8, so that every block average
+   reproduces the parent's noise and the small-scale modes are new. The
+   draws of each level are keyed by (seed, level, region origin), so a
+   deeper rung later reuses every existing level's draws unchanged.
+   (Hahn & Abel's refinement rule; check the coefficient against the paper
+   before relying on it.)
+2. **Nested displacement and density fields.** Per level: the long modes
+   come from the parent's fields interpolated onto the level's grid (band
+   limited at the parent's Nyquist), the short modes from an FFT of the
+   level's noise on its padded region with the parent's band removed.
+   Validate: a zoom that covers the whole box at level 1 must reproduce
+   the uniform 2N run's ICs (as `--phases-from-ndm` is validated today, to
+   float round-off); the density power spectrum inside the region matches
+   the input P(k) to the level's Nyquist; the displacement is continuous
+   across the region's boundary; a 2-level nest matches the equivalent
+   1-level nest at 4× (the ladder property).
+3. **Particles per level:** one particle per cell of the finest level
+   covering each Lagrangian cell (mass 8⁻ˡ of a base-cell particle, or
+   8⁻ˡ⁻¹ with 2× particles as the base run has), written as one `xv_dm`
+   stream per mass class with the class's mass in a header file; ids
+   encode the class.
+4. **Gas per level:** `u_gas.init.L<l>` on the level's region grid
+   (density, momentum, kinetic energy as now), read at the first regrid
+   (WP2).
+5. **Transfer functions and cosmology.** Separate baryon and dark-matter
+   transfer functions from a CAMB table supplied by the user (the cloud
+   cannot fetch them; `docs/plane_parallel.md`), 2LPT optional, z_init a
+   parameter (C26 used 300; the gas Jeans-scale structure of a cold IGM
+   starts earlier than our z = 100). Planck parameters need the cosmology
+   to become a runtime parameter set in the code (`constants.hpp` holds
+   the original's float literals as `constexpr`; the defaults stay the
+   original for the bitwise tests, `omegam`, `omegab`, `hubble0`, `sigma8`,
+   `ns` as `params.txt` keys): a small but wide change (cosmology.hpp, the
+   rates' units, the halo units, the IC tool).
+
+Sizes: a level-8 region of 1024³ with a 128-cell pad is 1280³ complex
+arrays, about 35 GB per field in double; the generator runs on one klone
+node in an hour, like the 1024³ ICs today (293 GB, 10 min).
+
+### 4.2 WP2: static zoom levels
+
+* **Tagging by particle mass class** instead of fixed boxes: a level-l
+  cell is tagged when it holds a particle of class > l (the Enzo and
+  RAMSES "must-refine particles" rule). The levels then follow the
+  Lagrangian region through its bulk flow, the pad of each level is the
+  particles' own spread, and a coarse particle inside the finest region
+  is the standard contamination diagnostic (count and report it every
+  step). `amrex_refine_box` stays for the tests; density tagging stays
+  available in addition (off by default inside the zoom: the finest level
+  must be uniform for the turbulence measurement, as in C26).
+* **Proper nesting:** `amrex_n_error_buf` and AMReX's `n_proper` give the
+  shells; the IC pad (§4.1) must exceed the buffer of every level.
+* **Per-level ICs:** at the first regrid the new levels are filled from
+  `u_gas.init.L<l>` where the file covers them and from the parent
+  elsewhere (today: always from the parent).
+* **Multi-mass dark matter:** the container's mass component (today 1
+  for DM, the stars' mass otherwise) carries the class mass; the deposit
+  already weights by mass; `summarize_dm`, the host mirror, the
+  checkpoint (version bump) and the FoF (mass-weighted, with the
+  minimum halo mass a mass, not a count) follow. The serial PM
+  (`src/pm.cpp`) is left single-mass: zooms run on the backends only.
+* **Sources:** the halo finder sees halos of a few 10⁴ M☉ in the zoom;
+  the source model keeps its global mass floor (`tvir_min`, the
+  abundance-matching range), so the zoom adds no sources below the base
+  run's floor. Sources inside the region that the base run already has
+  must be the same objects (check the catalogue across the ladder).
+
+### 4.3 WP3: gravity on the hierarchy (Stage G)
+
+The uniform `pm_refine` mesh stops at 2048³ (20 kpc/h in 40 Mpc/h); the
+zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
+
+* Level 0 keeps the FFT (periodic, bitwise today).
+* Level l ≥ 1: particles live on the finest level covering them (AMReX's
+  `AmrParticleContainer` redistribution by level), CIC deposit on the
+  level, plus the gas of the level; solve lap φ_l = (2a/3) δ_l with the
+  Dirichlet boundary from φ_{l−1} interpolated (the level solve of Enzo
+  and RAMSES) using AMReX's `MLMG` with `MLPoisson` (cell-centred); the
+  force by the 4-point gradient as the PM does; the kick per level on
+  its own cells (the F4 structure stays). Nyx's composite multigrid
+  solve is the alternative; the level solve is simpler to validate
+  bitwise across ranks and matches the sub-cycled hydro.
+* Determinism: the multigrid residual norm is a reduction; use AMReX's
+  fixed-iteration mode or a deterministic reduction so the result is
+  rank-independent (the project's rule 5).
+* Validation: the Ewald single-particle test of `docs/pm_refine.md` on a
+  level; the refined-everywhere run against the uniform 2N run (the
+  `pm_gas_levels` equivalence test, now with the level solve); a small
+  zoom (32³ base, 2 levels) against the uniform 128³ run: halo masses
+  and positions inside the region, gas density profiles; momentum
+  conservation.
+
+### 4.4 WP4: the RT into the zoom
+
+* **The HEALPix cap.** `lside_max = 13` (nside 8192, int32 pixel indices
+  from the original's ray type). A ray from a source at r must have
+  nside ≳ r/Δx to deposit at the cell scale: at r = 10 Mpc/h that is
+  3 × 10⁴ for Δx = 0.3 kpc/h (level 8) and 8 × 10³ for 1.2 kpc/h (level
+  6). Z2 sits at the cap, Z3 beyond it. First step: `lside_max` 16–17 with
+  64-bit pixel indices in the ray structs (both encodings), the NESTED
+  routines checked at that depth (`healpix_hd.hpp` ports HEALPix 3.11,
+  which handles int64), the merge bins untouched. The split-on-entry
+  rule then carries the validated F3 machinery into every level.
+* **Count and cost.** The number of rays needed to cover the region at
+  the fine cell scale is (L/Δx)² per occupied direction, about 10⁶ ×
+  (number of bright directions) ≈ 10⁸–10⁹ in flight at Z3 for as long as
+  the region is being ionized, at 140 B (or less with `rstruct`) and 2 µs
+  per ray-substep: 10²–10³ core-s per substep, tens of GB. Measured at
+  Z1 and Z2 before Z3. After overlap the merge criterion thins them.
+* **If that is too many: beams at the zoom boundary.** Rays entering a
+  chosen level are binned per face cell and direction and re-emitted as
+  non-splitting parallel rays, which is exactly C26's RT-domain scheme
+  with the incident flux supplied by the coarse rays instead of a fixed
+  Γ_HI (photon conserving by construction; the geometric 1/r² dilution
+  across the region, 5–20 %, is then approximated per beam from its
+  origin distance). This is a new flag and a new validation against the
+  splitting rays on Z1; build it only if the measurement asks for it.
+* **The coarse-substep rule at 8 levels.** Rays cross 2⁸ = 256 fine
+  cells per base substep. The Stage F decision (one coarse substep, no
+  transport sub-cycling) was taken for two levels and dense gas; in the
+  zoom the front's passage is the measurement. C26's fronts crossed
+  their domains at full c and the paper's Appendix A ties the turbulence
+  to the heating impulse, not to the front's internal structure, so a
+  front smeared over a fraction of a base cell per substep may be
+  acceptable, but it must be shown: run the uniform plane-parallel
+  problem at `rt_cells_per_substep` = 16, 64, 256 (the infrastructure of
+  `docs/rt_multicell.md`) and compare the front's temperature and
+  ionization profiles and the post-front E(k) at the level of C26's
+  Fig. 3. If it fails, the options are a larger ĉ while the region is
+  crossed (the schedule by ionization state exists; a zoom-aware
+  trigger is a few lines) or transport sub-cycling inside the zoom
+  levels only, which reverses the Stage F decision there (§9).
+* **Spectrum and ĉ:** the base run's 5 Pop II groups and schedule carry
+  over; nothing to add.
+
+### 4.5 WP5: physics knobs
+
+* **Preheating floor** T_min from z_floor (C26: 100 K and 1000 K for
+  z < 15; `docs/plane_parallel.md`), applied in the RT cell physics; the
+  default 0 keeps every reference.
+* **Runtime cosmology and z_init** (§4.1 item 5).
+* Cooling stays on in the dense gas (the Stage F decision) with the sink
+  above a few thousand × mean; C26 had no sink and no star formation in
+  its tiny boxes, so the sink threshold inside the zoom is a choice to
+  record (the minihalos that drive the turbulence are far below it).
+
+### 4.6 WP6: diagnostics and region selection
+
+* **Ionization-time field** z_ion per base cell (first x_HII > 0.5),
+  written with the snapshots and used to pick regions.
+* **Finest-level cube** of the zoom region (`fields_cube`: density,
+  temperature, velocity, x_HI, Γ, later B) in float at the snapshots,
+  4 GB per field at 1024³.
+* **Analysis** (`tools/analysis/zoom_turbulence.py`): E(k) per component
+  (C26 eq. B2), the turnover time and N_τ (B1), the k⁻⁵ᐟ³ range, the
+  density and temperature PDFs, the sound-crossing bump, the resolution
+  ladder overlay (C26 Fig. 3), the Reynolds number estimate (B3), and
+  for MHD the magnetic energy spectrum and the growth rate.
+* **Contamination and coverage:** coarse particles in the finest region,
+  the fraction of the Lagrangian region still inside the finest level.
+
+### 4.7 WP7: production, cost and the proposal
+
+See §7 and §8.
+
+### 4.8 WP8: magnetic fields (after Z2 validates)
+
+Staged so that the first science result (the kinematic growth rate) comes
+from the smallest change:
+
+1. **Kinematic induction.** Face-centred B on each level (three face
+   MultiFabs), constrained transport with the upwind edge EMFs of
+   Gardiner & Stone 2005/2008 computed from the hydro's face states and
+   HLLC velocities; no back-reaction. ∇·B = 0 to round-off on each level.
+   This measures the dynamo's kinematic growth from a seed, which is the
+   quantity C26 §IV argues about, with no change to the gas dynamics
+   (and bitwise identical gas when the field is off).
+2. **Full MHD.** HLLD (Miyoshi & Kusano 2005) in `hydro_mh.hpp`'s
+   predictor–corrector (the MUSCL-Hancock + CT scheme of Fromang,
+   Hennebelle & Teyssier 2006 is the closest published form), the
+   magnetic pressure and tension in the update, the dual-energy rule
+   extended with the magnetic energy (a seed of 10⁻²⁰ G is 10⁻²² of the
+   thermal energy: B must stay a separate variable, in double, and never
+   be recovered from the total energy).
+3. **AMR coupling.** Divergence-free prolongation at coarse-fine faces
+   (Balsara 2001; Tóth & Roe 2002), restriction by face averaging, and
+   EMF refluxing along the coarse-fine edges (AMReX's `FluxRegister` is
+   for cell fluxes; the edge register is written by hand as Castro does).
+   Validate with the Orszag–Tang vortex and a circularly polarized Alfvén
+   wave on the hydro suite, refined and unrefined.
+4. **Seeds and the cosmological form.** A uniform comoving seed B₀
+   (∝ a⁻²) set at the ICs; the Biermann battery ∝ ∇p_e × ∇n_e as a source
+   term evaluated from the RT's electron density and temperature in the
+   front (new physics only this code can do self-consistently); the
+   induction equation in the code's comoving variables to be derived and
+   documented (the original has no MHD; nothing to keep bitwise).
+5. **Not planned:** explicit resistivity or ambipolar diffusion; the
+   effective magnetic Reynolds number is set by the grid and reported
+   from the resolution ladder, as C26 does for the kinetic cascade.
+
+Cost: HLLD + CT roughly 1.5–2× the hydro; three extra face fields and
+the EMFs about +50 % memory on the fine levels.
+
+## 5. Validation ladder
+
+Every work package gets tests in the fast suite at tiny sizes and one
+klone run at the next size up, in the repo's existing style
+(`docs/stage_f.md` §3):
+
+| Rung | Problem | Reference |
+|---|---|---|
+| T0 | zoom ICs over the whole box at level 1 (WP1) | the uniform 2N ICs, float round-off |
+| T1 | 32³ base, 2 zoom levels over the central eighth, gravity only (WP2, WP3) | uniform 128³: halo masses, positions, density PDF in the region |
+| T2 | the same with hydro and the sink | uniform 128³ gas fields in the region |
+| T3 | 8 sources (`uniform_8src`) with a 3-level zoom; rays split to level 3 (WP4) | uniform 256³: x_HII,V, photons in flight, front radii (the F3 metrics) |
+| T4 | plane-parallel front on the uniform grid at `rt_cells_per_substep` 16–256 | k = 1: front profiles, post-front E(k) |
+| T5 | 128³ base, 10 Mpc/h, Z1-like zoom (4 levels) on 2 nodes | the uniform 512³ run of the same box (hours on 5 nodes): everything inside the region |
+| Z1 | 512³ base, level 4 over 2.5 Mpc/h | the base run's level-0 composite outside the region; cost and ray counts |
+| Z2 | level 6, 1024³ over 1.25 Mpc/h | C26's convergence sequence (their Fig. 3 bottom); first science |
+| Z3 | level 8, 1024³ over 0.31 Mpc/h | C26's fiducial; the proposal's benchmark |
+
+Determinism: every rung byte-identical across rank counts, through a
+restart, and with `amrex_max_level = 0` bitwise the Stage E level; the
+two-level 1e-10 rank dependence noted in `docs/STATUS.md` is to be found
+before the ladder goes beyond two levels.
+
+## 6. Order and threads
+
+```
+WP1 ICs ──────────┐
+WP3 gravity ──────┼── T1/T2 ── WP2 levels ── T3 (WP4 cap) ── T5 ── Z1 ── Z2 ── Z3
+WP5 knobs ────────┘                 │
+WP6 diagnostics ────────────────────┘ (needed from Z1 on)
+WP4 substep test T4 ── any time (uniform grid)
+WP8 MHD ── after Z2 (kinematic first), on the hydro suite, then Z2-MHD
+Proposal ── after Z1's cost and scaling numbers (§8), in parallel with Z2
+```
+
+WP1, WP3, WP5 and T4 are independent and can run as parallel threads
+(worktrees, one branch and PR each). Suggested opening prompts:
+
+1. *ICs:* "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md and
+   docs/zoom_turbulence.md §4.1. Implement the hierarchical zoom ICs in
+   tools/ics (the MUSIC refinement rule, nested displacement fields,
+   particles per mass class, per-level gas files, a CAMB table option),
+   with the T0 test and the ladder test."
+2. *Gravity:* "… §4.3. Stage G: the level Poisson solve with AMReX MLMG
+   and particles on their levels, keeping pm_gas_levels as the
+   comparison; the Ewald and refined-everywhere tests; T1."
+3. *Substep test:* "… §4.4 last item. The plane-parallel front on the
+   uniform grid at rt_cells_per_substep 16, 64, 256 with the
+   docs/rt_multicell.md tools; report the front profiles and E(k)."
+4. *Knobs and cosmology:* "… §4.5. T_min(z) floor, runtime cosmology with
+   the original as default and the bitwise suite unchanged, z_init."
+5. then *Levels and RT* (§4.2, §4.4 cap), then *Diagnostics*, then the
+   runs.
+
+## 7. Cost estimates (to be replaced by measurements at Z1 and Z2)
+
+Per-cell and per-ray costs from `docs/production_run.md` §5 and
+`docs/stage_d.md` §4.4; the finest level dominates.
+
+| Item | Z2 (level 6) | Z3 (level 8) | Z4 (level 9, 2048³) |
+|---|---|---|---|
+| finest-level cells | 1.1 × 10⁹ | 1.1 × 10⁹ | 8.6 × 10⁹ |
+| finest-level hydro steps, z_init → 4 (CFL at 1–30 km/s) | ≈ 2.5 × 10⁴ | ≈ 10⁵ | ≈ 2 × 10⁵ |
+| hydro, at ≈ 3 µs per cell-update incl. AMR overhead | 2 × 10⁴ core-h | 8 × 10⁴ core-h | 1.4 × 10⁶ core-h |
+| RT cell physics, ≈ 8000 base substeps × 1.7 µs per cell | 4 × 10³ | 5 × 10³ | 4 × 10⁴ |
+| rays, 10⁸–10⁹ in flight while the region is crossed | ≤ 5 × 10³ | ≤ 5 × 10³ | ≤ 4 × 10⁴ |
+| **total** | **≈ 3 × 10⁴ core-h** | **≈ 10⁵ core-h** | **≈ 1.5 × 10⁶ core-h** |
+| memory (cells × ≈ 0.5 kB, particles × 64 B, rays) | 0.7 TB | 0.7 TB | 5 TB |
+| checkpoint | ≈ 0.4 TB | ≈ 0.4 TB | ≈ 3 TB |
+| on the owned 992 klone cores | ≈ 1.5 days | ≈ 5 days | not on klone |
+
+MHD multiplies the hydro line by 1.5–2. The large uncertainties are the
+AMR overhead with 8 levels of FillPatch and refluxing (never profiled;
+the Sedov two-level run paid 60× for 8× the cells and 2× the substeps,
+part of which is the whole-box refinement), the step count (the cold
+pre-reionization gas with 10–30 km/s flows), and the ray population. The
+ladder exists to pin these before the proposal is written.
+
+## 8. The allocation proposal
+
+klone builds and validates the machinery (T0–T5, Z1, Z2 and probably one
+Z3); the proposal asks for the suite that klone cannot hold at once:
+several regions × preheating (none, 100 K, 1000 K) × MHD seeds, and Z4.
+
+Venue: NSF ACCESS is the natural one (the group held TG-PHY230158 and
+TG-PHY240332 for C26's runs); the size of a 3–5 × 10⁶ core-hour request
+is the largest ACCESS tier, which has fixed submission rounds and needs
+scaling data on the target machine or a comparable one; the current
+thresholds and deadlines are to be checked on the ACCESS site. NASA HEC
+(the group's NASA grants) is a second route. A GPU request only makes
+sense once the AMReX backends run on GPUs (Stage D §5: prepared, not
+built), where the H200 was 5× a `cpu-g2` node on the RT; the hydro at
+the finest level is the part that would gain most.
+
+Skeleton, with the numbers each section needs:
+
+1. **Science justification.** C26's result and its open questions (§1):
+   volume filling, the preheating dependence, the front's real geometry,
+   the B-field growth with a self-consistent battery. The ladder as the
+   convergence argument.
+2. **Code and readiness.** The faithful port validated bit for bit; MPI
+   through AMReX, 512³ on 5 nodes with the measured scaling
+   (`docs/stage_e_state.md`, `docs/stage_d.md` §4.4); AMR to two levels
+   validated; Z1/Z2 results and timings; restarts and checkpoint
+   cadence; the determinism guarantee.
+3. **Computational plan.** The table of runs (Z3 × regions × variants, Z4,
+   the MHD set), core-hours per run from the measured Z1/Z2 cost scaled
+   as §7, storage (checkpoints, snapshots, the finest-level cubes) and
+   the data retention plan.
+4. **Scaling.** Strong scaling of a Z2 step on 1–5 klone nodes (the
+   finest level's boxes over the ranks, the FillPatch share), the memory
+   per node, and weak scaling Z1 → Z2 → Z3; a benchmark on the target
+   machine if the venue requires it (its test allocation).
+5. **Timeline and personnel**, data management, the publication plan.
+
+Before writing: Z1 and Z2 done with their timings and scaling runs
+(`tools/hyak/amrex_scaling.slurm` pattern), the Z3 cost extrapolated,
+and the venue's deadline. A realistic date is after WP1–WP6 and Z2,
+about three months of threads from now.
+
+## 9. Decisions needed from the user
+
+1. **Base box:** 40 h⁻¹ Mpc / 512³ (the calibrated production
+   configuration, 8 levels to 0.3 kpc/h) or 20 h⁻¹ Mpc (7 levels, cheaper
+   base, fewer sources in the box).
+2. **Target rungs:** Z2 (1.2 kpc/h) → Z3 (0.3 kpc/h) → Z4 (0.15 kpc/h,
+   2048³) as above, or a different finest cell (C26's 244 pc/h needs a
+   non-power-of-two base).
+3. **Region(s):** one mean-density IGM patch first; which others (void,
+   filament; early- vs late-ionized) and how many.
+4. **ICs:** extend `make_ics.py` (recommended) or MUSIC + a converter;
+   z_init (300 as C26, or 100); 1LPT or 2LPT; the CAMB transfer-function
+   tables (the user supplies them); Planck cosmology (needs runtime
+   cosmology in the code) or the original's.
+5. **RT:** raise the HEALPix cap first and measure (recommended), or
+   build the beam boundary at once; and whether the coarse-substep rule
+   may be relaxed inside the zoom if T4 shows it must.
+6. **Preheating variants** for the suite and the sink threshold in the
+   zoom.
+7. **MHD scope:** kinematic induction first (recommended), seeds to
+   include (uniform B₀, Biermann), and whether MHD waits for Z2.
+8. **Proposal venue and round** (ACCESS, NASA HEC), and whether a GPU
+   port is on the path.
