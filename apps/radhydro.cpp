@@ -1106,7 +1106,17 @@ int main(int argc, char** argv) {
     auto write_frame = [&](const Simulation& ss) {
       // amrex_state = 1: the cells onto rank 0's mirror (collective); the
       // other ranks only advance the frame counters
-      if (on_level) amrex_state_gather_rt(s, false);
+      if (on_level) {
+        // only a frame's fields when they are all it writes
+        bool few = true;
+        for (const std::string& fld : mfields)
+          few = few && (fld == "fHI" || fld == "fHeI" || fld == "fHeII" || fld == "temp" || fld == "rhog" ||
+                        fld == "gammaHI");
+        if (few)
+          amrex_state_gather_rt_movie(s);
+        else
+          amrex_state_gather_rt(s, false);
+      }
       if (!io) {
         dst.movie_frame += 1;
         dst.movie_next -= P.movie_dz;

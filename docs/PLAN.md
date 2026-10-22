@@ -863,6 +863,52 @@ policy on klone, and deleting the merged branches.
   and the after-overlap P_Γ figure as for OTVET and M1 (`docs/otvet_closure.md`
   §7, `$RUNS/otvet_closure_512/compare.mp4`).
 
+## Moments-on-AMReX thread (2026-10-13): the moment RT across nodes
+
+* **Request (user):** branch `moments-amrex` (worktree from `main` after
+  PR #36): run the moment RT (`rt_method = m1 | otvet`, with `otvet_split`
+  and `otvet_closure = screen | cone`) across nodes on the AMReX backend.
+  Design first and **show the plan before implementing**; then implement
+  behind a flag (serial defaults byte-identical); validate bitwise against
+  the serial moment RT on 1, 2 and 4 nodes for M1, thin, split, screen and
+  cone, with every sum in the serial order, plus amrex/thread/restart
+  tests; time 512³ on 1/2/4 nodes per part with peak memory per rank;
+  then a 1024³, 40 Mpc/h cone run (defaults) on four nodes with movie
+  slices, compared with the 512³ cone (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`). Check
+  `hyakalloc` before taking four nodes.
+* **Proposed** (`docs/stage_e_moments.md`):
+  z-slab decomposition (`amrex_slab = 1`) shared by every level; a
+  separate `MomentLevel` reusing the `rrk::` cell kernels; the OTVET
+  FFTs on component ranks with the serial FFTW plans (no grid gather);
+  `amrex_moment_stats = exact | fixed` for the photochemistry statistics;
+  sparse per-rank sources as a prerequisite for 1024³.
+* **User decisions (2026-10-13):**
+  - the z-slab decomposition (`amrex_slab = 1`): yes;
+  - `amrex_moment_stats = exact` by default, `fixed` for production: yes;
+  - the 1024³ run on the preemptible `ckpt-g2` partition;
+  - `recomb_rad = 1` must work with moments on AMReX eventually: phase 3b.
+  - Asked how much faster a distributed FFT would be. Measured
+    (`docs/stage_e_moments.md` §4.1): the serial 3-D FFTW plan with
+    FFTW's threads is bitwise the single-threaded plan at 256³, 512³ and
+    1024³ (8 and 32 threads), and 31× faster at 1024³ on 32 threads
+    (0.70 s against 21.8 s). A distributed pencil FFT would be no faster
+    at 4 nodes (its transposes) and is not bitwise. Proposed: threaded
+    plans on the component ranks, with a once-per-run bitwise guard.
+* **User decisions (2026-10-14):** follow every recommendation:
+  - threaded serial 3-D FFTW plans on the component ranks, with the
+    once-per-run bitwise guard (threaded against single-threaded forward
+    transform; stop on a mismatch) and a ctest at small sizes; no
+    distributed FFT;
+  - the base: Stage E4 (PR #37) had already merged into `main`, so
+    `moments-amrex` was rebased onto `origin/main` (`b243df9`);
+  - `amrex_balance = 1` with moments is refused for now.
+* **Found 2026-10-14:** the 512³ cone run (`reion512_rays_otvet_cone`) used
+  `recomb_case = A`, `recomb_rad = 1` (block 4) and `rt_substep_carry = 1`.
+  A like-for-like 1024³ comparison therefore needs `recomb_rad = 1` with
+  moments on the level (phase 3b), done before phase 5;
+  `rt_substep_carry` is a clock setting, the same on every backend.
+
 ## Stage F decisions (2026-10-14): AMR for gas and RT
 
 Taken by the user after Stage E closed (PR #37), on the questions listed

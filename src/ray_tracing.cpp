@@ -17,6 +17,8 @@
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/parallel.hpp"
 #include "radray/recomb_rad.hpp"
+#include "radray/rt_backend.hpp"
+#include "radray/rt_moments.hpp"
 #include "radray/rt_tensor_diag.hpp"
 
 namespace radray {
@@ -125,7 +127,11 @@ void RayState::det_give(ThreadRays& t, std::int64_t ir) {
 // (The Fortran also writes Log/nside_of_r.dat and Log/r_of_nside.dat; these
 // diagnostics are not reproduced.)
 void init_ray_tracing(Simulation& s) {
-  s.rays.init(s.cfg.Nray_max, s.cfg.Nfree_max);
+  // the moment RT on the AMReX level holds no rays: no ray storage (Nray_max
+  // N^3 rays would be calloc'ed on every rank; s.cfg.Nray_max, which the
+  // checkpoint records, is unchanged)
+  const bool no_rays = use_amrex(s.cfg) && use_moments(s.cfg);
+  s.rays.init(no_rays ? 0 : s.cfg.Nray_max, s.cfg.Nfree_max);
 }
 
 // ---------------------------------------------------------------------------

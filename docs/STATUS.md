@@ -332,6 +332,70 @@ the serial PM is untouched.
   bottleneck of the PM-heavy runs; until then, FoF less often
   (`fof_dt_myr`).
 
+## In progress 2026-10-14: the moment RT on AMReX (branch `moments-amrex`)
+
+Design: `docs/stage_e_moments.md` (approved 2026-10-14, PLAN
+"Moments-on-AMReX thread"). `rt_backend = amrex` with `rt_method = m1 |
+otvet` on z-slabs (`amrex_slab = 1`), every sum in the serial order.
+
+* **Phase 0, done** (`f6f971c`): `amrex_slab = 1` (z-slabs in z order, also
+  the shared decomposition of `amrex_state = 1`); sparse sources from
+  `calc_halo` (`RTGrid::src_*`, byte-identical; no N³ `Luv`/`sfr`/`per_cell`
+  on the ranks other than 0); `src/amrex/exact_sum.hpp`.
+* **Phase 1, M1, done** (`f6f971c`): `src/amrex/moment_level.cpp`, the
+  serial per-cell arithmetic shared through
+  `include/radray/kernels/moment_cell.hpp`; `amrex_moment_stats = exact |
+  fixed`.
+* **Phase 2, OTVET thin / split / screen, done** (`63af7ab`): the direct sum
+  per cell, or the serial FFT one component per task (`OtvetConvolver`).
+* **Phase 3, the cone, done** (`68233e5`): 12 FFT tasks, mip-maps per slab
+  with the finest level used gathered, the march per slab, the budget's
+  receiver sum as a chain, the Gaussian's z pass on y-slabs.
+* **Phase 3b, `recomb_rad = 1`, done** (`d25c694`). Needed for the 1024³
+  comparison: the 512³ cone run used `recomb_case = A`, `recomb_rad = 1`.
+* **Phase 4, checkpoints, done** (`098a9f9`): the format unchanged, streamed
+  through rank 0; a serial moment checkpoint restarts on the level
+  byte-identically (so the serial 256³/512³ checkpoints seed phase 5).
+* **Validation:** label `amrex_moments` (84 tests): `rt_driver` against the
+  serial moment RT for M1, thin (direct, FFT), split, screen (fixed and
+  budget λ), cone (λ_x from the budget, no blend), recomb_rad, on 1-4
+  ranks × 1-2 threads × slab planes; the full loop with the state on the
+  slabs against the serial moment RT; restarts. All bitwise.
+  The fast suite: only the 10 `platform_ref` tests fail, as on `main`
+  (outputs byte-identical to `main`'s).
+* **Threaded OTVET FFT plans, done** (`fd1d8f0`): `amrex_moment_fft_threads`,
+  the guard at the first convolution (tests `otvet_fft_threads_{64,128}`).
+* **Phase 5, 256³ on klone (2026-10-14):** the serial production runs
+  `otvcl256_*` restarted from their step-40 checkpoints on the level with
+  the serial PM (`tools/hyak/moments_validate.slurm`, MODE = host; the
+  AMReX PM agrees with the serial PM to round-off only, so the production
+  configuration is compared with the serial RT by the full-loop pair
+  tests instead): M1, thin, split, screen + split bitwise the production
+  runs' step 41 (19 files each); the cone bitwise the current serial code
+  on 1 and 2 nodes (7 files, 12 movie frames). The cone production run
+  itself predates the final cone code (its step 41 differs from today's
+  serial code, λ_x 760.865 vs 760.866).
+* **Transport:** rewritten on raw indices (`5a4f5d4`), GLF 3× faster;
+  the FFT tasks of all kernels computed at once (`9637d0e`; the cone tensor
+  107 → 38 s at 512³ on one node); a movie frame gathers only its 6 fields
+  (`44e431d`).
+* **Phase 5, 512³ cone on klone:** bitwise the production run (steps 53-54,
+  8 files, 12 movie frames) on 1 and 2 nodes (host mode; the current serial
+  code reproduces those steps too). Production configuration on 1 node: RT
+  293 s against the serial 495 s for the two steps, run 415 against 594 s
+  (`docs/stage_e_moments.md` section 10). Pending (ckpt-g2 queue, frequent
+  preemptions): 4 nodes bitwise; 2 and 4 nodes timed.
+* **Fast suite on the final code (`44e431d`):** 411/422; the 10
+  `platform_ref` tests as on `main`, and `end_to_end_legacy0`, which hung
+  in MPI_Finalize (a Slurm PMI barrier of a singleton run inside an srun
+  step) and passes alone (13.5 s).
+* **Phase 6:** `runs/reion1024_otvet_cone` (ICs with the 512³ run's large
+  scales), job 41889599 queued on ckpt-g2 (4 nodes × 16 × 12, binary
+  `scratch/moments_bin/radhydro_44e431d`). Disk: ~1.4 TB expected
+  (0.85 TB of checkpoints), 2.0 TB free on 2026-10-14.
+* **Then:** the comparison with the 512³ cone (`gamma_power.py`,
+  `reion_power.py`, `rt_methods_runs.py`, `igm_stats.py`).
+
 ## Done 2026-10-13: a better Eddington tensor for OTVET (branch `otvet-closure`, PR #35)
 
 Report: `docs/otvet_closure.md`. Decisions and choices: `docs/PLAN.md`,

@@ -20,6 +20,7 @@ void backend_abort(int) {}
 void backend_bcast(double*, int) {}
 void backend_bcast_bytes(void*, std::size_t) {}
 void amrex_state_gather_rt(Simulation&, bool) { no_amrex(); }
+void amrex_state_gather_rt_movie(Simulation&) { no_amrex(); }
 void amrex_rt_level_slice(Simulation&, int, int, std::vector<float>&, int&, int&, int&) { no_amrex(); }
 void amrex_state_scatter_rt(Simulation&) { no_amrex(); }
 bool io_rank() { return true; }
@@ -40,5 +41,7 @@ void amrex_rt_gather_rays_chunks(const Simulation&, const std::function<void(con
   no_amrex();
 }
 std::string amrex_rt_timers(const Simulation&) { return ""; }
+void amrex_moment_ckpt_write(const Simulation&, const std::function<void(const void*, std::size_t)>&) { no_amrex(); }
+void amrex_moment_ckpt_read(Simulation&, const std::function<void(void*, std::size_t)>&, int) { no_amrex(); }
 
 }  // namespace radray

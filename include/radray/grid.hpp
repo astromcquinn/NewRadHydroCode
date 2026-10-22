@@ -25,6 +25,11 @@ struct RTGrid {
   std::vector<float> rhog, fHI, fHeI, fHeII, temp;
   // real(4) :: Luv,sfr
   std::vector<float> Luv, sfr;
+  // The source cells of calc_halo, ascending linear cell index, with their
+  // Luv and sfr (the nonzero entries of Luv / sfr, on every rank; with
+  // amrex_state = 1 the ranks other than 0 hold only these)
+  std::vector<std::int64_t> src_cell;
+  std::vector<float> src_Luv, src_sfr;
   // real(4), dimension(3) :: dx,gamma,lambda   (3 per cell)
   std::vector<float> dx, gamma, lambda;
   // real(4), dimension(Nfreq) :: nu,ngam,fgam,tau (kNfreq per cell)
@@ -35,9 +40,9 @@ struct RTGrid {
   std::vector<std::int64_t> htoc;
 
   void allocate(int n);
-  // amrex_state = 1 on the ranks other than 0: only Luv and sfr (the
-  // sources, computed on every rank); the other fields stay empty
-  void allocate_sources_only(int n);
+  // amrex_state = 1 on the ranks other than 0: N and ncell only, every
+  // field stays empty (the sources are src_cell / src_Luv / src_sfr)
+  void allocate_none(int n);
 
   // 1-based Fortran cell indices -> linear index
   std::int64_t cell(int i, int j, int k) const {

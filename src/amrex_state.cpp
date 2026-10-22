@@ -69,6 +69,10 @@ std::string amrex_state_summary(const Config& c) {
 
 void check_amrex_state_param(const Config& c) {
   if (c.amrex_balance && !c.amrex_state) throw std::runtime_error("amrex_balance = 1 needs amrex_state = 1");
+  if (c.amrex_slab && c.amrex_max_level > 0)
+    throw std::runtime_error("amrex_slab = 1 does not support amrex_max_level > 0 (the refined levels)");
+  if (c.amrex_balance && c.amrex_slab)
+    throw std::runtime_error("amrex_balance = 1 does not support amrex_slab = 1 (the slabs keep their z order)");
   if (!c.amrex_state) return;
   if (!amrex_available())
     throw std::runtime_error("amrex_state = 1: this build has no AMReX (cmake -DRADRAY_AMREX=ON)");
@@ -76,16 +80,17 @@ void check_amrex_state_param(const Config& c) {
     throw std::runtime_error("amrex_state = 1 needs rt_backend = amrex, hydro_backend = amrex and pm_backend = amrex");
   if (c.hydro_scheme != HydroScheme::Unsplit)
     throw std::runtime_error("amrex_state = 1 needs hydro_scheme = unsplit");
-  if (c.rt_method != RTMethod::Rays)
-    throw std::runtime_error("amrex_state = 1 needs rt_method = rays");
-  if (c.recomb_rad) throw std::runtime_error("amrex_state = 1 does not support recomb_rad = 1");
+  if (c.rt_method != RTMethod::Rays && !c.amrex_slab)
+    throw std::runtime_error("amrex_state = 1 with rt_method = m1 | otvet needs amrex_slab = 1");
+  if (c.recomb_rad && c.rt_method == RTMethod::Rays)
+    throw std::runtime_error("amrex_state = 1 does not support recomb_rad = 1 with the rays");
   if (c.N_rt_gas != 1) throw std::runtime_error("amrex_state = 1 needs N_rt_gas = 1 (Nrt = Ngas)");
   // one decomposition: the hydro and PM levels on the RT level's boxes
   if (c.amrex_hydro_max_grid_size != 0 && c.amrex_hydro_max_grid_size != c.amrex_max_grid_size)
     throw std::runtime_error("amrex_state = 1: amrex_hydro_max_grid_size must be 0 or equal to amrex_max_grid_size");
   if (c.amrex_pm_max_grid_size != 0 && c.amrex_pm_max_grid_size != c.pm_refine * c.amrex_max_grid_size)
     throw std::runtime_error("amrex_state = 1: amrex_pm_max_grid_size must be 0 or pm_refine * amrex_max_grid_size");
-  if (c.Ngas % c.amrex_max_grid_size != 0)
+  if (!c.amrex_slab && c.Ngas % c.amrex_max_grid_size != 0)
     throw std::runtime_error("amrex_state = 1: amrex_max_grid_size must divide N");
 }
 
