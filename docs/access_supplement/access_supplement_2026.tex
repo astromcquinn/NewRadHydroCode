@@ -36,7 +36,7 @@
 High-resolution cosmological simulations of intergalactic gas}\\[0.4ex]
 Matthew McQuinn (PI), University of Washington \quad $\cdot$ \quad NASA grant 80NSSC24K1220 \quad $\cdot$ \quad \todo{date}\\
 Accelerate project; supplement of 1{,}500{,}000 ACCESS credits requested.
-Resources used so far: \todo{SDSC Expanse; other systems}; credits spent / remaining: \todo{numbers}.
+Resources used so far: \todo{SDSC Expanse; other systems}; see the table in \S1.
 \end{center}
 
 \section{Progress to date}
@@ -58,7 +58,7 @@ baryon--dark-matter streaming and alternative dark-matter cosmologies. The
 paper sets out the suite and its first results on the gas dynamics and
 thermal structure, the ionizing opacity and self-shielding, the IGM's drain on
 the reionization photon budget, the halo mass function and Ly$\alpha$
-transmission. \todo{which runs used this allocation, and their credits}
+transmission.
 
 \textbf{(b) An emulator for the ionizing-photon mean free path} (Tohfa, Cain,
 McQuinn \& D'Aloisio 2026, arXiv:2602.03923; JCAP 06 (2026) 094). A
@@ -90,7 +90,7 @@ instability proposed before; fragmentation grows with resolution and is not
 converged even at the highest; the covering fractions of partial Lyman-limit
 and Lyman-limit systems rise by factors of 2--4 across the resolution range;
 and cosmic sheets plausibly supply of order 1\,\% of LLSs and 10\,\% of pLLSs
-at $z = 4$, a large share of the metal-free absorbers. \todo{credits used}
+at $z = 4$, a large share of the metal-free absorbers.
 
 \begin{figure}[t]
 \centering
@@ -101,6 +101,22 @@ at $z = 4$, a large share of the metal-free absorbers. \todo{credits used}
 \caption{One result from each paper the allocation produced.}
 \label{fig:results}
 \end{figure}
+
+\textbf{Resources used.} \todo{Fill from the ACCESS usage report; one row per line of work.}
+\begin{center}\small
+\begin{tabular}{llrl}
+\toprule
+Work & System & Credits & Output \\
+\midrule
+(a) SAGUARO suite (200+ runs, 2 and 0.25~$h^{-1}$Mpc) & \todo{Expanse} & \todo{n} & arXiv:2603.25788 \\
+(b) Emulator training set (I-front runs, $\approx 2\,h^{-1}$Mpc) & \todo{Expanse} & \todo{n} & arXiv:2602.03923, JCAP \\
+(c) Simulations behind the analytic model & \todo{system} & \todo{n} & arXiv:2606.19449 \\
+(d) Cosmic-sheet suite (AREPO; MP-Gadget comparison) & SDSC Expanse & \todo{n} & Willard et al., to be submitted \\
+\midrule
+Total used / remaining of the 3{,}000{,}000 awarded & & \todo{n / n} & \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \textbf{Software built for the next phase.} A C++ port of Trac's RadHydro (the
 code behind (a)--(c)), validated bit for bit against the original, now runs
