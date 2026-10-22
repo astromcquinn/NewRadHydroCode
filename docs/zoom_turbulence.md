@@ -168,8 +168,8 @@ the coupling-interval test (T4, §4.4) in exactly the setting where the
 answer is known, a reference for the zooms (a Z3 region in a C26-like
 environment should reproduce C2's statistics), and the first science
 (preheating and z_re variants) at a cost klone carries alone. C2 is also
-the natural content of the ACCESS Discover request (§8), with Z2 and Z3
-following under Accelerate.
+the first item of the ACCESS supplement's plan (§8), with Z2 and Z3
+following.
 
 Thread prompt: "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md,
 docs/zoom_turbulence.md §3b and docs/plane_parallel.md. Implement the
@@ -562,18 +562,38 @@ klone builds and validates the machinery (T0–T5, Z1, Z2 and probably one
 Z3); the proposal asks for the suite that klone cannot hold at once:
 several regions × preheating (none, 100 K, 1000 K) × MHD seeds, and Z4.
 
-Venue (user decision 2026-10-22): **NSF ACCESS, in two steps.** First a
-**Discover** request (under about 10⁶ core-hours, a paragraph of
-justification, awarded quickly): enough for the Z2 and first Z3 runs
-beyond what klone can hold, and it can go in as soon as Z1 has produced
-timings. Then an **Accelerate** request (under about 3 × 10⁶, a few
-pages, scaling data required) for the suite and Z4, written after Z2.
-(The thresholds are the user's figures; confirm them on the ACCESS site
-at submission.) NASA HEC (the group's NASA grants) remains a fallback. A
-GPU request only makes sense once the AMReX backends run on GPUs
-(Stage D §5: prepared, not built), where the H200 was 5× a `cpu-g2` node
-on the RT; the hydro at the finest level is the part that would gain
-most.
+Venue: **NSF ACCESS**, through the group's existing Accelerate project
+PHY250179 ("High-resolution cosmological simulations of intergalactic
+gas", the same NASA grant as this work; it holds the 3 million credits of
+the Accelerate ceiling and ends in late 2026). What the ACCESS portal
+offers for it (checked by the user, 2026-10-22), and the route (user
+decision):
+
+1. **A supplement of 1.5 million credits, now.** The project is eligible
+   for it; it is a short justification on a rolling review. It funds the
+   near-term plan in full: the C26 reproduction (C2 and its variants,
+   §3b), Z2 and the first Z3 (≈ 10⁵ core-hours each, §7), with margin for
+   the measurements that the next request needs. Draft:
+   `docs/access_supplement_2026.md`.
+2. **An extension** of the project's end date, up to six months past the
+   grant's end, when the end date approaches, so the credits are not lost
+   while the plane-parallel mode and the zoom machinery are built.
+3. **A renewal** (available from 30 days before the end date) as the next
+   Accelerate, up to the 3 million ceiling, for the suite: several regions
+   × preheating (none, 100 K, 1000 K), the MHD runs, written with the Z2
+   and Z3 results.
+4. **Maximize** (semi-annual committee review, scaling data on the target
+   machine) only if the suite plus Z4 outgrows the Accelerate ceiling.
+
+A Discover request is not needed: it would be a second project on the
+same grant for less than the supplement. The policy point behind this:
+ACCESS allows a PI several projects but ties them to merit-reviewed
+supporting grants (one project per grant, or related work combined), so
+everything under the NASA grant lives in PHY250179. NASA HEC remains a
+fallback. A GPU request only makes sense once the AMReX backends run on
+GPUs (Stage D §5: prepared, not built), where the H200 was 5× a
+`cpu-g2` node on the RT; the hydro at the finest level is the part that
+would gain most.
 
 Skeleton, with the numbers each section needs:
 
@@ -617,11 +637,13 @@ about three months of threads from now.
 6. **Preheating:** none in the first runs; added later.
 7. **MHD:** later; the Biermann battery and one more non-ideal term at
    the I-fronts are wanted (§4.8).
-8. **Proposal:** ACCESS Discover first (quick, under ~10⁶ core-hours),
-   then Accelerate (under ~3 × 10⁶) for the suite (§8).
+8. **Proposal:** a 1.5 million-credit supplement to the existing
+   Accelerate project PHY250179 now, its extension, then its renewal for
+   the suite; Maximize only beyond that (§8; revised 2026-10-22 from
+   "Discover, then Accelerate").
 10. **C26 reproduction first (user, 2026-10-22):** the uniform small
    boxes with the plane-parallel mode as WP0 (§3b), a parallel track
-   from now, and the content of the Discover request.
+   from now, and the first content of the supplement's plan.
 9. **Speed of light:** a slow ĉ (0.1c) is fine provided light crosses
    the smallest subregion more slowly than sound crosses a cell (§4.4:
    ĉ ≲ 0.07c on a 1024³ rung at 20 km/s).
