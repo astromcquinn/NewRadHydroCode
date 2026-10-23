@@ -349,6 +349,8 @@ the set is done).
   set: the moment methods now end slightly *later* than the rays (the
   schedule's 0.5c end), and recombination radiation costs 4 % instead of
   67 % (`recomb_rad_cell_onspot = 1`).
+- `origin/main` merged into the branch 2026-10-22 (one STATUS conflict);
+  the fast suite on klone 145/145 (job 42184776, 38 min). PR opened.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
