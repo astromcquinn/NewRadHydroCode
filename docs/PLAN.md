@@ -1528,9 +1528,14 @@ be designed); `recomb_rad` on the backend (block emission and
   (`amrex-26.10-mlmg` on klone).
 * **Not done:** the klone profile itself (`tools/hyak/
   pm_level_solve_profile.slurm` is ready; this session has no cluster
-  access); the composite (two-way) solve, which would restore momentum
-  conservation across level boundaries (5e-4 of the summed gas |Δp| per
-  step with a region).
+  access; the user submits it).
+* **Decision (user, 2026-10-23): no composite (two-way) solve**, at
+  least for now and probably not at all: the level solve is what Enzo and
+  RAMSES use; its cost is the momentum change across level boundaries
+  (5e-4 of the summed gas |Δp| per step with a region) and a self-force
+  of 4e-6 of the force at one cell near a boundary (`docs/stage_g.md`
+  §1.1, §3), to be revisited only if the zoom runs show the region's
+  boundary doing something unphysical.
 
 ## Zoom-in turbulence programme (2026-10-22)
 

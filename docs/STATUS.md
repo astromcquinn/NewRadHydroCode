@@ -63,9 +63,10 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   central eighth (level 2 of 17 M cells, too much for this VM's memory)
   is `tools/hyak/pm_level_solve_profile.slurm`, ready to submit.
 * **Open:** the klone profile (`tools/hyak/pm_level_solve_profile.slurm`,
-  ready to submit; no cluster access from this session); the composite
-  solve if the momentum error at the level boundaries matters; the zoom
-  itself needs WP1/WP2 (multi-mass particles tag the levels).
+  ready to submit; the user runs it); the zoom itself needs WP1/WP2
+  (multi-mass particles tag the levels). The composite solve is not
+  planned (user decision 2026-10-23, `docs/PLAN.md`): the level solve of
+  Enzo and RAMSES is enough unless the zoom's boundary misbehaves.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
@@ -2158,7 +2159,7 @@ differ on klone are skipped there (label `platform_ref`).
      (`pm_level_solve = 1`, `docs/stage_g.md`, above): every refined
      level solves its own Poisson equation with MLMG at its own
      resolution; `pm_gas_levels` (the uniform mesh fed by the levels)
-     stays as the comparison. Open: the klone profile, the composite solve.
+     stays as the comparison. Open: the klone profile; no composite solve (user decision 2026-10-23).
    - **Hydro validation with refinement (F2):** the pancake and KH cases,
      the full tier, and the composite of the finest data for comparisons
      at the matched finest resolution.
