@@ -1545,7 +1545,8 @@ be designed); `recomb_rad` on the backend (block emission and
 
 The converter `tools/ics/music_convert.py` and the ladder generator
 `tools/ics/music_ladder.py` (`tools/ics/music/README.md`). Decisions taken
-in the thread, for the user to confirm or change:
+in the thread; **confirmed by the user on 2026-10-23**, including the
+ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 
 * **Amplitude and velocities from the code's growth (as asked).** MUSIC
   normalises σ₈ today and scales back with its own growth, which has no
