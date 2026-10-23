@@ -316,8 +316,22 @@ the set is done).
 - **OTVET screen done 2026-10-22 13:59** (10 h 08 min, peak 370 GB; z50 =
   6.96, z90 = 6.01, z99 = 5.68, τ = 0.0596) and **OTVET cone done 14:34**
   (10 h 35 min, 376 GB; z50 = 6.94, z90 = 5.96, z99 = 5.60, τ = 0.0594;
-  RT 7.4 h of which the cone tensor 0.5 h). Six of seven done; the case
-  A + RR rays at z = 5.39 after 20.8 h (job 42132367), then the post phase.
+  RT 7.4 h of which the cone tensor 0.5 h). **Case A + RR rays done
+  18:50** (24 h 51 min, peak 483 GB; z50 = 6.98, z90 = 5.97, z99 = 5.61,
+  τ = 0.0595; RT 17.7 h, only 1.04× the case-B rays' wall time against
+  1.67× in the 2026-10-11 set: with `recomb_rad_cell_onspot = 1` most
+  recombination photons are absorbed on the spot and the pool guard never
+  fired). **The continuous set is complete** (7 runs, 1.40 TB with one
+  checkpoint each: 281 + 284 GB the ray runs, 167 GB each moment run;
+  /gscratch/astro at 96 %, 2.0 TB free). Analysis jobs submitted 19:05:
+  `rt_suite512.sh post` (42179001: `rt_methods_runs.py`, the seven-run
+  movie, `igm_stats.py` on every run into `$RUNS/rt_methods_512/`),
+  `gamma_power.py --field gammaHI_avg` (plain and `--clip 3`), the
+  last-substep field for comparison, and `rt_methods_runs.py --gamma-field
+  gammaHI_avg` (42179002, `logs/rt512_gamma_avg.slurm`), and the paper
+  figures `tools/analysis/rt_suite_figures.py` (42179003: maps of x_HII and
+  Γ_HI at x_V = 0.5, 0.8, 0.97 (and 1 for Γ), the 3D P(k) of both fields
+  and r(k) against the case-B rays; `figures/` and `figures_clip3/`).
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
