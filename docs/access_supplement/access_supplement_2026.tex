@@ -1,0 +1,190 @@
+% ACCESS supplement request, PHY250179: progress report and plan.
+% Upload this file (and the figures named in \figpanel) to Overleaf.
+% Bracketed items in bold are for the PI to fill in. Figures: put the
+% files next to this .tex; a missing file shows a placeholder box, so the
+% document compiles before the figures are added.
+\documentclass[11pt]{article}
+\usepackage[letterpaper,margin=0.85in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\titlespacing*{\section}{0pt}{1.0ex}{0.4ex}
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection.}{0.5em}{}
+\setlist{nosep,leftmargin=1.4em}
+\setlength{\parskip}{0.35ex}
+\setlength{\parindent}{1.2em}
+\pagestyle{empty}
+
+\newcommand{\todo}[1]{\textbf{[#1]}}
+% \figpanel{file}{caption}: a panel of a 2 x 2 figure block; a placeholder
+% box if the file is missing.
+\newcommand{\figpanel}[2]{%
+  \begin{minipage}[t]{0.49\textwidth}\centering
+    \IfFileExists{#1}{\includegraphics[width=\linewidth,height=5.2cm,keepaspectratio]{#1}}%
+      {\fbox{\parbox[c][5.0cm][c]{0.95\linewidth}{\centering\small\texttt{\detokenize{#1}}\\(figure to be added)}}}\par\vspace{0.3ex}
+    {\footnotesize #2}
+  \end{minipage}}
+
+\begin{document}
+
+\begin{center}
+{\large\bfseries Supplement request for PHY250179:\\
+High-resolution cosmological simulations of intergalactic gas}\\[0.4ex]
+Matthew McQuinn (PI), University of Washington \quad $\cdot$ \quad NASA grant 80NSSC24K1220 \quad $\cdot$ \quad \todo{date}\\
+Accelerate project; supplement of 1{,}500{,}000 ACCESS credits requested.
+Resources used so far: \todo{SDSC Expanse; other systems}; see the table in \S1.
+\end{center}
+
+\section{Progress to date}
+
+The allocation supported high-resolution simulations of the intergalactic
+medium (IGM) at $z = 3$--$7$ in two directions: the response of IGM gas to
+reionization at the kiloparsec scale, and the structure of cold gas in the
+cosmic web. Four papers resulted, three on arXiv and one about to be
+submitted (Fig.~\ref{fig:results}).
+
+\textbf{(a) SAGUARO, a suite of IGM reionization simulations} (Cain, Das,
+D'Aloisio, Foreman, Scannapieco, Moreno, Lugatiman, Cohon, Tohfa \& Trac 2026,
+arXiv:2603.25788). Over two hundred coupled radiative-hydrodynamics
+simulations of IGM gas during and after reionization in boxes of 2 and
+0.25~$h^{-1}$Mpc, at resolutions that resolve the Jeans scale of the cold
+neutral IGM, spanning a grid of photoionization rates, reionization redshifts
+and box-scale densities, with X-ray preheating, recombination radiation,
+baryon--dark-matter streaming and alternative dark-matter cosmologies. The
+paper sets out the suite and its first results on the gas dynamics and
+thermal structure, the ionizing opacity and self-shielding, the IGM's drain on
+the reionization photon budget, the halo mass function and Ly$\alpha$
+transmission.
+
+\textbf{(b) An emulator for the ionizing-photon mean free path} (Tohfa, Cain,
+McQuinn \& D'Aloisio 2026, arXiv:2602.03923; JCAP 06 (2026) 094). A
+deep-learning emulator trained on high-resolution radiative-transfer
+simulations of ionization fronts in $\approx 2\,h^{-1}$Mpc volumes, which
+capture the kiloparsec-scale clumping that large reionization volumes cannot
+resolve. Combined with the measured photoionization rate and mean free path at
+$z = 5$--$6$, and without power-law assumptions, it implies a factor 2--3
+decline in the ionizing emissivity between $z = 6$ and $4.8$; it also serves
+as a sub-grid opacity for large simulations.
+
+\textbf{(c) A self-consistent analytic model of the photoionization rate and
+the reionization history} (Cain, Croker, D'Aloisio, Georgiev, Tohfa, Zhu \&
+Windhorst 2026, arXiv:2606.19449). An analytic formalism derived from the
+cosmological radiative-transfer equation that predicts the ionized fraction
+and $\Gamma_{\rm HI}$ together, tested against the radiative-transfer
+simulations: percent-level in the ionized fraction and 20--30\,\% in
+$\Gamma_{\rm HI}$ at $z \lesssim 6$, which makes the forest's
+$\Gamma_{\rm HI}$ usable in fast inference of the reionization history.
+
+\textbf{(d) Multiphase gas in high-$z$ cosmic sheets} (Willard, Faerman,
+McCarty, McQuinn, Mandelker \& Quinn, to be submitted). A suite of moving-mesh
+(AREPO) simulations of individual $z = 3$--$6$ cosmic sheets, 4 and 8~cMpc/$h$
+boxes at $2\times128^3$ to $2\times1024^3$ particles (cold-gas cells of
+0.4--3~pkpc), with an SPH comparison suite in MP-Gadget; all runs at the San
+Diego Supercomputer Center. The sheets' cold cores fragment through the
+nonlinear thin-shell instability and then Kelvin--Helmholtz, not the thermal
+instability proposed before; fragmentation grows with resolution and is not
+converged even at the highest; the covering fractions of partial Lyman-limit
+and Lyman-limit systems rise by factors of 2--4 across the resolution range;
+and cosmic sheets plausibly supply of order 1\,\% of LLSs and 10\,\% of pLLSs
+at $z = 4$, a large share of the metal-free absorbers.
+
+\begin{figure}[t]
+\centering
+\figpanel{fig_saguaro.pdf}{(a) SAGUARO: \todo{what the panel shows}.}\hfill
+\figpanel{fig_emulator.pdf}{(b) The mean-free-path emulator: \todo{what the panel shows}.}\\[0.8ex]
+\figpanel{fig_analytic.pdf}{(c) The analytic $\Gamma_{\rm HI}$ and $x_{\rm HII}$ model: \todo{what the panel shows}.}\hfill
+\figpanel{fig_sheets.pdf}{(d) Cosmic sheets: $N_{\rm HI}$ of the high-$T_{\rm vir}$ sheet across resolutions (Willard et al.).}
+\caption{One result from each paper the allocation produced.}
+\label{fig:results}
+\end{figure}
+
+\textbf{Resources used.} \todo{Fill from the ACCESS usage report; one row per line of work.}
+\begin{center}\small
+\begin{tabular}{llrl}
+\toprule
+Work & System & Credits & Output \\
+\midrule
+(a) SAGUARO suite (200+ runs, 2 and 0.25~$h^{-1}$Mpc) & \todo{Expanse} & \todo{n} & arXiv:2603.25788 \\
+(b) Emulator training set (I-front runs, $\approx 2\,h^{-1}$Mpc) & \todo{Expanse} & \todo{n} & arXiv:2602.03923, JCAP \\
+(c) Simulations behind the analytic model & \todo{system} & \todo{n} & arXiv:2606.19449 \\
+(d) Cosmic-sheet suite (AREPO; MP-Gadget comparison) & SDSC Expanse & \todo{n} & Willard et al., to be submitted \\
+\midrule
+Total used / remaining of the 3{,}000{,}000 awarded & & \todo{n / n} & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Software built for the next phase.} A C++ port of Trac's RadHydro (the
+code behind (a)--(c)), validated bit for bit against the original, now runs
+with MPI\,+\,OpenMP through AMReX on 192-core nodes ($512^3$ reionization runs
+on five nodes, deterministic across rank counts), with adaptive mesh refinement
+for gas, radiation and gravity validated to two levels, a star-formation sink,
+and a first refined $512^3$ production run whose cost is measured. This
+development ran on the group's own cluster; the supplement funds the runs it
+enables.
+
+\section{Why more credits: turbulence driven by real ionization fronts}
+
+Cain, McQuinn, Scannapieco, D'Aloisio \& Trac (2026, PRD 113, 023050) showed
+with uniform 0.25~$h^{-1}$Mpc boxes at $1024^3$ and $2048^3$ that the heating
+by ionization fronts drives kiloparsec-scale turbulence once cells are smaller
+than $\approx 0.5$~kpc/$h$, and that this turbulence can grow volume-filling
+magnetic fields to the strengths the TeV-blazar limits require. Those boxes
+were ionized by plane-parallel fronts at a chosen redshift. The new code makes
+two things possible that were not when the project was written:
+\begin{enumerate}
+\item \textbf{The same boxes in the new code (C2):} $1024^3$ at 244~pc/$h$ with
+  plane-parallel fronts, then preheating ($T_{\min} = 100$ and 1000~K) and
+  reionization-redshift variants: the code-to-code check and the baseline.
+\item \textbf{Zoom-in runs of one region of a full reionization simulation
+  (Z2, Z3):} a 40~$h^{-1}$Mpc, $512^3$ box with sources and escape fraction
+  calibrated to the Ly$\alpha$ forest, in which one region of
+  1.25~$h^{-1}$Mpc ($1024^3$ cells at 1.2~kpc/$h$) and then 0.31~$h^{-1}$Mpc
+  ($1024^3$ at 0.3~kpc/$h$) is refined by six and eight levels, with initial
+  conditions seeded at the region's resolution. The region then meets the real
+  front: its arrival time, speed, direction and spectrum, and the surrounding
+  filaments and bulk flow. Regions are chosen by density and by ionization
+  time. This gives the turbulence driven by a real front and the first
+  self-consistent setting for the Biermann battery at the front.
+\end{enumerate}
+
+\section{Resources requested}
+
+\todo{Resource and the conversion from the ACCESS exchange calculator.} From
+the measured costs of this code on 192-core AMD Genoa nodes (one hydro
+cell-update $\approx 3\,\mu$s with refinement, one ray-substep
+$\approx 2\,\mu$s) and the refined $512^3$ production run ($2.6\times$ the
+unrefined step time):
+
+\begin{center}\small
+\begin{tabular}{lll}
+\toprule
+Run & Finest-level cells & Core-hours \\
+\midrule
+C2: $1024^3$, 0.25~$h^{-1}$Mpc, $z = 300 \to 4$ & $1.1\times10^9$ & $\approx 1\times10^5$ \\
+C2 variants: $T_{\min} = 100$, 1000~K; a second $z_{\rm re}$ & & $\approx 3\times10^5$ \\
+Z2: $512^3$ base + 6 levels, $1024^3$ over 1.25~$h^{-1}$Mpc & $1.1\times10^9$ & $\approx 3\times10^4$ \\
+Z3: the same region, 8 levels, $1024^3$ over 0.31~$h^{-1}$Mpc & $1.1\times10^9$ & $\approx 1\times10^5$ \\
+A second Z3 region (a different ionization time) & $1.1\times10^9$ & $\approx 1\times10^5$ \\
+Resolution ladders ($64^3$--$512^3$) and analysis & & $\approx 1\times10^5$ \\
+\midrule
+Total & & $\approx 7\times10^5$ core-hours \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent Requested as 1.5 million credits with the conversion and a margin
+for the refinement overhead. Memory under 1~TB per run; checkpoints
+$\approx 0.4$~TB every ten steps; the finest-level cubes 4~GB per field per
+snapshot. Storage: \todo{amount and system}.
+
+\section{Timeline}
+
+\todo{Months 1--2: C2 and variants. Months 2--5: Z2, Z3, the second region.
+Month 6: analysis, and the renewal request for the full suite (several regions
+$\times$ preheating, the MHD runs).}
+
+\end{document}

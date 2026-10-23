@@ -8,3 +8,5 @@ build-*/
 /runs/
 /build-*.log
 /ctest-*.log
+# the SIGTERM call stacks of a killed MPI run (rt_level.cpp sigterm_backtrace)
+Backtrace.*

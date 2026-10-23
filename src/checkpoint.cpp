@@ -114,9 +114,13 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
                       const pm::PMState& pm, const DriverState& d) {
   // rt_backend = amrex: the rays live on the level; rank 0 receives them in
   // chunks while it writes (collective: every rank takes part in the count
-  // and the gather, only io_rank() writes; rank 0's transient is one chunk)
+  // and the gather, only io_rank() writes; rank 0's transient is one chunk).
+  // With the moment RT the level's moment and recombination blocks come the
+  // same way (amrex_moment_ckpt_write).
+  const bool level_moments = use_amrex(s.cfg) && use_moments(s.cfg);
   const std::int64_t nbrays = use_amrex(s.cfg) ? amrex_rt_nrays(s) : 0;
   if (!io_rank()) {
+    if (level_moments) amrex_moment_ckpt_write(s, [](const void*, std::size_t) {});
     if (use_amrex(s.cfg)) amrex_rt_gather_rays_chunks(s, [](const std::vector<rrk::RayP>&) {});
     return;
   }
@@ -192,6 +196,12 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     const std::int32_t method = static_cast<std::int32_t>(s.cfg.rt_method);
     o.pod(method);
     const std::vector<float> none;
+    if (level_moments) {
+      // the moment and recombination blocks from the level (the same format)
+      amrex_moment_ckpt_write(s, [&](const void* p, std::size_t n) {
+        o.f.write(static_cast<const char*>(p), static_cast<std::streamsize>(n));
+      });
+    } else {
     const MomentState* M = s.moments.get();
     for (int q = 0; q < 5; ++q) {
       const std::vector<float>* v[5] = {&none, &none, &none, &none, &none};
@@ -215,6 +225,7 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.vec(Rc ? Rc->mode : none8);
     const double rbud[3] = {Rc ? Rc->launched : 0, Rc ? Rc->dropped : 0, Rc ? Rc->onspot : 0};
     o.pod(rbud);
+    }
     // AMReX backend (version 5): its rays in the float layout
     const std::int32_t backend = static_cast<std::int32_t>(s.cfg.rt_backend);
     o.pod(backend);
@@ -271,12 +282,13 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
                              "; this run has different sizes");
   in.pod(s.clk);
   // amrex_state = 1: the grids are rank 0's mirror (scattered onto the
-  // levels by the driver afterwards); the other ranks skip their blocks
+  // levels by the driver afterwards); the other ranks skip their blocks,
+  // Luv and sfr too (their sources come from the next calc_halo)
   const bool skip_grids = use_amrex_state(s.cfg) && !io_rank();
   RTGrid& G = s.rt;
   for (auto* v : {&G.rhog, &G.fHI, &G.fHeI, &G.fHeII, &G.temp, &G.Luv, &G.sfr, &G.dx, &G.gamma,
                   &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau}) {
-    if (skip_grids && v != &G.Luv && v != &G.sfr)
+    if (skip_grids)
       in.skip_vec<float>();
     else
       in.vec(*v, static_cast<std::int64_t>(v->size()));
@@ -373,7 +385,25 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
     throw std::runtime_error(std::string("checkpoint was written with rt_method = ") +
                              rt_method_name(static_cast<RTMethod>(method)) +
                              ", this run has rt_method = " + rt_method_name(s.cfg.rt_method));
-  if (ver >= 3) {
+  const bool level_moments = use_amrex(s.cfg) && use_moments(s.cfg) && ver >= 3;
+  if (level_moments) {
+    // the moment RT on the level: its blocks streamed onto the slabs (rank 0
+    // reads, the other ranks skip the data)
+    const bool io = io_rank();
+    amrex_moment_ckpt_read(
+        s,
+        [&](void* p, std::size_t n) {
+          if (p) {
+            in.f.read(static_cast<char*>(p), static_cast<std::streamsize>(n));
+          } else {
+            in.f.seekg(static_cast<std::streamoff>(n), std::ios::cur);
+          }
+          if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+          (void)io;
+        },
+        ver);
+    if (ver < 4 && s.cfg.recomb_rad) throw std::runtime_error("checkpoint has no recombination radiation state: " + path);
+  } else if (ver >= 3) {
     std::vector<float> v[5];
     for (int q = 0; q < 5; ++q) in.vec(v[q]);
     double budget[3];
@@ -393,7 +423,8 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
       M.lost = budget[2];
     }
   }
-  if (ver >= 4) {
+  if (level_moments) {
+  } else if (ver >= 4) {
     std::vector<float> ng, eg, ots;
     std::vector<std::uint8_t> mode;
     in.vec(ng);

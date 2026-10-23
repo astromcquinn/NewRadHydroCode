@@ -268,11 +268,55 @@ struct Config {
   //   amrex_redist_local: cells a ray may move per substep for the local
   //                (neighbour-only) Redistribute; 0 = global (at least k+1
   //                are used with rt_cells_per_substep = k).
+  //   amrex_slab: 0 (default) = boxes of amrex_max_grid_size; 1 = z-slabs
+  //                of amrex_slab_planes k-planes (0 = about N / ranks, even),
+  //                mapped to the ranks in z order (the decomposition of the
+  //                moment RT, docs/stage_e_moments.md section 2; with
+  //                amrex_state = 1 also that of the hydro and PM levels);
+  //   amrex_moment_stats: the photochemistry statistics (rt_stat) of the
+  //                moment RT on the level: exact (default; the serial
+  //                order, a chain over the ranks) | fixed (128-bit fixed
+  //                point: exact and decomposition-independent, but not
+  //                the serial rounding; production runs);
+  //   amrex_moment_fft_threads: the threads of the OTVET FFT plans of a
+  //                component task (0 = the rank's OpenMP threads; 1 = the
+  //                serial plans). Threaded plans are checked bitwise against
+  //                the serial ones at their first use (the run stops on a
+  //                difference); without the threaded FFTW library: 1.
   RTBackend rt_backend = RTBackend::Serial;
   RayEncoding ray_encoding = RayEncoding::Float;
   int amrex_max_grid_size = 16;
   int amrex_ghosts = 2;
   int amrex_redist_local = 3;
+  bool amrex_slab = false;
+  int amrex_slab_planes = 0;
+  int amrex_moment_stats = 0;  // 0 exact, 1 fixed
+  int amrex_moment_fft_threads = 0;  // threads of the OTVET FFT plans (0: OpenMP's)
+  //   amrex_split_on_entry: 1 = a ray moved down to a finer level (Stage F3)
+  //                is split on arrival as often as its new radius needs
+  //                (r <= r_max(nside)), keeping its radius (no clamp to
+  //                r_min + cells, which pulled the children back toward the
+  //                source when they split at the next substep), if it is above
+  //                the level's split threshold; 0 (default) = the next
+  //                substep's split, as before (default 1 since 2026-10-20,
+  //                user decision; it only acts with amrex_max_level > 0)
+  int amrex_split_on_entry = 1;
+  //   amrex_ghost_rule: a refined level's ray in a ghost cell outside the
+  //                level (Stage F3): 3 = conserve (default since 2026-10-21,
+  //                user decision; see below); 0 = sqrt (before): the
+  //                ray loses 1 - sqrt(fgam_parent), its deposit goes to the
+  //                parent in full; 1 = parent: the ray loses 1 - fgam_parent
+  //                (photon conserving with the parent's absorption of the
+  //                deposit); 2 = half: the deposit goes to the parent with
+  //                weight 1/2 (a fine cell is half the coarse path) and the
+  //                ray keeps sqrt(fgam_parent); 3 = conserve: the deposit
+  //                goes to the parent with weight 1/(1 + sqrt(fgam_parent))
+  //                (the previous substep's), the ray keeps sqrt(fgam_parent):
+  //                the parent absorbs what the ray loses, half the path in
+  //                thin gas, the full deposit in thick gas (docs/stage_f.md
+  //                section 3: sqrt created photons just outside the level;
+  //                half loses them in thick gas)
+  int amrex_ghost_rule = 3;
 
   // params.txt pm_backend = serial (default) | amrex (set_pm_backend_param
   // in pm_backend.hpp; docs/stage_e_pm.md):
