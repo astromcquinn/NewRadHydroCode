@@ -21,7 +21,7 @@ gradient and the kicks per level. Behind `pm_level_solve = 1` (default 0);
 | The forces and kicks per level, the average-down of the kicked momenta | done | momentum conserved to 1e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet boundary) |
 | Tests `ctest -L level_solve` (10 tests) | done | all pass here (4-core VM, OpenMPI 4.1.6, AMReX 26.10 with the linear solvers) |
 | T1 of the zoom ladder (32³ base, two levels over the central eighth, against uniform 128³) | §4 | nightly `amrex_pm_zoom_t1` |
-| Timing at 128³ with two levels | §5 (this VM); klone: `tools/hyak/pm_level_solve_profile.slurm`, to run | |
+| Timing at 128³ with two levels | §5: on this VM the level solve adds 1.0 s per step to the base PM, the uniform 512³ mesh 9.1 s; klone: `tools/hyak/pm_level_solve_profile.slurm`, ready, not run from here | |
 
 Ground rules kept: `reference/` untouched; every new behaviour behind
 `pm_level_solve = 1`, which only acts with `amrex_max_level > 0` (and
@@ -93,7 +93,7 @@ per dimension in the periodic box, dx = 2^-l level-0 mesh cells.
    coarse-fine interpolation), the domain is periodic, the parent's
    potential interpolated trilinearly is the initial guess, `pm_mlmg_iters`
    V-cycles (default 20) or until the residual max-norm is below
-   `pm_mlmg_tol` (default 1e-8) of the initial one, red-black
+   `pm_mlmg_tol` (default 1e-10) of the initial one, red-black
    Gauss–Seidel (2 + 2 sweeps), the smoother as the bottom solver (no
    dot products: every operation is per cell and the norms are maxima,
    so the solve is bitwise rank-, thread- and layout-independent). The
@@ -294,7 +294,34 @@ them within 40 % in mass, and the density PDF fractions agree with A's to
 
 ## 5. Timing
 
-[filled below after the runs]
+The 4-core VM (2 ranks × 2 threads, OpenMPI 4.1.6): 128³ gas and 128³
+particles from Zel'dovich ICs (10 Mpc/h, z = 100), no sources, 4 hydro
+steps, `amrex_max_grid_size = 32`, `amrex_fine_max_grid_size = 64`; the
+hierarchy with two levels over the central quarter width
+(`amrex_refine_box=48,48,48,79,79,79`: level 1 80³ = 512 000 cells,
+level 2 128³ = 2.1 M cells; the central eighth of
+`tools/hyak/pm_level_solve_profile.slurm`, level 2 of 256³ = 17 M cells,
+exceeds this VM's 15 GB through the hydro hierarchy). Mean per step
+(`timing.txt`; the backend's phases from the cumulative timers):
+
+| configuration | step [s] | PM [s] | hydro [s] | PM phases per step [s] |
+|---|---|---|---|---|
+| uniform 128³, no refinement | 1.68 | 0.40 | 0.88 | drift 0.10, deposit 0.10, fft 0.035, force 0.03, kick 0.12 |
+| two levels, `pm_level_solve = 1` (`pm_refine = 1`) | 9.53 | 1.40 | 7.69 | level 0 as above; levels: deposit 0.07, **solve 0.56**, force 0.035, kick 0.04, sync 0.004 |
+| two levels, `pm_gas_levels = 1`, `pm_refine = 4` (the uniform 512³ mesh) | 17.2 | 9.52 | 7.26 | deposit 2.23, **fft 4.44**, force 2.30, kick 0.14; gas levels: deposit 0.58, kick 0.08 |
+
+The level solves: level 1 in 16 V-cycles to a residual of 4e-11 of the
+initial one, level 2 in 7 (the finer level's initial guess, the parent's
+potential, is better), 0.56 s for 2.6 M cells on 4 cores, i.e. about 0.2
+µs per cell per V-cycle. The level solve costs 1.0 s per step over the
+base PM here, the uniform 512³ mesh 9.1 s (its FFT, deposit and force
+on 134 M cells); the hydro hierarchy (7.3–7.7 s, FillPatch and the
+reflux on 64 boxes) dominates both refined runs, as in the 512³
+production run (`docs/stage_f.md` §4). The klone profile at the central
+eighth on one node, 24 ranks × 8 threads, is the job
+`tools/hyak/pm_level_solve_profile.slurm` (the table
+`tools/hyak/pm_level_solve_table.py`), ready to submit; it was not run
+from this session (no cluster access).
 
 ## 6. How to run
 
@@ -304,7 +331,7 @@ them within 40 % in mass, and the density PDF fractions agree with A's to
 mpirun -np 4 build-amrex/radhydro RUN out --set rt_backend=amrex --set hydro_backend=amrex \
   --set pm_backend=amrex --set amrex_state=1 --set hydro_scheme=unsplit \
   --set amrex_max_level=2 --set amrex_refine_box=8,8,8,23,23,23 --set amrex_n_error_buf=0 \
-  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-8 --set pm_mlmg_verbose=1] \
+  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_verbose=1] \
   --set step_timers=1      # the MLMG iterations and residual per level in the timers line
 ctest --test-dir build-amrex -L level_solve
 RADRAY_PM_LEVEL_DEBUG=1 ...   # the mass of every level's deposits after each PM deposit

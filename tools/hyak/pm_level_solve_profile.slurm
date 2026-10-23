@@ -29,7 +29,7 @@
 #             central quarter width, 48,48,48,79,79,79)
 #   STEPS     hydro steps (default 10)
 #   CONFIGS   "level_solve gas_levels uniform" (default all three)
-#   MLMG_ITERS, MLMG_TOL   pm_mlmg_iters (20), pm_mlmg_tol (1e-8)
+#   MLMG_ITERS, MLMG_TOL   pm_mlmg_iters (20), pm_mlmg_tol (1e-10)
 #   RANKS, THREADS  (default the job's --ntasks, 8)
 #   EXE       build with the backends (default build-amrex/radhydro, built
 #             against the amrex-26.10-mlmg install of build_amrex.sh)
@@ -60,7 +60,7 @@ REGION="${REGION:-$q,$q,$q,$((3 * q - 1)),$((3 * q - 1)),$((3 * q - 1))}"
 STEPS="${STEPS:-10}"
 CONFIGS="${CONFIGS:-level_solve gas_levels uniform}"
 MLMG_ITERS="${MLMG_ITERS:-20}"
-MLMG_TOL="${MLMG_TOL:-1e-8}"
+MLMG_TOL="${MLMG_TOL:-1e-10}"
 RANKS="${RANKS:-${SLURM_NTASKS:-24}}"
 THREADS="${THREADS:-8}"
 EXE="${EXE:-$PWD/build-amrex/radhydro}"

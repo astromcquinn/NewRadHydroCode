@@ -20,7 +20,7 @@ number of V-cycles, the smoother as the bottom solver, the multigrid depth
 fixed by the blocking factor: every operation per cell, so the solve is
 bitwise rank- and layout-independent); the 4-point gradient, the DM and
 gas kicks per level, the kicked momenta averaged down. `pm_gas_levels`
-stays as the comparison. `pm_mlmg_iters` (20), `pm_mlmg_tol` (1e-8),
+stays as the comparison. `pm_mlmg_iters` (20), `pm_mlmg_tol` (1e-10),
 `pm_mlmg_verbose`; `step_timers = 1` prints the iterations and residual
 per level. AMReX built with its linear solvers (`AMReX_LINEAR_SOLVERS=ON`,
 the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
@@ -54,7 +54,14 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   particles in the region are found in B within 0.5 cells, 11 within 25 %
   in mass (two at the region's edge at 0.64 and 0.75); the density PDF
   fractions above overdensity 1 and 10 agree to 10 % and 4 %.
-* **Timing:** TIMING_PLACEHOLDER
+* **Timing** (`docs/stage_g.md` §5; the 4-core VM, 2 ranks × 2 threads,
+  128³ gas and particles, two levels over the central quarter width,
+  level 2 of 2.1 M cells): the level solve adds 1.0 s per step to the
+  base PM (0.4 s; the two MLMG solves 0.56 s, 16 and 7 V-cycles to 4e-11),
+  the uniform 512³ mesh of `pm_gas_levels` 9.1 s (its FFT 4.4 s); the
+  hydro hierarchy costs 7.5 s per step in both. The klone profile at the
+  central eighth (level 2 of 17 M cells, too much for this VM's memory)
+  is `tools/hyak/pm_level_solve_profile.slurm`, ready to submit.
 * **Open:** the klone profile (`tools/hyak/pm_level_solve_profile.slurm`,
   ready to submit; no cluster access from this session); the composite
   solve if the momentum error at the level boundaries matters; the zoom
