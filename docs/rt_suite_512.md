@@ -354,6 +354,15 @@ the schedule: the step-schedule set's movie
 (`$RUNS/rt_methods_512/compare_partial.mp4`, kept) showed the ×1.5–2 jumps
 at each switch.
 
+`docs/movies/rt_suite_512_diff_xHII.mp4` (4.9 MB; `compare_movie.py --rows
+xHII --diff`, new): the rays' x_HII in the first column and, in the others,
+each method's x_HII minus the rays' on a ±0.5 diverging scale (red: more
+ionised than the rays). The differences live at the fronts: M1's are the
+largest and extend into the bubbles (its fronts run ahead inside the
+large bubbles and behind at the small ones); OTVET, split and screen share
+a thinner pattern of the same sign; the cone's is the thinnest; the case
+A + RR rays differ from case B only by a speckle at the fronts.
+
 ## 9. Conclusions, and what differs from the first set
 
 1. **The histories are method-independent to 0.1 in z and τ_es to
