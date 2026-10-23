@@ -23,7 +23,10 @@
 #   N         base grid (default 128); NDM particles per dimension (default N)
 #   BOX       Mpc/h (default 10); ZINIT 100; ZEND 6 (zdata1)
 #   REGION    the refined region in level-0 cells, i0,j0,k0,i1,j1,k1
-#             (default the central eighth: 32,32,32,95,95,95 for N = 128)
+#             (default the central eighth: 32,32,32,95,95,95 for N = 128:
+#             level 1 128^3 and level 2 256^3 cells, 17 M cells on level 2,
+#             tens of GB for the hydro hierarchy; a 15 GB VM needs the
+#             central quarter width, 48,48,48,79,79,79)
 #   STEPS     hydro steps (default 10)
 #   CONFIGS   "level_solve gas_levels uniform" (default all three)
 #   MLMG_ITERS, MLMG_TOL   pm_mlmg_iters (20), pm_mlmg_tol (1e-8)

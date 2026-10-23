@@ -13,16 +13,17 @@ import sys
 
 
 def timing(path):
-    """timing.txt: the columns pm, hydro, step (seconds per step), mean over the steps"""
+    """timing.txt (radhydro): the columns t_hydro, t_pm, t_total (seconds per step), mean over the steps"""
     cols, rows = None, []
     for line in open(path):
         if line.startswith("#"):
-            if "step" in line and cols is None and ("pm" in line):
+            if cols is None and "t_pm" in line:
                 cols = line[1:].split()
+                cols = cols[: cols.index("t_total") + 1]
             continue
         v = line.split()
-        if cols and len(v) == len(cols):
-            rows.append(dict(zip(cols, map(float, v))))
+        if cols and len(v) >= len(cols):
+            rows.append(dict(zip(cols, map(float, v[: len(cols)]))))
     if not rows:
         return None
     n = len(rows)
@@ -71,8 +72,8 @@ def main():
                 ph += " | gas levels: " + " ".join(lp)
         if t:
             tt, n = t
-            print(f"{c:12s} {n:5d} {tt.get('step', float('nan')):9.2f} {tt.get('pm', float('nan')):8.3f} "
-                  f"{tt.get('hydro', float('nan')):9.2f}  {ph}")
+            print(f"{c:12s} {n:5d} {tt.get('t_total', float('nan')):9.2f} {tt.get('t_pm', float('nan')):8.3f} "
+                  f"{tt.get('t_hydro', float('nan')):9.2f}  {ph}")
         else:
             print(f"{c:12s} {nst:5d} {'':9s} {'':8s} {'':9s}  {ph}")
 

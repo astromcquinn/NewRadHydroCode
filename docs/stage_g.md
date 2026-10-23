@@ -224,9 +224,10 @@ FFTW 3.3.10).
   for `pm_refine` 1 and 2 (< 1e-5 required), 2–3e-4 with them over half
   the box (< 2e-2).
 - `amrex_pm_level_solve_ranks_smoke_r{1,2}`: the smoke problem with two
-  levels over half the box, `pm_refine` 1 and 2, 12 steps: 1, 2 and 3
-  ranks byte-identical (every field, movie frame and checkpoint);
-  `amrex_pm_level_solve_restart_smoke_r{1,2}`: bit-identical restarts;
+  levels over half the box, `pm_refine` 1 and 2, to z = 28 (12 steps, the
+  gravity-only steps): 1, 2 and 3 ranks byte-identical (every field,
+  movie frame and checkpoint); `amrex_pm_level_solve_restart_smoke_r{1,2}`:
+  bit-identical restarts from step 9;
   `amrex_pm_level_solve_identity_smoke`: without refinement
   `pm_level_solve = 1` is byte-identical to 0.
 
@@ -243,11 +244,15 @@ tiles in another order). Both reproduce with `pm_gas_levels = 1`
 (the same `rank_check.py` run: checkpoints 13 and 14 differ on 3 ranks; `restart_check.py` from step 13: every field of steps 14–15 differs); the existing rank and restart tests use a
 region covering the whole box, whose layout no rank count chops. The Stage
 G rank and restart tests therefore stop before the smoke problem's sources
-appear (12 steps; the restart from step 9); the RT's checkpoint order on
-a chopped layout is an item for the RT (`docs/stage_f.md` §3).
+appear (z = 28, 12 steps; the restart from step 9); the RT's checkpoint
+order on a chopped layout is an item for the RT (`docs/stage_f.md` §3).
+(An earlier version of the rank test ran into the RT with the level
+solve and found exactly the same files differing, the checkpoints of
+steps 13–15, and nothing else.)
 
 Also run here: the `amrex_pm` label (the Stage E tests, `pm_level_solve`
-off) and the fast suite of the default build.
+off: 76 tests, all passing, the stored references bitwise) after the
+particle-mass change (`dm_mass_ratio`).
 
 ## 4. T1: the zoom ladder's first rung
 
