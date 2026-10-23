@@ -1300,7 +1300,13 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   ĉ schedule made continuous in x_HII,V** (`c_reduced_schedule_interp = 1`,
   linear between the plateau midpoints) after the Γ_HI jumps of ×1.5–2 at
   each step switch were traced to the photon reservoir ṅ λ/ĉ; **the whole
-  suite rerun with it, overwriting the step-schedule runs**, base first. The first launch's runs were
+  suite rerun with it, overwriting the step-schedule runs**, base first. **Done 2026-10-22:** the seven runs and the report
+  `docs/rt_suite_512.md` (histories method-independent to 0.1 in z; M1 the
+  outlier in morphology and P_Γ; the attenuated tensors remove OTVET's
+  after-overlap excess, the cone the best match to the rays; Γ within 10 %
+  of Gaikwad at z ≥ 5.5 for all methods, λ_mfp 3.5–5× the data). Open
+  from it: a lower β rather than f6 to end later at fixed Γ(5.4); the
+  λ_mfp excess; the AMR repeat and FLD (threads B, C). The first launch's runs were
   cancelled and the names reused. The halo floor (i) remains the
   alternative if the base's history does not match. **2026-10-19 (afternoon,
   user): tune f6 so that reionization ends at z = 5.5** (the base at

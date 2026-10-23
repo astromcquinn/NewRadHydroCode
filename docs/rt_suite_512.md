@@ -291,11 +291,13 @@ ratio to the rays and r(k).*
   reionization the cone within 20 % at k ≤ 2 h/Mpc, M1 0.6–1.4× with
   r = 0.3–0.5.
 - **The substep average against the last substep:** the rays' last-substep
-  Γ carries the sampling noise of the discrete rays, which is nearly white;
-  `gamma_pk_inst/` (the same analysis on `gammaHI`) shows it at k ≥ 10 h/Mpc,
-  and the average removes it, so the high-k ratios above are of the
-  physical fields. The moment methods are unchanged by the average, as
-  they must be.
+  Γ carries the sampling noise of the discrete rays, nearly white: at
+  z = 4.99 its P_Γ is 1.2×, 2.2×, 5.8× and 9.8× the averaged field's at
+  k = 5, 10, 23 and 38 h/Mpc (0.95× at k ≤ 2; `gamma_pk_inst/`, the same
+  analysis on `gammaHI`), and 1.1–2.8× at z = 5.49. The average removes it,
+  so the high-k ratios above are of the physical fields. M1's two fields
+  agree to 10 % at k ≥ 1 h/Mpc (its Γ has no sampling noise; the residual
+  is the change within the step).
 - **Case A + RR rays:** 0.85–0.97× the case-B rays' P_Γ at every k and
   stage with r ≥ 0.96: the recombination radiation smooths Γ slightly, as
   in the first set.
