@@ -54,7 +54,16 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   particles in the region are found in B within 0.5 cells, 11 within 25 %
   in mass (two at the region's edge at 0.64 and 0.75); the density PDF
   fractions above overdensity 1 and 10 agree to 10 % and 4 %.
-* **Timing** (`docs/stage_g.md` §5; the 4-core VM, 2 ranks × 2 threads,
+* **klone profile** (2026-10-24, one node, 24 × 8, `docs/stage_g.md`
+  §5.1; the build job's 311 AMReX tests all pass): 128³ with two levels
+  over the central eighth (levels of 3.0 M and 16.8 M cells), 10 steps:
+  the level solve's PM 0.17 s per step against 0.27 s for the uniform
+  512³ mesh of `pm_gas_levels`; the step 1.5 s in both, dominated by the
+  hydro hierarchy (1.2 s); unrefined 0.23 s. It showed level 1 (144
+  cells wide, a 9³ bottom grid) stalling at the 20-cycle cap (4e-7):
+  fixed with `pm_mlmg_bottom_sweeps` (default 64; reproduced here: 20
+  cycles → 8, 5.6e-7 → 3.5e-11, the solve 2.2× faster).
+* **Timing on the VM** (`docs/stage_g.md` §5; the 4-core VM, 2 ranks × 2 threads,
   128³ gas and particles, two levels over the central quarter width,
   level 2 of 2.1 M cells): the level solve adds 1.0 s per step to the
   base PM (0.4 s; the two MLMG solves 0.56 s, 16 and 7 V-cycles to 4e-11),
@@ -62,8 +71,7 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   hydro hierarchy costs 7.5 s per step in both. The klone profile at the
   central eighth (level 2 of 17 M cells, too much for this VM's memory)
   is `tools/hyak/pm_level_solve_profile.slurm`, ready to submit.
-* **Open:** the klone profile (`tools/hyak/pm_level_solve_profile.slurm`,
-  ready to submit; the user runs it); the zoom itself needs WP1/WP2
+* **Open:** the zoom itself needs WP1/WP2
   (multi-mass particles tag the levels). The composite solve is not
   planned (user decision 2026-10-23, `docs/PLAN.md`): the level solve of
   Enzo and RAMSES is enough unless the zoom's boundary misbehaves.
@@ -2159,7 +2167,7 @@ differ on klone are skipped there (label `platform_ref`).
      (`pm_level_solve = 1`, `docs/stage_g.md`, above): every refined
      level solves its own Poisson equation with MLMG at its own
      resolution; `pm_gas_levels` (the uniform mesh fed by the levels)
-     stays as the comparison. Open: the klone profile; no composite solve (user decision 2026-10-23).
+     stays as the comparison (klone profile done 2026-10-24); no composite solve (user decision 2026-10-23).
    - **Hydro validation with refinement (F2):** the pancake and KH cases,
      the full tier, and the composite of the finest data for comparisons
      at the matched finest resolution.

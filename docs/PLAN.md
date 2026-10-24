@@ -1526,9 +1526,10 @@ be designed); `recomb_rad` on the backend (block emission and
   More particles than base-mesh cells allowed (the T1 test: 128³
   particles on a 32³ base). AMReX built with its linear solvers
   (`amrex-26.10-mlmg` on klone).
-* **Not done:** the klone profile itself (`tools/hyak/
-  pm_level_solve_profile.slurm` is ready; this session has no cluster
-  access; the user submits it).
+* **klone profile:** submitted by the user (2026-10-24), results in
+  `docs/stage_g.md` §5.1; it led to `pm_mlmg_bottom_sweeps` (default 64,
+  an implementer's choice: AMReX's 8 bottom sweeps stalled a level whose
+  width has an odd factor).
 * **Decision (user, 2026-10-23): no composite (two-way) solve**, at
   least for now and probably not at all: the level solve is what Enzo and
   RAMSES use; its cost is the momentum change across level boundaries

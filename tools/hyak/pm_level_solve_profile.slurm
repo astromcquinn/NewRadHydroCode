@@ -29,7 +29,8 @@
 #             central quarter width, 48,48,48,79,79,79)
 #   STEPS     hydro steps (default 10)
 #   CONFIGS   "level_solve gas_levels uniform" (default all three)
-#   MLMG_ITERS, MLMG_TOL   pm_mlmg_iters (20), pm_mlmg_tol (1e-10)
+#   MLMG_ITERS, MLMG_TOL, MLMG_BOTTOM   pm_mlmg_iters (20), pm_mlmg_tol (1e-10),
+#             pm_mlmg_bottom_sweeps (64)
 #   RANKS, THREADS  (default the job's --ntasks, 8)
 #   EXE       build with the backends (default build-amrex/radhydro, built
 #             against the amrex-26.10-mlmg install of build_amrex.sh)
@@ -61,6 +62,7 @@ STEPS="${STEPS:-10}"
 CONFIGS="${CONFIGS:-level_solve gas_levels uniform}"
 MLMG_ITERS="${MLMG_ITERS:-20}"
 MLMG_TOL="${MLMG_TOL:-1e-10}"
+MLMG_BOTTOM="${MLMG_BOTTOM:-64}"
 RANKS="${RANKS:-${SLURM_NTASKS:-24}}"
 THREADS="${THREADS:-8}"
 EXE="${EXE:-$PWD/build-amrex/radhydro}"
@@ -99,7 +101,7 @@ levels=(--set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_b
 
 for cfg in $CONFIGS; do
   case "$cfg" in
-    level_solve) extra=("${levels[@]}" --set pm_level_solve=1 --set pm_refine=1 --set pm_mlmg_iters="$MLMG_ITERS" --set pm_mlmg_tol="$MLMG_TOL") ;;
+    level_solve) extra=("${levels[@]}" --set pm_level_solve=1 --set pm_refine=1 --set pm_mlmg_iters="$MLMG_ITERS" --set pm_mlmg_tol="$MLMG_TOL" --set pm_mlmg_bottom_sweeps="$MLMG_BOTTOM") ;;
     gas_levels)  extra=("${levels[@]}" --set pm_level_solve=0 --set pm_gas_levels=1 --set pm_refine=4) ;;
     uniform)     extra=(--set amrex_max_level=0 --set pm_refine=1) ;;
     *) echo "unknown config $cfg"; exit 1 ;;

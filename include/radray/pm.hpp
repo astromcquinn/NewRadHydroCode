@@ -79,6 +79,7 @@ struct PMConfig {
   int blocking_factor = 8;
   int mlmg_iters = 20;
   double mlmg_tol = 1e-10;
+  int mlmg_bottom_sweeps = 64;
   int mlmg_verbose = 0;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
@@ -95,6 +96,7 @@ struct PMConfig {
     c.blocking_factor = cfg.amrex_blocking_factor;
     c.mlmg_iters = cfg.pm_mlmg_iters;
     c.mlmg_tol = cfg.pm_mlmg_tol;
+    c.mlmg_bottom_sweeps = cfg.pm_mlmg_bottom_sweeps;
     c.mlmg_verbose = cfg.pm_mlmg_verbose;
     if (cfg.amrex_state && cfg.amrex_pm_max_grid_size == 0)
       c.amrex_max_grid_size = cfg.pm_refine * cfg.amrex_max_grid_size;

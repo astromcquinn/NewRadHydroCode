@@ -423,7 +423,7 @@ struct PMLevel {
   bool level_solve = false;
   int max_level = 0;
   int bf = 8;  // the hierarchy's blocking factor (the multigrid depth)
-  int mlmg_iters = 20, mlmg_verbose = 0;
+  int mlmg_iters = 20, mlmg_bottom_sweeps = 64, mlmg_verbose = 0;
   double mlmg_tol = 1e-10;
   std::vector<FineMesh> fm;
   LFab own0, tot0;
@@ -472,6 +472,7 @@ struct PMLevel {
       bf = pc_.blocking_factor;
       mlmg_iters = pc_.mlmg_iters;
       mlmg_tol = pc_.mlmg_tol;
+      mlmg_bottom_sweeps = pc_.mlmg_bottom_sweeps;
       mlmg_verbose = pc_.mlmg_verbose;
       if (level_solve && static_cast<std::int64_t>(Nm) * (std::int64_t(1) << max_level) > (std::int64_t(1) << 23))
         throw std::runtime_error("pm_level_solve = 1: the finest mesh exceeds 2^23 cells per dimension (the "
@@ -1659,6 +1660,7 @@ struct PMLevel {
     mlmg.setBottomVerbose(0);
     mlmg.setFixedIter(mlmg_iters);
     mlmg.setBottomSolver(ax::BottomSolver::smoother);
+    mlmg.setFinalSmooth(mlmg_bottom_sweeps);  // the smoother bottom solve: this many sweeps on the coarsest grid
     mlmg.solve({&sol}, {&rhs}, mlmg_tol, 0.0);
     M.iters = mlmg.getNumIters();
     const double r0 = mlmg.getInitResidual();

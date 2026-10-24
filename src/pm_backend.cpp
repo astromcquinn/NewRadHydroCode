@@ -51,6 +51,11 @@ bool set_pm_backend_param(Config& c, const std::string& key, const std::string& 
     if (c.pm_mlmg_tol < 0) throw std::runtime_error("pm_mlmg_tol must be >= 0");
     return true;
   }
+  if (key == "pm_mlmg_bottom_sweeps") {
+    c.pm_mlmg_bottom_sweeps = std::stoi(val);
+    if (c.pm_mlmg_bottom_sweeps < 1) throw std::runtime_error("pm_mlmg_bottom_sweeps must be >= 1");
+    return true;
+  }
   if (key == "pm_mlmg_verbose") {
     c.pm_mlmg_verbose = std::stoi(val);
     return true;
@@ -66,6 +71,7 @@ void copy_pm_backend_param(const Config& from, Config& to) {
   to.pm_level_solve = from.pm_level_solve;
   to.pm_mlmg_iters = from.pm_mlmg_iters;
   to.pm_mlmg_tol = from.pm_mlmg_tol;
+  to.pm_mlmg_bottom_sweeps = from.pm_mlmg_bottom_sweeps;
   to.pm_mlmg_verbose = from.pm_mlmg_verbose;
 }
 

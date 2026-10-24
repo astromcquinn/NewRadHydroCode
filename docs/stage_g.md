@@ -14,14 +14,14 @@ gradient and the kicks per level. Behind `pm_level_solve = 1` (default 0);
 
 | Item | State | Validation |
 |---|---|---|
-| The flag and its parameters (`pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_verbose`; `include/radray/config.hpp`, `pm_backend.hpp`) | done | without refinement `pm_level_solve = 1` is byte-identical to 0 (`amrex_pm_level_solve_identity_smoke`) |
+| The flag and its parameters (`pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_bottom_sweeps`, `pm_mlmg_verbose`; `include/radray/config.hpp`, `pm_backend.hpp`) | done | without refinement `pm_level_solve = 1` is byte-identical to 0 (`amrex_pm_level_solve_identity_smoke`) |
 | The particles on their levels (one `ParticleContainer` with the hierarchy's levels, `Redistribute` by level after every drift and regrid) | done | the particle count and masses add up on every level (`RADRAY_PM_LEVEL_DEBUG=1`) |
 | The deposit per level, the [1, 3, 3, 1] restriction onto the parents, the spill of the fine CIC clouds outside a level | done | §3: the far field of a refined particle is the base mesh's CIC force (0.9 % at 8 cells) |
 | The level solve (MLMG, fixed V-cycles, smoother bottom, the multigrid depth fixed by the blocking factor) | done | level 1 over the whole box reproduces the uniform `pm_refine = 2` force to 3.7e-7; bitwise identical on 1, 2 and 3 ranks for `pm_refine` 1 and 2, bit-identical restarts |
 | The forces and kicks per level, the average-down of the kicked momenta | done | momentum conserved to 1e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet boundary) |
 | Tests `ctest -L level_solve` (10 tests) | done | all pass here (4-core VM, OpenMPI 4.1.6, AMReX 26.10 with the linear solvers) |
 | T1 of the zoom ladder (32³ base, two levels over the central eighth, against uniform 128³) | §4 | nightly `amrex_pm_zoom_t1` |
-| Timing at 128³ with two levels | §5: on this VM the level solve adds 1.0 s per step to the base PM, the uniform 512³ mesh 9.1 s; klone: `tools/hyak/pm_level_solve_profile.slurm`, ready, not run from here | |
+| Timing at 128³ with two levels | §5: klone, one node (2026-10-24): the level solve's PM 0.17 s per step against 0.27 s for the uniform 512³ mesh; the step 1.5 s in both (the hydro hierarchy, 1.2 s); the VM numbers as well | the profile found the bottom-solve stall of a 144-cell level, fixed (`pm_mlmg_bottom_sweeps`) |
 
 Ground rules kept: `reference/` untouched; every new behaviour behind
 `pm_level_solve = 1`, which only acts with `amrex_max_level > 0` (and
@@ -94,7 +94,10 @@ per dimension in the periodic box, dx = 2^-l level-0 mesh cells.
    potential interpolated trilinearly is the initial guess, `pm_mlmg_iters`
    V-cycles (default 20) or until the residual max-norm is below
    `pm_mlmg_tol` (default 1e-10) of the initial one, red-black
-   Gauss–Seidel (2 + 2 sweeps), the smoother as the bottom solver (no
+   Gauss–Seidel (2 + 2 sweeps), the smoother as the bottom solver with
+   `pm_mlmg_bottom_sweeps` sweeps (default 64; AMReX's 8 left a level
+   whose width has an odd factor, 144 = 16 × 9 cells, with a 9³ bottom
+   grid that the V-cycles could not converge, §5) (no
    dot products: every operation is per cell and the norms are maxima,
    so the solve is bitwise rank-, thread- and layout-independent). The
    multigrid depth is fixed by `sync_levels`: a level whose boxes fill
@@ -152,7 +155,7 @@ same arithmetic): byte-identical.
 
 | File | What |
 |---|---|
-| `include/radray/config.hpp` | `pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_verbose` |
+| `include/radray/config.hpp` | `pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_bottom_sweeps`, `pm_mlmg_verbose` |
 | `include/radray/pm_backend.hpp`, `src/pm_backend.cpp` | the parameters, `check_pm_backend_param` (needs `amrex_state = 1` with refinement), `amrex_pm_force_at` (tests) |
 | `include/radray/pm.hpp`, `src/pm.cpp` | `PMConfig::level_solve`, `max_level`, `blocking_factor`, `mlmg_*`; `dm_mass_ratio`; `Ndm` a multiple of the mesh |
 | `src/amrex/pm_level.cpp` | `FineMesh`, `bits_of`, `interp_parent(_quad)`; `PMLevel::sync_levels`, `deposit_level`, `restrict_and_spill`, `rho_level`, `solve_level`, `force_level`, `kick_dm_level`, `kick_levels`, `average_down_momenta`, `force_at`; `fpos`/`home_l` (the positions by level), `for_tiles` |
@@ -317,11 +320,44 @@ potential, is better), 0.56 s for 2.6 M cells on 4 cores, i.e. about 0.2
 base PM here, the uniform 512³ mesh 9.1 s (its FFT, deposit and force
 on 134 M cells); the hydro hierarchy (7.3–7.7 s, FillPatch and the
 reflux on 64 boxes) dominates both refined runs, as in the 512³
-production run (`docs/stage_f.md` §4). The klone profile at the central
-eighth on one node, 24 ranks × 8 threads, is the job
-`tools/hyak/pm_level_solve_profile.slurm` (the table
-`tools/hyak/pm_level_solve_table.py`), ready to submit; it was not run
-from this session (no cluster access).
+production run (`docs/stage_f.md` §4).
+
+### 5.1 klone (2026-10-24)
+
+`tools/hyak/pm_level_solve_profile.slurm` on one cpu-g2 node, 24 ranks ×
+8 threads, the branch at 7faad08 (before the bottom-sweep fix below),
+10 hydro steps of the same problem with the levels over the central
+eighth (`amrex_refine_box=32,32,32,95,95,95`: level 1 144³ = 3.0 M
+cells, the region plus the nesting band of level 2; level 2 256³ =
+16.8 M cells). The build job ran the 311 AMReX tests, all passing. Mean
+per step (`tools/hyak/pm_level_solve_table.py`; the phases from the
+cumulative timers):
+
+| configuration | step [s] | PM [s] | hydro [s] | PM phases per step [s] |
+|---|---|---|---|---|
+| uniform 128³, no refinement | 0.23 | 0.012 | 0.03 | drift 0.003, deposit 0.003, fft 0.004, kick 0.002 |
+| two levels, `pm_level_solve = 1` | 1.52 | 0.169 | 1.17 | level 0: drift 0.014, deposit 0.004, fft 0.003, kick 0.004; levels: deposit 0.007, **solve 0.124**, force 0.002, kick 0.003 |
+| two levels, `pm_gas_levels = 1`, `pm_refine = 4` (the uniform 512³ mesh) | 1.58 | 0.267 | 1.13 | deposit 0.102, **fft 0.097**, force 0.024, kick 0.009; gas levels: deposit 0.006, kick 0.022 |
+
+- The level solve's PM is 0.17 s per step against 0.27 s for the uniform
+  512³ mesh, which costs four times the base mesh's resolution in every
+  cell of the box. Both are small next to the hydro hierarchy (1.1–1.2 s:
+  FillPatch 0.5 s, the reflux 0.12 s per step), which makes the refined
+  step 6.6× the unrefined one.
+- **The bottom solve.** Level 2 converged in 7 V-cycles to 5e-11, but
+  level 1 ran to the 20-cycle cap at 4e-7: its 144 cells per side (16 × 9)
+  coarsen only four times, to a 9³ bottom grid, and the 8 Gauss–Seidel
+  sweeps of AMReX's smoother bottom solve reduce that grid's lowest mode
+  by only ~0.5 per V-cycle. Reproduced here with one level of 144³ cells
+  (`amrex_refine_box=28,28,28,99,99,99` on the 128³ problem, 2 ranks):
+  20 cycles, residual 5.6e-7, 1.4 s per step; with
+  `pm_mlmg_bottom_sweeps = 64` (now the default) 8 cycles, 3.5e-11,
+  0.65 s per step. The sweeps run on the tiny bottom grid, cost nothing
+  measurable on a level that coarsens to 2 cells, and keep the solve
+  deterministic (no dot products). With the fix the klone level solve
+  should drop from 0.12 s to about 0.05 s per step; the profile was not
+  rerun. A level-1 residual of 4e-7 is still far below the float
+  potential's precision, so the klone run's results were not affected.
 
 ## 6. How to run
 
@@ -331,7 +367,7 @@ from this session (no cluster access).
 mpirun -np 4 build-amrex/radhydro RUN out --set rt_backend=amrex --set hydro_backend=amrex \
   --set pm_backend=amrex --set amrex_state=1 --set hydro_scheme=unsplit \
   --set amrex_max_level=2 --set amrex_refine_box=8,8,8,23,23,23 --set amrex_n_error_buf=0 \
-  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_verbose=1] \
+  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_bottom_sweeps=64 --set pm_mlmg_verbose=1] \
   --set step_timers=1      # the MLMG iterations and residual per level in the timers line
 ctest --test-dir build-amrex -L level_solve
 RADRAY_PM_LEVEL_DEBUG=1 ...   # the mass of every level's deposits after each PM deposit
