@@ -31,6 +31,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fortran reference (the private submodule, when FORTRAN_TOKEN is set)
+        env:
+          FORTRAN_TOKEN: ${{ secrets.FORTRAN_TOKEN }}
+        run: |
+          if [ -n "$FORTRAN_TOKEN" ]; then
+            git -c url."https://x-access-token:${FORTRAN_TOKEN}@github.com/".insteadOf="https://github.com/" \
+              submodule update --init --depth 1 reference/fortran
+            echo "reference/fortran populated: the live gfortran comparisons run"
+          else
+            echo "FORTRAN_TOKEN not set: the live gfortran comparisons are skipped (reference/README.md)"
+          fi
+
       - name: Install toolchain
         run: |
           sudo apt-get update -q
@@ -49,7 +61,9 @@ jobs:
       - name: RT harness sets
         run: |
           ulimit -s unlimited
-          cd reference/harness
+          test -f reference/fortran/harness/Makefile || { echo "reference/fortran is empty: FORTRAN_TOKEN is required here"; exit 1; }
+          pub=$PWD/reference/harness
+          cd reference/fortran/harness
           for s in ${{ inputs.rt_sets }}; do
             case "$s" in
               legacy) set=""; out=outputs; probs="";;
@@ -60,18 +74,20 @@ jobs:
               *) echo "unknown set $s"; exit 1;;
             esac
             RT_SET="$set" PROBLEMS="$probs" ./run_all.sh /tmp/rt_runs/$s
-            python3 store_outputs.py /tmp/rt_runs/$s $PWD/$out
+            python3 store_outputs.py /tmp/rt_runs/$s $pub/$out
           done
 
       - name: Full harness cases
         if: inputs.full_cases != 'none'
         run: |
           ulimit -s unlimited
-          cd reference/harness_full
+          cd reference/fortran/harness_full
           CASES="${{ inputs.full_cases }}" ./run_all.sh /tmp/full_runs --store --jobs 2
+          # --store writes next to the harness (inside the submodule); move it to the public tree
+          rsync -a outputs/ ../../harness_full/outputs/ && rm -rf outputs
 
       - name: What changed
-        run: git status --short reference/ | head -100
+        run: git status --short reference/harness reference/harness_full | head -100
 
       - name: Upload the regenerated sets
         uses: actions/upload-artifact@v4
