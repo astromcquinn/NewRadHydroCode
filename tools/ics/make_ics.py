@@ -20,7 +20,7 @@ What the code does with them (read_init_conditions, init_hydro):
     full gas velocity has to be in u_gas(2:4);
   * NOTE: with Ncpu = 1 the original never reads u_gas.init (the parallel
     read loop only reaches case(2) when Ncpu >= 2); see
-    reference/harness_pm/PATCHES.md.
+    reference/fortran/harness_pm/PATCHES.md.
 
 Particles start on a lattice at q = (i+1/2, j+1/2, k+1/2) DM cells. Gas cell
 (i,j,k) (1-based) is centred at gas coordinate i-1/2, i.e. DM coordinate

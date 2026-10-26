@@ -5,7 +5,7 @@ exactly this, so their outputs can be compared file-by-file.
 
 ## Configuration
 
-* Cosmology and RT parameters: exactly `reference/Radhydro/cosmo_parameters.f90`
+* Cosmology and RT parameters: exactly `reference/fortran/Radhydro/cosmo_parameters.f90`
   (box = 5 Mpc/h, Omega_m = 0.27, Omega_b = 0.045, h = 0.7, Nfreq = 5, ...).
 * `Ngas = Nrt = N` (default `N = 32`), so `N_rt_gas = 1`.
 * `Nray_max = nray_max_factor*N^3`, default factor 64 as in the original (it
@@ -60,7 +60,7 @@ Problems:
    step 5 on — the merge-path test.
 
 The canonical inputs are the files committed in `tests/problems/` (generated
-by `reference/harness/make_test_problem.py`, seed 20121). Reference outputs
+by `reference/fortran/harness/make_test_problem.py`, seed 20121). Reference outputs
 are in `reference/harness/outputs/` (`legacy_rt = 1`) and
 `reference/harness/outputs_legacy_rt0/` (`legacy_rt = 0`) and
 `reference/harness/outputs_legacy_rt0_phys0/` (`legacy_rt = 0`,
