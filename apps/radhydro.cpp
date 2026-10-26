@@ -52,6 +52,7 @@
 #include "radray/hydro_unsplit.hpp"
 #include "radray/io.hpp"
 #include "radray/parallel.hpp"
+#include "radray/plane_parallel.hpp"
 #include "radray/pm.hpp"
 #include "radray/pm_backend.hpp"
 #include "radray/ray_dump.hpp"
@@ -328,6 +329,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.step_timers = std::stoi(val);
   else if (set_rt_method_param(P.rtm, key, val)) {
     // moment RT (docs/rt_moments.md)
+  } else if (set_plane_param(P.rtm, key, val)) {
+    // plane-parallel RT-domain mode and the step caps (docs/plane_parallel.md)
   } else if (set_rt_backend_param(P.rtm, key, val)) {
     // rt_backend = serial | amrex (docs/stage_d.md)
   } else if (set_pm_backend_param(P.rtm, key, val)) {
@@ -662,12 +665,16 @@ int main(int argc, char** argv) {
     copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
     copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
     copy_amrex_state_param(P.rtm, s.cfg);  // amrex_state = 0 | 1
+    copy_plane_param(P.rtm, s.cfg);        // plane_parallel, dt_max_myr, rt_substeps_max
     check_recomb_param(s.cfg);  // recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
     check_pm_backend_param(s.cfg);
     check_hydro_backend_param(s.cfg);
     check_amrex_state_param(s.cfg);
     check_rt_cells_param(s.cfg);
+    check_plane_param(s.cfg);
+    if (s.cfg.plane_parallel && s.cfg.plane_z_re < 0)
+      throw std::runtime_error("plane_parallel = 1 needs plane_z_re (the turn-on redshift) in radhydro");
     if (s.cfg.det_parallel && s.cfg.legacy_rt)
       throw std::runtime_error("deterministic_parallel = 1 requires legacy_rt = 0");
     par::set_threads(P.threads);
@@ -711,6 +718,7 @@ int main(int argc, char** argv) {
     pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && !io));  // init_pm
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
+    plane_init(s);                                     // plane_parallel = 1: the face sources
     if (cfg.sf_overdensity > 0 && !on_level)
       throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs amrex_state = 1 in radhydro");
     if (on_level) {
@@ -806,6 +814,7 @@ int main(int argc, char** argv) {
            << (P.cool_suppress_overdensity != 200.0
                    ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
                    : std::string())
+           << (plane_summary(cfg).empty() ? std::string() : "\n " + plane_summary(cfg))
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
            << ", " << pm_backend_summary(cfg) << (on_level ? ", " + amrex_state_summary(cfg) : std::string())
@@ -817,6 +826,7 @@ int main(int argc, char** argv) {
                                      : std::string())
            << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
 
+    if (io) plane_write_spectrum(odir, s);  // plane_parallel = 1: the bins and fluxes
     Timers T;
     std::int64_t& Nhalo = dst.Nhalo;
     // amrex_balance = 1: the balance efficiency of every RT step (mean over
@@ -916,6 +926,11 @@ int main(int argc, char** argv) {
       d1("T_V", tv / nc);
       d1("T_M", tm / mass);
       if (!P.c_sched_c.empty()) d1("c_reduced", s.cfg.c_reduced);  // this step's (schedule only)
+      if (s.plane.on) {  // plane_parallel = 1: the step's photon bookkeeping (plane_parallel.hpp)
+        d1("plane_emitted", s.plane.emitted);
+        d1("plane_absorbed", s.plane.absorbed());
+        d1("plane_escaped", s.plane.escaped());
+      }
       std::fclose(fp);
     };
 
@@ -1337,8 +1352,21 @@ int main(int argc, char** argv) {
       s.clk.redshift = 1 / s.clk.scalefactor - 1;
       calc_sim_var(cfg, s.clk, s.units);
 
-      // Ray tracing radiative transfer (after the first zdata1 output)
-      if (idata1 > 1) {
+      // Ray tracing radiative transfer (after the first zdata1 output);
+      // plane_parallel = 1 (plane_parallel.hpp): from plane_z_re instead,
+      // the faces of the RT domains as the only sources (no halo finder)
+      if (cfg.plane_parallel) {
+        if (plane_rt_active(cfg, s.clk.scalefactor - s.clk.da_sim)) {
+          th = Clock::now();
+          if (on_level && cfg.amrex_balance) {
+            double e0 = 0, e1 = 0;
+            const bool moved = amrex_balance_step(s, pm, e0, e1);
+            balance_log(moved, e0, e1);
+          }
+          radiative_transfer(s);
+          T.rt += std::chrono::duration<double>(Clock::now() - th).count();
+        }
+      } else if (idata1 > 1) {
         th = Clock::now();
         SourceCatalog cat;
         if (on_level) {

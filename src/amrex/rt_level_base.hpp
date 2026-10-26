@@ -63,8 +63,13 @@ constexpr int kBitsGamma = 120;   // gamma [1/s] /Ncell: <= 1e2
 constexpr int kBitsLambda = 160;  // lambda [erg/s] /Ncell: <= 1e-10
 constexpr int kBitsTau = 110;     // dtau: <= 1e5
 constexpr int kBitsNgam = 40;     // photons per ray, summed over rays: <= 1e26
-enum { kSNgam = 0, kSNion = 3, kSNcol = 6, kSNrec = 9, kSNrab = 12, kSGamma = 15, kSLambda = 18, kSDtau = 21, kSNstat = 22 };
+// kSPlaneAbs, kSPlaneEsc: plane_parallel = 1, the photons the cells absorbed
+// and the rays deleted at their domain's far face carried (the rays'
+// units, 2^kBitsNgam fixed point = PlaneState::kFxBits, plane_parallel.hpp)
+enum { kSNgam = 0, kSNion = 3, kSNcol = 6, kSNrec = 9, kSNrab = 12, kSGamma = 15, kSLambda = 18, kSDtau = 21,
+       kSPlaneAbs = 22, kSPlaneEsc = 23, kSNstat = 24 };
 inline int stat_bits(int a) {
+  if (a >= kSPlaneAbs) return kBitsNgam;
   if (a >= kSGamma && a < kSLambda) return kBitsGamma;
   if (a >= kSLambda && a < kSDtau) return kBitsLambda;
   if (a == kSDtau) return kBitsTau;
@@ -77,6 +82,7 @@ inline int stat_bits(int a) {
 struct CellPhys {
   rrk::PhotoStats st;
   double ngam_src[3][5];  // photo_source addends of a processed source cell
+  double plane_abs;       // plane_parallel = 1: deposited - transmitted photons
   int flags;              // 1 processed, 2 photons (ngfill), 4 source (nsfill)
   int err;
 };

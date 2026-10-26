@@ -30,7 +30,8 @@ void init_rt(Simulation& s);
 
 // Full initialisation of a Simulation for grid size N (init_variables,
 // init_domain_rt, init_rt, init_ray_tracing, calc_sim_var).
-void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init);
+// box in Mpc/h (the original's 5 unless given: params.txt box of rt_driver)
+void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init, double box = 5);
 
 // halo_tools.f90: calc_halo / add_halo_to_rt (metal injection skipped).
 // Sources are summed per cell in the given order (= link_halo order).

@@ -41,6 +41,7 @@ add_library(radray
   src/rt_rates.cpp
   src/ray_tracing.cpp
   src/rt_tools.cpp
+  src/plane_parallel.cpp
   src/ray_dump.cpp
   src/ray_quant.cpp
   src/rt_moments.cpp

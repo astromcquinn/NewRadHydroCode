@@ -133,3 +133,114 @@ and all legacy bit-for-bit tests unchanged.
   direction, or from both faces of each domain?
 - **Supplementary procedure:** do we need Cain et al. [17] / C26
   Supplemental §C 2, e.g. for a different turn-on or domain procedure?
+
+## Implementation (2026-10-26, branch `claude/eager-sagan-h6a0tu`)
+
+Built as specified above, with the user's answers to the open questions
+(2026-10-26): cooling fully on (`cool_suppress_overdensity = 0` in the
+plane-parallel problems; the code default stays 200), one face per domain
+and direction (the default `plane_faces = +x +y`), no Supplemental
+procedure (hydro and gravity to z_re, then every source face switches on
+at the full Γ_HI at once; the existing `c_reduced_schedule` gives the
+reduced ĉ after the fronts have crossed), and fixed 8³ domains for the C1
+ladder (31.25 kpc/h at every resolution). A single front crossing the
+whole box, which the user also asked for, is `plane_ndom = 1` with one
+face (`plane_faces = +x`).
+
+### Parameters (`include/radray/config.hpp`, `set_plane_param` in `plane_parallel.hpp`; both drivers)
+
+| key | default | meaning |
+|---|---|---|
+| `plane_parallel` | 0 | 1: the faces of cubic RT domains are the only sources (no halo finder, no halo sources); legacy_rt = 0, rays, `ray_encoding = float`, no `recomb_rad`, uniform grid only |
+| `plane_ndom` | 1 | domains per dimension; N/ndom cells each (a multiple of `rt_cells_per_substep`) |
+| `plane_faces` | `+x +y` | the emitting faces of every domain, any of `+x -x +y -y +z -z` |
+| `plane_gamma12` | 0.3 | Γ_HI in the source cells, 10⁻¹² s⁻¹ (C26: 0.3) |
+| `plane_z_re` | −1 | the turn-on redshift (required by `radhydro`; `rt_driver` runs the RT every step) |
+| `plane_alpha`, `plane_nu_max_ry` | 1.5, 4 | J_ν ∝ ν^−α between 1 Ry and ν_max |
+| `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 |
+| `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
+
+`tools/production/make_production.py --plane-parallel` writes a production
+`params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
+`--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`):
+DM20's schedule `c_reduced_schedule = 0.1 0.99 0.01` unless given, cooling
+on, `photon_consume_dense = 1`, no abundance matching.
+
+### Geometry and rays
+
+* Rays: one per emitting face and face cell per RT substep
+  (`rrk::plane_rays`, `include/radray/kernels/ray_kernels.hpp`), at the
+  centre of the cell's lower face along the axis (cell index ≡ 0 mod L,
+  so the domains tile the periodic box), directed along +axis into the
+  domain or along −axis into the domain below (whose high face it is);
+  `r = 0`, `dr = L`, `nside = 1` and `ipix` = the face as markers. With
+  `plane_parallel = 1` `rrk::classify` never splits or merges any ray; a
+  ray is deleted once it has crossed L cells (`rrk::plane_done`, checked
+  after `cast_3` by the serial `ray_cast_3` and the backend's
+  `substep_advance`), or when it is fainter than `ngam_min`.
+* Serial RT: `plane_emit` (`src/ray_tracing.cpp`) inserts the rays at the
+  head of their cells' chains before the sweep of `rt_step_1` (in parallel
+  over a plane with `deterministic_parallel = 1`); the sweep casts them.
+  AMReX backend: `rrk::step1_count/step1_write` take the face rays of a
+  cell as extra input rays (`src/amrex/rt_level.cpp`).
+* The rays are not redshifted (they live one domain crossing; the
+  redshift tables assume the Pop II bands), so Γ_HI stays fixed in time.
+* The pool: up to (faces) N³ / k rays in flight; `check_plane_param`
+  requires `nray_max_factor` ≥ 1.25 faces / k (+1).
+
+### Spectrum and normalisation (`plane_spectrum`, `src/plane_parallel.cpp`)
+
+J_ν ∝ ν^−α between 1 Ry (the code's `HI_eV` = 13.60 eV) and 4 Ry cut into
+5 bins of equal photon number (α = 1.5: edges 13.60, 15.46, 18.12, 22.34,
+30.35, 54.40 eV). Each group's effective frequency is its bin's
+photon-weighted mean (14.48, 16.70, 20.05, 25.84, 39.50 eV); the cell
+physics evaluates the Verner cross sections there, as it does for every
+ray, and the optical depths of the grid (`calc_rt_1`, `post_rt`, the
+level's `sig_init`) use these frequencies instead of `freq_init`
+(`group_frequencies`). 4 Ry = 54.40 eV is below the code's HeII edge
+(54.42 eV): no HeII ionisation, as in the papers. Photons per ray and
+substep: N = Γ_HI dt_rt / (⟨n_H⟩ len_rt σ_eff), σ_eff = Σ_n f_n σ_HI(ν_n),
+split by f_n = 1/5: the photons that cross one cell face per substep, so
+that the photoionisation rate Γ = n_γ σ ĉ of a lit cell is Γ_HI
+(independent of `rt_cells_per_substep`). `<outdir>/plane_spectrum.txt`
+lists the bins, cross sections and fluxes.
+
+### Bookkeeping
+
+`stats.txt` gains `plane_emitted`, `plane_absorbed` (deposited minus
+transmitted, summed over the cells) and `plane_escaped` (the photons of
+the rays deleted at their far face) per hydro step, in the rays' units
+(per ⟨n_H⟩ per RT-cell volume); the absorbed and escaped sums are exact
+fixed-point sums (thread- and rank-independent). With the photons in
+flight (`ngam_rays_total`): emitted = absorbed + escaped + Δ(in flight)
+to a few 10⁻⁵ (the rays deleted fainter than `fgam_min` of their photons).
+
+### Turn-on and the step caps (`timestep_core`, `src/cosmology.cpp`)
+
+In `radhydro` the RT runs in every hydro step whose start is at or below
+`plane_z_re`; the step before lands on z_re exactly. `dt_max_myr` caps the
+hydro step in Myr and `rt_substeps_max` shortens it to hold at most that
+many RT substeps (1: the hydro step is one light crossing of
+`rt_cells_per_substep` cells at ĉ, i.e. the RT and the hydro are coupled
+every substep); in plane mode both act from the turn-on, otherwise always.
+
+### Tests (`tests/CMakeLists.txt`)
+
+| test | what |
+|---|---|
+| `plane_rt` (`tests/plane_check.py`, RT-only driver, uniform gas built per check) | Γ_HI normalisation to 5e-8 in the source cells and to the attenuation elsewhere, for 1, 2 and 4 cells per substep; the bins and the optical depths; slab attenuation per bin = Π(1 − τ_j) to 4e-4 and e^−τ to 2 %; one front across the whole box against the photon budget (thin gas: 0.5 %; 100× the mean density with recombinations: the column = (photons − the code's recombinations)/n_H and α_eff against case B); the light-limited front at ĉ; photon conservation (3e-5); 2³ domains ionising identically (1e-6) with no ray crossing a domain edge; 1 vs 2 threads byte-identical |
+| `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 % |
+| `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
+| `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3) |
+
+The bitwise suite is untouched: every new flag defaults to the original.
+
+### Tools
+
+* `tools/analysis/plane_front.py`: folded front profiles (⟨x_HI⟩, ⟨T⟩
+  from the source face), the front position per output and its speed in
+  units of ĉ (the light-limited diagnostic).
+* `tools/analysis/velocity_power.py`: the kinetic energy spectrum E(k) of
+  the gas velocity (C26 Fig. 3), with `--ref` for digitised points.
+* `tools/analysis/t4_coupling.py`: the T4 test (make / run / analyse).
+* `tools/hyak/c1_ladder.sh`: the C1 ladder and the T4 variants on klone.

@@ -424,6 +424,60 @@ struct Config {
   double recomb_rad_pool = 0.75;
   double recomb_rad_cell_onspot = 0;
 
+  // Plane-parallel RT-domain mode (docs/plane_parallel.md; set_plane_param
+  // in plane_parallel.hpp). New, not in the original; off by default:
+  //   plane_parallel: 1 = the RT's only sources are the faces of cubic RT
+  //                domains: one ray per face cell per substep along the
+  //                axis, never split or merged, deleted at the domain's far
+  //                face; the halo sources are not used, the rays are not
+  //                redshifted (they live a domain crossing). The spectrum
+  //                is J_nu ~ nu^-plane_alpha between 1 Ry and
+  //                plane_nu_max_ry Ry in 5 bins of equal photon number
+  //                (each group's effective frequency is its bin's
+  //                photon-weighted mean), the amplitude the one that gives
+  //                Gamma_HI = plane_gamma12 * 1e-12 s^-1 in the source
+  //                cells (fixed in time: the photon density does not
+  //                dilute with the expansion). legacy_rt = 0, rt_method =
+  //                rays, ray_encoding = float, no recomb_rad, no refinement.
+  //   plane_ndom:  domains per dimension (Nrt / plane_ndom cells each; 1 =
+  //                the whole box, sources on the box faces: one front
+  //                crossing the entire box with a single face);
+  //   plane_faces: the faces that emit, bit 2*axis (+) and 2*axis+1 (-):
+  //                params.txt "+x +y" (the default: two orthogonal
+  //                directions, one face per domain and direction, as DM20
+  //                and C26), any of +x -x +y -y +z -z;
+  //   plane_gamma12: Gamma_HI in the source cells in 1e-12 s^-1 (C26: 0.3);
+  //   plane_z_re:  the turn-on redshift (apps/radhydro: hydro and gravity
+  //                only before it; the hydro step before it lands on it
+  //                exactly; required there, ignored by rt_driver);
+  //   plane_alpha, plane_nu_max_ry: the spectral index and the upper edge.
+  bool plane_parallel = false;
+  int plane_ndom = 1;
+  int plane_faces = 0x5;  // +x +y
+  double plane_gamma12 = 0.3;
+  double plane_z_re = -1;
+  double plane_alpha = 1.5;
+  double plane_nu_max_ry = 4.0;
+  // Caps on the hydro step (docs/zoom_turbulence.md section 4.4, the T4
+  // test; timestep_core in cosmology.cpp), both off (0) by default:
+  //   dt_max_myr:      the hydro step is at most this many Myr;
+  //   rt_substeps_max: the hydro step is shortened so that it holds at
+  //                    most this many RT substeps (1: the hydro step is the
+  //                    light crossing of rt_cells_per_substep cells at
+  //                    c_reduced, i.e. the RT and the hydro are coupled
+  //                    every substep).
+  double dt_max_myr = 0;
+  int rt_substeps_max = 0;
+  // params.txt photon_consume_dense (set_plane_param; docs/port_notes.md
+  // "rho_source"): 0 (default) = the original: a cell denser than
+  // rho_source = 50 times the mean removes only the fraction
+  // exp(-(delta - 50)/50) of the photons its photoionisations used from the
+  // radiation, so dense gas is ionised without consuming photons (no
+  // self-shielding of dense cells); 1 = every photoionisation consumes its
+  // photon. Not tied to legacy_physics (a new flag; the plane-parallel
+  // problems and tools/production/make_production.py --plane-parallel use 1).
+  bool photon_consume_dense = false;
+
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
 };

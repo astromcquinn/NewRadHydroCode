@@ -78,6 +78,7 @@
 #include "radray/hydro_backend.hpp"
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
+#include "radray/plane_parallel.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_backend.hpp"
@@ -340,9 +341,9 @@ struct Level : LevelBase {
     hist.resize(2 * rrk::kNpdfMax + 1);
     cstat.resize(4);
     err.resize(1, 0);
-    double nu[5];
-    for (int n = 0; n < 5; ++n) nu[n] = cp::freq_init[n];
-    rrk::photoion_sigma(nu, sig_init);
+    // the optical depths' frequencies: freq_init, or the plane-parallel
+    // mode's bins (plane_parallel.hpp)
+    rrk::photoion_sigma(group_frequencies(cfg).data(), sig_init);
     if (rrk::pdf_nbins() + 2 > rrk::kNpdfMax) throw std::runtime_error("rrk::kNpdfMax too small");
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
       pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
@@ -980,8 +981,12 @@ struct Level : LevelBase {
           rrk::frame_rotation(P, i + 1, j + 1, k + 1, 0, rot);
           rrk::set_rotation(spec, rot);
         }
+        // plane_parallel = 1: the face rays of this cell (rrk::plane_rays)
+        rrk::RayP padd[6];
+        const int nadd = rrk::plane_rays(i, j, k, P, padd);
         rrk::CellStats cs;
-        cnt[q] = rrk::step1_count(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, P, cs);
+        cnt[q] = rrk::step1_count(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, P, cs,
+                                  padd, nadd);
         cm[3 * q] = cs.ncst;
         cm[3 * q + 1] = cs.nspl;
         cm[3 * q + 2] = cs.nmrg;
@@ -1026,13 +1031,17 @@ struct Level : LevelBase {
           rrk::frame_rotation(P, i + 1, j + 1, k + 1, 0, rot);
           rrk::set_rotation(spec, rot);
         }
+        rrk::RayP padd[6];
+        const int nadd = rrk::plane_rays(i, j, k, P, padd);  // plane_parallel = 1
         const int w = rrk::step1_write(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, i,
-                                       j, k, P, idx + off[q], key + off[q], out + n0);
+                                       j, k, P, idx + off[q], key + off[q], out + n0, padd, nadd);
         if (w != nc) ax::HostDevice::Atomic::Add(err_p, 1);
         for (Long r = n0; r < n0 + nc; ++r) ocell[r] = q;
       });
     }
     check_err("step1");
+    // plane_parallel = 1: the photons emitted this substep (every rank the same)
+    if (s.plane.on && !in_hierarchy) s.plane.emitted += plane_emitted_per_substep(s, P);
     // the cell-sorted input and its sort scratch are no longer needed
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       BoxScratch& S = scratch[mfi.LocalIndex()];
@@ -1164,6 +1173,7 @@ struct Level : LevelBase {
       X.cells = cells;  // the crossing speed of this level's path
       X.photon_conserve = s.cfg.photon_conserve;
       X.cool_suppress = s.cfg.cool_suppress_overdensity;
+      X.photon_consume_dense = s.cfg.photon_consume_dense;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;
       const bool he = has_e;
@@ -1172,6 +1182,7 @@ struct Level : LevelBase {
       const double nrtcr = s.cfg.nrtcr * static_cast<double>(1 << (3 * lev));
       const Units u = units_of(s);
       const double dtsec_rt = s.clk.dtsec_rt;
+      const bool plane_on = s.plane.on;
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         BoxScratch& S = scratch[mfi.LocalIndex()];
         const Box_t bx = mfi.validbox();
@@ -1200,7 +1211,9 @@ struct Level : LevelBase {
           cp_ = CellPhys{};
           bool processed = false;
           double ngam_tot = 0;
+          const double dep = static_cast<double>(rrf::sum4<5>(d.ngam));  // plane_parallel: the deposit
           cp_.err = rrk::physics_cell(d, X, &cp_.st, he, &processed, &ngam_tot);
+          cp_.plane_abs = processed ? dep - static_cast<double>(rrf::sum4<5>(d.ngam)) : 0;
           if (processed) {
             cp_.flags |= 1;
             if (ngam_tot > u.ngam_min) cp_.flags |= 2;
@@ -1235,6 +1248,7 @@ struct Level : LevelBase {
             stats[kSLambda + sp] += to_fx128(st.lam[sp] / Ncell, kBitsLambda);
           }
           stats[kSDtau] += to_fx128(st.dtau / Ncell, kBitsTau);
+          if (plane_on) stats[kSPlaneAbs] += to_fx128(cp_.plane_abs, kBitsNgam);
         }
       }
       const double tf0 = now();
@@ -1299,8 +1313,20 @@ struct Level : LevelBase {
           fgam = fb;
         };
         keep[r] = rrk::cast_3(out[r], P, tf) ? 1 : 0;
+        // plane_parallel = 1: a ray that crossed its domain is deleted (2:
+        // its photons are counted below, then it is dropped)
+        if (keep[r] && rrk::plane_done(out[r], P)) keep[r] = 2;
         if (bad) ax::HostDevice::Atomic::Add(err_p, 1);
       });
+      if (P.plane.L > 0) {
+        i128 esc = 0;
+        for (Long r = 0; r < nout; ++r)
+          if (keep[r] == 2) {
+            esc += to_fx128(rrk::sum_ngam(out[r]), kBitsNgam);
+            keep[r] = 0;
+          }
+        stats_sub[kSPlaneEsc] += esc;
+      }
       nout_loc += nout;
     }
     check_err("cast_3");
@@ -1424,6 +1450,11 @@ struct Level : LevelBase {
         t.lambda[sp] = from_fx128(stats[kSLambda + sp], kBitsLambda);
       }
       t.dtau = from_fx128(stats[kSDtau], kBitsTau);
+      if (s.plane.on) {  // plane_parallel = 1 (plane_parallel.hpp; the same fixed point)
+        static_assert(kBitsNgam == PlaneState::kFxBits, "plane fixed point");
+        s.plane.absorbed_fx += static_cast<__int128>(stats[kSPlaneAbs]);
+        s.plane.escaped_fx += static_cast<__int128>(stats[kSPlaneEsc]);
+      }
       accumulate_rt_stats(s);
     }
   }
@@ -1447,11 +1478,13 @@ struct Level : LevelBase {
       auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
       const int np = static_cast<int>(pt.numParticles());
       const PTD p = pt.getParticleTileData();
-      ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
-        RayP r = Enc::load(p, n, ectx);
-        rrk::redshift_ray(r, RT, fscale, ngam_min);
-        Enc::store(p, n, r, ectx);
-      });
+      // plane_parallel = 1: the face rays keep their spectrum (ray_redshifting)
+      if (!s.plane.on)
+        ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
+          RayP r = Enc::load(p, n, ectx);
+          rrk::redshift_ray(r, RT, fscale, ngam_min);
+          Enc::store(p, n, r, ectx);
+        });
       for (int n = 0; n < np; ++n) {
         const RayP r = Enc::load(p, n, ectx);
         // each group in fixed point (as spike/serial rt_serial: exact sum)

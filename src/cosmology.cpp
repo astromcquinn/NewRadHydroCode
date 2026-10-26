@@ -218,6 +218,54 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     clk.dt_sec = clk.dt_yr * yr2sec;
   }
 
+  // Caps on the hydro step (config.hpp; docs/zoom_turbulence.md section
+  // 4.4, docs/plane_parallel.md), all off by default:
+  //   plane_z_re: the step before the turn-on redshift lands on it exactly,
+  //               so the RT starts at z_re;
+  //   dt_max_myr: the step is at most dt_max_myr Myr;
+  //   rt_substeps_max: the step holds at most this many RT substeps (the
+  //               light crossing of rt_substeps_max * rt_cells_per_substep
+  //               RT cells at c_reduced).
+  // Each one shortens da_sim; dt follows from da as above.
+  {
+    double da_cap = clk.da_sim;
+    // plane_parallel = 1: the caps act from the turn-on (the RT is off
+    // before plane_z_re; the step before it lands on it)
+    bool caps = true;
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (a < a_re * (1 - 1e-9)) {
+        caps = false;
+        if (a + da_cap > a_re) da_cap = a_re - a;
+      }
+    }
+    if (caps && cfg.rt_substeps_max > 0) {
+      // dl_c(da) = 2c/(H0 h sqrt(om)) (sqrt(a+da) - sqrt(a)) = nmax dl_sub / cscale
+      const double dl_sub = cfg.box / hubble0 * Mpc2cm / cfg.Nrt * cfg.rt_cells_per_substep;
+      const double x = cfg.rt_substeps_max * dl_sub / cfg.c_reduced * (H0_cgs * hubble0 * std::sqrt(omegam)) / (2 * c_cgs);
+      const double sa = std::sqrt(a) + x;
+      da_cap = f::gmin(da_cap, sa * sa - a);
+    }
+    if (caps && cfg.dt_max_myr > 0 && clk.dt_yr > cfg.dt_max_myr * 1e6) {
+      // the da whose dt_yr is the cap: bisection (dt_yr grows with da)
+      double lo = 0, hi = da_cap, dts = 0, dty = 0;
+      for (int it = 0; it < 80; ++it) {
+        const double mid = 0.5 * (lo + hi);
+        calc_dt_from_da(a, mid, dts, dty);
+        if (dty > cfg.dt_max_myr * 1e6)
+          hi = mid;
+        else
+          lo = mid;
+      }
+      da_cap = f::gmin(da_cap, lo);
+    }
+    if (da_cap < clk.da_sim) {
+      clk.da_sim = da_cap;
+      calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+      clk.dt_sec = clk.dt_yr * yr2sec;
+    }
+  }
+
   // RT time step. Rays move one RT cell per substep, so the number of
   // substeps per hydro step sets the speed of light: cscale = c_reduced < 1
   // is the reduced speed of light approximation (the original hard-wires
