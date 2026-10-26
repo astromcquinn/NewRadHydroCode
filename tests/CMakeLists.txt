@@ -54,15 +54,16 @@ set_tests_properties(thermal_init PROPERTIES LABELS physics)
 add_executable(test_halo_catalog test_halo_catalog.cpp)
 target_link_libraries(test_halo_catalog PRIVATE radray_halos)
 find_program(RADRAY_GFORTRAN gfortran)
-if(RADRAY_GFORTRAN)
-  # Reference program with the original source_type layout and read_halo. The
+if(RADRAY_GFORTRAN AND RADRAY_HAVE_FORTRAN_REF)
+  # Reference program with the original source_type layout and read_halo
+  # (reference/fortran/tests, the private Fortran repository). The
   # target is named differently from its output file: Ninja rejects a target
   # that names its own output.
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
     COMMAND ${RADRAY_GFORTRAN} -O0 -o ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref
-            ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/halo_catalog_ref.f90)
+            ${RADRAY_FORTRAN_DIR}/tests/halo_catalog_ref.f90
+    DEPENDS ${RADRAY_FORTRAN_DIR}/tests/halo_catalog_ref.f90)
   add_custom_target(halo_catalog_ref_build ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
   set(HALO_REF ${CMAKE_CURRENT_BINARY_DIR}/halo_catalog_ref)
 else()
@@ -453,13 +454,14 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(hydro_physics PROPERTIES TIMEOUT 600 LABELS hydro)
 
   # Live comparison with a fresh gfortran harness build (all steps, all
-  # fields), if gfortran is available.
+  # fields), if gfortran and the Fortran reference (reference/fortran) are
+  # available.
   find_program(GFORTRAN_EXE gfortran)
-  if(GFORTRAN_EXE)
+  if(GFORTRAN_EXE AND RADRAY_HAVE_FORTRAN_REF)
     add_test(NAME hydro_vs_fortran_live
              COMMAND ${HYDRO_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:hydro_driver>
                      -DPROBLEMS=${HYDRO_PROBLEMS}
-                     -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_hydro
+                     -DHARNESS=${RADRAY_FORTRAN_DIR}/harness_hydro
                      -DOUT=${CMAKE_CURRENT_BINARY_DIR}/hydro_live_runs
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/run_hydro.cmake)
     set_tests_properties(hydro_vs_fortran_live PROPERTIES TIMEOUT 1200 LABELS "hydro;fortran")
@@ -537,9 +539,10 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
   endforeach()
 
   # Live comparison with a fresh gfortran build of the full radhydro.f90
-  # (smoke problem, both source modes and both flag sets).
+  # (smoke problem, both source modes and both flag sets), if gfortran and
+  # the Fortran reference (reference/fortran) are available.
   find_program(GFORTRAN_FULL gfortran)
-  if(GFORTRAN_FULL)
+  if(GFORTRAN_FULL AND RADRAY_HAVE_FORTRAN_REF)
     foreach(p smoke)
       foreach(src legacy onthefly)
         foreach(m rt1 rt0)
@@ -547,7 +550,7 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
                    COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
                            -DPROBLEM=${FULL_PROBLEMS}/${p}
                            -DSET=source_mode=${src},${FULL_SET_${m}}
-                           -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                           -DHARNESS=${RADRAY_FORTRAN_DIR}/harness_full
                            -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
                            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/${p}_${src}_${m}
                            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
@@ -565,7 +568,7 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
              COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
                      -DPROBLEM=${FULL_PROBLEMS}/legacy
                      -DSET=source_mode=legacy,${FULL_SET_rt0},nray_max_factor=1
-                     -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                     -DHARNESS=${RADRAY_FORTRAN_DIR}/harness_full
                      -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
                      -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/legacy_poolguard
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)
@@ -585,7 +588,7 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
                COMMAND ${FULL_RUN} -DMODE=fortran -DDRIVER=$<TARGET_FILE:radhydro>
                        -DPROBLEM=${FULL_PROBLEMS}/smoke
                        -DSET=source_mode=${src},${FULL_SET_${m}},c_reduced=${cr}
-                       -DHARNESS=${PROJECT_SOURCE_DIR}/reference/harness_full
+                       -DHARNESS=${RADRAY_FORTRAN_DIR}/harness_full
                        -DRADRAY_BUILD=${CMAKE_BINARY_DIR}
                        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/full_live_runs/smoke_${src}_${m}_c${cr}
                        -P ${CMAKE_CURRENT_SOURCE_DIR}/run_full.cmake)

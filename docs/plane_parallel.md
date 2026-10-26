@@ -13,7 +13,7 @@ PDFs are not in the repo: ask the user if you need them.*
   and its Supplemental Material §C 2, which we do not have.
 
 Both papers used a modified version of this RadHydro code. Nothing in that
-modified version is in `reference/Radhydro`, so the features below are new.
+modified version is in `reference/fortran/Radhydro` (the private submodule), so the features below are new.
 Implement them behind parameters; the defaults must leave current behaviour
 and all legacy bit-for-bit tests unchanged.
 

@@ -12,6 +12,21 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 
 option(RADRAY_SANITIZE "Build with -fsanitize=address,undefined" OFF)
 
+# The Fortran reference (Hy Trac's RadHydro and the gfortran harnesses) is
+# the private repository astromcquinn/RadHydro-fortran, the submodule
+# reference/fortran (reference/README.md). When it is present the live
+# gfortran comparison tests are defined (tests/CMakeLists.txt, label
+# fortran); without it only the stored-reference comparisons run.
+set(RADRAY_FORTRAN_DIR "${PROJECT_SOURCE_DIR}/reference/fortran" CACHE PATH
+    "Checkout of astromcquinn/RadHydro-fortran (Radhydro/ and the harnesses)")
+if(EXISTS "${RADRAY_FORTRAN_DIR}/harness/Makefile")
+  set(RADRAY_HAVE_FORTRAN_REF ON)
+  message(STATUS "Fortran reference: ${RADRAY_FORTRAN_DIR}")
+else()
+  set(RADRAY_HAVE_FORTRAN_REF OFF)
+  message(STATUS "Fortran reference: not present (${RADRAY_FORTRAN_DIR}); the live gfortran comparisons are skipped")
+endif()
+
 # Bit-for-bit agreement with the gfortran reference requires: no FMA
 # contraction, no fast-math, IEEE SSE arithmetic (default on x86-64).
 add_compile_options(-Wall -Wextra -ffp-contract=off -fno-fast-math)
@@ -111,7 +126,7 @@ if(RADRAY_AMREX)
   # The stubs as a library of their own: the gfortran harness of the live
   # full-loop tests links libradray.a (whose rt_tools.cpp and halo code
   # reference the backend functions) without AMReX, so it links these
-  # after it (reference/harness_full/Makefile, when the file exists).
+  # after it (reference/fortran/harness_full/Makefile, when the submodule is present).
   add_library(radray_backend_stubs STATIC src/amrex/rt_level_stub.cpp src/amrex/pm_level_stub.cpp
                                           src/amrex/hydro_level_stub.cpp src/amrex/gas_state_stub.cpp)
   target_link_libraries(radray_backend_stubs PUBLIC radray)

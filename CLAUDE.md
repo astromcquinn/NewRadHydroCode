@@ -15,10 +15,15 @@ At the start of a session, read:
 
 ## Ground rules (non-negotiable)
 
-1. **Never edit `reference/Radhydro/`.** It is the untouched original. Changes
-   to the Fortran go only into the harness copies
-   (`reference/harness*/src`) as documented patches in that harness's
-   `PATCHES.md`.
+1. **Never edit `reference/fortran/Radhydro/`.** It is the untouched
+   original. Changes to the Fortran go only into the harness copies
+   (`reference/fortran/harness*/src`) as documented patches in that
+   harness's `PATCHES.md`. The Fortran lives in the **private** repository
+   `astromcquinn/RadHydro-fortran`, the submodule `reference/fortran`
+   (`reference/README.md`): Hy Trac agreed to this repository being public
+   on the condition that his code is not, so nothing from the submodule is
+   ever copied into this tree, quoted at length in its docs, or made
+   public.
 2. **Bit-for-bit validation.**
    - The gfortran harnesses hold the original specification, for
      comparison. With the default (original) settings the C++ must stay
@@ -71,11 +76,7 @@ At the start of a session, read:
 | `src/xray_background.cpp`, `apps/xray_bkg.cpp` | X-ray preheating background from the source model's SFR, `xray_heating` (`docs/xray_heating.md`) |
 | `src/thermal_history.cpp`, `tools/thermal` | the pre-heating thermal history against RECFAST, `thermal_init = recfast`, `thermal_floor` (`docs/thermal_history.md`) |
 | `data/hmf`, `data/uv_lf` | fitted FoF mass function and UV LF parameters used by the sources |
-| `reference/harness` | gfortran RT reference |
-| `reference/harness_hydro` | gfortran hydro reference |
-| `reference/harness_pm` | gfortran PM reference |
-| `reference/harness_full` | gfortran full-loop reference |
-| `reference/harness_common` | FFTW-based MKL DFTI shim, shared timestep |
+| `reference/fortran` | private submodule (`astromcquinn/RadHydro-fortran`): `Radhydro/` (the original), the gfortran harnesses `harness` (RT), `harness_hydro`, `harness_pm`, `harness_full`, `harness_common` (the FFTW-based MKL DFTI shim, the shared timestep), `tests/` (`reference/README.md`) |
 | `tests/problems*` | validation problems |
 | `tests/hydro_suite` | hydro test suite with analytic solutions (`docs/hydro_tests.md`) |
 | `reference/*/outputs*` | stored reference outputs: stats for all steps, fields at the last step |

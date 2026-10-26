@@ -32,6 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fortran reference (the private submodule, when FORTRAN_TOKEN is set)
+        env:
+          FORTRAN_TOKEN: ${{ secrets.FORTRAN_TOKEN }}
+        run: |
+          if [ -n "$FORTRAN_TOKEN" ]; then
+            git -c url."https://x-access-token:${FORTRAN_TOKEN}@github.com/".insteadOf="https://github.com/" \
+              submodule update --init --depth 1 reference/fortran
+            echo "reference/fortran populated: the live gfortran comparisons run"
+          else
+            echo "FORTRAN_TOKEN not set: the live gfortran comparisons are skipped (reference/README.md)"
+          fi
+
       - name: Runner resources
         run: |
           nproc

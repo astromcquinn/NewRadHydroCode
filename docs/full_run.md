@@ -1,6 +1,6 @@
 # The full radhydro loop (Phase 1c)
 
-`apps/radhydro` runs the complete time loop of `reference/Radhydro/radhydro.f90`:
+`apps/radhydro` runs the complete time loop of `reference/fortran/Radhydro/radhydro.f90`:
 hydro (`hydro_tools.f90 -DMF`), PM gravity (`pm_tools.f90`), sources (legacy
 halo catalogs or the on-the-fly friends-of-friends finder) and ray-tracing
 RT. `reference/harness_full` is a gfortran build of the original program
@@ -21,7 +21,7 @@ Each now exists once, in C++ and in the Fortran harnesses:
 
 | piece | before | now (C++) | now (Fortran harnesses) |
 |---|---|---|---|
-| FFT | `Fft1d` in hydro.cpp (1-D, aligned buffer) and `fft.cpp` (3-D) | `include/radray/fft.hpp`: `fft::Fft1d` (MKL 1-D descriptor) and `fft::fft_3d`; `fft_1d` uses `Fft1d` | `reference/harness_common/mkl_dfti_shim.f90`: one `MKL_DFTI` module (1-D and 3-D) under the original `hydro_tools.f90` and `fft_tools.f90` (the PM harness no longer patches `fft_tools.f90`) |
+| FFT | `Fft1d` in hydro.cpp (1-D, aligned buffer) and `fft.cpp` (3-D) | `include/radray/fft.hpp`: `fft::Fft1d` (MKL 1-D descriptor) and `fft::fft_3d`; `fft_1d` uses `Fft1d` | `reference/fortran/harness_common/mkl_dfti_shim.f90`: one `MKL_DFTI` module (1-D and 3-D) under the original `hydro_tools.f90` and `fft_tools.f90` (the PM harness no longer patches `fft_tools.f90`) |
 | time step | `calc_timestep` (RT, fixed da), `calc_timestep_hydro`, `pm::calc_timestep_full` | `radray::calc_timestep(cfg, units, TimestepMode::{Original,Courant,Fixed}, da, clk, out)` in `cosmology.hpp` (the RT driver's fixed-da form is a thin wrapper) | `harness_common/harness_timestep.f90` (`calc_timestep_mode`, `init_variables_z`) for the hydro and PM harnesses; the full harness uses the original routine of `radhydro.f90` |
 | `summarize_gas` | full routine (hydro) + `summarize_gas_speeds` (PM) | the full `summarize_gas` everywhere | the original `summarize_gas` everywhere |
 | gas domains | `Domains` + `init_domain_gas` (hydro), `GasDomains` (PM) | `Domains`/`init_domain_gas` (`domain_gas.cpp`), passed to `init_pm` | the original `init_domain_gas` |
@@ -107,7 +107,7 @@ the problem matches its build.
 
 ## 3. reference/harness_full
 
-See `reference/harness_full/README.md` and `PATCHES.md`. In short: the
+See `reference/fortran/harness_full/README.md` and `PATCHES.md`. In short: the
 original `radhydro.f90` with HARNESS_FULL patches for the command line,
 `z_init`, the flags, the source mode and the compact output; `box` by the
 preprocessor; everything else from the existing harnesses.
@@ -267,7 +267,7 @@ else**:
 
 * **F1. `write_data_1/2` with `Ncpu = 1` write only the particles** (the
   `select case (icpu)` loop, like `read_init_conditions`); no effect on the
-  state (reference/harness_full/PATCHES.md). **Fixed** since in both codes
+  state (reference/fortran/harness_full/PATCHES.md). **Fixed** since in both codes
   (all files are written; `docs/production_run.md` §3).
 * **F2. `Nhalo_max = Npart/1024`** is 4 for Ndm = 16 and `read_halo` has no
   bound check; the harness uses `NHALO_MAX = 16384`.
