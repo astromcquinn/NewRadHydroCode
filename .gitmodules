@@ -1,0 +1,3 @@
+[submodule "reference/fortran"]
+	path = reference/fortran
+	url = https://github.com/astromcquinn/RadHydro-fortran.git

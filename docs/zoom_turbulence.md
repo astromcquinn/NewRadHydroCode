@@ -483,24 +483,98 @@ WP8 MHD ── after Z2 (kinematic first), on the hydro suite, then Z2-MHD
 Proposal ── after Z1's cost and scaling numbers (§8), in parallel with Z2
 ```
 
-WP0, WP1, WP3, WP5 and T4 are independent and can run as parallel threads
-(worktrees, one branch and PR each). Suggested opening prompts:
+WP0, WP3 and WP5 are independent and start now, as parallel threads
+(worktrees, one branch and PR each); WP1 starts once MUSIC and the CAMB
+tables are on klone; T4 belongs to the WP0 thread, since it needs the
+plane-parallel front. The memory work (below, thread E) follows WP3
+because both touch the PM level. Opening prompts, ready to paste
+(revised 2026-10-22 after the decisions of §9):
 
-1. *ICs:* "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md and
-   docs/zoom_turbulence.md §4.1. Implement the hierarchical zoom ICs in
-   tools/ics (the MUSIC refinement rule, nested displacement fields,
-   particles per mass class, per-level gas files, a CAMB table option),
-   with the T0 test and the ladder test."
-2. *Gravity:* "… §4.3. Stage G: the level Poisson solve with AMReX MLMG
-   and particles on their levels, keeping pm_gas_levels as the
-   comparison; the Ewald and refined-everywhere tests; T1."
-3. *Substep test:* "… §4.4 last item. The plane-parallel front on the
-   uniform grid at rt_cells_per_substep 16, 64, 256 with the
-   docs/rt_multicell.md tools; report the front profiles and E(k)."
-4. *Knobs and cosmology:* "… §4.5. T_min(z) floor, runtime cosmology with
-   the original as default and the bitwise suite unchanged, z_init."
-5. then *Levels and RT* (§4.2, §4.4 cap), then *Diagnostics*, then the
-   runs.
+**A. WP0, the plane-parallel RT-domain mode and the C1 ladder (branch
+`plane-parallel`).** "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md,
+docs/zoom_turbulence.md (§3b and §4.4) and docs/plane_parallel.md.
+Implement the plane-parallel RT-domain mode behind parameters, defaults
+unchanged and the bitwise suite untouched: rays launched from chosen
+faces of cubic RT domains, one per face cell per substep, no splitting or
+merging, deleted at the domain's far face; J_ν ∝ ν^-1.5 in five
+equal-photon bins; the amplitude set by Γ_HI in the source cells; turn-on
+at z_re; on the uniform grid, serial RT and the AMReX backend. Before
+building the domain geometry, ask the user the open questions of
+docs/plane_parallel.md (one or both faces per domain, cooling in dense
+gas, the Supplemental §C 2 procedure). Add the tests listed there
+(uniform-gas front against the analytic position and speed, slab
+attenuation, photon conservation, the Γ normalisation, domains). Then
+the T4 test of §4.4: two default-off caps, the hydro step in Myr and the
+RT substeps per hydro step, and the uniform front with the heating
+coupled per 100, 10, 1 and 0.1 Myr against per-substep coupling, compared
+on the front profiles and the post-front E(k). Finally the C1 ladder on
+klone (0.25 h⁻¹ Mpc at 64³ to 512³, z_re = 7, ICs from the existing
+generator until WP1 lands) against C26 Fig. 3. Record decisions in
+PLAN.md and results in STATUS.md."
+
+**B. WP3, gravity on the hierarchy (branch `stage-g-multigrid`).** "Read
+CLAUDE.md, docs/PLAN.md, docs/STATUS.md, docs/zoom_turbulence.md §4.3,
+docs/stage_f.md §4 and docs/stage_e_pm.md. Stage G: particles on the
+finest level covering them, the CIC deposit per level, and the level
+Poisson solve lap φ_l = (2a/3) δ_l with AMReX MLMG (MLPoisson) and
+Dirichlet boundaries from the parent's potential, the 4-point gradient
+and the per-level kick; level 0 keeps the FFT, bitwise. Behind a flag
+(`pm_level_solve`, default off), with `pm_gas_levels` kept as the
+comparison. Deterministic across rank counts (fixed iteration counts or
+a deterministic reduction). Tests: the Ewald single-particle force on a
+refined level, the refined-everywhere run against the uniform 2N run
+(the `pm_gas_levels` equivalence test with the level solve), momentum
+conservation, rank independence and restart; then T1 of §5 (32³ base,
+two levels over the central eighth, gravity only, against uniform 128³:
+halo masses and positions, the density PDF in the region). Profile the
+solve at 128³ with two levels on klone."
+
+**C. WP5, runtime cosmology and the physics knobs (branch
+`runtime-cosmology`).** "Read CLAUDE.md, docs/PLAN.md, docs/STATUS.md,
+docs/zoom_turbulence.md §4.5 and §4.1 item 5. Make the cosmology a
+runtime parameter set (omegam, omegab, hubble0, sigma8, ns as params.txt
+keys) with the original's float literals as the defaults, so every
+stored reference and Fortran comparison stays bitwise; thread it through
+cosmology.hpp, the rate and halo units and tools/ics (the IC tool reads
+the same keys). Add z_init as a parameter and a temperature floor
+T_min from a redshift z_floor (C26: 100 K and 1000 K for z < 15) in the
+RT cell physics, default off. Tests: the defaults bitwise (the fast
+suite), a Planck run differing only where it should, the floor's
+identity at 0 and its effect on a cooling test. Document in
+docs/production_run.md."
+
+**D. WP1, zoom ICs with MUSIC (branch `zoom-ics`; after MUSIC and the
+CAMB tables are on klone).** "Read CLAUDE.md, docs/PLAN.md,
+docs/STATUS.md, docs/zoom_turbulence.md §4.1 and §4.2, and
+docs/pm_refine.md §2. Write the converter from MUSIC's generic per-level
+output to the code's files: one particle stream per mass class with its
+mass, `u_gas.init.L<l>` per level on the level's region grid, the base
+files as today; with the Planck cosmology and 1LPT; a MUSIC
+configuration generator for the ladder (seed per level, the region from
+a Lagrangian bounding box plus pad). Tests: T0 (a MUSIC run with no zoom
+converted and run against the existing generator's ICs at the same seed
+statistics: P(k) and the growth), the ladder property (a level-l region
+regenerated with a deeper rung keeps every coarser mode), and a tiny
+2-level zoom problem for the fast suite built with the in-repo
+generator's 1–2-level nest (§4.1 steps 1–2) so the suite does not depend
+on MUSIC."
+
+**E. Memory for the ACCESS nodes (branch `rank-memory`; after B
+merges).** "Read CLAUDE.md, docs/STATUS.md ('Known limits'),
+docs/stage_e_state.md and docs/stage_f.md §4 (the refined run's 39 GB
+per rank and 245 GB on rank 0). Cut the redundant per-rank host state
+and rank 0's mirror: the halo finder and the sources distributed (or run
+on a gathered subset by mass class), the outputs and checkpoints written
+from the levels without a full rank-0 mirror, and the IC read scattered.
+Target: under 4 GB per core at 512³ with two levels and at 1024³
+particles, rank 0 no larger than the others by more than the catalogue.
+Bitwise outputs and checkpoints against the current code; measure on
+klone at 512³."
+
+The user's own items alongside: MUSIC and the CAMB transfer-function
+tables on klone (for D); deleting the stale branch
+`claude/kind-wozniak-4fiw74`; the open questions of thread A when it
+asks.
 
 ## 7. Cost estimates (to be replaced by measurements at Z1 and Z2)
 

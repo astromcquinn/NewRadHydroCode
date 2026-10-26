@@ -1,6 +1,6 @@
 """Cosmology helpers shared by make_ics.py and the PM physics checks.
 
-The parameters reproduce reference/Radhydro/cosmo_parameters.f90, including
+The parameters reproduce reference/fortran/Radhydro/cosmo_parameters.f90, including
 its single-precision literals: ``omegam = 0.27`` is a real(4) literal stored
 in a real(8) parameter, so the code really uses float32(0.27). They are the
 defaults of the runtime cosmology (params.txt keys omegam, omegab, hubble0,
