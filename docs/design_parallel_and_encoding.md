@@ -1,8 +1,8 @@
 # Design: parallel ray tracing (Phase 2) and compact rays and adaptivity (Phase 3)
 
-Status: proposal. Grounded in `reference/Radhydro/ray_tracing_tools.f90` (RTT),
-`reference/Radhydro/rt_tools.f90` (RTL), `reference/Radhydro/domain_tools.f90`
-(DT), `reference/Radhydro/radhydro_global.f90` (RG) and `radhydro.f90` (RH).
+Status: proposal. Grounded in `reference/fortran/Radhydro/ray_tracing_tools.f90` (RTT),
+`reference/fortran/Radhydro/rt_tools.f90` (RTL), `reference/fortran/Radhydro/domain_tools.f90`
+(DT), `reference/fortran/Radhydro/radhydro_global.f90` (RG) and `radhydro.f90` (RH).
 `RTT:296-306` means lines 296–306 of `ray_tracing_tools.f90`. Statements I am
 not certain of are marked **[unsure]**, and the findings that matter for the
 Phase 1 port are collected in §0.

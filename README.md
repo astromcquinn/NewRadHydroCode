@@ -18,7 +18,7 @@ is in [docs/STATUS.md](docs/STATUS.md); the decisions are in
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 **Phase 1, the faithful port.** `radray` is a C++17 port of
-`reference/Radhydro`. On every validation problem it reproduces the gfortran
+`reference/fortran/Radhydro` (the private submodule, `reference/README.md`). On every validation problem it reproduces the gfortran
 reference harnesses **bit for bit**: all output fields are byte-identical
 and all ray and RT statistics are identical. This holds for the original
 code and with the optional RT and physics fixes (`legacy_rt`,
@@ -53,7 +53,7 @@ apps/             rt_driver (RT only), hydro_driver, pm_driver, radhydro (full
                   loop), find_halos (FoF on a snapshot)
 tests/            unit tests, end-to-end checks, comparison with the references
   problems*/      validation problems per component; hydro_suite/ (docs/hydro_tests.md)
-reference/        original Fortran (read-only) and the gfortran harnesses
+reference/        fortran/: the private submodule with the original Fortran and the gfortran harnesses
                   (harness: RT, harness_hydro, harness_pm, harness_full, harness_common)
 tools/            compare/ (field and stats comparison), ics/ (Zel'dovich ICs),
                   analysis/ (figures), production/ (production parameters, timing),
@@ -121,7 +121,7 @@ The driver reads `params.txt`, `gas.bin` and `sources.txt`. It then runs
 To run every problem and compare with Fortran reference outputs:
 
 ```
-reference/harness/run_all.sh /tmp/ref              # Fortran reference (needs gfortran)
+reference/fortran/harness/run_all.sh /tmp/ref      # Fortran reference (needs gfortran and the submodule)
 tests/run_all.sh build /tmp/cpp /tmp/ref           # C++ runs + comparison
 ```
 
@@ -159,7 +159,7 @@ itself.
 
 ```
 ./build/radhydro tests/problems_full/onthefly out/onthefly [--set key=value ...] [--quiet]
-reference/harness_full/run_problem.sh tests/problems_full/onthefly out/f_onthefly   # Fortran
+reference/fortran/harness_full/run_problem.sh tests/problems_full/onthefly out/f_onthefly   # Fortran (the submodule)
 python3 tools/compare/compare.py out/f_onthefly out/onthefly --rtol 0 --atol-frac 0
 ```
 

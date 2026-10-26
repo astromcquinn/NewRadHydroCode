@@ -57,9 +57,9 @@ Not ported: `write_data_1/2` (snapshot output), the `timing` array and the
 
 ## 2. FFT (MKL DFTI → FFTW3f)
 
-`reference/harness_pm/PATCHES.md` §1 has the full mapping (since Phase 1c
+`reference/fortran/harness_pm/PATCHES.md` §1 has the full mapping (since Phase 1c
 the FFTW calls are made by the shared shim
-`reference/harness_common/mkl_dfti_shim.f90` under the original
+`reference/fortran/harness_common/mkl_dfti_shim.f90` under the original
 `fft_tools.f90`). In summary:
 
 * **Layout.** `a(n1+2,n2,n3)` in place. The real data is in `a(1:n1,:,:)`.
@@ -271,9 +271,9 @@ run, configure with `-DRADRAY_SANITIZE=ON` and run `ctest -L pm`: all pass,
 with no ASan/UBSan reports. Against a live harness run:
 
 ```
-reference/harness_pm/run_all.sh
-tests/run_pm_all.sh build/pm_driver reference/harness_pm/runs build/pm_runs
-python3 tools/compare/compare.py reference/harness_pm/runs/<p> build/pm_runs/<p> --rtol 0 --atol-frac 0
+reference/fortran/harness_pm/run_all.sh
+tests/run_pm_all.sh build/pm_driver reference/fortran/harness_pm/runs build/pm_runs
+python3 tools/compare/compare.py reference/fortran/harness_pm/runs/<p> build/pm_runs/<p> --rtol 0 --atol-frac 0
 ```
 
 ## 8. Timings (single thread, -O2)

@@ -124,6 +124,6 @@ check use `--rtol 0 --atol-frac 0` (the default `--atol-frac 1e-6` would
 otherwise forgive tiny absolute differences even with `--rtol 0`):
 
 ```
-python3 tools/compare/compare.py reference/harness_hydro/runs/sod_x runs/sod_x \
+python3 tools/compare/compare.py reference/fortran/harness_hydro/runs/sod_x runs/sod_x \
         --rtol 0 --atol-frac 0
 ```

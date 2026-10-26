@@ -3,8 +3,8 @@
 #
 #   tests/run_pm_all.sh <pm_driver> <fortran_runs_root> <outroot>
 #
-# e.g.  reference/harness_pm/run_all.sh            # Fortran -> reference/harness_pm/runs
-#       tests/run_pm_all.sh build/pm_driver reference/harness_pm/runs build/pm_runs
+# e.g.  reference/fortran/harness_pm/run_all.sh            # Fortran -> reference/fortran/harness_pm/runs
+#       tests/run_pm_all.sh build/pm_driver reference/fortran/harness_pm/runs build/pm_runs
 # Every .bin and Pk file must be byte-identical and every stats value equal.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
