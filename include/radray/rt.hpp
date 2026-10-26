@@ -53,7 +53,8 @@ void radiative_physics(Simulation& s, int krt);
 void accumulate_rt_stats(Simulation& s);
 
 // The substep-averaged Gamma_HI (Simulation::gamma_avg; output only, serial
-// RT): begin zeroes the per-cell sums at the start of a hydro step's RT, add
+// RT; the moment RT on rt_backend = amrex keeps the sums on its level,
+// amrex_gamma_avg_field in amrex_state.hpp): begin zeroes the per-cell sums at the start of a hydro step's RT, add
 // accumulates gamma(1) * dtsec_rt after a substep's physics, field gives the
 // average over the substeps so far of the last hydro step with RT (zeros
 // before the first), one float per RT cell.

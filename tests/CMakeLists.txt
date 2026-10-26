@@ -1557,6 +1557,47 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # gammaHI_avg (the substep-averaged Gamma_HI) of the moment RT on the
+    # level: the fields and a movie frame after every substep (the running
+    # average) byte-identical to the serial moment RT, the state on the
+    # slabs (state) or on rank 0's host arrays (host)
+    foreach(rt "m1 state 2 1 4" "cone state 4 1 4" "otvet state 3 2 4" "m1 host 2 2 4")
+      separate_arguments(rt)
+      list(GET rt 0 mc)
+      list(GET rt 1 md)
+      list(GET rt 2 np)
+      list(GET rt 3 nt)
+      list(GET rt 4 planes)
+      if(mc STREQUAL "m1")
+        set(margs --set rt_method=m1)
+      elseif(mc STREQUAL "otvet")
+        set(margs --set rt_method=otvet)
+      else()
+        set(margs --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2)
+      endif()
+      if(md STREQUAL "state")
+        set(st 1)
+        set(bargs --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex)
+      else()
+        set(st 0)
+        set(bargs)
+      endif()
+      set(tname amrex_moment_gamma_avg_${mc}_${md}_r${np}t${nt})
+      add_test(NAME ${tname}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       ${amrex_runs}/moment_gamma_avg_${mc}_${md}_r${np}t${nt} $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "rt_backend=serial,amrex_state=0"
+                       "rt_backend=amrex,amrex_state=${st},amrex_slab=1,amrex_slab_planes=${planes}"
+                       --quiet ${margs} ${bargs} --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set hydro_scheme=unsplit --set fields=fHI,gammaHI,gammaHI_avg
+                       --set movie_fields=fHI,gammaHI,gammaHI_avg --set movie_dz=0.5 --set movie_z0=25
+                       --set movie_every_substep=1 --set movie_slab=1
+                       --set restart_every=0)
+      set_tests_properties(${tname} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
+                           PROCESSORS ${np})
+    endforeach()
     # the moment RT on the level through a checkpoint (rank 0 streams the
     # moment and recombination blocks slab by slab): bit-identical restarts
     foreach(rc "m1 2 4" "split 1 0" "conerecomb 3 4")
