@@ -860,8 +860,11 @@ in both modes:
   T_CMB₀(1+z)²/217, an instantaneous decoupling. Neutral gas has no
   residual electrons, so it never couples to the CMB, although
   `coef_cool(14)` is exact. Against RECFAST the unheated gas is 0.76× at
-  z = 100 and 0.60× from z ≈ 30. Kept; a fix (RECFAST initial temperature
-  plus residual-electron Compton coupling, behind a flag) is proposed there.
+  z = 100 and 0.60× from z ≈ 30. Kept as the default (`thermal_init =
+  floor`); `thermal_init = recfast` (2026-10-26) starts the gas at the
+  RECFAST temperature and couples it to the CMB through the residual
+  electrons, and `thermal_floor` sets the hydro's 1 K floor (0.1 K with
+  recfast). New keys, not under `legacy_physics` (user decision).
 * The original fits use single-precision exponent literals (`x**1.503` is
   `pow(x, 1.50300002…)`). This shifts the rates by about 1e-7 relative,
   which is harmless, so they are kept.

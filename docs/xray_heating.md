@@ -29,6 +29,10 @@ so gas colder than the CMB is heated. The term is the same with
 
 With `xray_heating = 1` every cell is processed (§2), so the X-ray electrons
 also couple the neutral gas to the CMB through this same term.
+`thermal_init = recfast` adds the coupling through the residual electrons
+of recombination in every cell and starts the gas at the RECFAST
+temperature (`docs/thermal_history.md`); the two combine (the residual term
+supplies only the electrons a cell lacks).
 
 ## 1. The model
 

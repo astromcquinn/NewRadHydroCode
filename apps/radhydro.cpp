@@ -61,6 +61,7 @@
 #include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
+#include "radray/thermal_history.hpp"
 #include "radray/xray_background.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/rt_tensor_diag.hpp"
@@ -118,6 +119,10 @@ struct RunParams {
   int photon_conserve = -1;       // Config::photon_conserve (B17 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
+  // thermal_init = floor | recfast (Config::thermal_init, docs/thermal_history.md)
+  // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
+  int thermal_init = 0;
+  double thermal_floor = -1;
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -231,7 +236,17 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.cool_suppress_overdensity = std::stod(val);
     if (!(P.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
   }
-  else if (key == "photon_conserve") {
+  else if (key == "thermal_init") {
+    if (val == "floor")
+      P.thermal_init = 0;
+    else if (val == "recfast")
+      P.thermal_init = 1;
+    else
+      throw std::runtime_error("thermal_init must be floor or recfast");
+  } else if (key == "thermal_floor") {
+    P.thermal_floor = to_double(val);
+    if (!(P.thermal_floor > 0)) throw std::runtime_error("thermal_floor must be > 0 (K)");
+  } else if (key == "photon_conserve") {
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_conserve < -1 || P.photon_conserve > 1)
       throw std::runtime_error("photon_conserve must be 0 or 1");
@@ -659,6 +674,8 @@ int main(int argc, char** argv) {
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
+    s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
+    s.cfg.thermal_floor = P.thermal_floor > 0 ? P.thermal_floor : (P.thermal_init == 1 ? 0.1 : 1.0);
     copy_hydro_scheme(P.hydro, s.cfg);
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
@@ -701,6 +718,8 @@ int main(int argc, char** argv) {
     // from the SFR of the abundance-matched source model. Its rates are
     // computed once per hydro step with RT, at the middle of the step, with
     // the box's mass-weighted absorber fractions; Log/xray.txt lists them.
+    if (cfg.thermal_init == 1 && cfg.amrex_state)
+      throw std::runtime_error("thermal_init = recfast is implemented for amrex_state = 0 only");
     std::unique_ptr<XrayBackground> xbg;
     std::ofstream xraylog;
     if (P.xray.on) {
@@ -822,7 +841,10 @@ int main(int argc, char** argv) {
     if (P.tensor_dump && use_amrex(cfg))
       throw std::runtime_error("tensor_dump is implemented for the serial RT backend only");
 
-    if (restart_from.empty()) pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
+    // thermal_init = recfast: the ICs at the RECFAST temperature of z_init
+    if (restart_from.empty())
+      pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units,
+                               cfg.thermal_init == 1 ? recfast_T(s.clk.redshift) : -1.0);
 
     if (out)
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm
@@ -845,6 +867,10 @@ int main(int argc, char** argv) {
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << (P.cool_suppress_overdensity != 200.0
                    ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
+                   : std::string())
+           << (cfg.thermal_init == 1 || cfg.thermal_floor != 1.0
+                   ? std::string(", thermal_init = ") + (cfg.thermal_init == 1 ? "recfast" : "floor") +
+                         ", thermal_floor = " + std::to_string(cfg.thermal_floor) + " K"
                    : std::string())
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
@@ -1376,6 +1402,19 @@ int main(int argc, char** argv) {
       s.clk.scalefactor = s.clk.scalefactor + s.clk.da_sim / 2;
       s.clk.redshift = 1 / s.clk.scalefactor - 1;
       calc_sim_var(cfg, s.clk, s.units);
+
+      // thermal_init = recfast (docs/thermal_history.md): the CMB coupling
+      // of the residual electrons over the step, at its middle
+      if (cfg.thermal_init == 1) {
+        th = Clock::now();
+        Units um;
+        SimClock cm = s.clk;
+        cm.scalefactor = s.clk.scalefactor - s.clk.da_sim / 2;
+        cm.redshift = 1 / cm.scalefactor - 1;
+        calc_sim_var(cfg, cm, um);
+        compton_residual_step(um, cm.scalefactor, s.clk.dt_sec, s.rates.coef_cool(14, 1), s.gas);
+        T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
+      }
 
       // Ray tracing radiative transfer (after the first zdata1 output)
       if (idata1 > 1) {

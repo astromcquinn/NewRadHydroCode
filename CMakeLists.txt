@@ -37,6 +37,7 @@ add_library(radray
   src/pm_backend.cpp
   src/hydro_backend.cpp
   src/amrex_state.cpp
+  src/thermal_history.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 

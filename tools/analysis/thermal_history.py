@@ -83,10 +83,13 @@ def main():
     ax[0].semilogy(zz, TCMB0 * (1 + zz), color="#6b6b66", lw=1.2, ls="--", label="T_CMB")
     ax[1].axhline(1, color="#222222", lw=1.5)
     ax[1].plot(zz, floor(zz) / Tref(zz), color="#6b6b66", lw=1.2, ls=":")
-    colors = ["#2a78d6", "#104281", "#eb6834", "#a33d12"]
+    colors = ["#6da7ec", "#104281", "#eb6834", "#a33d12", "#1baf7a", "#0d6e4a"]
     for i, spec in enumerate(sys.argv[2:]):
         run, N, box, label = spec.split(":", 3)
         h = run_history(run, int(N), float(box))
+        if h.size == 0:
+            print(f"# {label}: no step_* with u_gas in {run}, skipped")
+            continue
         c = colors[i % len(colors)]
         print(f"# {label} ({run})\n#      z  T_mean[K]  T/RECFAST  T_void[K]  frac(T<=1.01K)")
         for z, Tm, Tv, f1 in h:

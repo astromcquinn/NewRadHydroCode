@@ -1571,4 +1571,10 @@ be designed); `recomb_rad` on the backend (block emission and
   temperature plus residual-electron Compton coupling), behind
   `legacy_physics = 0` or a new key, and whether to lower the unsplit
   hydro's 1 K floor.
+* **Decisions (user, 2026-10-26):** implement the fix with a new key
+  `thermal_init` (not `legacy_physics = 0`), and lower the thermal floor.
+  Done: `thermal_init = floor | recfast` and `thermal_floor` (K; 0.1 K by
+  default with recfast, chosen to stay below the coldest physical gas,
+  voids at ~0.2 K at z ≈ 6, while bounding the unsplit hydro's
+  numerically over-cooled cells; `docs/thermal_history.md` §4).
 

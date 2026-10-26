@@ -11,7 +11,8 @@ on. The cause is two choices of the original (quirk **T1**,
 * the initial temperature is the floor;
 * neutral gas has no residual electrons, so it never couples to the CMB.
 
-Nothing is changed yet; the fix proposed in §4 waits for the user's decision.
+**Fixed behind `thermal_init = recfast`** (user decision 2026-10-26, §4).
+The default `thermal_init = floor` keeps the original byte for byte.
 
 ## 1. What the code does
 
@@ -126,28 +127,115 @@ The legacy scheme cannot represent the unheated IGM at all.
   the initial history is forgotten. In the one-zone model, with the
   default L_X/SFR, that happens from z ≈ 13.
 
-## 4. Proposed fix (not implemented; for the user to decide)
+## 4. The fix: `thermal_init = recfast` (implemented 2026-10-26)
 
-Behind a flag whose default keeps the original:
+User decisions (2026-10-26): a new key rather than `legacy_physics = 0`,
+and a lower thermal floor.
 
-1. **Initial temperature** T_gas(z_init) from the RECFAST table (the ICs'
-   thermal energy) instead of `Tgas_min`.
-2. **Compton coupling of the neutral gas through its residual electrons**,
-   x_e,res(z) from the table, in every cell at every hydro step:
-   T ← T_CMB + (T − T_CMB) e^{−Δt/t_C}, with
-   t_C = 3 m_e c (1 + f_He + x_e)/(8 σ_T a T_CMB⁴ x_e).
-   This is thermal only (the ionisation state is unchanged, so the RT is
-   unaffected) and exact for any Δt. Where the RT physics already has
-   electrons (ionised cells, the X-ray electrons) the existing Compton term
-   applies and the residual one is the larger of the two x_e.
-3. **The floor:** keep `temp_min` as the original but make the residual
-   coupling the physical model. For the unsplit hydro, also lower its 1 K
-   floor (with the right history the mean-density gas is 1.4 K at z = 7;
-   voids are colder).
+| key | default | meaning |
+|---|---|---|
+| `thermal_init` | `floor` | `floor`: the original. `recfast`: RECFAST start + residual-electron Compton coupling |
+| `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K |
 
-The one-zone check (§2) shows that 1 + 2 reproduce RECFAST at the mean
-density. Open choices:
+**What `recfast` does:**
 
-* the flag: `legacy_physics = 0`, which changes its stored references, or
-  a new key such as `thermal_init = recfast`;
-* whether the hydro floor should go below 1 K.
+1. **ICs at T_RECFAST(z_init).** `read_init_conditions` adds the thermal
+   energy of that temperature instead of `Tgas_min`.
+2. **Residual-electron Compton coupling, once per hydro step.**
+   * `compton_residual_step` (`src/thermal_history.cpp`) runs after both
+     hydro halves and before the RT, over the step's dt at its middle.
+   * It is applied to every gas cell: T ← T_CMB + (T − T_CMB) e^(−Δt/t_C),
+     with 1/t_C = (γ−1) C₁₄ n_e,add T_CMB⁴/(k n_tot).
+   * C₁₄ is the cooling sum's own `coef_cool(14)`.
+   * n_e,add = max(x_e,res n_H − n_e, 0) is only the part the cell's own
+     electrons lack. The RT's cooling sum already applies Compton with
+     those, in ionised and X-ray-ionised cells.
+   * Thermal only: the ionisation state is unchanged, so the RT is
+     unaffected. It updates u(5) and the dual-energy field.
+3. **Floors** (`calc_sim_var`):
+   * The hydro floor `thermal_floor` replaces the hard-coded 1 K of the
+     legacy `check_temp`, the unsplit scheme and the AMReX hydro level.
+   * The RT physics floor `temp_min` becomes `thermal_floor`, but stays
+     at least 1 K with `legacy_physics = 1`. Its nearest-node rate table
+     starts at 1 K and errors below 0.99 K. With `legacy_physics = 0` the
+     interpolated rates take any temperature.
+   * There is no ceiling at T_CMB above z ≈ 216.
+   * `Tgas_min` (the legacy PM clamp) follows `temp_min`.
+
+**The table.** x_e(z) and T(z) are compiled in (`src/recfast_table.inc`,
+from `tools/thermal/make_recfast_table.py`: CAMB + RECFAST, no
+reionization, z = 0–2000, the cosmology of `cosmo_parameters.f90`). A run
+needs no data file, but the table must be regenerated if the cosmology
+becomes a runtime parameter (`docs/zoom_turbulence.md` §4.1).
+
+**Not supported:** `amrex_state = 1` (the gas lives on the levels between
+steps) is refused.
+
+### Results
+
+Same no-source runs as §3, with `thermal_init = recfast`. These runs used
+`thermal_floor = 0.01`; the mean-density results do not depend on it.
+
+![thermal history without heating](figures/thermal_history_noheat.png)
+
+| z | RECFAST | recfast 64³ | recfast 128³ | floor 128³ |
+|---|---|---|---|---|
+| 100 | 168.1 | 168.1 | 168.1 | 127.8 |
+| 65 | 81.7 | 81.7 | 81.7 | 55.0 |
+| 42 | 37.8 | 37.7 | 37.7 | 23.8 |
+| 28 | 17.0 | 16.9 | 16.9 | 10.3 |
+| 18 | 7.46 | 7.44 | 7.46 | 4.45 |
+| 11 | 3.25 | 3.26 | 3.27 | 1.97 |
+| 7.3 | 1.51 | — | 1.55 | 1.02 |
+| 6 | 1.05 | — | 1.09 | 0.97 (the 1 K floor) |
+
+* Mean-density gas is on RECFAST to within 0.4% from z = 100 to z ≈ 11 at
+  both resolutions.
+* At z ≲ 8 it is 2–4% above, from the onset of non-linear compression.
+* Voids now cool adiabatically below 1 K (0.6 K at Δ ≈ 0.35, z = 6); the
+  old floor held them at 1 K.
+
+### A numerical over-cooling in the unsplit hydro (open)
+
+Lowering the floor uncovers cells far colder than their adiabat. Their
+fraction (T < 0.1 × T_ref(z) Δ^(2/3)) by run:
+
+| run | z ≈ 28 | z ≈ 18 | z ≈ 11 | z ≈ 6–7 |
+|---|---|---|---|---|
+| floor ICs, no Compton, floor 0.01 K, 64³ | 6% | 14% | 14% | 10% |
+| same, 128³ | 3% | 6% | 6% | 4–5% |
+| `recfast`, 64³ | 0 | 0.2% | 1.7% | 3–5% |
+| `recfast`, 128³ | 0 | 0.1% | 0.9% | 0.7–1% |
+
+* The cells are mildly overdense (Δ ≈ 1.1–2) and highly supersonic
+  (kinetic/thermal energy 10⁴–10⁷). They appear from z ≈ 40, once the gas
+  is ~20 K.
+* With the old 1 K floor they sat at 1 K, hidden. The unsplit hydro's
+  "floors T" counter, in the millions, is the sign.
+* The fraction falls with resolution. The Compton coupling suppresses it
+  while it is strong (z ≳ 15).
+* This is a defect of the dual-energy update in cold, supersonic flow,
+  independent of `thermal_init`.
+
+The 0.1 K default floor bounds these cells while leaving physical gas
+alone: voids at Δ ≈ 0.1 are about 0.2 K at z ≈ 6. Fixing the hydro
+itself is a separate task.
+
+### Tests
+
+* **`thermal_init`** (`tests/test_thermal.cpp`):
+  * the table at its nodes, monotonic, T_CMB above z = 2000;
+  * `calc_sim_var`'s floors: `Thydro_min` bit-identical to 1/temp1_unit
+    by default, the recfast `temp_min`/`temp_max` in both `legacy_physics`
+    modes;
+  * `coef_cool(14)` = 4 a σ_T k/(m_e c);
+  * the Compton step against the exact relaxation (to 10⁻⁴, with and
+    without the dual-energy field);
+  * an ionised cell untouched.
+* **`thermal_init_recfast`** (`tests/thermal_check.py`, the 32³ onthefly
+  problem without RT):
+  * 1 against 2 threads byte-identical;
+  * `thermal_init = floor, thermal_floor = 1` byte-identical to no key;
+  * mean-density gas within 1% of RECFAST (0.3% measured) and the original
+    within 2% of the floor curve, at z ≥ 30.
+* **`restart_smoke_thermal`**: a restart at step 13 is byte-identical.

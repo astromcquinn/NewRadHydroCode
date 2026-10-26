@@ -169,6 +169,21 @@ struct Config {
   // legacy_physics; no Fortran mirror (a new flag).
   double cool_suppress_overdensity = 200.0;
 
+  // params.txt thermal_init = floor (default, the original) | recfast
+  // (docs/thermal_history.md, quirk T1 of docs/port_notes.md 5b). floor:
+  // the gas starts at temp_min and neutral gas never couples to the CMB.
+  // recfast: the ICs start at the RECFAST temperature of z_init, every cell
+  // couples to the CMB through the residual electrons of recombination
+  // (thermal_history.hpp, compton_residual_step), and temp_min is no longer
+  // the instantaneous-decoupling adiabat (calc_sim_var). No Fortran mirror.
+  int thermal_init = 0;  // 0 floor, 1 recfast
+  // params.txt thermal_floor (K): the hydro's temperature floor (check_temp
+  // of the legacy scheme, the unsplit scheme, the AMReX hydro level), 1 K
+  // in the original; with thermal_init = recfast also the RT physics floor
+  // temp_min (at least 1 K with legacy_physics = 1, the rate table's lower
+  // edge). Default 1 K, or 0.1 K with thermal_init = recfast (radhydro).
+  double thermal_floor = 1.0;
+
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
   // 1 = exposure, which keeps a ray's photons for the cells further along
