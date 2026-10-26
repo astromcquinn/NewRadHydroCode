@@ -69,11 +69,13 @@ the submodule, the stored-reference comparisons always. The workflows
 populate the submodule from the Actions secret `FORTRAN_TOKEN`. CLAUDE.md
 rule 1, README, `reference/README.md` and the path mentions updated.
 Verified in the cloud container: the fast suite with the reference absent
-and the `fortran` tests with it present. **Left for the user:** create the
-private repository and the token, merge, then the history rewrite
-(`tools/git/scrub_fortran_history.sh`, §3 of the plan: a new public
-repository from the scrubbed history, recommended, or an in-place
-force-push) at a quiet moment after the thread PRs merge.
+and the `fortran` tests with it present. **Done the same day (§3b of the plan):** the
+private repository created and filled, #61 merged, the old repository
+renamed `NewRadHydroCode-private` (the archive), and this public
+`astromcquinn/NewRadHydroCode` created from the scrubbed history (42
+branches, `main` db2f4b4); the open PRs re-opened as #1 (`zoom-ics`) and
+#2 (`rt-suite-512`). Every pre-move clone must be re-pointed (§3b). Left
+for the user: the `FORTRAN_TOKEN` secret.
 
 ## Done 2026-10-23: MUSIC on klone (user)
 
