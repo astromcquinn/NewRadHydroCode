@@ -1,4 +1,4 @@
-# hydro test problem 'random3d' (reference/harness_hydro/make_hydro_problems.py)
+# hydro test problem 'random3d' (reference/fortran/harness_hydro/make_hydro_problems.py)
 N = 32
 z_init = 10
 nsteps = 10

@@ -97,7 +97,7 @@ table, the standard-output formatting of `hydro_step` and `calc_timestep`
 * `wg = exp(-((pi*rmf*(i-1)/ngasr)**2)/2)`: `pi*rmf` is folded at compile
   time, which is an exact IEEE product, then `*(i-1)`, `/ngasr`, square.
 * **FFT.** MKL DFTI is replaced by FFTW3 single precision in both the
-  harness (`reference/harness_common/mkl_dfti_shim.f90`, shared by all
+  harness (`reference/fortran/harness_common/mkl_dfti_shim.f90`, shared by all
   harnesses since Phase 1c) and the C++ (`fft::Fft1d`), identically:
   `FFTW_ESTIMATE` r2c/c2r plans on an `fftwf_alloc_real(n+2)` buffer, data
   copied in/out, backward result times the real(4) scale. MKL's default
@@ -126,7 +126,7 @@ table, the standard-output formatting of `hydro_step` and `calc_timestep`
 4. **Test problems** are dimensionless set-ups in code units, starting at
    z = 10; nothing in the solver is altered (no expansion terms exist in the
    supercomoving formulation for gamma = 5/3). See
-   `reference/harness_hydro/README.md` for the list and branch coverage.
+   `reference/fortran/harness_hydro/README.md` for the list and branch coverage.
 
 ## 5. Bugs and quirks in the original (all preserved unless noted)
 

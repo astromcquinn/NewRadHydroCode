@@ -1,7 +1,9 @@
-# Fast suite on every push to main and every pull request: build the C++ and
-# the gfortran harnesses, then run the CTests that are not labelled long or
-# nightly (the stored-reference comparisons, the live gfortran comparisons,
-# restart and thread-count tests, the short hydro suite). About 10 minutes on
+# Fast suite on every push to main and every pull request: build the C++
+# (and the gfortran harnesses when the private submodule reference/fortran
+# is populated from the FORTRAN_TOKEN secret), then run the CTests that are
+# not labelled long or nightly (the stored-reference comparisons, the live
+# gfortran comparisons when present, restart and thread-count tests, the
+# short hydro suite). About 10 minutes on
 # a 4-core runner. Bit-for-bit comparisons depend on the toolchain: this job
 # pins Ubuntu 24.04 (gcc 13, glibc 2.39), the platform the stored RT
 # references were generated on (docs/cluster.md section 3).
@@ -23,6 +25,18 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fortran reference (the private submodule, when FORTRAN_TOKEN is set)
+        env:
+          FORTRAN_TOKEN: ${{ secrets.FORTRAN_TOKEN }}
+        run: |
+          if [ -n "$FORTRAN_TOKEN" ]; then
+            git -c url."https://x-access-token:${FORTRAN_TOKEN}@github.com/".insteadOf="https://github.com/" \
+              submodule update --init --depth 1 reference/fortran
+            echo "reference/fortran populated: the live gfortran comparisons run"
+          else
+            echo "FORTRAN_TOKEN not set: the live gfortran comparisons are skipped (reference/README.md)"
+          fi
 
       - name: Install toolchain
         run: |
