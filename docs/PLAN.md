@@ -1561,4 +1561,14 @@ be designed); `recomb_rad` on the backend (block emission and
   dependence on metallicity, the spectrum and its soft cut-off), the
   secondary-electron fractions, whether to go on to an inhomogeneous
   treatment (an X-ray group in the RT) (`docs/xray_heating.md` §5).
+* **Request (user, 2026-10-26, later):** check that the simulations reproduce
+  the expected temperature history before preheating, Compton cooling off
+  the CMB in particular. Result (`docs/thermal_history.md`): they do not.
+  The unheated gas follows the code's floor (instantaneous decoupling at
+  z ≈ 216), 0.60–0.76× RECFAST, because the ICs start at the floor and
+  neutral gas has no residual electrons for Compton coupling (quirk T1).
+  **Decision needed:** whether to add the proposed fix (RECFAST initial
+  temperature plus residual-electron Compton coupling), behind
+  `legacy_physics = 0` or a new key, and whether to lower the unsplit
+  hydro's 1 K floor.
 

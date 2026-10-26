@@ -7,13 +7,16 @@
 // for a set of parameters.
 //
 // usage: xray_bkg [params.txt ...] [--set key=value ...] [--zmin 5]
-//                 [--zout-step 0.5] [--xe0 2e-4] [--spectrum z]
+//                 [--zout-step 0.5] [--xe0 2e-4] [--zstart z --T0 K] [--spectrum z]
 //   params files: `key = value` lines; the xray_* keys and the source-model
 //   keys (sfr_model = abundance, am_*, l_per_sfr, tvir_min, m_min) are used,
 //   others ignored (so a run's params.txt or data/uv_lf/am_params_*.txt
 //   can be passed as is).
-//   --xe0: the ionised fraction at xray_zmax (the residual of
+//   --xe0: the ionised fraction at the start (the residual of
 //   recombination; the simulations start fully neutral).
+//   --zstart z, --T0 K: start the one-zone model at z (default xray_zmax)
+//   with temperature T0 (default the code's floor temp_min(z)), e.g. at
+//   RECFAST's values (data/thermal/recfast_sim_cosmology.txt).
 //   --spectrum z: print J_E(E) at z for a neutral IGM instead.
 #include <cmath>
 #include <cstdio>
@@ -67,7 +70,7 @@ int main(int argc, char** argv) {
     XrayParams xp;
     xp.on = true;
     HaloSourceParams hp;
-    double zmin = 5, zout = 0.5, xe0 = 2e-4, zspec = -1;
+    double zmin = 5, zout = 0.5, xe0 = 2e-4, zspec = -1, zstart = -1, T0 = -1;
     for (int a = 1; a < argc; ++a) {
       const std::string s = argv[a];
       if (s == "--set" && a + 1 < argc) {
@@ -76,6 +79,10 @@ int main(int argc, char** argv) {
         zmin = std::stod(argv[++a]);
       } else if (s == "--zout-step" && a + 1 < argc) {
         zout = std::stod(argv[++a]);
+      } else if (s == "--zstart" && a + 1 < argc) {
+        zstart = std::stod(argv[++a]);
+      } else if (s == "--T0" && a + 1 < argc) {
+        T0 = std::stod(argv[++a]);
       } else if (s == "--xe0" && a + 1 < argc) {
         xe0 = std::stod(argv[++a]);
       } else if (s == "--spectrum" && a + 1 < argc) {
@@ -119,8 +126,8 @@ int main(int argc, char** argv) {
     // Compton coefficient of rt_rates.cpp (coef_cool(14)), in double
     const double cC = 4 * sS_cgs / c_cgs * (8.0 / 3.0) * 3.36e-24 / (gamma_ideal - 1);
     // start: adiabatic since decoupling, the code's temp_min (calc_sim_var)
-    double z = xp.z_max;
-    double T = Tcmb0 * (1 + z) * (1 + z) / folded::temp_x;
+    double z = zstart > 0 ? zstart : xp.z_max;
+    double T = T0 > 0 ? T0 : Tcmb0 * (1 + z) * (1 + z) / folded::temp_x;
     double x = xe0;
     double edep_tot = 0;  // heat per H atom, eV
     const double ds = 0.0005, ds_rates = 0.0025;

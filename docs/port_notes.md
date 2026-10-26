@@ -854,6 +854,14 @@ in both modes:
   ne is iterated at most 5 times, to 1e-3. These are numerical choices;
   the photon leak the 5-iteration limit causes in photon-starved cells is
   B17 (`photon_conserve`).
+* **T1. The thermal history before heating** (found 2026-10-26,
+  `docs/thermal_history.md`). The gas starts at, and is floored to,
+  `temp_min`: T_CMB above 1+z = 10³(Ω_b h²)^0.4 ≈ 217, then
+  T_CMB₀(1+z)²/217, an instantaneous decoupling. Neutral gas has no
+  residual electrons, so it never couples to the CMB, although
+  `coef_cool(14)` is exact. Against RECFAST the unheated gas is 0.76× at
+  z = 100 and 0.60× from z ≈ 30. Kept; a fix (RECFAST initial temperature
+  plus residual-electron Compton coupling, behind a flag) is proposed there.
 * The original fits use single-precision exponent literals (`x**1.503` is
   `pow(x, 1.50300002…)`). This shifts the rates by about 1e-7 relative,
   which is harmless, so they are kept.
