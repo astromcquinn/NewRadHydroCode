@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A random3d hydro problem (reference/harness_hydro/make_hydro_problems.py)
+"""A random3d hydro problem (reference/fortran/harness_hydro/make_hydro_problems.py)
 at any N for the hydro timing and scaling runs (hydro_driver,
 hydro_scheme = unsplit; docs/stage_e_hydro.md).
 

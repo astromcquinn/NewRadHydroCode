@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the C++ rt_driver on every problem in tests/problems and optionally
 # compare with Fortran reference outputs (e.g. from
-# reference/harness/run_all.sh <refroot>).
+# reference/fortran/harness/run_all.sh <refroot>).
 #
 #   tests/run_all.sh <build_dir> <outroot> [<refroot>]
 #

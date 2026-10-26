@@ -1,4 +1,4 @@
-# hydro test problem 'sod_z' (reference/harness_hydro/make_hydro_problems.py)
+# hydro test problem 'sod_z' (reference/fortran/harness_hydro/make_hydro_problems.py)
 N = 32
 z_init = 10
 nsteps = 5

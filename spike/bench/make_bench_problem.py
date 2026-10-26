@@ -5,7 +5,7 @@
         --nray-max-factor 16 --out /path/bench_N64
 
 Log-normal density field and sources in the densest cells, exactly as
-reference/harness/make_test_problem.py builds lognormal_16src, but with a
+reference/fortran/harness/make_test_problem.py builds lognormal_16src, but with a
 free grid size and source count. legacy_rt = 0 is written into params.txt,
 since the spike implements only the sorted-array (legacy_rt = 0) algorithm.
 """
@@ -16,7 +16,7 @@ import sys
 import numpy as np
 
 here = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(here, "..", "..", "reference", "harness"))
+sys.path.insert(0, os.path.join(here, "..", "..", "reference", "fortran", "harness"))
 import make_test_problem as mtp  # noqa: E402
 
 
