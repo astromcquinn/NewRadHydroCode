@@ -477,6 +477,13 @@ struct Config {
   // photon. Not tied to legacy_physics (a new flag; the plane-parallel
   // problems and tools/production/make_production.py --plane-parallel use 1).
   bool photon_consume_dense = false;
+  // params.txt land_outputs (set_plane_param): 1 = the hydro step before a
+  // zdata1 output ends exactly on it (apps/radhydro sets land_a to the next
+  // output's scale factor before every step; timestep_core clips da to it),
+  // so that the outputs of runs with different step caps are at the same
+  // time. 0 (default) = the original: the first step past the redshift.
+  bool land_outputs = false;
+  double land_a = 0;  // the next landing scale factor (0 = none); set per step by the driver
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

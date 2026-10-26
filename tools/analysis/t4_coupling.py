@@ -28,7 +28,7 @@ analyse: the folded front profiles (tools/analysis/plane_front.py) and the
 kinetic energy spectra E(k) (tools/analysis/velocity_power.py) at every
 output of every variant, and the comparison with `sub`: the largest
 relative difference of E(k) over 0.5 < k < k_Nyquist/2 (where the
-turbulence of C26 lives) and of the folded x_HI and T profiles, per
+turbulence of C26 lives; from 4 k_f at low N) and of the folded x_HI and T profiles, per
 output. Writes OUTDIR/t4_coupling.json, t4_coupling.txt (the table) and
 t4_coupling.png (E(k) and the profiles of every variant at the last two
 outputs).
@@ -132,7 +132,8 @@ def analyse(a):
             R = ref_ek[zk]
             k = np.array(r["k"])
             E, E0 = np.array(r["E"]), np.array(R["E"])
-            sel = (k > 0.5) & (k < 0.5 * np.pi * r["N"] / (r["box"] * 1e3)) & (E0 > 0)
+            kf, kN = 2 * np.pi / (r["box"] * 1e3), np.pi * r["N"] / (r["box"] * 1e3)
+            sel = (k > min(0.5, 4 * kf)) & (k < 0.5 * kN) & (E0 > 0)  # the inertial range of C26 (0.5 < k < kN/2), or 4 k_f .. kN/2 at low N
             dE = float(np.max(np.abs(E[sel] / E0[sel] - 1))) if sel.any() else float("nan")
             dxHI = dT = float("nan")
             pz = min(ref_pr, key=lambda z: abs(z - r["z"]))
@@ -141,7 +142,7 @@ def analyse(a):
                 x0, x1 = np.array(ref_pr[pz]["xHI"]), np.array(pv[0]["xHI"])
                 T0, T1 = np.array(ref_pr[pz]["T"]), np.array(pv[0]["T"])
                 dxHI = float(np.max(np.abs(x1 - x0)))
-                dT = float(np.max(np.abs(T1 / T0 - 1)))
+                dT = float(np.max(np.abs(T1[T0 > 0] / T0[T0 > 0] - 1))) if np.any(T0 > 0) else float("nan")  # T = 0 at the turn-on output
             table.append(dict(variant=v, z=r["z"], v2=r["v2"], v2_ref=R["v2"], dE_max=dE, dxHI_max=dxHI, dT_max=dT))
     with open(os.path.join(outdir, "t4_coupling.json"), "w") as f:
         json.dump(table, f, indent=1)

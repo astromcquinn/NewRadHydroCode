@@ -41,7 +41,8 @@ MYR = 3.156e13
 
 
 def params_of(run):
-    for p in (os.path.join(run, "params.txt"), os.path.join(run, "..", "params.txt")):
+    for p in (os.path.join(run, "params.txt"), os.path.join(run, "..", "params.txt"),
+              os.path.join(run, "..", "prob", "params.txt")):  # t4_coupling.py: ROOT/prob and ROOT/<variant>
         if os.path.exists(p):
             d = {}
             for line in open(p):
@@ -50,7 +51,7 @@ def params_of(run):
                     k, v = line.split("=", 1)
                     d[k.strip()] = v.strip()
             return d
-    sys.exit(f"{run}: no params.txt in it or above it")
+    sys.exit(f"{run}: no params.txt in it, above it or in ../prob")
 
 
 def stats(fn):

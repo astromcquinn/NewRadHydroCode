@@ -344,7 +344,9 @@ def main():
                   f"plane_z_re = {a.plane_z_re:g}",
                   "# every photoionisation consumes its photon (self-shielding of dense cells;",
                   "# the original's rho_source factor is off)",
-                  "photon_consume_dense = 1"]
+                  "photon_consume_dense = 1",
+                  "# the hydro steps end exactly on the zdata1 outputs (the same times for every step cap)",
+                  "land_outputs = 1"]
         if a.plane_alpha != 1.5:
             lines.append(f"plane_alpha = {a.plane_alpha:g}")
     if a.dt_max_myr > 0:

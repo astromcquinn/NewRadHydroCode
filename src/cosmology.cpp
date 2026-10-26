@@ -239,6 +239,9 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
         if (a + da_cap > a_re) da_cap = a_re - a;
       }
     }
+    // land_outputs = 1: the step ends on the next zdata1 output (land_a)
+    if (cfg.land_outputs && cfg.land_a > 0 && a < cfg.land_a * (1 - 1e-9) && a + da_cap > cfg.land_a)
+      da_cap = cfg.land_a - a;
     if (caps && cfg.rt_substeps_max > 0) {
       // dl_c(da) = 2c/(H0 h sqrt(om)) (sqrt(a+da) - sqrt(a)) = nmax dl_sub / cscale
       const double dl_sub = cfg.box / hubble0 * Mpc2cm / cfg.Nrt * cfg.rt_cells_per_substep;

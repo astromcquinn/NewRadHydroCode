@@ -1310,6 +1310,8 @@ int main(int argc, char** argv) {
 
       calc_sim_var(cfg, s.clk, s.units);
       apply_sched();
+      // land_outputs = 1: the step ends on the next zdata1 output (config.hpp)
+      s.cfg.land_a = (cfg.land_outputs && idata1 <= Ndata1) ? adata1[idata1 - 1] : 0.0;
       const TimestepInfo ti =
           calc_timestep(cfg, s.units, TimestepMode::Original, 0.0, s.clk, out);
       // Set IO flags (calc_timestep)

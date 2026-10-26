@@ -28,8 +28,10 @@ Checks (each exits 1 on failure):
             ionised column x_I(t) (cells) follows the photon budget
             dx/dt = [F - alpha_B(T) n_e n_HII x] / (n_H + n_He) to 5 per
             cent once x_I > 3 cells (c_reduced = 1, the front at ~0.03 c);
-            (and at 100x the mean density with t_rec ~ 24 Myr over 2.3 t_rec, to
-            15 per cent: alpha_B at the interior temperature, He at the H rate);
+            (at 100x the mean density with t_rec ~ 24 Myr over 2.3 t_rec: the
+            H column equals the code's photoionisations + collisional
+            ionisations - recombinations, and the effective recombination
+            coefficient is case B at the interior temperature to a factor 1.5);
             with c_reduced = 0.1 and 100x the flux the front is limited by
             the reduced speed of light and moves at c_hat (to 10 per cent).
   conserve  Photon conservation (the front and slab runs): per hydro step
@@ -265,7 +267,7 @@ def budget_run(driver, work, name, spec, N, box, z, g12, delta, nsub, nsteps, c_
     out = run(driver, prob, prob + "_run")
     F = parse(os.path.join(out, "plane_spectrum.txt"))["flux"][0]  # this run's flux (Gamma_-12 = g12)
     nH, nHe = delta * u["nH_avg"], delta * u["nHe_avg"]
-    t, col, inflight, Tion, rec = [0.0], [0.0], [0.0], [], [0.0]
+    t, col, colH, inflight, Tion, bal, rec = [0.0], [0.0], [0.0], [0.0], [], [0.0], [0.0]
     sec = 0.0
     for n in range(1, nsteps + 1):
         sd = os.path.join(out, f"step_{n:04d}")
@@ -275,11 +277,14 @@ def budget_run(driver, work, name, spec, N, box, z, g12, delta, nsub, nsteps, c_
         t.append(sec)
         xH, xHe = columns(sd, N)
         col.append(xH + xHe)
-        # the code's own recombinations of the step (rt_stats nrec: per atom
-        # of the species, averaged over the box) as a column in H-atom cells
-        # (per atom of the species at the MEAN density, averaged over the box:
-        # the column in cells of the local n_H = delta <n_H> is nrec N / delta)
-        rec.append(rec[-1] + (st["nrec"][0] + st["nrec"][1] * nHe / nH) * N / delta)
+        colH.append(xH)
+        # the code's running totals of H photoionisations, collisional
+        # ionisations and recombinations (rt_stats nion, ncol, nrec: per H
+        # atom at the mean density, averaged over the box; cumulative over the
+        # run), as columns in cells of the local n_H = delta <n_H>: N / delta
+        f = N / delta
+        bal.append((st["nion"][0] + st["ncol"][0] - st["nrec"][0]) * f)
+        rec.append(st["nrec"][0] * f)
         # photons in flight: per <nH> per cell volume, over N^2 face cells -> a column in cells of n_H
         inflight.append(s2["ngam_rays_total"][0] / N ** 2 / delta)
         fHI = field(sd, "fHI", N)
@@ -297,28 +302,24 @@ def budget_run(driver, work, name, spec, N, box, z, g12, delta, nsub, nsteps, c_
             x += (F - alpha * ne * nH * x * u["len_rt"]) / nH / u["len_rt"] * dt
         pred.append(x - inflight[i])
     pred = np.array(pred)
-    rec = np.array(rec)
-    # the budget with the code's own recombinations: photons that left the
-    # rays = ionisations + recombinations (photon conservation in a
-    # recombining medium), and the effective recombination coefficient
-    # alpha_eff = recombinations / (n_e n_H x dt) over the run against the
-    # case B fit at the interior temperature
-    pred_code = F * t / (nH * u["len_rt"]) - inflight - rec
+    colH, bal, rec = np.array(colH), np.array(bal), np.array(rec)
     sel = col > 3
     err = np.abs(col[sel] / pred[sel] - 1)
-    err_code = np.abs(col[sel] / pred_code[sel] - 1)
     lS = F / (alpha * ne * nH) / u["len_rt"]
     print(f"    {name}: t [Myr] {np.round(t[1:] / 3.156e13, 2)}\n    column {np.round(col[1:], 2)}\n    budget {np.round(pred[1:], 2)}"
           f"  (T_ion = {Tm:.0f} K, Stromgren length {lS:.1f} cells, t_rec = {1 / (alpha * ne) / 3.156e13:.1f} Myr)")
-    check(sel.sum() >= 3 and np.max(err_code) < 0.03,
-          f"{name}: the ionised column = (photons off the rays - the code's recombinations)/n_H to 3 per cent ({np.max(err_code) if sel.any() else -1:.3f})")
+    # the H column against the code's running totals: photoionisations +
+    # collisional ionisations - recombinations (the units of the statistics)
+    errb = np.abs(colH[sel] / bal[sel] - 1)
+    check(sel.sum() >= 3 and np.max(errb) < 0.01, f"{name}: the H column = (nion + ncol - nrec)/n_H of rt_stats to 1 per cent ({np.max(errb) if sel.any() else -1:.4f})")
     if rec[-1] > 0.5:
-        # the recombination integral int n_e n_H x dt with the measured column
+        # the effective recombination coefficient of the run, alpha_eff =
+        # recombinations / int n_e n_H x dt with the measured column, against
+        # case B at the mean interior temperature (which varies along the
+        # column and in time; the fit is accurate to ~10 per cent)
         integ = np.sum(0.5 * (col[1:] + col[:-1]) * u["len_rt"] * nH * ne * np.diff(t))
         alpha_eff = rec[-1] * nH * u["len_rt"] / integ
-        # the interior cools along the column and in time (alpha_B ~ T^-0.7):
-        # a factor 3 around the fit at the mean interior temperature
-        check(1 / 3 < alpha_eff / alpha < 3, f"{name}: alpha_eff = {alpha_eff:.2e} cm^3/s within a factor 3 of case B at T_ion ({alpha:.2e}); the budget with the fit is off by {np.max(err):.3f}")
+        check(1 / 1.5 < alpha_eff / alpha < 1.5, f"{name}: alpha_eff = {alpha_eff:.2e} cm^3/s within a factor 1.5 of case B at T_ion ({alpha:.2e}); the photon budget with the fit and without collisional ionisations is off by {np.max(err):.3f}")
     else:
         check(sel.sum() >= 3 and np.max(err) < tol, f"{name}: the ionised column follows the photon budget to {tol * 100:.0f} per cent ({np.max(err) if sel.any() else -1:.3f})")
     check(col[-1] < N - 2, f"{name}: the front has not reached the far face")

@@ -46,7 +46,8 @@ H0_CGS, MPC = 3.24086e-18, 3.08560e24
 
 def params_of(run):
     """params.txt of the problem: run/../params.txt or run/params.txt."""
-    for p in (os.path.join(run, "params.txt"), os.path.join(run, "..", "params.txt")):
+    for p in (os.path.join(run, "params.txt"), os.path.join(run, "..", "params.txt"),
+              os.path.join(run, "..", "prob", "params.txt")):  # t4_coupling.py: ROOT/prob and ROOT/<variant>
         if os.path.exists(p):
             d = {}
             for line in open(p):
@@ -55,7 +56,7 @@ def params_of(run):
                     k, v = line.split("=", 1)
                     d[k.strip()] = v.strip()
             return d
-    sys.exit(f"{run}: no params.txt in it or above it")
+    sys.exit(f"{run}: no params.txt in it, above it or in ../prob")
 
 
 def ztag(z):
@@ -84,7 +85,13 @@ def outputs(run):
             out.append((float(m.group(1)), p))
     if not out:
         sys.exit(f"{run}: no u_gas output (fields = ...,u_gas or data_files = gas|all)")
-    return sorted(out, key=lambda t: -t[0])
+    # one output per redshift (a step's u_gas.bin and Gas/u_gas.<ztag> are the same state)
+    seen, uniq = set(), []
+    for z, p in sorted(out, key=lambda t: -t[0]):
+        if round(z, 4) not in seen:
+            seen.add(round(z, 4))
+            uniq.append((z, p))
+    return uniq
 
 
 def velocity(path, N, z, box, weight):
