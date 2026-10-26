@@ -158,7 +158,8 @@ add_library(radray_halos
   src/halo_sources.cpp
   src/halo_capi.cpp
   src/mass_function.cpp
-  src/abundance_matching.cpp)
+  src/abundance_matching.cpp
+  src/xray_background.cpp)
 target_link_libraries(radray_halos PUBLIC radray)
 add_executable(find_halos apps/find_halos.cpp)
 target_link_libraries(find_halos PRIVATE radray_halos)
@@ -242,3 +243,7 @@ add_executable(am_fit apps/am_fit.cpp)
 target_link_libraries(am_fit PRIVATE radray_halos)
 add_executable(hmf_table apps/hmf_table.cpp)
 target_link_libraries(hmf_table PRIVATE radray_halos)
+# The X-ray background of xray_heating = 1, and a one-zone thermal history
+# (docs/xray_heating.md)
+add_executable(xray_bkg apps/xray_bkg.cpp)
+target_link_libraries(xray_bkg PRIVATE radray_halos)

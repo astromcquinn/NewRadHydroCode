@@ -377,6 +377,10 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   z < 15; `docs/plane_parallel.md`), applied in the RT cell physics; the
   default 0 keeps every reference. **User decision 2026-10-22: the first
   runs are unheated; preheating is added later.**
+  A physical alternative to the floor now exists: the uniform X-ray
+  background of `xray_heating = 1`, from the source model's SFR
+  (`docs/xray_heating.md`, 2026-10-26); its one-zone IGM reaches 100 K and
+  1000 K at z ≈ 10 for log L_X/SFR ≈ 40.5 and 41.5.
 * **Runtime cosmology and z_init** (§4.1 item 5).
 * Cooling stays on in the dense gas (the Stage F decision) with the sink
   above a few thousand × mean; C26 had no sink and no star formation in

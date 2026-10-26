@@ -69,6 +69,11 @@ double MassFunction::dndlnM(double M, double z, Kind kind) const {
   const double eps = 0.02;
   const double s1 = sigma0(M * std::exp(-eps)), s2 = sigma0(M * std::exp(eps));
   const double dlnsinv_dlnM = -(std::log(s2) - std::log(s1)) / (2 * eps);
+  return dndlnM_sigma(M, s, dlnsinv_dlnM, z, kind);
+}
+
+double MassFunction::dndlnM_sigma(double M, double s, double dlnsinv_dlnM, double z,
+                                  Kind kind) const {
   const double nu = kDeltaC / s;
   double f;
   if (kind == Kind::PressSchechter) {

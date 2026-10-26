@@ -68,6 +68,7 @@ At the start of a session, read:
 | `apps/radhydro.cpp` | full `radhydro.f90` loop (`docs/full_run.md`) |
 | `apps/find_halos.cpp` | FoF on a snapshot (`docs/halos_and_sources.md`) |
 | `apps/am_fit.cpp`, `apps/hmf_table.cpp` | abundance matching fit and analytic mass functions (`docs/abundance_matching.md`) |
+| `src/xray_background.cpp`, `apps/xray_bkg.cpp` | X-ray preheating background from the source model's SFR, `xray_heating` (`docs/xray_heating.md`) |
 | `data/hmf`, `data/uv_lf` | fitted FoF mass function and UV LF parameters used by the sources |
 | `reference/harness` | gfortran RT reference |
 | `reference/harness_hydro` | gfortran hydro reference |

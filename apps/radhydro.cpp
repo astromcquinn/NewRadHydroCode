@@ -61,6 +61,7 @@
 #include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
+#include "radray/xray_background.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/rt_tensor_diag.hpp"
 #include "radray/simulation.hpp"
@@ -149,6 +150,8 @@ struct RunParams {
   std::string data_files = "all";
   // Sources
   HaloSourceParams halo;
+  // X-ray background heating (xray_*; docs/xray_heating.md); off by default
+  XrayParams xray;
   std::string ics;          // directory of xv_dm.init/u_gas.init
   // Output and control
   int fields_every = 0;     // write fields every n steps (0: never)
@@ -352,7 +355,7 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ray_quant.structural = std::stoi(val) != 0;
   else if (key == "ray_quant_offbits")
     P.ray_quant.offbits = std::stoi(val);
-  else if (!set_halo_param(P.halo, key, val))
+  else if (!set_xray_param(P.xray, key, val) && !set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
       (key == "legacy_physics" && P.legacy_physics != 0 && P.legacy_physics != 1))
@@ -693,6 +696,43 @@ int main(int argc, char** argv) {
         throw std::runtime_error(
             "gammaHI_avg (the substep-averaged Gamma_HI) is implemented for rt_backend = serial only");
       s.gamma_avg.on = true;
+    }
+    // xray_heating = 1 (docs/xray_heating.md): a uniform X-ray background
+    // from the SFR of the abundance-matched source model. Its rates are
+    // computed once per hydro step with RT, at the middle of the step, with
+    // the box's mass-weighted absorber fractions; Log/xray.txt lists them.
+    std::unique_ptr<XrayBackground> xbg;
+    std::ofstream xraylog;
+    if (P.xray.on) {
+      if (use_amrex(cfg) || cfg.amrex_state)
+        throw std::runtime_error("xray_heating is implemented for rt_backend = serial only");
+      xbg = std::make_unique<XrayBackground>(P.xray, P.halo.model);
+      if (io) {
+        xraylog.open(odir + "/Log/xray.txt", logmode);
+        if (restart_from.empty())
+          xraylog << "# step z sfrd[Msun/yr/Mpc^3] eps_X[erg/s/Mpc^3] xHI xHeI xHeII"
+                     " gamma_HI gamma_HeI gamma_HeII[1/s] phi_HI phi_HeI phi_HeII[erg/s]\n";
+      }
+      s.xray.on = true;
+      s.xray_hook = [&xbg, &xraylog](Simulation& sim) {
+        // radiative_transfer has reset the clock to the start of the step
+        const double a = sim.clk.scalefactor + sim.clk.da_sim / 2;
+        double xf[3];
+        box_ion_fractions(sim, xf);
+        const XrayRates r = xbg->rates(1 / a - 1, xf);
+        for (int j = 0; j < 3; ++j) {
+          sim.xray.gamma[j] = r.gamma[j];
+          sim.xray.phi[j] = r.phi[j];
+        }
+        if (xraylog.is_open()) {
+          xraylog << sim.clk.istep << std::setprecision(8) << " " << r.z << " " << r.sfrd << " "
+                  << r.eps;
+          for (int j = 0; j < 3; ++j) xraylog << " " << r.xfrac[j];
+          for (int j = 0; j < 3; ++j) xraylog << " " << r.gamma[j];
+          for (int j = 0; j < 3; ++j) xraylog << " " << r.phi[j];
+          xraylog << "\n" << std::flush;
+        }
+      };
     }
 
     Domains gdom;
