@@ -202,7 +202,9 @@ def main():
     if rows:
         k = np.array(rows[-1]["k"])
         E = np.array(rows[-1]["E"])
-        i0 = int(np.argmin(np.abs(k - 2.0)))
+        # anchored at k = 2 h/kpc when the grid reaches it, else at the middle of its range
+        kk0 = 2.0 if k.max() > 4.0 else np.sqrt(k[E > 0].min() * k[E > 0].max())
+        i0 = int(np.argmin(np.abs(k - kk0)))
         if E[i0] > 0:
             kk = np.array([k[i0] / 4, k[i0] * 4])
             ax.loglog(kk, E[i0] * (kk / k[i0]) ** (-5 / 3), color="0.5", lw=0.8, label=r"$k^{-5/3}$")
