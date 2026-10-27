@@ -1538,6 +1538,45 @@ be designed); `recomb_rad` on the backend (block emission and
   1/(1 + √fgam): the parent absorbs what the ray loses) are the defaults.
   Evidence: `docs/stage_f.md` §3, "Rays at the level faces".
 
+## Stage G thread (2026-10-22): gravity on the hierarchy (`pm_level_solve`)
+
+* **Request (user):** WP3 of `docs/zoom_turbulence.md` §4.3: particles on
+  the finest level covering them, the CIC deposit per level, the level
+  Poisson solve with AMReX MLMG (MLPoisson) and Dirichlet boundaries from
+  the parent's potential, the 4-point gradient and the per-level kick;
+  level 0 keeps the FFT, bitwise. Behind a flag (`pm_level_solve`, default
+  off) with `pm_gas_levels` kept as the comparison; deterministic across
+  rank counts. Tests: the Ewald single-particle force on a refined level,
+  the refined-everywhere run against the uniform 2N run, momentum
+  conservation, rank independence and restart; then T1 of §5. Profile the
+  solve at 128³ with two levels on klone.
+* **Implementer's choices** (`docs/stage_g.md`): one particle container
+  with the hierarchy's levels (AMReX's Redistribute by level, the AMReX
+  position at the finest level's resolution); deposits in density units
+  with per-level fixed-point bits; the [1, 3, 3, 1]/8 restriction (the
+  parent CIC's spectrum; the plain mean of the children made the coarse
+  source NGP-like and gave 5–8 % far-field force errors); the fine CIC
+  mass that falls outside a level lumped into the adjacent parent cells;
+  MLMG with a fixed number of V-cycles, the smoother as the bottom solver
+  and a multigrid depth fixed by the blocking factor (no dot products:
+  bitwise layout-independent), `setEnforceSingularSolvable(false)`;
+  tri-quadratic interpolation of the parent's potential into a level's
+  ghost cells; the kicked momenta averaged down as in `pm_gas_levels`.
+  More particles than base-mesh cells allowed (the T1 test: 128³
+  particles on a 32³ base). AMReX built with its linear solvers
+  (`amrex-26.10-mlmg` on klone).
+* **klone profile:** submitted by the user (2026-10-24), results in
+  `docs/stage_g.md` §5.1; it led to `pm_mlmg_bottom_sweeps` (default 64,
+  an implementer's choice: AMReX's 8 bottom sweeps stalled a level whose
+  width has an odd factor).
+* **Decision (user, 2026-10-23): no composite (two-way) solve**, at
+  least for now and probably not at all: the level solve is what Enzo and
+  RAMSES use; its cost is the momentum change across level boundaries
+  (5e-4 of the summed gas |Δp| per step with a region) and a self-force
+  of 4e-6 of the force at one cell near a boundary (`docs/stage_g.md`
+  §1.1, §3), to be revisited only if the zoom runs show the region's
+  boundary doing something unphysical.
+
 ## Zoom-in turbulence programme (2026-10-22)
 
 * **Request (user):** a plan to zoom repeatedly on one region of the box
