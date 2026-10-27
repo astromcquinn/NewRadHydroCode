@@ -169,7 +169,8 @@ needs no data file, but the table must be regenerated if the cosmology
 becomes a runtime parameter (`docs/zoom_turbulence.md` §4.1).
 
 **Not supported:** `amrex_state = 1` (the gas lives on the levels between
-steps) is refused.
+steps) and refined hydro levels (`hydro_backend = amrex`, `amrex_max_level
+> 0`) are refused: the Compton step acts on the host gas grid only.
 
 ### Results
 

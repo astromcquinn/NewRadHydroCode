@@ -25,7 +25,9 @@ User decisions: a new key (not `legacy_physics`), and a lower floor.
   supersonic cells in the unsplit dual-energy hydro: without Compton
   14% (64³) and 6% (128³) of cells below 0.1× their adiabat by z ≈ 18;
   with recfast ≲ 1% at 128³. A separate task (`docs/thermal_history.md` §4).
-- `amrex_state = 1` refuses `thermal_init = recfast`.
+- `thermal_init = recfast` is refused with `amrex_state = 1` (the
+  production backend configuration) and with refined hydro levels: the
+  Compton step acts on the host gas grid only.
 
 ## Done 2026-10-26: the thermal history before heating (branch `xray-preheating`)
 

@@ -718,8 +718,12 @@ int main(int argc, char** argv) {
     // from the SFR of the abundance-matched source model. Its rates are
     // computed once per hydro step with RT, at the middle of the step, with
     // the box's mass-weighted absorber fractions; Log/xray.txt lists them.
-    if (cfg.thermal_init == 1 && cfg.amrex_state)
-      throw std::runtime_error("thermal_init = recfast is implemented for amrex_state = 0 only");
+    // the residual-electron Compton step acts on the host gas grid only: not
+    // on the levels of amrex_state = 1, nor on refined hydro levels
+    if (cfg.thermal_init == 1 && (cfg.amrex_state || (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0)))
+      throw std::runtime_error(
+          "thermal_init = recfast is implemented for the host gas grid only (amrex_state = 0, no refined "
+          "hydro levels)");
     std::unique_ptr<XrayBackground> xbg;
     std::ofstream xraylog;
     if (P.xray.on) {
