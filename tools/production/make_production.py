@@ -349,6 +349,8 @@ def main():
                   "land_outputs = 1"]
         if a.plane_alpha != 1.5:
             lines.append(f"plane_alpha = {a.plane_alpha:g}")
+    if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
+        lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
     if a.dt_max_myr > 0:
         lines.append(f"dt_max_myr = {a.dt_max_myr:g}")
     if a.rt_substeps_max > 0:

@@ -4,7 +4,7 @@ front crosses the box (docs/zoom_turbulence.md section 4.4)?
 
 usage: t4_coupling.py make    ROOT [--N 64 --box 0.25 --z-re 7 --gamma12 0.3 --seed 7]
        t4_coupling.py run     ROOT --exe build/radhydro [--threads 4] [--variants base,dt100,...]
-       t4_coupling.py analyse ROOT [--outdir ROOT/t4]
+       t4_coupling.py analyse ROOT [--outdir ROOT/t4] [--ref sub]
 
 The problem: the C1 set-up of docs/zoom_turbulence.md section 3b at N^3
 (tools/production/make_production.py --plane-parallel: 0.25 Mpc/h, 8^3 RT
@@ -112,8 +112,9 @@ def analyse(a):
     outdir = a.outdir or os.path.join(a.root, "t4")
     os.makedirs(outdir, exist_ok=True)
     variants = [v for v in a.variants.split(",") if os.path.isdir(os.path.join(a.root, v))]
-    if "sub" not in variants:
-        sys.exit("analyse needs the `sub` variant as the reference")
+    ref = a.ref
+    if ref not in variants:
+        sys.exit(f"analyse needs the reference variant `{ref}` (--ref)")
     specs = [f"{os.path.join(a.root, v)}:{v}" for v in variants]
     subprocess.check_call([sys.executable, os.path.join(HERE, "velocity_power.py")] + specs +
                           ["--outdir", outdir, "--json", os.path.join(outdir, "ek.json"), "--no-fig"])
@@ -121,8 +122,8 @@ def analyse(a):
                           ["--outdir", outdir, "--json", os.path.join(outdir, "front.json"), "--no-fig"])
     ek = json.load(open(os.path.join(outdir, "ek.json")))
     fr = json.load(open(os.path.join(outdir, "front.json")))
-    ref_ek = {round(r["z"], 2): r for r in ek if r["label"] == "sub"}
-    ref_pr = {round(p["z"], 2): p for p in fr["profiles"] if p["label"] == "sub"}
+    ref_ek = {round(r["z"], 2): r for r in ek if r["label"] == ref}
+    ref_pr = {round(p["z"], 2): p for p in fr["profiles"] if p["label"] == ref}
     table = []
     for v in variants:
         for r in [x for x in ek if x["label"] == v]:
@@ -146,7 +147,7 @@ def analyse(a):
             table.append(dict(variant=v, z=r["z"], v2=r["v2"], v2_ref=R["v2"], dE_max=dE, dxHI_max=dxHI, dT_max=dT))
     with open(os.path.join(outdir, "t4_coupling.json"), "w") as f:
         json.dump(table, f, indent=1)
-    lines = ["# variant z <v^2>[(km/s)^2] <v^2>_sub max|E/E_sub-1| (0.5<k<kN/2) max|xHI-xHI_sub| max|T/T_sub-1|"]
+    lines = [f"# variant z <v^2>[(km/s)^2] <v^2>_{ref} max|E/E_{ref}-1| (0.5<k<kN/2) max|xHI-xHI_{ref}| max|T/T_{ref}-1|"]
     for t in table:
         lines.append(f"{t['variant']:6s} {t['z']:.3f} {t['v2']:10.4g} {t['v2_ref']:10.4g} {t['dE_max']:8.3f} {t['dxHI_max']:8.3f} {t['dT_max']:8.3f}")
     open(os.path.join(outdir, "t4_coupling.txt"), "w").write("\n".join(lines) + "\n")
@@ -166,9 +167,9 @@ def analyse(a):
             pp = [p for p in fr["profiles"] if p["label"] == v and abs(p["z"] - z) < 0.05]
             if rr:
                 k, E = np.array(rr[0]["k"]), np.array(rr[0]["E"])
-                axs[0, j].loglog(k[E > 0], E[E > 0], ls=styles.get(v, "-"), lw=2 if v == "sub" else 1, label=v)
+                axs[0, j].loglog(k[E > 0], E[E > 0], ls=styles.get(v, "-"), lw=2 if v == ref else 1, label=v)
             if pp:
-                axs[1, j].semilogy(np.maximum(pp[0]["T"], 1), ls=styles.get(v, "-"), lw=2 if v == "sub" else 1, label=v)
+                axs[1, j].semilogy(np.maximum(pp[0]["T"], 1), ls=styles.get(v, "-"), lw=2 if v == ref else 1, label=v)
         axs[0, j].set_title(f"z = {z}")
         axs[0, j].set_xlabel("k [h/kpc]")
         axs[0, j].set_ylabel("E(k) [(km/s)^2 kpc/h]")
@@ -195,6 +196,7 @@ def main():
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--outdir", default=None)
+    ap.add_argument("--ref", default="sub", help="the reference variant of analyse (default sub)")
     a = ap.parse_args()
     {"make": make, "run": run, "analyse": analyse}[a.phase](a)
 

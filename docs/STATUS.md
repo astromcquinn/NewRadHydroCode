@@ -55,8 +55,29 @@ open questions and the implementation choices are in `docs/PLAN.md`,
   with `--ref` for digitised C26 points), `tools/analysis/t4_coupling.py`
   (the T4 test: make / run / analyse), `tools/hyak/c1_ladder.sh` (the C1
   ladder 64³–512³ and the T4 variants on klone).
-* **T4 and C1:** see "T4 and C1 results" below (in progress at the time
-  of writing; added as they come).
+* **C1, the local 64³ rung** (the cloud container; klone has no route
+  from here, so the ladder's 128³–512³ runs are launched by the user with
+  `tools/hyak/c1_ladder.sh make|run|post`; the figure and data of the 64³
+  rung are `docs/figures/plane_c1_N64_ek.png`, `docs/data/plane/c1_N64_*`):
+  0.25 Mpc/h, 64³ gas and DM (Δx = 3.9 kpc/h), Zel'dovich ICs from z =
+  100, z_re = 7, Γ_−12 = 0.3, 8³ domains of 8 cells from +x and +y, the
+  schedule 0.1 c → 0.01 c at x_HI,V = 1 %, cooling on, no preheating, to
+  z = 3.94 (2063 RT substeps, 15 min of RT on 2 threads after a restart).
+  The fronts cross the box in the first RT step (z = 7 → 6.64, 56 Myr,
+  2411 substeps): x_HII,V = 0.99997 and T_M = 17 900 K at its end (DM20:
+  about 2 × 10⁴ K behind the fronts), then the schedule drops ĉ to 0.01 c
+  (30–100 substeps per step) and the gas cools to T_M = 7300 K at z =
+  3.9; after the crossing only 10⁻⁴ of the emitted photons are absorbed
+  (the rest leave at the far faces). E(k): ⟨v²⟩ rises from 9 to 51
+  (km/s)² between z = 7 and 6, the spectrum steepens from k^−3.6 to k^−5
+  over 0.3 < k < 3 h/kpc and never shows a k^−5/3 range, as C26 Fig. 3
+  (bottom) finds at Δx ≥ 0.5 kpc/h; the rung at 512³ (0.49 kpc/h) is
+  where C26 sees the onset. The C26 curves themselves are not in the
+  repository (`velocity_power.py --ref` takes a digitised k, E(k) table).
+  This run was made before `land_outputs` existed, so its outputs are at
+  the first step past each redshift (z = 6.64 instead of 6.9, …); the
+  klone problems land on them.
+* **T4:** see "T4 results" below.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
