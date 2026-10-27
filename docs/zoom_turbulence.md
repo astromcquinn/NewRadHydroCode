@@ -242,6 +242,21 @@ Sizes: a level-8 region of 1024³ with a 128-cell pad is 1280³ complex
 arrays, about 35 GB per field in double; the generator runs on one klone
 node in an hour, like the 1024³ ICs today (293 GB, 10 min).
 
+**Status (2026-10-23, thread D, branch `zoom-ics`):** built as
+`tools/ics/music_convert.py` (MUSIC's generic HDF5 → `xv_dm.init`,
+`u_gas.init`, `u_gas.init.L<l>`, `xv_dm.L<l>`, `ics_levels.txt`) and
+`tools/ics/music_ladder.py` (the ladder's configurations), with T0, the
+ladder check and a fast-suite zoom (`tools/ics/music/README.md`; decisions
+in `docs/PLAN.md`). Two corrections to the text above: MUSIC2 constrains a
+level's noise to its parent by Fourier splicing over the level's patch,
+not by the block-mean rule of step 1, so the ladder property needs every
+rung to put each shared level on the same grid (the generator does); and
+the fast suite uses a committed MUSIC zoom (895 KB) instead of a built-in
+nest in `make_ics.py`. The amplitude and velocities follow the code's
+growth (step 5): with CAMB's velocity columns the CDM moves at 0.92× the
+code's growing mode at z = 300 and the gas lags (0.74× at k = 50 h/Mpc,
+0.06× at 2500), CAMB's physics rather than the code's single-fluid growth.
+
 ### 4.2 WP2: static zoom levels
 
 * **Tagging by particle mass class** instead of fixed boxes: a level-l

@@ -1578,3 +1578,56 @@ be designed); `recomb_rad` on the backend (block emission and
   voids at ~0.2 K at z ≈ 6, while bounding the unsplit hydro's
   numerically over-cooled cells; `docs/thermal_history.md` §4).
 
+## Zoom ICs from MUSIC, thread D (2026-10-23, branch `zoom-ics`)
+
+The converter `tools/ics/music_convert.py` and the ladder generator
+`tools/ics/music_ladder.py` (`tools/ics/music/README.md`). Decisions taken
+in the thread; **confirmed by the user on 2026-10-23**, including the
+ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
+
+* **Amplitude and velocities from the code's growth (as asked).** MUSIC
+  normalises σ₈ today and scales back with its own growth, which has no
+  radiation (Ω_r = 0 in its log; D₊ at z = 300 is 6 % below the code's,
+  f = 1.000 against the code's 0.944). The converter multiplies every field
+  by r_D = D_code(a)/D_MUSIC(a) (MUSIC's computed from the exact integral and
+  checked against its log), so the fields carry σ₈ evolved back with the
+  code's growth, as `make_ics.py` does. Velocities: without velocity
+  transfer functions (Eisenstein–Hu) v = (dD/dτ)/D × displacement, the
+  code's growing mode exactly; with CAMB's v_CDM, v_b columns (which carry
+  f(k) at z_start) v = (d ln a/dτ) × MUSIC's velocity displacement, i.e.
+  CAMB's f(k) with the code's H(a) (using (dD/dτ)/D there would count f
+  twice).
+* **Ndm = Ngas = N on every level**, one particle per MUSIC cell; the base
+  `xv_dm.init` keeps all N³ particles so the code reads it as today, and
+  the finer classes (`xv_dm.L<l>`, the cells not covered by the next level)
+  supersede the base particles under level 1 (`ics_levels.txt`). Velocities
+  of every level in level-0 cell units (the AMReX hierarchy's convention).
+* **Cosmology until thread C:** a preset (`original`, `planck_c26`) or the
+  five keys `omegam omegab hubble0 sigma8 ns` (`pmcosmo.Cosmology`, the
+  names thread C is to read from params.txt); the converter refuses a MUSIC
+  run made for another cosmology and writes the target into
+  `ics_info.txt`. The code itself does not yet check `ics_info.txt`
+  (thread C).
+* **The ladder: the region is given once, at the deepest level**
+  (`--ladder-max`), and every rung's grids follow from it by MUSIC's own
+  coarsening rule, the finest one written exactly (`ref_center` +
+  `ref_dims`). Reason: MUSIC2 constrains a level's noise to its parent by
+  Fourier splicing over the level's whole patch, so the noise depends on the
+  grid; with `ref_extent` at each rung's own levelmax (as `zoom_z3.conf` was
+  written) Z1's level 13 would be a different grid from Z3's and its noise
+  redrawn. With the generator the shared levels are identical (noise to
+  1e-15, the gas outside the deeper rung's new level bit for bit). A rung's
+  finest region is therefore the deepest region plus the shells of the
+  levels below it: Z1 = level 13 over 96³ cells (0.47 Mpc/h) for the
+  0.3125 Mpc/h Z3 region. **Open (user):** `docs/zoom_turbulence.md` §3's
+  table gives Z1 as 512³ over 2.5 Mpc/h and Z2 as 1024³ over 1.25 Mpc/h,
+  while the README calls Z1 and Z2 `zoom_z3.conf` at levelmax 13 and 15;
+  both cannot hold with an exact ladder (a Z3 that kept a 2.5 Mpc/h level 13
+  would carry 512³ cells there, not a thin shell). The generator does the
+  latter; the former needs per-level minimum extents (a small addition).
+* **Seeds:** seed[l] = seed + 1000 (l − base level) for the zooms (the rule
+  of the hand-written `zoom_z3.conf`); the uniform C ladder keeps one seed
+  at the finest rung's level (`c2_uniform.conf`, MUSIC restricts it down).
+* **Test data:** the fast suite's zoom is a committed MUSIC output packed to
+  `.npz` (895 KB, mantissas rounded to 14 bits; numpy only), not the
+  in-repo nest of §4.1 steps 1–2, which is not built.

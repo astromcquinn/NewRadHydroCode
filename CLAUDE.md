@@ -113,6 +113,11 @@ cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~
 
 ## Working conventions
 
+- **The repository is the public `astromcquinn/NewRadHydroCode`** (since
+  2026-10-26). `NewRadHydroCode-private` is the pre-move archive whose
+  history still holds the Fortran: never push there, and never copy from
+  it. A clone or worktree made before the move has stale commit ids and
+  must be re-pointed before it pushes (`docs/fortran_split.md` §3b).
 - **Branches:** a feature branch and a PR per workstream.
 - **Commits:** end each commit message with the attribution lines the
   harness asks for.
