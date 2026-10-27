@@ -556,7 +556,7 @@ documented but not tested against physics.
 ## 12. The unsplit scheme on the same tests (summary)
 
 `hydro_scheme = unsplit` (`docs/hydro_unsplit.md`; full tables in its §6,
-quirks U1–U6 in its §7). Same problems, references, analysis and tiers;
+quirks U1–U7 in its §7). Same problems, references, analysis and tiers;
 numbers from `results/*_full_unsplit.json`, legacy from `results/*_full.json`.
 
 | test | legacy | unsplit | verdict |

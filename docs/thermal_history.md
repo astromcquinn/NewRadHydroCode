@@ -196,7 +196,7 @@ Same no-source runs as §3, with `thermal_init = recfast`. These runs used
 * Voids now cool adiabatically below 1 K (0.6 K at Δ ≈ 0.35, z = 6); the
   old floor held them at 1 K.
 
-### A numerical over-cooling in the unsplit hydro (open)
+### A numerical over-cooling in the unsplit hydro (fixed behind `dual_e_self = 1`, 2026-10-27)
 
 Lowering the floor uncovers cells far colder than their adiabat. Their
 fraction (T < 0.1 × T_ref(z) Δ^(2/3)) by run:
@@ -218,9 +218,32 @@ fraction (T < 0.1 × T_ref(z) Δ^(2/3)) by run:
 * This is a defect of the dual-energy update in cold, supersonic flow,
   independent of `thermal_init`.
 
-The 0.1 K default floor bounds these cells while leaving physical gas
-alone: voids at Δ ≈ 0.1 are about 0.2 K at z ≈ 6. Fixing the hydro
-itself is a separate task.
+**Cause and fix** (2026-10-27; `docs/hydro_unsplit.md` §7, U7):
+
+* **Cause.** In cells whose pressure comes from E − KE (η₁ < (E − KE)/E_nb
+  < η₂), ρe was updated with the face values and pressure of E − KE, not
+  with its own, so it random-walked: down to the floor (these cells) or
+  up (numerical heating).
+* **Fix.** `dual_e_self = 1` advects ρe with its own e/ρ and its own
+  pressure there. The default (0) keeps today's results byte for byte.
+* **Result.** In the runs above no cell is over-cooled at any redshift,
+  at 64³ and 128³, with floor or `recfast` ICs:
+
+| run | z ≈ 28 | z ≈ 18 | z ≈ 11 | z ≈ 7 |
+|---|---|---|---|---|
+| floor ICs, 64³, default → `dual_e_self = 1` | 5.1 % → 0 | 13.1 % → 0 | 12.9 % → 0 | 10.7 % → 0 |
+| floor ICs, 128³ | 2.4 % → 0 | 5.5 % → 0 | 5.4 % → 0 | 4.6 % → 0 |
+| `recfast`, 64³ | 0 → 0 | 0.2 % → 0 | 1.7 % → 0 | 3.2 % → 0 |
+| `recfast`, 128³ | 0 → 0 | 0.1 % → 0 | 0.9 % → 0 | 1.0 % → 0 |
+
+* **The 64³ warming of §3 was the same defect.** The default's
+  mean-density gas warmed numerically at 64³ (2.7 K at z = 7). With the
+  key it stays within 1.5 % of the floor curve at both resolutions to
+  z ≈ 7.
+
+The 0.1 K default floor of `recfast` bounded these cells while leaving
+physical gas alone (voids at Δ ≈ 0.1 are about 0.2 K at z ≈ 6). With
+`dual_e_self = 1` it no longer has to.
 
 ### Tests
 

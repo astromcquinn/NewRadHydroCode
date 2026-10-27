@@ -9,7 +9,7 @@ stays bit-identical to the Fortran harnesses.*
 Contents: 1. the scheme; 2. the dual-energy formulation (every constant and
 its provenance); 3. how the step sits in the loop; 4. the RT coupling and
 the state; 5. parameters; 6. results of the hydro suite, both schemes side
-by side; 7. quirks of the new scheme (U1–U6); 8. the coupled run; 9. cost;
+by side; 7. quirks of the new scheme (U1–U7); 8. the coupled run; 9. cost;
 10. what the new scheme does worse, and when to use which.
 
 ## 1. The scheme
@@ -284,6 +284,7 @@ stats, the RT, the data files) reads lab-frame values without change.
 | `dual_reset_rule` | 0 | when the pressure comes from ρe: 0 reset E := KE + ρe always; 1 only if that changes E by ≤ η₁E; 2 as 1 or in thermal-dominated cells; 3 only if E − KE ≤ η₁ max_{±1} E; 4 never (Enzo) (§2) |
 | `dual_eta2_local` | 0 | 1: the η₂ test against the cell's own E (Nyx's resync; §2) |
 | `dual_p_old` | 0 | 1: the old-time cell pressure in the −p∇·v work term (Bryan et al. 2014 eq. 43) instead of the Hancock half-step pressure (§2) |
+| `dual_e_self` | 0 | 1: in cells whose pressure comes from E − KE, ρe is advected with its own e/ρ and does the work with its own pressure, so it stays on its adiabat (U7, §7). 0: bit-identical to the scheme before the key |
 
 All drivers (`apps/radhydro`, `apps/hydro_driver`, the suite driver) take
 them in `params.txt` and with `--set`. The run summary prints the
@@ -714,7 +715,7 @@ numbers: the da/a cap sets every step there.
 original `ra_max`. A smaller `ra_max` (0.01–0.02) is a cheap safeguard but
 changes nothing measurable at z ≥ 3.
 
-## 7. Quirks of the unsplit scheme (U1–U6)
+## 7. Quirks of the unsplit scheme (U1–U7)
 
 Flagged like the legacy quirks (`docs/port_notes_hydro.md` §5); none of
 H1–H3, H7–H9, H13 applies to this scheme (`port_notes_hydro.md` §9).
@@ -769,6 +770,171 @@ H1–H3, H7–H9, H13 applies to this scheme (`port_notes_hydro.md` §9).
   (3.9 %, 1.0 %); the unsplit HLLC scheme without transverse corrections
   is the more grid-aligned at 11 cells of radius. Converges at first
   order like the legacy scheme (§6).
+* **U7. The internal energy drifts where the pressure comes from E − KE.
+  Fixed behind `dual_e_self = 1` (2026-10-27).** See below.
+
+### U7: the drift of ρe and `dual_e_self`
+
+*Found 2026-10-27 in the no-source runs of `docs/thermal_history.md` §4,
+where lowering the hydro floor to 0.01 K uncovered cells far colder than
+their adiabat.*
+
+**The mechanism.** A cell with η₁ < (E − KE)/E_nb < η₂ takes its pressure
+from E − KE (the η₁ rule), and ρe is not synchronised to it (the η₂ rule).
+ρe is still evolved, but its update used the selected energy's
+quantities: the specific internal energy of the upwind *face state*,
+which the main reconstruction builds from E − KE, and the cell's Hancock
+pressure, also from E − KE. In such a cell ρe is therefore not evolved as
+itself. Its advection and work terms have the size of E − KE, not of ρe,
+so it random-walks, by a large fraction of its value per step once the
+two differ:
+
+* down to the floor in expansion (the over-cooled cells);
+* up in compression (numerical heating).
+
+When the cell later takes its pressure from ρe again (the neighbourhood's
+E grows, or E − KE falls below η₁), the drifted value takes over, and the
+total-energy reset (rule 0) writes it into E too. The RT, the summaries
+and every analysis read ρe (§4), so they see the drift even while the
+hydro does not.
+
+In the pre-reionisation IGM the band is wide and populated: the typical
+kinetic/thermal ratio is 10³–10⁴, so e/E sits at η₁ = 10⁻³ across the
+box. The evidence that this is the cause:
+
+* in the 64³ run below at z = 17.7, about 92 % of the over-cooled cells
+  take their pressure from E − KE (from the stored state), and their E − KE is a normal thermal energy
+  (KE/(E − KE) ~ 10³);
+* each setting that moves cells into the band makes it worse: with the
+  cell-local η₁ test 20 % of the cells are over-cooled at z = 14 (14 %
+  with the default), and 16 % with `dual_nb_radius = 1`;
+* each setting that empties the band removes it: η₁ = 0.05 gives none,
+  with mean-density gas on its adiabat to 1 %; η₂ = 0.0011 (resync
+  wherever E − KE is used) gives none, but thermalises E's truncation
+  error (mean-density gas at 1.9–26× the adiabat);
+* the CFL number, the old-time pressure (`dual_p_old`) and the reset rule
+  change nothing or little: it is not a time-step or a work-term
+  centring error.
+
+The other candidates were checked too:
+
+* the PM kick (`calc_kick_unsplit`) keeps the selected thermal energy and
+  never changes ρe;
+* the frame fold (`fold_frame`) never acts, since the grid velocity is
+  zero with this scheme.
+
+**The fix, `dual_e_self = 1`.** In a cell whose selected energy is not ρe
+(es ≠ eD):
+
+* ρe is advected with its own specific value e/ρ, reconstructed along
+  the face direction like the species (`scalar_face`) and upwinded with
+  the HLLC mass flux;
+* the work term uses the Hancock pressure times eD/es, the time-centred
+  pressure of ρe itself.
+
+Cells whose pressure comes from ρe are updated exactly as before
+(es = eD: the same face values, ratio 1). The η₁/η₂ rules, the reset, the
+floors and the shock capturing (η₂ synchronisation) are unchanged. In the
+band, ρe now evolves as an adiabatic tracer of the gas between
+synchronisations, which is what the formulation assumes of it.
+
+An earlier variant scaled the face-state values by eD/es instead of
+reconstructing e/ρ. It also removed the over-cooled cells, but it kept
+mean-density gas 1–2 % below its adiabat, because the scaled face values
+carry the noise of E − KE. The scaling was dropped.
+
+* **Code.** `rrh::e_own`, `rrh::e_ratio` and the `own_a`/`own_b`
+  arguments of `rrh::face_all` (`kernels/hydro_mh.hpp`); the serial
+  driver and the AMReX level pass them.
+* **AMReX.** On level 0 the AMReX level is byte-identical to the serial
+  step (test below). On refined levels the coarse/fine ghosts of es and
+  ρe are interpolated separately, so a ghost cell can count as "own" when
+  its parent is not. Only the face value of that ghost differs; there is
+  no serial counterpart to compare with.
+
+**Results.** These are the no-source runs of `docs/thermal_history.md` §4:
+
+* 10 h⁻¹ Mpc, Zel'dovich ICs at z = 100 (seed 7), `zdata1 = 6`;
+* `thermal_floor = 0.01`, so over-cooled cells are not hidden at 1 K;
+* floor ICs (`thermal_init = floor`) unless marked `recfast`.
+
+"Cold" means T < 0.1 × the adiabat T_ref(z) Δ^(2/3), with T_ref the
+floor curve, or RECFAST for `recfast`. p1/p99 are percentiles of
+T/adiabat over the cells with Δ < 3. Mean-density T is the median over
+0.9 < Δ < 1.1, relative to T_ref. Each entry is default → `dual_e_self = 1`:
+
+| run | z | cold | p1 | p99 | mean-density T / T_ref |
+|---|---|---|---|---|---|
+| 64³ | 27.5 | 5.1 % → 0 | 0.001 → 0.92 | 3.9 → 1.11 | 1.011 → 0.995 |
+| 64³ | 17.7 | 13.1 % → 0 | 0.002 → 0.92 | 20 → 1.11 | 1.044 → 0.994 |
+| 64³ | 11.3 | 12.9 % → 0 | 0.003 → 0.91 | 108 → 1.13 | 1.27 → 0.995 |
+| 64³ | 7.1 | 10.7 % → 0 | 0.007 → 0.89 | 622 → 1.17 | 3.14 → 1.003 |
+| 128³ | 27.5 | 2.4 % → 0 | 0.001 → 0.91 | 3.1 → 1.13 | 1.006 → 0.996 |
+| 128³ | 17.7 | 5.5 % → 0 | 0.001 → 0.91 | 14 → 1.13 | 1.013 → 0.995 |
+| 128³ | 11.3 | 5.4 % → 0 | 0.003 → 0.89 | 79 → 1.15 | 1.039 → 0.999 |
+| 128³ | 6.8 | 4.6 % → 0 | 0.008 → 0.85 | 652 → 1.24 | 1.20 → 1.015 |
+| 64³ `recfast` | 11.3 | 1.7 % → 0 | 0.004 → 0.92 | 6.9 → 1.15 | 1.002 → 0.999 |
+| 64³ `recfast` | 7.1 | 3.2 % → 0 | 0.005 → 0.93 | 47 → 1.17 | 1.018 → 1.008 |
+| 128³ `recfast` | 17.7 | 0.14 % → 0 | 0.87 → 0.90 | 1.33 → 1.17 | 0.999 → 0.999 |
+| 128³ `recfast` | 11.3 | 0.9 % → 0 | 0.54 → 0.92 | 5.0 → 1.19 | 1.006 → 1.004 |
+| 128³ `recfast` | 6.8 | 1.0 % → 0 | 0.63 → 0.94 | 55 → 1.22 | 1.029 → 1.022 |
+
+![cold cells](figures/unsplit_cold_cells.png)
+
+*Figure: left, the over-cooled fraction (dashed: default; solid:
+`dual_e_self = 1`). Right, T/adiabat of the cells with Δ < 3: median,
+10–90 % band, 1 % and 99 %. Made by `tools/analysis/cold_cells.py`.*
+
+* **No cell is over-cooled at any redshift or resolution.** The defect
+  also had an upward branch: by z = 7, half of the Δ = 1–3 cells and 15 %
+  of the underdense cells of the 64³ default run were heated to more than
+  10× their adiabat. With the fix that is 0.6 % and 0.01 %.
+* **The numerical warming of mean-density gas at 64³** (3× the floor
+  curve at z = 7, `docs/thermal_history.md` §3) was this defect. With the
+  fix it is 1.003.
+* **Shock heating is kept.** Gas with Δ > 10 is above 10× its adiabat
+  in 90–96 % of its cells (default 100 %), and the hottest cell is
+  unchanged (2.1×10⁵ K at z = 7, 64³).
+* **The hydro suite.** On the quick tier both pass their tolerances with
+  and without the key.
+  * The pancake's metrics are identical.
+  * The box (32³, 1 K floor, 47 K at z = 50) cools as the adiabat says.
+    The mass-weighted T at z = 10 is 873 K (default 1430 K), and the
+    fraction at the 1 K floor at z = 10 is 0 (default 23 %).
+  * At z = 3 the floor fraction is 92 % (default 47 %). The adiabat of
+    mean-density gas there is ≈ 0.3 K, so the default was heating half
+    the box above the floor.
+  * Item 5 of §10 (underdense gas warming with long hydro steps) may be
+    the same mechanism; not rechecked on the 64 h⁻¹ Mpc box.
+* **Cost.** None measurable: one more reconstruction per face, in band
+  cells only.
+
+**The "floors T" counter.** `finalize_cell` counts a floor of E − KE even
+in cells whose pressure comes from ρe, where E − KE is unused. The line
+`if (eT < emin) f.floor_T = false` was meant to undo that count, but it
+runs after eT has been set to emin, so it never fires. The counter in the
+millions therefore mostly counts truncation-level E − KE in cold
+supersonic cells, not floors of the temperature that is used. It is a
+diagnostic only, left unchanged (it is printed and written to
+`timing.txt`).
+
+**Tests.**
+
+* `unsplit_dual_e_self` (fast suite, `tests/dual_e_self_check.py`): the
+  32³ `problems_full/onthefly` box to z = 20 with `thermal_floor = 0.01`.
+  It checks:
+  * no over-cooled cell with the key (36 % without at z = 20, so the
+    problem is sensitive);
+  * mean-density gas within 1 % of the floor curve (0.3 % measured);
+  * the hottest cell kept;
+  * 1 vs 2 threads byte-identical;
+  * `dual_e_self = 0` byte-identical to no key.
+* `amrex_hydro_dual_e_self_vs_serial` (label `amrex`): the same problem
+  with the key on the AMReX level (8³ boxes) byte-identical to the serial
+  step.
+* **Default unchanged.** The 64³ no-source run without the key is
+  byte-identical to the build before the change (every field and stats
+  file).
 
 ## 8. The coupled run (64³, 10 Mpc/h, 0.1c)
 

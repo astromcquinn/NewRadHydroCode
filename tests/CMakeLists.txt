@@ -1544,6 +1544,19 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --set restart_keep_latest=0)
     set_tests_properties(amrex_hydro_full_vs_serial_hydro PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
                          ENVIRONMENT OMP_NUM_THREADS=2)
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7) on the cold
+    # unheated IGM, where many cells evolve e from its own value: the AMReX
+    # level byte-identical to the serial step (8^3 boxes, so the stencils
+    # cross box boundaries)
+    add_test(NAME amrex_hydro_dual_e_self_vs_serial
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                     ${amrex_runs}/hydro_dual_e_self_pair $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     "hydro_backend=serial" "hydro_backend=amrex,amrex_hydro_max_grid_size=8"
+                     --quiet --set zdata1=20 --set hydro_scheme=unsplit --set dual_e_self=1
+                     --set thermal_floor=0.01 --set fields_every=1 --set fields=u_gas,e_gas)
+    set_tests_properties(amrex_hydro_dual_e_self_vs_serial PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=2)
     # amrex_state = 1 (docs/stage_e_state.md): the gas on the levels, byte-
     # identical to the three backends with the host state on every rank
     # (fields, stats, movie frames, checkpoints), for 1/2/3 ranks x 1/2
