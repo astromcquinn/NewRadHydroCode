@@ -67,7 +67,10 @@ open questions and the implementation choices are in `docs/PLAN.md`,
   and the photon fields agree to 1e-5 and the bookkeeping to 5e-5 (float
   round-off: the same deposits in the same order per cell, the packets
   rebuilt from cell indices); every physics check passes with the sweep
-  (`plane_rt_sweep`, `amrex_plane_rt_sweep`). The packets in flight are
+  (`plane_rt_sweep`, `amrex_plane_rt_sweep`) and the full loop too. Serial
+  transport time at 32³ (cast + advance, the physics unchanged): 2.1 s
+  against 3.5 s for the rays over 64 substeps; the backend also drops
+  the binning, sorting and migration of its ray containers. The packets in flight are
   not checkpointed (a restart refills a domain within one crossing, a
   few substeps out of thousands per step; the bitwise restart test does
   not use the sweep). `make_production.py --plane-parallel` writes
