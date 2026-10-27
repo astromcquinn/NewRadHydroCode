@@ -14,9 +14,12 @@ gamma row a second one shows the median Gamma_HI of the ionised cells
 (movie/frames.txt). The first run sets the frames; each other run
 shows its movie frame nearest in redshift (the frames are written at the
 same movie_dz redshifts, so they agree to within an RT substep; the
-largest mismatch is printed). All runs must have the same N and box.
-Full-cube and slab frames (movie_slab) both work; with slab frames the
-slice must lie in the stored slabs of every run.
+largest mismatch is printed). All runs must have the same box; N may
+differ (e.g. 512^3 against 1024^3): each run then shows the plane of its
+own cells that contains the physical position --pos (default: the box
+centre), at its own resolution. Full-cube and slab frames (movie_slab)
+both work; with slab frames the slice must lie in the stored slabs of
+every run.
 Uses the frame index, slab reader and colour scales of make_movie.py.
 """
 import argparse
@@ -44,9 +47,7 @@ class Renderer:
         self.N, self.cell = N, box / N
         self.ax = mm.AXES.index(args.axis)
         self.plane = [k for k in range(3) if k != self.ax]
-        self.i0 = mm.plane_start(r0, args)  # also checks slab frames (movie_slab)
-        for r in runs[1:]:
-            mm.plane_start(r, args, self.i0)
+        self.i0 = plane_starts(runs, args)  # per run; also checks slab frames (movie_slab)
         self.thick = max(1, args.thick)
         self.rows = rows = args.rows
         W, H = args.size
@@ -142,15 +143,17 @@ class Renderer:
                 if path is None:
                     im.set_data(np.full((2, 2), np.nan))
                     continue
-                data, _ = mm.to_plot(fld, mm.read_slab(path, run.N, self.ax, self.i0, self.thick), args)
+                data, _ = mm.to_plot(fld, mm.read_slab(path, run.N, self.ax, self.i0[j], self.thick), args)
                 im.set_data(data.T)
         z = s["z"][k]
         self.title.set_text("z = %.2f    t = %.0f Myr" % (z, s["t"][k]))
         self.xtext.set_text("\n".join(r"%s: $x_{\rm HII,V}$ = %.3f" % (lab, s["xV"][j][k])
                                       for j, lab in enumerate(self.labels)))
         proj = "slice" if self.thick == 1 else "projection over %d cells" % self.thick
-        self.sub.set_text("%g Mpc/h, %d$^3$ — %s %s = %.2f Mpc/h" % (
-            self.runs[0].box, self.N, proj, mm.AXES[self.ax], (self.i0 + 0.5 * self.thick) * self.cell))
+        Ns = sorted({r.N for r in self.runs})
+        self.sub.set_text("%g Mpc/h, %s — %s %s = %.2f Mpc/h" % (
+            self.runs[0].box, " and ".join("%d$^3$" % n for n in Ns), proj, mm.AXES[self.ax],
+            (self.i0[0] + 0.5 * self.thick) * self.cell))
         for j, ln in enumerate(self.lines):
             ln.set_data(s["z"][:k + 1], s["xV"][j][:k + 1])
         self.vline.set_xdata([z, z])
@@ -160,6 +163,21 @@ class Renderer:
             self.gvline.set_xdata([z, z])
         self.fig.canvas.draw()
         return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].tobytes()
+
+
+def plane_starts(runs, args):
+    """The first cell of the slice in each run. Same N: the first run's
+    plane (mm.plane_start) in all. Different N: each run's cell containing
+    --pos (default: just above the box centre, so that the planes of every
+    resolution share the centre's lower edge)."""
+    if len({r.N for r in runs}) == 1:
+        i0 = mm.plane_start(runs[0], args)
+        for r in runs[1:]:
+            mm.plane_start(r, args, i0)
+        return [i0] * len(runs)
+    if args.pos is None:
+        args.pos = runs[0].box * (0.5 + 1e-9)
+    return [mm.plane_start(r, args) for r in runs]
 
 
 _R = None
@@ -203,8 +221,8 @@ def main():
         path, _, lab = r.partition(":")
         runs.append(mm.Run(path))
         labels.append(lab or os.path.basename(os.path.dirname(os.path.abspath(path))))
-    if len({(r.N, r.box) for r in runs}) != 1:
-        sys.exit("runs differ in N or box")
+    if len({r.box for r in runs}) != 1:
+        sys.exit("runs differ in box")
     r0 = runs[0]
     if a.rows == "auto":
         a.rows = list(ROWS) + (["gamma"] if all("gammaHI" in r.frames[-1]["files"] for r in runs)
@@ -238,9 +256,7 @@ def main():
                   xfull=[np.array([f["xHII_V"] for f in r.frames]) for r in runs],
                   gfull=[np.array([lg(f["GammaHI_ion_med"]) for f in r.frames]) for r in runs])
     # slab frames: check the slice here, not in the render workers
-    i0 = mm.plane_start(r0, a)
-    for r in runs[1:]:
-        mm.plane_start(r, a, i0)
+    plane_starts(runs, a)
     print("%d frames, z = %.2f -> %.2f; largest redshift mismatch between runs %.4f"
           % (len(fr), z.max(), z.min(), dzmax))
     W, H = a.size

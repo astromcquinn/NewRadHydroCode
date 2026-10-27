@@ -258,6 +258,10 @@ python3 tools/movies/compare_movie.py OUT.mp4 RUNS/reion256_c01/run:rays \
     RUNS/reion256_c01_m1/run:M1 RUNS/reion256_c01_otvet/run:OTVET --jobs 8
 ```
 
+- Runs of different resolution in the same box also work (e.g. the 512³
+  and 1024³ cone runs): each column shows the plane of its own cells that
+  contains `--pos` (default: the box centre), at its own resolution; with
+  slab frames that plane must lie in every run's stored slabs.
 - One column per run, with slices of x_HII and log₁₀ T at the same
   position. On the right is x_HII,V(z) for every run, drawn up to the
   current frame (the whole curve is shown faintly).
