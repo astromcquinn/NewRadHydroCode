@@ -35,9 +35,11 @@ The open item of `thermal_init` below; `docs/hydro_unsplit.md` §7 (U7),
 - **Found, left:** the "floors T" counter of the unsplit summary
   mostly counts E − KE floors in cells whose pressure comes from ρe (a
   no-op line in `finalize_cell`); diagnostic only (U7 in the doc).
-- **To decide (user):** whether production (`make_production.py`) and the
-  `recfast` runs should use `dual_e_self = 1`; then the 0.1 K floor of
-  `recfast` no longer has to hide anything.
+- **Decided (user, 2026-10-27):** production and `recfast` use
+  `dual_e_self = 1`. `make_production.py` writes it (`--dual-e-self`);
+  `thermal_init = recfast` makes it the default in `apps/radhydro` (an
+  explicit key wins; `unsplit_dual_e_self` checks it). Existing runs
+  without `recfast` are unchanged.
 
 ## Done 2026-10-26: `thermal_init = recfast`, `thermal_floor` (branch `xray-preheating`)
 

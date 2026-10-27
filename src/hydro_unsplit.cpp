@@ -68,6 +68,7 @@ bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::stri
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
     cfg.dual_e_self = v == 1;
+    cfg.dual_e_self_set = true;
   } else if (key == "dual_eta1_local") {
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
@@ -90,6 +91,7 @@ void copy_hydro_scheme(const Config& from, Config& to) {
   to.dual_eta2_local = from.dual_eta2_local;
   to.dual_p_old = from.dual_p_old;
   to.dual_e_self = from.dual_e_self;
+  to.dual_e_self_set = from.dual_e_self_set;
 }
 
 std::string hydro_scheme_summary(const Config& cfg) {

@@ -1670,3 +1670,12 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **Test data:** the fast suite's zoom is a committed MUSIC output packed to
   `.npz` (895 KB, mantissas rounded to 14 bits; numpy only), not the
   in-repo nest of §4.1 steps 1–2, which is not built.
+
+## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
+
+* **`dual_e_self = 1` for production and for `thermal_init = recfast`**
+  (user, 2026-10-27). `make_production.py` writes `dual_e_self = 1` with
+  the unsplit hydro (`--dual-e-self 0` for the scheme before the key).
+  In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
+  explicit key wins. Without `recfast` the code default stays 0, so
+  every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).

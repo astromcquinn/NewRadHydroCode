@@ -284,7 +284,7 @@ stats, the RT, the data files) reads lab-frame values without change.
 | `dual_reset_rule` | 0 | when the pressure comes from ρe: 0 reset E := KE + ρe always; 1 only if that changes E by ≤ η₁E; 2 as 1 or in thermal-dominated cells; 3 only if E − KE ≤ η₁ max_{±1} E; 4 never (Enzo) (§2) |
 | `dual_eta2_local` | 0 | 1: the η₂ test against the cell's own E (Nyx's resync; §2) |
 | `dual_p_old` | 0 | 1: the old-time cell pressure in the −p∇·v work term (Bryan et al. 2014 eq. 43) instead of the Hancock half-step pressure (§2) |
-| `dual_e_self` | 0 | 1: in cells whose pressure comes from E − KE, ρe is advected with its own e/ρ and does the work with its own pressure, so it stays on its adiabat (U7, §7). 0: bit-identical to the scheme before the key |
+| `dual_e_self` | 0 (1 with `thermal_init = recfast`) | 1: in cells whose pressure comes from E − KE, ρe is advected with its own e/ρ and does the work with its own pressure, so it stays on its adiabat (U7, §7). 0: bit-identical to the scheme before the key. `make_production.py` writes 1 (user decision 2026-10-27) |
 
 All drivers (`apps/radhydro`, `apps/hydro_driver`, the suite driver) take
 them in `params.txt` and with `--set`. The run summary prints the

@@ -136,6 +136,7 @@ and a lower thermal floor.
 |---|---|---|
 | `thermal_init` | `floor` | `floor`: the original. `recfast`: RECFAST start + residual-electron Compton coupling |
 | `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K |
+| `dual_e_self` | 0 (`floor`), 1 (`recfast`) | the unsplit hydro's internal energy evolved as itself (`docs/hydro_unsplit.md` §7, U7; user decision 2026-10-27) |
 
 **What `recfast` does:**
 
@@ -241,9 +242,10 @@ fraction (T < 0.1 × T_ref(z) Δ^(2/3)) by run:
   key it stays within 1.5 % of the floor curve at both resolutions to
   z ≈ 7.
 
-The 0.1 K default floor of `recfast` bounded these cells while leaving
-physical gas alone (voids at Δ ≈ 0.1 are about 0.2 K at z ≈ 6). With
-`dual_e_self = 1` it no longer has to.
+`thermal_init = recfast` now turns `dual_e_self` on by default (user
+decision 2026-10-27; an explicit `dual_e_self = 0` gives the earlier
+`recfast` runs). The 0.1 K floor still bounds physical gas only: voids at
+Δ ≈ 0.1 are about 0.2 K at z ≈ 6.
 
 ### Tests
 

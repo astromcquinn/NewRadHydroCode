@@ -3,14 +3,17 @@
 
 usage: dual_e_self_check.py RADHYDRO PROBLEM WORKDIR [--set key=value ...]
 
-Four runs of PROBLEM without RT (zdata1 = 20), hydro_scheme = unsplit,
+Six runs of PROBLEM without RT (zdata1 = 20), hydro_scheme = unsplit,
 thermal_floor = 0.01 K (so over-cooled cells are not hidden at the 1 K
 floor), u_gas and e_gas every step:
   A  dual_e_self = 1, one thread;
   B  as A with two threads;
   C  no dual_e_self key (today's scheme);
-  D  dual_e_self = 0.
-Checks: B byte-identical to A, D to C; at every step no cell of A colder
+  D  dual_e_self = 0;
+  E  thermal_init = recfast, no dual_e_self key;
+  F  thermal_init = recfast, dual_e_self = 1.
+Checks: B byte-identical to A, D to C, E to F (the key defaults to 1 with
+recfast, user decision 2026-10-27); at every step no cell of A colder
 than 0.1 x its adiabat temp_min(z) Delta^(2/3) (the defect) and the median
 temperature of the mean-density cells (0.9 < Delta < 1.1) within 1 % of
 temp_min(z); C shows the defect at the last step (more than 5 % of the cells
@@ -55,13 +58,16 @@ def main():
     N, box = tc.params(prob)
     base = ["--set", "zdata1=20", "--set", "hydro_scheme=unsplit", "--set", "thermal_floor=0.01",
             "--set", "fields_every=1", "--set", "fields=u_gas,e_gas"] + extra
-    A, B, C, D = (os.path.join(work, n) for n in "ABCD")
+    A, B, C, D, E, F = (os.path.join(work, n) for n in "ABCDEF")
     tc.run(exe, prob, A, base + ["--set", "dual_e_self=1"], 1)
     tc.run(exe, prob, B, base + ["--set", "dual_e_self=1"], 2)
     tc.run(exe, prob, C, base, 1)
     tc.run(exe, prob, D, base + ["--set", "dual_e_self=0"], 1)
+    tc.run(exe, prob, E, base + ["--set", "thermal_init=recfast"], 1)
+    tc.run(exe, prob, F, base + ["--set", "thermal_init=recfast", "--set", "dual_e_self=1"], 1)
     tc.same_tree(A, B, "dual_e_self = 1: threads 1 vs 2")
     tc.same_tree(C, D, "dual_e_self = 0 vs no key")
+    tc.same_tree(E, F, "thermal_init = recfast: no key vs dual_e_self = 1")
     hA, hC = history(A, N, box), history(C, N, box)
     tc.check(len(hA) >= 10 and len(hA) == len(hC), f"{len(hA)} and {len(hC)} steps")
     print("#      z  cold(A)  cold(C)  Tmean/temp_min(A)  (C)")

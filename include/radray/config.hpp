@@ -235,9 +235,12 @@ struct Config {
   //                work with its own pressure (the Hancock pressure times
   //                e/e_sel), so it stays on its own adiabat instead of
   //                drifting to the floor or heating (U7,
-  //                docs/hydro_unsplit.md section 7). 0 (default): today's
-  //                scheme, bit for bit.
+  //                docs/hydro_unsplit.md section 7). 0: the scheme before
+  //                the key, bit for bit. Default 0, or 1 with
+  //                thermal_init = recfast in apps/radhydro (user decision
+  //                2026-10-27); an explicit key wins (dual_e_self_set).
   bool dual_e_self = false;
+  bool dual_e_self_set = false;
 
   // params.txt rt_method = rays (default) | m1 | otvet and the parameters
   // of the moment solver (set_rt_method_param in rt_moments.hpp):
