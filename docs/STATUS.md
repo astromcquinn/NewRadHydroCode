@@ -93,7 +93,7 @@ open questions and the implementation choices are in `docs/PLAN.md`,
   | uncapped (44 Myr first step) | 0.99 | 1.98 | 2.97 | 1.35 | 0.29 | 5.5 % | 9.2 (vs 26.8) |
   | 10 Myr | 0.78 | 1.20 | 0.74 | 0.42 | 0.20 | 1.9 % | 16.0 |
   | 1 Myr | 0.08 | 0.07 | 0.05 | 0.02 | 0.02 | 0.2 % | 26.1 |
-  | 0.1 Myr | (running) | | | | | | |
+  | 0.1 Myr | 0.015 | 0.02 | 0.02 | 0.02 | 0.01 | 0.3 % | 27.1 |
   | every substep | 0 | 0 | 0 | 0 | 0 | 0 | 26.8 |
 
   The ionisation profiles are identical in every variant (the fronts cross
@@ -103,7 +103,7 @@ open questions and the implementation choices are in `docs/PLAN.md`,
   reaches the per-substep value only after ~100 Myr and E(k) differs by
   factors of 2–4 until 200 Myr; 10 Myr still leaves 40–120 % differences
   during the first 100 Myr; **1 Myr reproduces the per-substep coupling
-  to 8 % at 25 Myr and to 2–5 % after**, i.e. a coupling interval of
+  to 8 % at 25 Myr and to 2–5 % after, 0.1 Myr to 1–2 % throughout**, i.e. a coupling interval of
   order the sound-crossing time of a cell (Δx/c_s ≈ 0.7 kpc / 20 km/s ≈
   35 Myr here, so ~1/30 of it; at Z3's 0.3 kpc/h cells ≈ 0.2 Myr by the
   same ratio) is enough, and the per-substep coupling is not needed. Cost

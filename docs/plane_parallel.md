@@ -250,7 +250,7 @@ The bitwise suite is untouched: every new flag defaults to the original.
 
 * **T4** (`docs/STATUS.md`, "Done 2026-10-26", the table): coupling the
   heating to the hydro every 1 Myr reproduces the per-substep coupling to
-  8 % in E(k) at 25 Myr after z_re and to 2–5 % later; 10 Myr leaves
+  8 % in E(k) at 25 Myr after z_re and to 2–5 % later (0.1 Myr: 1–2 %); 10 Myr leaves
   40–120 % differences during the first 100 Myr; the uncapped hydro step
   (44 Myr) lags by factors 2–4 in E(k) for 200 Myr. The ionisation
   profiles do not depend on the coupling. Figure
