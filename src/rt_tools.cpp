@@ -359,7 +359,15 @@ void radiative_transfer(Simulation& s) {
   if (L) *L << " Hydro step : " << clk.istep << " " << static_cast<float>(clk.redshift) << "\n";
 
   prep_rt(s);
-  if (s.gamma_avg.on) gamma_avg_begin(s);  // gammaHI_avg: this step's sums
+  if (s.gamma_avg.on) {  // gammaHI_avg: this step's sums
+    if (use_amrex(s.cfg)) {
+      // the level holds the per-cell sums (moment_level.cpp, reset by its prep)
+      s.gamma_avg.time = 0;
+      s.gamma_avg.substeps = 0;
+    } else {
+      gamma_avg_begin(s);
+    }
+  }
 
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
@@ -368,6 +376,10 @@ void radiative_transfer(Simulation& s) {
     if (use_amrex(s.cfg)) {
       // rt_backend = amrex (rt_backend.hpp): the whole substep on the level
       amrex_rt_substep(s);
+      if (s.gamma_avg.on) {  // gammaHI_avg: the level added the cells' sums
+        s.gamma_avg.time += s.clk.dtsec_rt;
+        s.gamma_avg.substeps += 1;
+      }
     } else {
       if (s.raydump_state && !moments) {
         s.rays.prov_substep = ++s.raydump_state->substep;
