@@ -1,0 +1,33 @@
+# target_xV ref_z ref_xV then one line per run: label step_dir z xHII_V
+0.5 6.9732 0.4899
+  rays /gscratch/astro/mcquinn/radhydro/runs/reion512_rays/run/step_0061 6.9731 0.4899
+  M1 /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_m1/run/step_0061 6.9741 0.4922
+  OTVET /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet/run/step_0061 6.9733 0.4900
+  split /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_split/run/step_0061 6.9734 0.4900
+  screen /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_screen/run/step_0061 6.9732 0.4962
+  cone /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_cone/run/step_0061 6.9734 0.4896
+  rays A+RR /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_caseA/run/step_0062 6.9206 0.5184
+0.8 6.1975 0.7937
+  rays /gscratch/astro/mcquinn/radhydro/runs/reion512_rays/run/step_0074 6.1975 0.7937
+  M1 /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_m1/run/step_0074 6.1981 0.8030
+  OTVET /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet/run/step_0074 6.1976 0.8048
+  split /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_split/run/step_0074 6.1977 0.8048
+  screen /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_screen/run/step_0074 6.1976 0.8154
+  cone /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_cone/run/step_0074 6.1977 0.7965
+  rays A+RR /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_caseA/run/step_0074 6.2162 0.7990
+0.97 5.7020 0.9705
+  rays /gscratch/astro/mcquinn/radhydro/runs/reion512_rays/run/step_0084 5.7020 0.9705
+  M1 /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_m1/run/step_0083 5.7383 0.9743
+  OTVET /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet/run/step_0084 5.7023 0.9812
+  split /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_split/run/step_0084 5.7031 0.9811
+  screen /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_screen/run/step_0083 5.7481 0.9791
+  cone /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_cone/run/step_0083 5.7488 0.9638
+  rays A+RR /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_caseA/run/step_0084 5.7065 0.9749
+1.0 4.9912 1.0000
+  rays /gscratch/astro/mcquinn/radhydro/runs/reion512_rays/run/step_0099 4.9912 1.0000
+  M1 /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_m1/run/step_0099 4.9768 1.0000
+  OTVET /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet/run/step_0099 4.9912 1.0000
+  split /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_split/run/step_0100 4.9595 1.0000
+  screen /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_screen/run/step_0099 4.9850 1.0000
+  cone /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_otvet_cone/run/step_0099 4.9855 1.0000
+  rays A+RR /gscratch/astro/mcquinn/radhydro/runs/reion512_rays_caseA/run/step_0099 4.9964 1.0000
