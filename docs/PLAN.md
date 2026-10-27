@@ -1619,6 +1619,43 @@ be designed); `recomb_rad` on the backend (block emission and
   C1–C2, the E(k) comparison), a parallel track from now and the content
   of the ACCESS Discover request.
 
+## X-ray preheating from the source model (2026-10-26)
+
+* **Question (user):** does the code include Compton cooling? Yes: Compton
+  cooling and heating off the CMB (`coef_cool(14)`), as in the original, but
+  only in cells the RT processes (ionised or reached by photons), and with no
+  residual electrons in the neutral ICs (`docs/xray_heating.md` §0).
+* **Request (user):** start a preheating model from the X-ray background,
+  with the X-ray emissivity predicted from the mass function fit that the
+  source model was calibrated with and the SFR the source model implies.
+  The user will supply papers with an X-ray emission model later; until then
+  a simple model, to be improved.
+* **Done (behind `xray_heating = 1`, default off):** a uniform background from
+  ρ̇_*(z) of all halos above 10⁴ K (the Sheth–Tormen refit × L_UV(M, z)/l_per_sfr),
+  L_X/SFR = 10^40.5 in 0.5–2 keV with an E⁻¹ spectrum from 0.5 to 10 keV,
+  cosmological transfer with the box's mean absorbers, the Shull & van
+  Steenberg energy split in the cell physics; `docs/xray_heating.md`.
+* **Open for the user:** the emission model from the papers (L_X/SFR and its
+  dependence on metallicity, the spectrum and its soft cut-off), the
+  secondary-electron fractions, whether to go on to an inhomogeneous
+  treatment (an X-ray group in the RT) (`docs/xray_heating.md` §5).
+* **Request (user, 2026-10-26, later):** check that the simulations reproduce
+  the expected temperature history before preheating, Compton cooling off
+  the CMB in particular. Result (`docs/thermal_history.md`): they do not.
+  The unheated gas follows the code's floor (instantaneous decoupling at
+  z ≈ 216), 0.60–0.76× RECFAST, because the ICs start at the floor and
+  neutral gas has no residual electrons for Compton coupling (quirk T1).
+  **Decision needed:** whether to add the proposed fix (RECFAST initial
+  temperature plus residual-electron Compton coupling), behind
+  `legacy_physics = 0` or a new key, and whether to lower the unsplit
+  hydro's 1 K floor.
+* **Decisions (user, 2026-10-26):** implement the fix with a new key
+  `thermal_init` (not `legacy_physics = 0`), and lower the thermal floor.
+  Done: `thermal_init = floor | recfast` and `thermal_floor` (K; 0.1 K by
+  default with recfast, chosen to stay below the coldest physical gas,
+  voids at ~0.2 K at z ≈ 6, while bounding the unsplit hydro's
+  numerically over-cooled cells; `docs/thermal_history.md` §4).
+
 ## Zoom ICs from MUSIC, thread D (2026-10-23, branch `zoom-ics`)
 
 The converter `tools/ics/music_convert.py` and the ladder generator

@@ -228,8 +228,10 @@ DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out);
 // <dir>/u_gas.init, adds the minimum thermal energy, sets w_gas neutral.
 // (The original, with Ncpu = 1, reads only xv_dm.init -- see
 // docs/port_notes_pm.md Q1; this reads both, like the harness patch.)
+// T_init_K > 0 (thermal_init = recfast, thermal_history.hpp): the thermal
+// energy of that temperature instead of the minimum (Tgas_min).
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
-                          std::vector<float>& w_gas, const Units& u);
+                          std::vector<float>& w_gas, const Units& u, double T_init_K = -1);
 
 // cosmo_tools.f90: ztag (the redshift file tag set in calc_sim_var).
 std::string ztag(double z);

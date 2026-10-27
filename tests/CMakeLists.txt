@@ -40,6 +40,16 @@ add_test(NAME halos COMMAND test_halos)
 add_executable(test_abundance_matching test_abundance_matching.cpp)
 target_link_libraries(test_abundance_matching PRIVATE radray_halos)
 add_test(NAME abundance_matching COMMAND test_abundance_matching)
+# X-ray background heating (docs/xray_heating.md)
+add_executable(test_xray test_xray.cpp)
+target_link_libraries(test_xray PRIVATE radray_halos)
+add_test(NAME xray_background COMMAND test_xray)
+set_tests_properties(xray_background PROPERTIES LABELS physics)
+# thermal_init = recfast (docs/thermal_history.md)
+add_executable(test_thermal test_thermal.cpp)
+target_link_libraries(test_thermal PRIVATE radray)
+add_test(NAME thermal_init COMMAND test_thermal)
+set_tests_properties(thermal_init PROPERTIES LABELS physics)
 
 add_executable(test_halo_catalog test_halo_catalog.cpp)
 target_link_libraries(test_halo_catalog PRIVATE radray_halos)
@@ -828,6 +838,13 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/c_schedule 13 --set legacy_rt=0
                      --set legacy_physics=0 --set c_reduced_schedule=0.3,0.005,0.6,0.01,1)
+    # xray_heating = 1 (docs/xray_heating.md): stateless, the rates of step 15
+    # from the restored state (the default L_UV(M, z) of sfr_model = abundance)
+    add_test(NAME restart_smoke_xray
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/xray 14 --set sfr_model=abundance
+                     --set xray_heating=1 --set xray_log_lx_sfr=44 --set xray_dlog=0.01)
     # the one-speed schedule is the constant c_reduced byte for byte; the
     # switching rule, step by step
     add_test(NAME c_schedule
@@ -850,6 +867,27 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/gamma_avg/m1 --set legacy_rt=0
                      --set legacy_physics=0 --set rt_method=m1)
     set_tests_properties(gamma_avg_m1 PROPERTIES TIMEOUT 1200 LABELS "physics;threads;moments")
+    # thermal_init = recfast (docs/thermal_history.md): the mean-density gas on
+    # RECFAST, thread independence, the default keys inert
+    add_test(NAME thermal_init_recfast
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thermal_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
+    set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # restart: the Compton step and the floors are stateless
+    add_test(NAME restart_smoke_thermal
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/thermal 13 --set thermal_init=recfast
+                     --set hydro_scheme=unsplit)
+    # xray_heating = 1 (docs/xray_heating.md): thread independence, the keys
+    # alone change nothing, the neutral cells heated and ionised
+    add_test(NAME xray_heating
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/xray_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/xray_heating
+                     ${PROJECT_SOURCE_DIR}/data/uv_lf/am_params_st_fof.txt)
+    set_tests_properties(xray_heating PROPERTIES TIMEOUT 600 LABELS "physics;threads")
     # ray_rotate = 3 (B16 fix): the per-substep rotation is keyed on the clock
     add_test(NAME restart_smoke_rotate
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py

@@ -822,14 +822,16 @@ void read_f32(const std::string& path, float* dst, std::size_t n) {
 
 // io_tools.f90: read_init_conditions
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
-                          std::vector<float>& w_gas, const Units& u) {
+                          std::vector<float>& w_gas, const Units& u, double T_init_K) {
   read_f32(dir + "/xv_dm.init", s.xv.data(), s.xv.size());
   if (u_gas.empty()) return;  // amrex_state = 1 on a rank other than 0: no host gas grid
   read_f32(dir + "/u_gas.init", u_gas.data(), u_gas.size());
   const std::int64_t ncell = s.pc.Ncell;
+  // thermal_init = recfast: the RECFAST temperature (neutral mu, temp1_unit)
+  const double Tinit = T_init_K > 0 ? T_init_K / u.temp1_unit : u.Tgas_min;
   for (std::int64_t c = 0; c < ncell; ++c) {
     float* ug = &u_gas[c * 5];
-    ug[4] = static_cast<float>(static_cast<double>(ug[4]) + static_cast<double>(ug[0]) * u.Tgas_min);
+    ug[4] = static_cast<float>(static_cast<double>(ug[4]) + static_cast<double>(ug[0]) * Tinit);
   }
   for (std::int64_t c = 0; c < ncell; ++c) {
     const double rho = u_gas[c * 5];
