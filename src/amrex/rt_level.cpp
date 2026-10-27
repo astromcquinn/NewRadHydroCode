@@ -2458,6 +2458,13 @@ void backend_bcast_bytes(void* p, std::size_t n) {
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
 void amrex_state_gather_rt_movie(Simulation& s) { level_of(s).gather_movie(s); }
+void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out) {
+  if (!s.amrex) {  // no RT step yet: zeros, as the serial code
+    out.assign(io_rank() ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
+    return;
+  }
+  s.amrex->level->gamma_avg_gather(s, out);
+}
 void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
                           int& plane) {
   level_of(s).level_slice(axis, base_index, out, nf, finest, plane);

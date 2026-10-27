@@ -67,6 +67,10 @@ void amrex_state_gather_rt(Simulation& s, bool stats_only);
 // A movie frame's fields only (rhog, fHI, fHeI, fHeII, temp, gamma(1)) into
 // rank 0's s.rt (collective)
 void amrex_state_gather_rt_movie(Simulation& s);
+// gammaHI_avg (rt_method = m1 | otvet on rt_backend = amrex): the
+// substep-averaged Gamma_HI of every cell (gamma_avg_field, rt.hpp) into
+// rank 0's out, N^3 floats; out is empty on the other ranks (collective)
+void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out);
 void amrex_state_scatter_rt(Simulation& s);
 // fields_levels = 1 (radhydro): one plane of the RT cells at the finest
 // resolution, normal to axis (0, 1, 2 = x, y, z) through base cell
