@@ -333,10 +333,36 @@ struct Config {
   //                (docs/stage_f.md section 4); 0 the level-0 coupling of
   //                Stage F1 (the fine cells get the level-0 kick through
   //                the hydro's push-down). No effect without refinement.
+  //   pm_level_solve: Stage G (docs/stage_g.md): with a refined gas
+  //                hierarchy (amrex_max_level > 0, amrex_state = 1) the
+  //                particles live on the finest level covering them, every
+  //                level deposits its particles and gas on its own mesh
+  //                (the level's gas grid times pm_refine), level 0 keeps
+  //                the FFT and every refined level solves its own Poisson
+  //                equation with AMReX's MLMG (MLPoisson, Dirichlet values
+  //                from the parent's potential), the 4-point gradient and
+  //                the kicks per level. 0 (default): the uniform mesh of
+  //                pm_gas_levels. No effect without refinement.
+  //   pm_mlmg_iters: the V-cycles of each level solve (a fixed count, so
+  //                the solve is rank-independent; it stops early when the
+  //                residual is below pm_mlmg_tol times the initial one);
+  //   pm_mlmg_tol:   that relative residual target (0 = always the full count);
+  //   pm_mlmg_bottom_sweeps: the Gauss-Seidel sweeps of the bottom solve
+  //                (the coarsest multigrid level; a level whose width has
+  //                an odd factor, e.g. 144 = 16 x 9 cells, coarsens only a
+  //                few times and its bottom grid is large: 64 sweeps keep
+  //                the V-cycles converging there, at no cost on a deep
+  //                hierarchy);
+  //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
   int pm_gas_levels = 1;
+  int pm_level_solve = 0;
+  int pm_mlmg_iters = 20;
+  double pm_mlmg_tol = 1e-10;
+  int pm_mlmg_bottom_sweeps = 64;
+  int pm_mlmg_verbose = 0;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in

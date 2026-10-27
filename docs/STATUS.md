@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated: 2026-10-26: `gammaHI_avg` for the moment RT on `rt_backend = amrex` (branch `gamma-avg-amrex`, below); the Fortran split for a public repository (below). Before that, 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`, below); MUSIC installed on klone (below). Before that, 2026-10-22: the uniform 512³ suite of every RT method run and reported (`docs/rt_suite_512.md`; the Sheth–Tormen sources, f6 = 0.11, the continuous ĉ schedule `c_reduced_schedule_interp`; branch `rt-suite-512`, below). Before that, 2026-10-22: the refined 512³ run against its control (branch `amr512-analysis`, below); the zoom-in turbulence plan and a PR audit (below). Before that, 2026-10-18: the substep-averaged Γ_HI (`gammaHI_avg`), the launch script of the uniform 512³ suite (`tools/hyak/rt_suite512.sh`) and the suite's decisions; before that the assessment and plan for the unified RT-methods suite (`docs/PLAN.md`, "Unified RT-methods suite", with the thread prompts; branch `claude/sleepy-feynman-dx6ic2`, below). Before that, 2026-10-17: ĉ by ionisation state, `c_reduced_schedule` (branch `c-schedule`, below); a falling escape fraction (branch `fesc-evolution`, PR #45, below). Before that, 2026-10-14 (evening): Stage F3, the 8 sources of `uniform_8src` with one and two refined levels, three fixes of the RT across levels (branch `stage-f3-8src`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-26: `gammaHI_avg` for the moment RT on `rt_backend = amrex` (branch `gamma-avg-amrex`, below); the Fortran split for a public repository (below). Before that, 2026-10-22/24: Stage G, the level Poisson solve on the hierarchy, `pm_level_solve` (branch `claude/modest-mendel-8k29sb`, `docs/stage_g.md`, below; the klone profile 2026-10-24). Before that, 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`, below); MUSIC installed on klone (below). Before that, 2026-10-22: the uniform 512³ suite of every RT method run and reported (`docs/rt_suite_512.md`; the Sheth–Tormen sources, f6 = 0.11, the continuous ĉ schedule `c_reduced_schedule_interp`; branch `rt-suite-512`, below). Before that, 2026-10-22: the refined 512³ run against its control (branch `amr512-analysis`, below); the zoom-in turbulence plan and a PR audit (below). Before that, 2026-10-18: the substep-averaged Γ_HI (`gammaHI_avg`), the launch script of the uniform 512³ suite (`tools/hyak/rt_suite512.sh`) and the suite's decisions; before that the assessment and plan for the unified RT-methods suite (`docs/PLAN.md`, "Unified RT-methods suite", with the thread prompts; branch `claude/sleepy-feynman-dx6ic2`, below). Before that, 2026-10-17: ĉ by ionisation state, `c_reduced_schedule` (branch `c-schedule`, below); a falling escape fraction (branch `fesc-evolution`, PR #45, below). Before that, 2026-10-14 (evening): Stage F3, the 8 sources of `uniform_8src` with one and two refined levels, three fixes of the RT across levels (branch `stage-f3-8src`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
 
 ## Done 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`)
 
@@ -529,6 +529,80 @@ FFTW and camb), `tools/ics/music/test32.conf` ran, and the CAMB table of
 `$RUNS/ics_test/camb_z300.dat`. Thread D of `docs/zoom_turbulence.md` §6
 (the MUSIC converter) is unblocked; the configs for the C26 box and the
 Z3 zoom are in `tools/ics/music/`.
+
+## Done 2026-10-22: Stage G, the level Poisson solve on the hierarchy (branch `claude/modest-mendel-8k29sb`)
+
+`pm_level_solve = 1` (`docs/stage_g.md`; default 0; acts only with
+`amrex_max_level > 0`, needs `amrex_state = 1`): the particles live on
+the finest level covering them (one `ParticleContainer` with the
+hierarchy's levels, `Redistribute` by level after every drift and regrid),
+every level deposits its particles and gas on its own mesh (its gas boxes
+times `pm_refine`, int64 fixed point with per-level bits), the deposits
+are restricted onto the parents with the [1, 3, 3, 1]/8 stencil (the
+parent CIC's spectrum: the plain mean of the children made the coarse
+source NGP-like, 5–8 % far-field force errors), level 0 keeps the FFT
+(bitwise the Stage E level when no refined level exists) and every
+refined level solves lap φ = (2a/3)(ρ − mean) with AMReX MLMG
+(`MLPoisson`, Dirichlet values from the parent's potential, a fixed
+number of V-cycles, the smoother as the bottom solver, the multigrid depth
+fixed by the blocking factor: every operation per cell, so the solve is
+bitwise rank- and layout-independent); the 4-point gradient, the DM and
+gas kicks per level, the kicked momenta averaged down. `pm_gas_levels`
+stays as the comparison. `pm_mlmg_iters` (20), `pm_mlmg_tol` (1e-10),
+`pm_mlmg_verbose`; `step_timers = 1` prints the iterations and residual
+per level. AMReX built with its linear solvers (`AMReX_LINEAR_SOLVERS=ON`,
+the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
+`amrex-26.10-mlmg`). More particles than base-mesh cells are allowed
+(`PMConfig::dm_mass_ratio`).
+
+* **Validation** (`ctest -L level_solve`, 10 tests + the nightly T1, all
+  passing on the 4-core VM): the single-particle force against Ewald on
+  a 32³ state with level 1 everywhere (the uniform `pm_refine = 2` mesh at
+  every distance; its forces on 16³ random particles match the uniform
+  backend's to 3.7e-7: the same discrete problem), with level 1 over a
+  16³-cell region and with two nested levels (the finest level's
+  resolution inside, 0.6 % at 8 cells across the boundary, the base
+  mesh's own 0.9 % beyond); no self-force (< 4e-6); momentum conserved to
+  2e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet
+  boundary); the refined-everywhere 16³ run matches the uniform 32³ run
+  as `pm_gas_levels` does (ρ 2.7e-3, momenta 7.5e-3, particles 1.0e-4
+  cells); 1, 2 and 3 ranks byte-identical and bit-identical restarts with
+  two levels over half the box for `pm_refine` 1 and 2; the identity
+  without refinement.
+* **T1** (`tests/pm_zoom_t1_check.py`, nightly `amrex_pm_zoom_t1`, 3 min
+  on 2 ranks; `docs/stage_g.md` §4): a 32³ base with two levels over the
+  central eighth and the level solve (B), the same hierarchy with the
+  uniform 128³ mesh (C), both with 128³ particles, against the uniform
+  128³ run (A), 10 Mpc/h, z = 100 → 5, gravity and uniform gas. C's
+  particles are A's to 6e-3 fine cells (the fine mesh everywhere); B's
+  are within 0.14 cells rms in the inner half of the region, 0.30 over
+  the region and 0.84 outside: the coarse base's resolution carried into
+  the region by the infalling matter, not the solver's (the
+  refined-everywhere test is 1e-4 cells). All 12 of A's halos above 128
+  particles in the region are found in B within 0.5 cells, 11 within 25 %
+  in mass (two at the region's edge at 0.64 and 0.75); the density PDF
+  fractions above overdensity 1 and 10 agree to 10 % and 4 %.
+* **klone profile** (2026-10-24, one node, 24 × 8, `docs/stage_g.md`
+  §5.1; the build job's 311 AMReX tests all pass): 128³ with two levels
+  over the central eighth (levels of 3.0 M and 16.8 M cells), 10 steps:
+  the level solve's PM 0.17 s per step against 0.27 s for the uniform
+  512³ mesh of `pm_gas_levels`; the step 1.5 s in both, dominated by the
+  hydro hierarchy (1.2 s); unrefined 0.23 s. It showed level 1 (144
+  cells wide, a 9³ bottom grid) stalling at the 20-cycle cap (4e-7):
+  fixed with `pm_mlmg_bottom_sweeps` (default 64; reproduced here: 20
+  cycles → 8, 5.6e-7 → 3.5e-11, the solve 2.2× faster).
+* **Timing on the VM** (`docs/stage_g.md` §5; the 4-core VM, 2 ranks × 2 threads,
+  128³ gas and particles, two levels over the central quarter width,
+  level 2 of 2.1 M cells): the level solve adds 1.0 s per step to the
+  base PM (0.4 s; the two MLMG solves 0.56 s, 16 and 7 V-cycles to 4e-11),
+  the uniform 512³ mesh of `pm_gas_levels` 9.1 s (its FFT 4.4 s); the
+  hydro hierarchy costs 7.5 s per step in both. The klone profile at the
+  central eighth (level 2 of 17 M cells, too much for this VM's memory)
+  is `tools/hyak/pm_level_solve_profile.slurm`, ready to submit.
+* **Open:** the zoom itself needs WP1/WP2
+  (multi-mass particles tag the levels). The composite solve is not
+  planned (user decision 2026-10-23, `docs/PLAN.md`): the level solve of
+  Enzo and RAMSES is enough unless the zoom's boundary misbehaves.
 
 ## Done 2026-10-22: zoom-in turbulence plan; PR audit (branch `claude/epic-cannon-5laltb`)
 
@@ -2564,11 +2638,11 @@ differ on klone are skipped there (label `platform_ref`).
    - multigrid/tree gravity (Stage G);
    - adaptive RT.
 9. **Before AMR is ready for science** (2026-10-15, after PR #41):
-   - **Gravity on the refined levels (Stage G).** Since `pm_gas_levels`
-     (below) every level gets the force of the uniform PM mesh over its
-     own cells; the force resolution is still the mesh's everywhere.
-     Multigrid Poisson on the hierarchy (adaptive resolution, no huge
-     uniform mesh) remains Stage G, TreePM optional.
+   - ~~**Gravity on the refined levels (Stage G).**~~ Done 2026-10-22
+     (`pm_level_solve = 1`, `docs/stage_g.md`, above): every refined
+     level solves its own Poisson equation with MLMG at its own
+     resolution; `pm_gas_levels` (the uniform mesh fed by the levels)
+     stays as the comparison (klone profile done 2026-10-24); no composite solve (user decision 2026-10-23).
    - **Hydro validation with refinement (F2):** the pancake and KH cases,
      the full tier, and the composite of the finest data for comparisons
      at the matched finest resolution.

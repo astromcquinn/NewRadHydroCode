@@ -50,6 +50,10 @@ struct PMConfig {
   // the original's N_dm_gas, N_dm_gas_c and x_dm_gas (Ngas/Ndm) with r = 1.
   int N_dm_m = 1, N_dm_m_c = 1;
   double x_dm_m = 1;
+  // The particle mass in mesh-cell units: (Nm/Ndm)^3 = N_dm_m_c when the
+  // mesh is a multiple of Ndm (exactly, as a double), (Nm/Ndm)^3 < 1 with
+  // more particles than mesh cells (docs/stage_g.md)
+  double dm_mass_ratio = 1;
   // Ngas/Ndm as a real (DM to gas grid velocity units; < 1 when Ndm > Ngas)
   double x_dm_gas = 1;
   // -DMF: gravity kicks the grid velocity v_gas; otherwise u_gas(2:5)
@@ -66,6 +70,17 @@ struct PMConfig {
   // pm_gas_levels with amrex_state = 1 (config.hpp): the refined levels of
   // the gas state enter the deposit and are kicked on their own cells
   bool gas_levels = false;
+  // pm_level_solve with amrex_state = 1 and refinement (config.hpp,
+  // docs/stage_g.md): the particles on their levels, a Poisson solve per
+  // refined level (MLMG, mlmg_iters V-cycles to mlmg_tol); the hierarchy's
+  // depth and blocking factor (the multigrid depth of a level solve)
+  bool level_solve = false;
+  int max_level = 0;
+  int blocking_factor = 8;
+  int mlmg_iters = 20;
+  double mlmg_tol = 1e-10;
+  int mlmg_bottom_sweeps = 64;
+  int mlmg_verbose = 0;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
@@ -75,7 +90,14 @@ struct PMConfig {
                                                            : cfg.amrex_max_grid_size;
     c.amrex_fft = cfg.amrex_pm_fft;
     c.amrex_state = cfg.amrex_state;
-    c.gas_levels = cfg.amrex_state && cfg.pm_gas_levels != 0 && cfg.amrex_max_level > 0;
+    c.level_solve = cfg.amrex_state && cfg.pm_level_solve != 0 && cfg.amrex_max_level > 0;
+    c.gas_levels = cfg.amrex_state && cfg.pm_gas_levels != 0 && cfg.amrex_max_level > 0 && !c.level_solve;
+    c.max_level = c.level_solve ? cfg.amrex_max_level : 0;
+    c.blocking_factor = cfg.amrex_blocking_factor;
+    c.mlmg_iters = cfg.pm_mlmg_iters;
+    c.mlmg_tol = cfg.pm_mlmg_tol;
+    c.mlmg_bottom_sweeps = cfg.pm_mlmg_bottom_sweeps;
+    c.mlmg_verbose = cfg.pm_mlmg_verbose;
     if (cfg.amrex_state && cfg.amrex_pm_max_grid_size == 0)
       c.amrex_max_grid_size = cfg.pm_refine * cfg.amrex_max_grid_size;
     return c;
