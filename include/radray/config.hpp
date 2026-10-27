@@ -229,6 +229,15 @@ struct Config {
   //                comparison of docs/hydro_unsplit.md section 2.
   bool dual_eta2_local = false;
   bool dual_p_old = false;
+  //   dual_e_self: 1 = in cells whose pressure comes from E - KE the
+  //                internal energy is advected with its own e/rho
+  //                (reconstructed like the species) and does the p div v
+  //                work with its own pressure (the Hancock pressure times
+  //                e/e_sel), so it stays on its own adiabat instead of
+  //                drifting to the floor or heating (U7,
+  //                docs/hydro_unsplit.md section 7). 0 (default): today's
+  //                scheme, bit for bit.
+  bool dual_e_self = false;
 
   // params.txt rt_method = rays (default) | m1 | otvet and the parameters
   // of the moment solver (set_rt_method_param in rt_moments.hpp):

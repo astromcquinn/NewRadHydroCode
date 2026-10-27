@@ -874,6 +874,14 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
                      ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
     set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7): no cell of the
+    # cold unheated IGM over-cooled, the mean-density gas on its adiabat,
+    # thread independence, the key inert at 0; the default shows the defect
+    add_test(NAME unsplit_dual_e_self
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/dual_e_self_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/dual_e_self)
+    set_tests_properties(unsplit_dual_e_self PROPERTIES TIMEOUT 600 LABELS "physics;threads")
     # restart: the Compton step and the floors are stateless
     add_test(NAME restart_smoke_thermal
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
