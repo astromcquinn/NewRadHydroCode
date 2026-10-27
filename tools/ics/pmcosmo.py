@@ -37,17 +37,48 @@ OMEGAR = f32(4.48e-7) * (1 + f32(0.69)) * TCMB0 ** 4 / HUBBLE0 ** 2
 FB = OMEGAB / OMEGAM
 
 
-def E(a):
+class Cosmology:
+    """A parameter set with the keys the code will read from params.txt
+    (omegam, omegab, hubble0, sigma8, ns; docs/zoom_turbulence.md thread C).
+    The module constants above are the original's (ORIGINAL); every function
+    below takes an optional Cosmology and uses those constants without one,
+    so the default path is unchanged bit for bit. Radiation follows the
+    original's formula with this hubble0 (cosmo_parameters.f90: omegar)."""
+
+    KEYS = ("omegam", "omegab", "hubble0", "sigma8", "ns")
+
+    def __init__(self, omegam, omegab, hubble0, sigma8, ns, tcmb0=TCMB0, name="custom"):
+        self.omegam, self.omegab, self.hubble0 = omegam, omegab, hubble0
+        self.sigma8, self.ns, self.tcmb0, self.name = sigma8, ns, tcmb0, name
+        self.omegal = 1.0 - omegam
+        self.omegar = f32(4.48e-7) * (1 + f32(0.69)) * tcmb0 ** 4 / hubble0 ** 2
+        self.fb = omegab / omegam
+
+    def as_dict(self):
+        return {k: getattr(self, k) for k in self.KEYS}
+
+
+ORIGINAL = Cosmology(OMEGAM, OMEGAB, HUBBLE0, SIGMA8, NS, name="original")
+# Cain et al. 2026 (PRD 113, 023050), Planck-like: the C26 boxes and the zooms
+# (docs/zoom_turbulence.md section 9, item 4; tools/ics/music/*.conf)
+PLANCK_C26 = Cosmology(0.305, 0.048, 0.68, 0.82, 0.9667, name="planck_c26")
+PRESETS = {"original": ORIGINAL, "planck_c26": PLANCK_C26}
+
+
+def E(a, cosmo=None):
     """H(a)/H0 as in calc_sim_var/calc_da_from_dt (wde = -1)."""
-    return np.sqrt(OMEGAM / a ** 3 + OMEGAL + OMEGAR / a ** 4)
+    if cosmo is None:
+        return np.sqrt(OMEGAM / a ** 3 + OMEGAL + OMEGAR / a ** 4)
+    return np.sqrt(cosmo.omegam / a ** 3 + cosmo.omegal + cosmo.omegar / a ** 4)
 
 
-def dlna_dtau(a):
+def dlna_dtau(a, cosmo=None):
     """d ln a / d tau in code time units."""
-    return 2.0 / (3.0 * np.sqrt(OMEGAM)) * a ** 2 * E(a)
+    om = OMEGAM if cosmo is None else cosmo.omegam
+    return 2.0 / (3.0 * np.sqrt(om)) * a ** 2 * E(a, cosmo)
 
 
-def growth_table(cluster=1.0, a_min=1e-8, a_max=1.0, n=40000):
+def growth_table(cluster=1.0, a_min=1e-8, a_max=1.0, n=40000, cosmo=None):
     """Growing mode of D'' = (2/3) cluster a D (tau derivatives).
 
     Integrated in y = ln a with RK4 from deep in the radiation era, starting
@@ -61,10 +92,10 @@ def growth_table(cluster=1.0, a_min=1e-8, a_max=1.0, n=40000):
 
     def rhs(yy, s):
         a = np.exp(yy)
-        g = dlna_dtau(a)
+        g = dlna_dtau(a, cosmo)
         # g' = dg/dy (numerical derivative of an analytic function)
         eps = 1e-6
-        gy = (dlna_dtau(a * np.exp(eps)) - dlna_dtau(a * np.exp(-eps))) / (2 * eps)
+        gy = (dlna_dtau(a * np.exp(eps), cosmo) - dlna_dtau(a * np.exp(-eps), cosmo)) / (2 * eps)
         D, Dy = s
         Dyy = ((2.0 / 3.0) * cluster * a * D - g * gy * Dy) / g ** 2
         return np.array([Dy, Dyy])
@@ -81,7 +112,7 @@ def growth_table(cluster=1.0, a_min=1e-8, a_max=1.0, n=40000):
         out[i + 1] = s
     a = np.exp(y)
     D = out[:, 0]
-    Dtau = out[:, 1] * dlna_dtau(a)
+    Dtau = out[:, 1] * dlna_dtau(a, cosmo)
     norm = D[-1]
     return a, D / norm, Dtau / norm
 
@@ -89,9 +120,10 @@ def growth_table(cluster=1.0, a_min=1e-8, a_max=1.0, n=40000):
 class Growth:
     """Interpolated growth factor D(a) and dD/dtau(a) (log-log in a)."""
 
-    def __init__(self, cluster=1.0):
+    def __init__(self, cluster=1.0, cosmo=None):
         self.cluster = cluster
-        self.a, self.D, self.Dtau = growth_table(cluster)
+        self.cosmo = cosmo
+        self.a, self.D, self.Dtau = growth_table(cluster, cosmo=cosmo)
         self._la = np.log(self.a)
 
     def __call__(self, a):
@@ -102,7 +134,7 @@ class Growth:
 
     def f(self, a):
         """dlnD/dlna."""
-        return self.dtau(a) / self(a) / dlna_dtau(a)
+        return self.dtau(a) / self(a) / dlna_dtau(a, self.cosmo)
 
 
 def transfer_eh_nowiggle(k):

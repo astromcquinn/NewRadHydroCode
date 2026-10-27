@@ -46,6 +46,23 @@ export CONDA_PKGS_DIRS="$RADRAY_SW/conda-pkgs"
 declare -F conda >/dev/null || source /mmfs1/sw/miniforge3/25.9.1-0/etc/profile.d/conda.sh
 if [ -d "$RADRAY_CONDA_ENV" ]; then
   conda activate "$RADRAY_CONDA_ENV"
+  # The env holds conda's gcc/gfortran 15 toolchain since setup_music.sh
+  # (2026-10-23, pulled in with MUSIC's dependencies), whose activation
+  # exports CC, FC, LD, CFLAGS, FFLAGS, LDFLAGS, ...: the Fortran harnesses
+  # then build with gfortran 15 and conda's ld (and fail to link), and a new
+  # CMake build takes the LDFLAGS (an rpath into the env's gcc-15 runtime).
+  # Put every variable those scripts set back to its value before activation
+  # (they keep it as CONDA_BACKUP_<name>), so module gcc 13 builds as before.
+  for _v in ADDR2LINE AR AS BUILD CC CC_FOR_BUILD CFLAGS CMAKE_ARGS CMAKE_PREFIX_PATH \
+            CONDA_BUILD_CROSS_COMPILATION CONDA_BUILD_SYSROOT CONDA_TOOLCHAIN_BUILD CONDA_TOOLCHAIN_HOST \
+            CPP CPPFLAGS CPP_FOR_BUILD CXXFILT DEBUG_CFLAGS DEBUG_CPPFLAGS DEBUG_FFLAGS DEBUG_FORTRANFLAGS \
+            ELFEDIT F77 F90 F95 FC FC_FOR_BUILD FFLAGS FORTRANFLAGS GCC GCC_AR GCC_NM GCC_RANLIB GFORTRAN \
+            GPROF HOST LD LDFLAGS LDFLAGS_LD MESON_ARGS NM OBJCOPY OBJDUMP QEMU_LD_PREFIX RANLIB READELF \
+            SIZE STRINGS STRIP; do
+    _b="CONDA_BACKUP_$_v"
+    if [ -n "${!_b+x}" ]; then export "$_v=${!_b}"; else unset "$_v"; fi
+  done
+  unset _v _b
 fi
 export CC="$_radray_gcc_bin/gcc" CXX="$_radray_gcc_bin/g++" FC="$_radray_gcc_bin/gfortran"
 unset _radray_gcc_bin

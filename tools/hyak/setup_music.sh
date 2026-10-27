@@ -12,7 +12,8 @@
 # and adds to the radray conda env (tools/hyak/setup_sw.sh): gsl, hdf5, the
 # double-precision FFTW with threads (MUSIC needs double; the float FFTW of
 # env.sh is for the code), pkg-config and camb (for the transfer tables,
-# tools/ics/music/camb_transfer.py).
+# tools/ics/music/camb_transfer.py) and h5py (tools/ics/music_convert.py reads
+# MUSIC's HDF5 output).
 #
 # The same cmake recipe builds and runs in the cloud container with the
 # system GSL/HDF5/FFTW (2026-10-22); on klone the libraries come from conda,
@@ -28,8 +29,8 @@ ncpu="${NCPU:-8}"
 
 [ -n "${CONDA_PREFIX:-}" ] || { echo "source tools/hyak/env.sh first (the radray conda env must be active)"; exit 1; }
 echo "== dependencies into $CONDA_PREFIX"
-conda install -y -c conda-forge gsl hdf5 "fftw=*=*openmp*" pkg-config camb >/dev/null || \
-  conda install -y -c conda-forge gsl hdf5 fftw pkg-config camb
+conda install -y -c conda-forge gsl hdf5 h5py "fftw=*=*openmp*" pkg-config camb >/dev/null || \
+  conda install -y -c conda-forge gsl hdf5 h5py fftw pkg-config camb
 python -c "import camb; print('camb', camb.__version__)"
 
 echo "== sources into $MUSIC_SRC"
