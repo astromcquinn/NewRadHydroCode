@@ -77,7 +77,39 @@ open questions and the implementation choices are in `docs/PLAN.md`,
   This run was made before `land_outputs` existed, so its outputs are at
   the first step past each redshift (z = 6.64 instead of 6.9, …); the
   klone problems land on them.
-* **T4:** see "T4 results" below.
+* **T4, the RT–hydro coupling interval** (`tools/analysis/t4_coupling.py`;
+  the C1 set-up at 64³, every variant from the same problem;
+  `docs/figures/plane_t4_N64.png`, `docs/data/plane/t4_N64.txt`): the
+  uncapped run (`base`: steps of 44 Myr before the fronts and 7–35 Myr
+  CFL steps after them; `dt_max_myr = 100` never binds and is identical),
+  the heating coupled every 10, 1 and 0.1 Myr (`dt_max_myr`), and every
+  RT substep (`rt_substeps_max = 1`: 0.023 Myr at 0.1 c, 0.23 Myr at
+  0.01 c; 3200 hydro steps). Against the per-substep run, the largest
+  relative difference of E(k) over 0.1 < k < k_N/2 and of the folded ⟨T⟩
+  profile, at 25 / 50 / 100 / 200 / 400 Myr after z_re:
+
+  | coupling | E(k) 25 Myr | 50 | 100 | 200 | 400 | ⟨T⟩ 25 Myr | ⟨v²⟩ at 25 Myr [(km/s)²] |
+  |---|---|---|---|---|---|---|---|
+  | uncapped (44 Myr first step) | 0.99 | 1.98 | 2.97 | 1.35 | 0.29 | 5.5 % | 9.2 (vs 26.8) |
+  | 10 Myr | 0.78 | 1.20 | 0.74 | 0.42 | 0.20 | 1.9 % | 16.0 |
+  | 1 Myr | 0.08 | 0.07 | 0.05 | 0.02 | 0.02 | 0.2 % | 26.1 |
+  | 0.1 Myr | (running) | | | | | | |
+  | every substep | 0 | 0 | 0 | 0 | 0 | 0 | 26.8 |
+
+  The ionisation profiles are identical in every variant (the fronts cross
+  the 8-cell domains within the first step at any coupling). What the
+  coupling interval changes is the gas's dynamical response to the
+  heating impulse: with one hydro step per 44 Myr the kinetic energy
+  reaches the per-substep value only after ~100 Myr and E(k) differs by
+  factors of 2–4 until 200 Myr; 10 Myr still leaves 40–120 % differences
+  during the first 100 Myr; **1 Myr reproduces the per-substep coupling
+  to 8 % at 25 Myr and to 2–5 % after**, i.e. a coupling interval of
+  order the sound-crossing time of a cell (Δx/c_s ≈ 0.7 kpc / 20 km/s ≈
+  35 Myr here, so ~1/30 of it; at Z3's 0.3 kpc/h cells ≈ 0.2 Myr by the
+  same ratio) is enough, and the per-substep coupling is not needed. Cost
+  at 64³ on one thread: a hydro + PM step is 0.5 s against 0.7 s for one
+  RT substep, so the per-substep coupling costs ~1.7× the RT alone, the
+  1-Myr coupling ~1.03×.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 

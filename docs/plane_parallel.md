@@ -245,3 +245,17 @@ The bitwise suite is untouched: every new flag defaults to the original.
   the gas velocity (C26 Fig. 3), with `--ref` for digitised points.
 * `tools/analysis/t4_coupling.py`: the T4 test (make / run / analyse).
 * `tools/hyak/c1_ladder.sh`: the C1 ladder and the T4 variants on klone.
+
+### Results (2026-10-27)
+
+* **T4** (`docs/STATUS.md`, "Done 2026-10-26", the table): coupling the
+  heating to the hydro every 1 Myr reproduces the per-substep coupling to
+  8 % in E(k) at 25 Myr after z_re and to 2–5 % later; 10 Myr leaves
+  40–120 % differences during the first 100 Myr; the uncapped hydro step
+  (44 Myr) lags by factors 2–4 in E(k) for 200 Myr. The ionisation
+  profiles do not depend on the coupling. Figure
+  `docs/figures/plane_t4_N64.png`, table `docs/data/plane/t4_N64.txt`.
+* **C1 at 64³** (local; `docs/figures/plane_c1_N64_ek.png`): the fronts
+  cross in the first step, T_M = 17 900 K behind them, E(k) steepens from
+  k^−3.6 to k^−5 with no k^−5/3 range, as C26 Fig. 3 (bottom) at Δx ≥ 0.5
+  kpc/h. The 128³–512³ rungs run on klone (`tools/hyak/c1_ladder.sh`).

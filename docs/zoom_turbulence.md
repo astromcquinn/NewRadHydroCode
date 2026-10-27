@@ -722,6 +722,10 @@ about three months of threads from now.
    the smallest subregion more slowly than sound crosses a cell (§4.4:
    ĉ ≲ 0.07c on a 1024³ rung at 20 km/s).
 
-Still open: the sink threshold inside the zoom (§4.5), the non-ideal
-MHD term (7), and how short the RT–hydro coupling interval must be
-while the front crosses the zoom (§4.4, the T4 test).
+Still open: the sink threshold inside the zoom (§4.5) and the non-ideal
+MHD term (7). **The T4 test (2026-10-27, `docs/plane_parallel.md`
+"Results", `docs/STATUS.md`): a coupling interval of 1 Myr reproduces the
+per-substep coupling to a few per cent in E(k) at 64³ (Δx = 3.9 kpc/h,
+about 1/30 of the cell's sound-crossing time); 10 Myr does not during
+the first 100 Myr. `dt_max_myr` (and `rt_substeps_max`) exist; the
+zoom's value scales with the finest cell (~0.2 Myr at 0.3 kpc/h).**

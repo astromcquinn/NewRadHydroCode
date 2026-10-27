@@ -30,8 +30,8 @@ output of every variant, and the comparison with `sub`: the largest
 relative difference of E(k) over 0.5 < k < k_Nyquist/2 (where the
 turbulence of C26 lives; from 4 k_f at low N) and of the folded x_HI and T profiles, per
 output. Writes OUTDIR/t4_coupling.json, t4_coupling.txt (the table) and
-t4_coupling.png (E(k) and the profiles of every variant at the last two
-outputs).
+t4_coupling.png (E(k) and the T profiles of every variant 25, 100 and
+400 Myr after the turn-on).
 """
 import argparse
 import json
@@ -158,7 +158,9 @@ def analyse(a):
         import matplotlib.pyplot as plt
     except ImportError:
         return
-    zs = sorted(set(round(r["z"], 2) for r in ek))[:2]  # the last two outputs
+    # the outputs 25, 100 and 400 Myr after the turn-on (the 2nd, 4th and last)
+    zall = sorted(set(round(r["z"], 2) for r in ek), reverse=True)
+    zs = [z for i, z in enumerate(zall) if i in (1, 3, len(zall) - 1)]
     fig, axs = plt.subplots(2, len(zs), figsize=(5 * len(zs), 8), squeeze=False)
     styles = {"base": "-", "dt100": "--", "dt10": "-.", "dt1": ":", "dt0.1": (0, (5, 1)), "sub": "-"}
     for j, z in enumerate(zs):
@@ -171,6 +173,7 @@ def analyse(a):
             if pp:
                 axs[1, j].semilogy(np.maximum(pp[0]["T"], 1), ls=styles.get(v, "-"), lw=2 if v == ref else 1, label=v)
         axs[0, j].set_title(f"z = {z}")
+        axs[0, j].set_xticks([0.1, 0.3, 1.0][:1 + int(axs[0, j].get_xlim()[1] > 0.3) + int(axs[0, j].get_xlim()[1] > 1.0)])
         axs[0, j].set_xlabel("k [h/kpc]")
         axs[0, j].set_ylabel("E(k) [(km/s)^2 kpc/h]")
         axs[1, j].set_xlabel("cells from the source face")
