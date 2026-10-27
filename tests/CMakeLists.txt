@@ -174,6 +174,29 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/movie_tool)
   set_tests_properties(movie_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+  # Zoom ICs from MUSIC (tools/ics/music_convert.py, music_ladder.py;
+  # docs/zoom_turbulence.md section 4.1): the converter and the generator on
+  # a committed two-level MUSIC zoom (numpy only), and the code run from its
+  # base files. With -DRADRAY_MUSIC=<MUSIC binary> (klone,
+  # tools/hyak/setup_music.sh) also T0 against make_ics.py and the ladder
+  # property (label music).
+  add_test(NAME music_zoom
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music_zoom_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/music_zoom ${PROJECT_SOURCE_DIR} $<TARGET_FILE:radhydro>)
+  set_tests_properties(music_zoom PROPERTIES TIMEOUT 300 ENVIRONMENT OMP_NUM_THREADS=1)
+  set(RADRAY_MUSIC "" CACHE FILEPATH "MUSIC binary for the music-labelled tests")
+  if(RADRAY_MUSIC)
+    add_test(NAME music_t0
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music/t0_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/music_t0 ${RADRAY_MUSIC} $<TARGET_FILE:radhydro>
+                     ${PROJECT_SOURCE_DIR})
+    set_tests_properties(music_t0 PROPERTIES TIMEOUT 900 LABELS music ENVIRONMENT OMP_NUM_THREADS=1)
+    add_test(NAME music_ladder
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music/ladder_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/music_ladder ${RADRAY_MUSIC} ${PROJECT_SOURCE_DIR})
+    set_tests_properties(music_ladder PROPERTIES TIMEOUT 900 LABELS music)
+  endif()
+
   # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
   # (retarded-time / Shapiro et al. 2006) solution (docs/production_run.md)
   add_test(NAME ifront_rsla
