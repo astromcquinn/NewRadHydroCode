@@ -44,6 +44,11 @@ Checks (each exits 1 on failure):
             (Gamma_HI = the target, not twice it) and no cell exceeds it.
   threads   deterministic_parallel = 1: the front run with 1 and 2 threads
             is byte-identical (fields and stats, the plane counters included).
+  sweep     plane_transport = sweep against rays: the thin front (one face)
+            and the 2^3-domain problem (two faces) with 1 and 2 cells per
+            substep give the same fHI, temp and photon fields (to 3e-5,
+            float round-off: one packet per cell and direction either
+            way) and the same photon bookkeeping to 2e-4.
 """
 import argparse
 import os
@@ -429,6 +434,37 @@ def check_threads(driver, work, spec):
     check(same, "1 and 2 threads byte-identical")
 
 
+def check_sweep(driver, work):
+    print("sweep: plane_transport = sweep against rays")
+    N, box, z, g12 = 32, 0.25, 7.0, 0.3
+    u = units(z, box, N)
+    rows = np.tile(gas_row(u, 1.0, 1.0, 1.0, 0.0, 100.0), (N, N, N, 1))
+    cases = [("sweep_front", 1, "+x", 1), ("sweep_dom", 2, "+x +y", 1), ("sweep_dom_k2", 2, "+x +y", 2)]
+    for name, ndom, faces, k in cases:
+        prob = os.path.join(work, name)
+        write_problem(prob, N, box, z, rows, da_for_substeps(z, box, N, 16 * k, 1.0), 4,
+                      {"plane_ndom": ndom, "plane_faces": faces, "plane_gamma12": g12, "c_reduced": 1,
+                       "rt_cells_per_substep": k})
+        outs = [run(driver, prob, prob + "_" + t, sets=[f"plane_transport={t}"]) for t in ("rays", "sweep")]
+        worst = {"fHI": 0.0, "temp": 0.0, "ngam": 0.0}
+        wst = 0.0
+        for n in range(1, 5):
+            sds = [os.path.join(o, f"step_{n:04d}") for o in outs]
+            for fld, nc in (("fHI", 1), ("temp", 1), ("ngam", 5)):
+                a, b = (field(sd, fld, N, nc) for sd in sds)
+                sc = np.maximum(np.abs(a), np.abs(b)).max()
+                worst[fld] = max(worst[fld], float(np.max(np.abs(a - b)) / sc) if sc > 0 else 0.0)
+            sa, sb = (parse(os.path.join(sd, "stats.txt")) for sd in sds)
+            for key in ("plane_emitted", "plane_absorbed", "plane_escaped", "ngam_rays_total"):
+                ref = max(abs(sa[key][0]), abs(sb[key][0]), 1e-300)
+                wst = max(wst, abs(sa[key][0] - sb[key][0]) / ref if ref > 1e-12 else 0.0)
+        # float round-off through the front's nonlinear response: the two
+        # transports sum the same deposits in the same order per cell, but
+        # the packets' positions and radii are rebuilt from cell indices
+        check(max(worst.values()) < 3e-5, f"{name}: fHI, temp, ngam agree to {max(worst.values()):.1e} ({worst})")
+        check(wst < 2e-4, f"{name}: the photon bookkeeping agrees to {wst:.1e}")
+
+
 def main():
     global EXTRA, LAUNCH, THREADS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -462,6 +498,8 @@ def main():
         check_domains(a.driver, a.work)
     if want("threads"):
         check_threads(a.driver, a.work, spec)
+    if want("sweep"):
+        check_sweep(a.driver, a.work)
     if FAILS:
         print(f"\n{len(FAILS)} check(s) failed")
         sys.exit(1)

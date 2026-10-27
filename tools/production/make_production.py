@@ -195,6 +195,10 @@ def main():
                          "cubic RT domains as the only sources from --plane-z-re (no halo finder, "
                          "no abundance matching); implies cooling on everywhere unless "
                          "--cool-suppress-overdensity is given")
+    ap.add_argument("--plane-transport", choices=("rays", "sweep"), default="sweep",
+                    help="the packets in flight as rays of the ray pool, or as a field per lit face "
+                         "shifted along its axis (default sweep: no ray pool, a fifth of the memory; the "
+                         "same photons to round-off)")
     ap.add_argument("--plane-ndom", type=int, default=8, help="RT domains per dimension (default 8)")
     ap.add_argument("--plane-faces", default="+x +y",
                     help='the emitting faces of every domain (default "+x +y": two orthogonal '
@@ -338,6 +342,7 @@ def main():
         lines += ["# Plane-parallel RT-domain mode (docs/plane_parallel.md): the domain faces are the",
                   "# only sources from plane_z_re; the halo finder and the sources are not used",
                   "plane_parallel = 1",
+                  f"plane_transport = {a.plane_transport}",
                   f"plane_ndom = {a.plane_ndom}",
                   f"plane_faces = {a.plane_faces}",
                   f"plane_gamma12 = {a.plane_gamma12:g}",

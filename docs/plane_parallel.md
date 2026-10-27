@@ -152,6 +152,7 @@ face (`plane_faces = +x`).
 | key | default | meaning |
 |---|---|---|
 | `plane_parallel` | 0 | 1: the faces of cubic RT domains are the only sources (no halo finder, no halo sources); legacy_rt = 0, rays, `ray_encoding = float`, no `recomb_rad`, uniform grid only |
+| `plane_transport` | `rays` | `sweep`: the packets in flight are a field of 5 floats per cell and lit face, shifted along its axis by `rt_cells_per_substep` cells every substep through the same cast, physics and attenuation kernels (`src/plane_sweep.cpp`; the backend's `PF` fields). No ray pool (no `Nray_max` limit), a fifth of the memory, no sorting or migration; the same photons as the rays to float round-off (test `sweep`). The packets in flight are not checkpointed: a restart refills the domains within one crossing. `make_production.py --plane-parallel` writes `sweep` |
 | `plane_ndom` | 1 | domains per dimension; N/ndom cells each (a multiple of `rt_cells_per_substep`) |
 | `plane_faces` | `+x +y` | the emitting faces of every domain, any of `+x -x +y -y +z -z` |
 | `plane_gamma12` | 0.3 | Γ_HI in the source cells, 10⁻¹² s⁻¹ (C26: 0.3) |
@@ -188,6 +189,24 @@ on, `photon_consume_dense = 1`, no abundance matching.
   redshift tables assume the Pop II bands), so Γ_HI stays fixed in time.
 * The pool: up to (faces) N³ / k rays in flight; `check_plane_param`
   requires `nray_max_factor` ≥ 1.25 faces / k (+1).
+
+### The sweep transport (`plane_transport = sweep`, 2026-10-27)
+
+A packet about to enter cell e along a face's axis has travelled m(e)
+cells from its source face (e mod L for a + face, L − 1 − e mod L for a −
+face); packets sit at m = 0 mod k, the one at m = 0 is the source packet
+and is never stored. In `rt_step_1` every packet is cast as the ray it
+stands for (`rrk::plane_packet_ray`, at the face it is crossing, with
+`rrk::cast_1`), so the deposits are the rays' to the last bit; in
+`rt_step_3` it is attenuated with `rrk::cast_3`, moved k cells on (in
+place along its column, against the direction of motion), counted as
+escaped at m + k = L, or dropped when faint. One column of cells per
+thread (a packet deposits only into its own column), fixed-point sums:
+thread-independent. On the backend the fields have k ghost cells along
+the axis (`FillBoundary` before the advance), the deposits go into the
+level's fixed-point accumulator, and the fields follow their cells on a
+rebalance. Memory: faces × 5 floats per cell (two faces at 1024³: 43 GB
+over the ranks) against 80 B per ray in flight (170 GB).
 
 ### Spectrum and normalisation (`plane_spectrum`, `src/plane_parallel.cpp`)
 

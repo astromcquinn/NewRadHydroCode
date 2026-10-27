@@ -55,6 +55,23 @@ open questions and the implementation choices are in `docs/PLAN.md`,
   with `--ref` for digitised C26 points), `tools/analysis/t4_coupling.py`
   (the T4 test: make / run / analyse), `tools/hyak/c1_ladder.sh` (the C1
   ladder 64³–512³ and the T4 variants on klone).
+* **`plane_transport = sweep` (2026-10-27, user request):** the packets in
+  flight as a field of 5 floats per cell and lit face, shifted along its
+  axis every substep through the same `cast_1`, physics and `cast_3`
+  kernels (`src/plane_sweep.cpp`; the backend's `PF` fields with k ghost
+  cells, the deposits into its fixed-point accumulator, the fields
+  following their cells on a rebalance). No ray pool, so the `Nray_max`
+  int32 limit no longer applies to 1024³ and 2048³, a fifth of the
+  transport memory, no sorting or migration. Against the rays (test
+  `sweep`: one front, 2³ domains, 1 and 2 cells per substep): fHI, temp
+  and the photon fields agree to 1e-5 and the bookkeeping to 5e-5 (float
+  round-off: the same deposits in the same order per cell, the packets
+  rebuilt from cell indices); every physics check passes with the sweep
+  (`plane_rt_sweep`, `amrex_plane_rt_sweep`). The packets in flight are
+  not checkpointed (a restart refills a domain within one crossing, a
+  few substeps out of thousands per step; the bitwise restart test does
+  not use the sweep). `make_production.py --plane-parallel` writes
+  `sweep` by default.
 * **C1, the local 64³ rung** (the cloud container; klone has no route
   from here, so the ladder's 128³–512³ runs are launched by the user with
   `tools/hyak/c1_ladder.sh make|run|post`; the figure and data of the 64³

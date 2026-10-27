@@ -201,6 +201,14 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
                    ${CMAKE_CURRENT_BINARY_DIR}/plane_rt)
   set_tests_properties(plane_rt PROPERTIES TIMEOUT 1800 LABELS "physics;plane")
+  # the same physics with plane_transport = sweep (the packets in flight as a
+  # field per face instead of rays), and the sweep against the rays
+  add_test(NAME plane_rt_sweep
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/plane_rt_sweep --only gamma slab front conserve domains threads
+                   --set plane_transport=sweep)
+  set_tests_properties(plane_rt_sweep PROPERTIES TIMEOUT 1800 LABELS "physics;plane")
 
   # rays crossing k = 2 cells per substep (docs/rt_multicell.md): the
   # uniform I-front of ifront_rsla at c_reduced = 1 against k = 1 (within
@@ -1536,6 +1544,14 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --set rt_backend=amrex --set amrex_max_grid_size=8
                      --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
     set_tests_properties(amrex_plane_rt PROPERTIES TIMEOUT 1800 LABELS "amrex;plane;physics"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_rt_sweep
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${amrex_runs}/plane_rt_sweep --only gamma slab front conserve domains sweep
+                     --set rt_backend=amrex --set amrex_max_grid_size=8
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rt_sweep PROPERTIES TIMEOUT 1800 LABELS "amrex;plane;physics"
                          ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
     add_test(NAME amrex_plane_full
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py

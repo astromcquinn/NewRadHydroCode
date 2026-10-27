@@ -912,9 +912,13 @@ void rt_step_1(Simulation& s) {
 
   lap(s.timers.calc_ray1);
   if (det) {
-    // plane_parallel = 1: the face rays of this substep (plane_emit)
+    // plane_parallel = 1: the face rays of this substep (plane_emit), or
+    // the sweep's cast of the packets in flight (plane_transport = sweep)
     if (s.plane.on) {
-      plane_emit(s);
+      if (s.plane.transport == 1)
+        plane_sweep_cast(s);
+      else
+        plane_emit(s);
       s.plane.emitted += plane_emitted_per_substep(s, rt_params(s));
     }
     // deterministic_parallel: colour-major sweep over the 8^3 domains
@@ -922,9 +926,13 @@ void rt_step_1(Simulation& s) {
     det_fold(R);
   } else {
     if (s.clk.istep_rt > 1) ray_buffer_supplement(s);
-    // plane_parallel = 1: the face rays of this substep (plane_emit)
+    // plane_parallel = 1: the face rays of this substep (plane_emit), or
+    // the sweep's cast of the packets in flight (plane_transport = sweep)
     if (s.plane.on) {
-      plane_emit(s);
+      if (s.plane.transport == 1)
+        plane_sweep_cast(s);
+      else
+        plane_emit(s);
       s.plane.emitted += plane_emitted_per_substep(s, rt_params(s));
     }
 
@@ -1239,6 +1247,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
 void rt_step_3(Simulation& s) {
   RTGrid& G = s.rt;
   const double tw0 = wall_seconds();
+  // plane_transport = sweep: the packets in flight move on (plane_sweep.cpp)
+  if (s.plane.on && s.plane.transport == 1) plane_sweep_advance(s);
   if (use_moments(s.cfg)) {
     moment_step_3(s);  // rt_method = m1 | otvet (rt_moments.hpp)
   } else if (s.cfg.det_parallel) {
@@ -1360,6 +1370,8 @@ double ngam_rays_total(const Simulation& s) {
   if (use_amrex(s.cfg)) return s.ngam_total_backend;
   // rt_method = m1 | otvet: the photons of the moment solver
   if (use_moments(s.cfg)) return moment_photons_total(s);
+  // plane_transport = sweep: the packets in flight (plane_sweep.cpp)
+  if (s.plane.on && s.plane.transport == 1) return s.plane.inflight();
   return ngam_rays_total_serial(s);
 }
 

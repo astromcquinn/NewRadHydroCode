@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "radray/config.hpp"
 #include "radray/constants.hpp"
@@ -54,6 +55,7 @@ struct PlaneState {
   bool on = false;
   int L = 0;      // domain length in RT cells
   int faces = 0;  // Config::plane_faces
+  int transport = 0;  // Config::plane_transport: 0 rays, 1 sweep
   PlaneSpectrum spec;
   double emitted = 0;
   __int128 absorbed_fx = 0, escaped_fx = 0;  // 2^kPlaneFxBits fixed point
@@ -61,6 +63,15 @@ struct PlaneState {
   double absorbed() const;
   double escaped() const;
   void reset_step();
+  // plane_transport = sweep, serial RT: the packets in flight per lit face
+  // (face_list order), kNfreq floats per cell in the RT grid's cell order
+  // (the photons about to enter the cell along that face's axis; the
+  // launch cells, 0 cells from the face, hold nothing: their packet is the
+  // source packet), and their sum after the last advance (fixed point)
+  std::vector<int> face_list;
+  std::vector<std::vector<float>> field;
+  __int128 inflight_fx = 0;
+  double inflight() const;
 };
 __int128 plane_to_fx(double v);
 
@@ -90,5 +101,17 @@ double plane_emitted_per_substep(const Simulation& s, const rrk::RTP& P);
 bool plane_rt_active(const Config& c, double a_start);
 // <dir>/plane_spectrum.txt: the bins, the cross sections and the fluxes
 void plane_write_spectrum(const std::string& dir, const Simulation& s);
+
+// plane_transport = sweep (src/plane_sweep.cpp), the serial RT: the face
+// list of a faces mask; the cast of every packet in flight (and of the
+// source packet at the launch cells) into the RT grid's deposits in
+// rt_step_1, with rrk::cast_1; the advance in rt_step_3, with rrk::cast_3:
+// the transmitted packet moves rt_cells_per_substep cells along its axis,
+// leaves at the domain's far face (escaped) or is dropped when faint.
+// Thread-count independent (one column of cells per thread, fixed-point
+// sums). The kernel helpers are shared with the backend.
+std::vector<int> plane_face_list(int faces);
+void plane_sweep_cast(Simulation& s);
+void plane_sweep_advance(Simulation& s);
 
 }  // namespace radray

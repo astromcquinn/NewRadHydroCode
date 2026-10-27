@@ -83,6 +83,13 @@ __int128 plane_to_fx(double v) {
 }
 double PlaneState::absorbed() const { return std::ldexp(static_cast<double>(absorbed_fx), -kFxBits); }
 double PlaneState::escaped() const { return std::ldexp(static_cast<double>(escaped_fx), -kFxBits); }
+double PlaneState::inflight() const { return std::ldexp(static_cast<double>(inflight_fx), -kFxBits); }
+std::vector<int> plane_face_list(int faces) {
+  std::vector<int> v;
+  for (int f = 0; f < 6; ++f)
+    if ((faces >> f) & 1) v.push_back(f);
+  return v;
+}
 void PlaneState::reset_step() {
   emitted = 0;
   absorbed_fx = 0;
@@ -105,6 +112,15 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
       c.plane_parallel = true;
     else
       throw std::runtime_error("plane_parallel must be 0 or 1");
+    return true;
+  }
+  if (key == "plane_transport") {
+    if (val == "rays" || val == "0")
+      c.plane_transport = 0;
+    else if (val == "sweep" || val == "1")
+      c.plane_transport = 1;
+    else
+      throw std::runtime_error("plane_transport must be rays or sweep");
     return true;
   }
   if (key == "plane_ndom") {
@@ -192,6 +208,7 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
 
 void copy_plane_param(const Config& from, Config& to) {
   to.plane_parallel = from.plane_parallel;
+  to.plane_transport = from.plane_transport;
   to.plane_ndom = from.plane_ndom;
   to.plane_faces = from.plane_faces;
   to.plane_gamma12 = from.plane_gamma12;
@@ -214,6 +231,7 @@ void check_plane_param(const Config& c) {
   if (c.ray_encoding != RayEncoding::Float)
     throw std::runtime_error("plane_parallel = 1 needs ray_encoding = float (rstruct assumes the Pop II bands)");
   if (c.amrex_max_level > 0) throw std::runtime_error("plane_parallel = 1 runs on the uniform grid only (amrex_max_level = 0)");
+  if (c.plane_transport != 0 && c.plane_transport != 1) throw std::runtime_error("plane_transport must be rays or sweep");
   if (c.plane_ndom < 1 || c.Nrt % c.plane_ndom != 0)
     throw std::runtime_error("plane_ndom must divide N (" + std::to_string(c.Nrt) + ")");
   const int L = c.Nrt / c.plane_ndom;
@@ -223,6 +241,7 @@ void check_plane_param(const Config& c) {
   if (c.plane_faces == 0) throw std::runtime_error("plane_faces: no face given");
   if (!(c.plane_gamma12 > 0)) throw std::runtime_error("plane_gamma12 must be > 0");
   if (!(c.plane_nu_max_ry > 1)) throw std::runtime_error("plane_nu_max_ry must be > 1");
+  if (c.plane_transport == 1) return;  // sweep: no ray pool
   // the pool: nfaces * N^3 / k rays in flight once the fronts have crossed
   int nfaces = 0;
   for (int f = 0; f < 6; ++f) nfaces += (c.plane_faces >> f) & 1;
@@ -243,9 +262,9 @@ std::string plane_summary(const Config& c) {
     return s;
   }
   char buf[256];
-  std::snprintf(buf, sizeof buf, "plane_parallel = 1 (%d^3 domains of %d cells, faces %s, Gamma_-12 = %g, z_re = %g, alpha = %g, nu_max = %g Ry)",
-                c.plane_ndom, c.Nrt / c.plane_ndom, plane_faces_string(c.plane_faces).c_str(), c.plane_gamma12,
-                c.plane_z_re, c.plane_alpha, c.plane_nu_max_ry);
+  std::snprintf(buf, sizeof buf, "plane_parallel = 1 (%s; %d^3 domains of %d cells, faces %s, Gamma_-12 = %g, z_re = %g, alpha = %g, nu_max = %g Ry)",
+                c.plane_transport ? "sweep" : "rays", c.plane_ndom, c.Nrt / c.plane_ndom,
+                plane_faces_string(c.plane_faces).c_str(), c.plane_gamma12, c.plane_z_re, c.plane_alpha, c.plane_nu_max_ry);
   std::string s = buf;
   if (c.dt_max_myr > 0) s += ", dt_max_myr = " + std::to_string(c.dt_max_myr);
   if (c.rt_substeps_max > 0) s += ", rt_substeps_max = " + std::to_string(c.rt_substeps_max);
@@ -261,8 +280,16 @@ void plane_init(Simulation& s) {
   check_plane_param(s.cfg);
   P.L = s.cfg.Nrt / s.cfg.plane_ndom;
   P.faces = s.cfg.plane_faces;
+  P.transport = s.cfg.plane_transport;
   P.spec = plane_spectrum(s.cfg);
   P.reset_step();
+  P.face_list = plane_face_list(P.faces);
+  P.field.clear();
+  P.inflight_fx = 0;
+  if (P.transport == 1 && !use_amrex(s.cfg)) {
+    // the serial sweep's packets (the backend holds its own fields)
+    P.field.assign(P.face_list.size(), std::vector<float>(static_cast<std::size_t>(kNfreq) * s.cfg.Nrtc, 0.0f));
+  }
 }
 
 void plane_fill_rtp(const Simulation& s, rrk::RTP& P) {
@@ -270,7 +297,9 @@ void plane_fill_rtp(const Simulation& s, rrk::RTP& P) {
   P.plane.L = 0;
   if (!ps.on) return;
   P.plane.L = ps.L;
-  P.plane.faces = ps.faces;
+  // sweep: the kernels' per-cell emission (plane_rays) is off; the faces
+  // are read from the PlaneState by the sweep itself
+  P.plane.faces = ps.transport == 1 ? 0 : ps.faces;
   const double gamma = s.cfg.plane_gamma12 * 1e-12;
   const double ntot = gamma * s.clk.dtsec_rt / (s.units.nH_avg * s.units.len_rt * ps.spec.sig_eff);
   for (int n = 0; n < kNfreq; ++n) {

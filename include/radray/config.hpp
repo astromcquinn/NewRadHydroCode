@@ -452,6 +452,18 @@ struct Config {
   //                exactly; required there, ignored by rt_driver);
   //   plane_alpha, plane_nu_max_ry: the spectral index and the upper edge.
   bool plane_parallel = false;
+  //   plane_transport: rays (0, default) = the face packets are rays of the
+  //                ray pool (one ray object per face cell per substep);
+  //                sweep (1) = the packets in flight are a field of
+  //                kNfreq floats per cell and lit direction, shifted
+  //                along its axis by rt_cells_per_substep cells every
+  //                substep through the same cast, physics and attenuation
+  //                kernels (src/plane_sweep.cpp, the backend's PF fields):
+  //                no ray pool (no Nray_max limit), a fifth of the memory,
+  //                no sorting or migration. The same photons to round-off.
+  //                The packets in flight are not checkpointed (a restart
+  //                refills the domains within one crossing).
+  int plane_transport = 0;
   int plane_ndom = 1;
   int plane_faces = 0x5;  // +x +y
   double plane_gamma12 = 0.3;

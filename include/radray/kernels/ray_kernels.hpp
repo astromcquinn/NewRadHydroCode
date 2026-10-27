@@ -760,6 +760,36 @@ RR_HD int plane_rays(int i, int j, int k, const RTP& P, RayP* out) {
 RR_HD bool plane_done(const RayP& ry, const RTP& P) {
   return P.plane.L > 0 && ry.r >= static_cast<float>(P.plane.L) - 0.5f;
 }
+// plane_transport = sweep (src/plane_sweep.cpp, the backend's PF fields):
+// the packet about to enter cell index e along the axis of face f has
+// travelled plane_packet_m cells from its source face (e mod L for a +
+// face, L - 1 - e mod L for a - face), and stands for the ray
+// plane_packet_ray at the face it is crossing (the lower face of the cell
+// for +, the upper one for -), at the face's centre, with r = m.
+RR_HD int plane_face_sign(int f) { return (f % 2) ? -1 : 1; }
+RR_HD int plane_packet_m(int e, int L, int sign) {
+  const int r = e % L;
+  return sign > 0 ? r : L - 1 - r;
+}
+RR_HD RayP plane_packet_ray(const int idx[3], int f, int m, const RTP& P, const float* ngam) {
+  RayP r;
+  const int d = f / 2, sgn = plane_face_sign(f);
+  r.nside = 1;
+  r.ipix = f;
+  r.r = static_cast<float>(m);
+  r.dr = static_cast<float>(P.plane.L - m);
+  for (int e = 0; e < 3; ++e) {
+    r.x[e] = static_cast<float>(idx[e]) + 0.5f;
+    r.dx[e] = 0;
+  }
+  r.x[d] = static_cast<float>(idx[d] + (sgn < 0 ? 1 : 0));
+  r.dx[d] = static_cast<float>(sgn);
+  for (int q = 0; q < NF; ++q) {
+    r.nu[q] = P.plane.nu[q];
+    r.ngam[q] = ngam[q];
+  }
+  return r;
+}
 
 // Merge cone of a ray: HEALPix pixel of its direction at nside_merge
 // (2 in the original: 48 cones; recomb_prepare may lower it to 1)
