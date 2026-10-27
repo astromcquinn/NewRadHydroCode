@@ -351,6 +351,23 @@ the set is done).
   67 % (`recomb_rad_cell_onspot = 1`).
 - `origin/main` merged into the branch 2026-10-22 (one STATUS conflict);
   the fast suite on klone 145/145 (job 42184776, 38 min). PR opened.
+- **2026-10-26, after the repository move:** `origin` re-pointed, the
+  branch reset to the re-created `origin/rt-suite-512` (no unpushed
+  commits), the new `main` (the Fortran split) merged, the submodule
+  `reference/fortran` initialised; PR #2 on the public repository. **The
+  live Fortran tests had been broken on klone since 2026-10-23:** the
+  conda-forge gcc/gfortran 15 compilers installed into the shared `radray`
+  env (for MUSIC) are exported by conda's activation as `CC`/`CXX`/`FC`,
+  and the harness Makefiles' `$(FC)` then built PIE objects that cannot
+  link the static FFTW ("relocation R_X86_64_32S ... recompile with
+  -fPIE"). Fix: `tools/hyak/env.sh` exports the module's gcc 13 `CC`,
+  `CXX`, `FC` after the activation (commit 5c4c6c5), **and** the stale
+  `reference/fortran/harness*/build` directories must be removed once
+  (objects from gfortran 15 with compressed debug sections the gcc 13
+  linker rejects: "file not recognized"). With both, the fast suite is
+  145/145 (137 in job 42408423 plus the 8 `fortran_live` tests rerun on a
+  node, job 42409410). Other checkouts built after 2026-10-23 need the
+  same cleanup.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
