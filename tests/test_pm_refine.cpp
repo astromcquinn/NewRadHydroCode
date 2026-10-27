@@ -230,7 +230,7 @@ void test_momentum() {
       pm::calc_kick_unsplit(s, u.data(), nullptr, 1e-3, clk, un);
     else
       pm::calc_kick(s, u.data(), v.data(), clk, un);
-    const double mdm = (1 - cp::omegab / cp::omegam) * s.pc.N_dm_m_c;  // mesh units
+    const double mdm = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;  // mesh units
     const int r = cs.r;
     double P[3] = {0, 0, 0}, sabs = 0;
     for (std::int64_t ip = 1; ip <= s.pc.Npart; ++ip)
@@ -302,9 +302,15 @@ void test_refine1_config() {
   CHECK(a.nmr == a.ngasr && a.Nmcell == a.Ncell);
   const pm::PMConfig b = pm::PMConfig::make(32, 64, true, 2);
   CHECK(b.Nm == 64 && b.N_dm_m == 1 && b.x_dm_m == 1.0 && b.x_dm_gas == 0.5);
+  // more particles than mesh cells (Stage G's zoom tests, docs/stage_g.md):
+  // the particle mass a double below 1
+  const pm::PMConfig c = pm::PMConfig::make(32, 64, true, 1);
+  CHECK(c.Nm == 32 && c.N_dm_m == 0 && c.x_dm_m == 0.5 && c.dm_mass_ratio == 0.125 && c.x_dm_gas == 0.5);
+  CHECK(a.dm_mass_ratio == 8.0 && b.dm_mass_ratio == 1.0);
+  // neither a multiple nor a divisor: refused
   bool threw = false;
   try {
-    pm::PMConfig::make(32, 64, true, 1);
+    pm::PMConfig::make(32, 48, true, 1);
   } catch (const std::exception&) {
     threw = true;
   }

@@ -1469,6 +1469,71 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(amrex_pm_gas_levels_restart_smoke PROPERTIES TIMEOUT 1800
                            LABELS "amrex;amrex_pm;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1)
     endif()
+    # Stage G (pm_level_solve, docs/stage_g.md, label level_solve): a 16^3 run
+    # refined everywhere to level 1 with the level solve against the uniform
+    # 32^3 run with the same particles (and against pm_gas_levels), the DM +
+    # gas momentum with two levels over the whole box (periodic level
+    # solves) and over half of it (pm_level_solve_check.py, ~40 s on 2
+    # ranks); two levels over half the box with pm_refine = 1 and 2: 1, 2
+    # and 3 ranks byte-identical and a bit-identical restart (to z = 28: the
+    # gravity steps before the smoke problem's sources appear; with the RT
+    # on, the checkpoints of a rank-dependent fine-level layout order their
+    # rays differently and a restart through an RT step is not bit-identical,
+    # with pm_gas_levels as well: docs/stage_g.md section 3).
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME amrex_pm_level_solve_check
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_level_solve_check.py
+                       ${amrex_runs}/pm_level_solve "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_pm_level_solve_check PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_pm;amr;level_solve"
+                           ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+      foreach(r 1 2)
+        set(levsolve_sets --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                          --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                          --set pm_backend=amrex --set amrex_state=1 --set amrex_max_grid_size=8
+                          --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=0,0,0,7,7,7
+                          --set pm_level_solve=1 --set pm_refine=${r} --set movie_dz=0.5 --set movie_z0=25
+                          --set "zdata1=30 28")  # the run ends at z = 27.5 (step 12), before the smoke problem's sources appear at z = 24.7 (step 13)
+                                                 # (the RT costs 100 s a step here; the restart must end where the run does)
+        add_test(NAME amrex_pm_level_solve_ranks_smoke_r${r}
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                         ${amrex_runs}/pm_level_solve_ranks_r${r} "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                         ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                         ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${levsolve_sets}
+                         --set restart_every=1 --set restart_keep_latest=0)
+        set_tests_properties(amrex_pm_level_solve_ranks_smoke_r${r} PROPERTIES TIMEOUT 1800
+                             LABELS "amrex;amrex_pm;amr;level_solve;full" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+        add_test(NAME amrex_pm_level_solve_restart_smoke_r${r}
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                         $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                         ${amrex_runs}/pm_level_solve_restart_r${r} 9 ${levsolve_sets})
+        set_tests_properties(amrex_pm_level_solve_restart_smoke_r${r} PROPERTIES TIMEOUT 1800
+                             LABELS "amrex;amrex_pm;amr;level_solve;restart" ENVIRONMENT OMP_NUM_THREADS=1)
+      endforeach()
+      # T1 of the zoom ladder (docs/zoom_turbulence.md section 5, docs/stage_g.md
+      # section 4; nightly, ~15 min on 2 ranks): 32^3 base with two levels over
+      # the central eighth and the level solve, and the same hierarchy with the
+      # uniform 128^3 mesh (pm_gas_levels), against the uniform 128^3 run with
+      # the same 128^3 particles: the particles, the FoF halos and the density
+      # PDF inside the region
+      add_test(NAME amrex_pm_zoom_t1
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_zoom_t1_check.py
+                       ${amrex_runs}/pm_zoom_t1 "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> $<TARGET_FILE:find_halos> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_pm_zoom_t1 PROPERTIES TIMEOUT 7200 LABELS "amrex;amrex_pm;amr;level_solve;nightly"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 4 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+      # without refinement the level solve is the Stage E level: byte-identical
+      add_test(NAME amrex_pm_level_solve_identity_smoke
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/flag_identity_check.py
+                       ${amrex_runs}/pm_level_solve_identity "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       pm_level_solve --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                       --set amrex_max_grid_size=8 --set run_steps=6)
+      set_tests_properties(amrex_pm_level_solve_identity_smoke PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_pm;level_solve" ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    endif()
     # Stage F3 (docs/stage_f.md section 3): the I-front of one source in
     # uniform gas with a refined level over the central region, the front
     # crossing the level boundary, against the uniform runs at the base and
@@ -1813,6 +1878,23 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                COMMAND ${RADRAY_MPIEXEC} ${RADRAY_MPIEXEC_FLAGS} ${RADRAY_MPIEXEC_NP} ${np}
                        $<TARGET_FILE:test_amrex_pm> --fft ${fft} --mgs ${mgs})
       set_tests_properties(amrex_pm_unit_r${np}_${fft} PROPERTIES LABELS "amrex_pm;pm"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS ${np})
+    endforeach()
+    # Stage G (pm_level_solve, docs/stage_g.md): the level Poisson solve on a
+    # gas state with refined levels built by the test (no hydro): the
+    # single-particle force against Ewald with level 1 everywhere, over a
+    # region and with two nested levels; no self-force; level 1 everywhere
+    # against the uniform pm_refine = 2 backend (the same discrete problem:
+    # MLMG against the FFT); the DM + gas momentum over one step (1, 2 and 3
+    # ranks; the test needs C++20 for the AMReX headers it includes)
+    add_executable(test_amrex_pm_levels test_amrex_pm_levels.cpp)
+    target_link_libraries(test_amrex_pm_levels PRIVATE radray_pm ${RADRAY_RT_BACKEND_LIB})
+    set_target_properties(test_amrex_pm_levels PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    foreach(np 1 2 3)
+      add_test(NAME amrex_pm_levels_unit_r${np}
+               COMMAND ${RADRAY_MPIEXEC} ${RADRAY_MPIEXEC_FLAGS} ${RADRAY_MPIEXEC_NP} ${np}
+                       $<TARGET_FILE:test_amrex_pm_levels> --mgs 8)
+      set_tests_properties(amrex_pm_levels_unit_r${np} PROPERTIES LABELS "amrex_pm;pm;amr;level_solve"
                            ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS ${np})
     endforeach()
     # round-off against the serial pm_driver on the PM problems (fixtures of
