@@ -54,7 +54,8 @@ def main():
                 if mm:
                     parts.append(f"{key} {float(mm.group(1)) / nst:.3f}")
             ph = " ".join(parts)
-            ls = re.search(r"level solve: (.*?); levels (\d+)(.*)", last)
+            # the levels block ends at the "; " before the hydro's timers (or the line)
+            ls = re.search(r"level solve: (.*?); levels (\d+)(.*?)(?:; AMReX hydro timers|$)", last.strip())
             if ls:
                 lp = []
                 for key in ("sync", "deposit", "solve", "force", "kick"):

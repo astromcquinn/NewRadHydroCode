@@ -362,12 +362,13 @@ struct Config {
   //                the solve is rank-independent; it stops early when the
   //                residual is below pm_mlmg_tol times the initial one);
   //   pm_mlmg_tol:   that relative residual target (0 = always the full count);
-  //   pm_mlmg_bottom_sweeps: the Gauss-Seidel sweeps of the bottom solve
-  //                (the coarsest multigrid level; a level whose width has
-  //                an odd factor, e.g. 144 = 16 x 9 cells, coarsens only a
-  //                few times and its bottom grid is large: 64 sweeps keep
-  //                the V-cycles converging there, at no cost on a deep
-  //                hierarchy);
+  //   pm_mlmg_bottom_sweeps: the minimum Gauss-Seidel sweeps of the bottom
+  //                solve (the coarsest multigrid level; a level whose width
+  //                has an odd factor, e.g. 144 = 16 x 9 cells, coarsens only
+  //                a few times and its bottom grid is large); a rectangular
+  //                level gets at least the square of its bottom grid's width
+  //                (81 for 9^3); a solve ending at pm_mlmg_iters above 1e-6
+  //                is reported;
   //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;

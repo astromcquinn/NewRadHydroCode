@@ -344,9 +344,15 @@ struct FineMesh {
   ax::ParticleLocator<ax::DenseBins<ax::Box>> locator;
   bool aggable = false;  // the boxes fill their bounding box (MLMG may agglomerate: deeper multigrid)
   int mg_depth = 0;      // the multigrid coarsenings (layout-independent)
+  int bottom = 0;        // the coarsest multigrid grid's widest side (aggable levels; 0 = not known)
   int iters = 0;         // the last solve: V-cycles, final / initial residual
   double resid = 0;
+  Long capped = 0;       // solves that ended at the V-cycle cap above kCapResid
 };
+
+// A level solve that ends at pm_mlmg_iters with a relative residual above
+// this is reported (the float potential's rounding is ~1e-7)
+constexpr double kCapResid = 1e-6;
 
 // The fractional bits of level l's fixed-point deposits (density units)
 inline int bits_of(int l) { return std::max(26, kDensBits - 3 * std::max(0, l - 2)); }
@@ -607,6 +613,20 @@ struct PMLevel {
       int depth = -1;
       for (int w = bf * r; w > 1; w >>= 1) ++depth;
       M.mg_depth = M.aggable ? 30 : std::max(0, depth);
+      // An aggable level's multigrid halves its bounding box while every side
+      // stays even (MLLinOp's agglomeration: down to a width of 2), so the
+      // bottom grid's side is the odd part of each width: 9 for 144 = 16 x 9,
+      // 65 for a padded 1040. The smoother bottom solve needs of order
+      // width^2 sweeps there (solve_level). Layout-independent.
+      M.bottom = 0;
+      if (M.aggable) {
+        const ax::Box mb = M.ba.minimalBox();
+        for (int d = 0; d < 3; ++d) {
+          int w = mb.length(d);
+          while (w % 2 == 0 && w / 2 >= 2) w /= 2;
+          M.bottom = std::max(M.bottom, w);
+        }
+      }
       // proper nesting: the parent's cells must cover 3 parent cells around
       // the level (the Dirichlet data and the ghost potential come from them;
       // AmrMesh nests by blocking_factor / 2 = 4 cells)
@@ -1660,11 +1680,28 @@ struct PMLevel {
     mlmg.setBottomVerbose(0);
     mlmg.setFixedIter(mlmg_iters);
     mlmg.setBottomSolver(ax::BottomSolver::smoother);
-    mlmg.setFinalSmooth(mlmg_bottom_sweeps);  // the smoother bottom solve: this many sweeps on the coarsest grid
+    // the smoother bottom solve: this many red-black sweeps on the coarsest
+    // grid, at least the square of its width (a 9^3 bottom grid stalled the
+    // V-cycles at a factor 0.7 each with AMReX's 8 sweeps; 64 gave 20x per
+    // cycle; the sweeps one cycle needs grow as width^2), docs/stage_g.md 5.1
+    mlmg.setFinalSmooth(std::max(mlmg_bottom_sweeps, M.bottom * M.bottom));
     mlmg.solve({&sol}, {&rhs}, mlmg_tol, 0.0);
     M.iters = mlmg.getNumIters();
     const double r0 = mlmg.getInitResidual();
     M.resid = r0 > 0 ? mlmg.getFinalResidual() / r0 : 0.0;
+    // a level that ran out of V-cycles far from the target: say so (the
+    // first time per level, then every 100th), the force is then only as
+    // good as that residual
+    if (M.iters >= mlmg_iters && M.resid > kCapResid) {
+      M.capped += 1;
+      if (ax::ParallelDescriptor::IOProcessor() && (M.capped == 1 || M.capped % 100 == 0))
+        std::fprintf(stderr,
+                     "pm_level_solve WARNING: level %d (%lld cells, multigrid bottom width %d) reached pm_mlmg_iters = %d "
+                     "at relative residual %.2e > %.0e (%lld such solves); raise pm_mlmg_iters or "
+                     "pm_mlmg_bottom_sweeps, or check the level's shape (docs/stage_g.md section 5.1)\n",
+                     l, static_cast<long long>(M.ba.numPts()), M.bottom, mlmg_iters, M.resid, kCapResid,
+                     static_cast<long long>(M.capped));
+    }
     for (ax::MFIter mfi(M.pot); mfi.isValid(); ++mfi) {
       auto p = M.pot.array(mfi);
       auto sa = sol.const_array(mfi);
@@ -2121,8 +2158,9 @@ struct PMLevel {
       std::string out = std::string(buf) + b2;
       for (const FineMesh& M : fm) {
         char b3[128];
-        std::snprintf(b3, sizeof b3, " [%d: %lld cells, mg depth %d, %d iters, resid %.2e]", M.lev,
-                      static_cast<long long>(M.ba.numPts()), M.mg_depth, M.iters, M.resid);
+        std::snprintf(b3, sizeof b3, " [%d: %lld cells, mg depth %d, bottom %d, %d iters, resid %.2e%s]", M.lev,
+                      static_cast<long long>(M.ba.numPts()), M.mg_depth, M.bottom, M.iters, M.resid,
+                      M.capped ? (", capped " + std::to_string(M.capped) + "x").c_str() : "");
         out += b3;
       }
       return out;

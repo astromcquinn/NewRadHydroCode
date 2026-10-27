@@ -679,6 +679,14 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   hydro hierarchy costs 7.5 s per step in both. The klone profile at the
   central eighth (level 2 of 17 M cells, too much for this VM's memory)
   is `tools/hyak/pm_level_solve_profile.slurm`, ready to submit.
+* **Follow-up (2026-10-27, branch `claude/modest-mendel-8k29sb` after
+  PR #7):** the bottom solve's sweeps scale with the bottom grid's width
+  (at least width² on a rectangular level, 81 for the 144-cell level of
+  the klone profile, confirmed cycle by cycle with `pm_mlmg_verbose`);
+  a warning when a level ends at `pm_mlmg_iters` above 1e-6;
+  `pm_level_solve_table.py` ends the levels block at the hydro timers.
+  The klone re-run of the profile with it is to do (`docs/stage_g.md`
+  §5.1).
 * **Open:** the zoom itself needs WP1/WP2
   (multi-mass particles tag the levels). The composite solve is not
   planned (user decision 2026-10-23, `docs/PLAN.md`): the level solve of

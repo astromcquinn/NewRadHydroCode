@@ -95,9 +95,12 @@ per dimension in the periodic box, dx = 2^-l level-0 mesh cells.
    V-cycles (default 20) or until the residual max-norm is below
    `pm_mlmg_tol` (default 1e-10) of the initial one, red-black
    Gauss–Seidel (2 + 2 sweeps), the smoother as the bottom solver with
-   `pm_mlmg_bottom_sweeps` sweeps (default 64; AMReX's 8 left a level
-   whose width has an odd factor, 144 = 16 × 9 cells, with a 9³ bottom
-   grid that the V-cycles could not converge, §5) (no
+   at least `pm_mlmg_bottom_sweeps` sweeps (default 64) and, on a
+   rectangular level, at least the square of its bottom grid's width
+   (AMReX's 8 left a level whose width has an odd factor, 144 = 16 × 9
+   cells, with a 9³ bottom grid that the V-cycles could not converge,
+   §5.1); a solve that ends at `pm_mlmg_iters` above 1e-6 of the initial
+   residual is reported (no
    dot products: every operation is per cell and the norms are maxima,
    so the solve is bitwise rank-, thread- and layout-independent). The
    multigrid depth is fixed by `sync_levels`: a level whose boxes fill
@@ -358,6 +361,37 @@ cumulative timers):
   should drop from 0.12 s to about 0.05 s per step; the profile was not
   rerun. A level-1 residual of 4e-7 is still far below the float
   potential's precision, so the klone run's results were not affected.
+- **Confirmed cycle by cycle** (2026-10-27, `pm_mlmg_verbose = 2`, one
+  144³ level as above, 2 ranks): with 8 bottom sweeps the residual falls
+  as on level 2 for three cycles (2.3e-2, 1.5e-3, 2.3e-4) and then only
+  by a factor 0.70 per cycle (1.6e-4, 1.2e-4, 8.4e-5, … 1.4e-5 at cycle
+  11): the 9³ bottom grid is never solved. With 64 sweeps every cycle
+  gains about 20× (7.9e-5 at cycle 3, 1.7e-7 at 5, 3.4e-11 at 8).
+- **The sweeps now scale with the bottom grid** (branch
+  `claude/modest-mendel-8k29sb` after PR #7): the sweeps one V-cycle
+  needs grow as the bottom grid's width squared, and the nesting pads of
+  the zoom levels give widths with larger odd factors (528 = 16 × 33,
+  1040 = 16 × 65). A rectangular level (one whose boxes fill their
+  bounding box, so that MLMG agglomerates it) has a bottom grid of the odd
+  part of its widths, known from its geometry alone, so it gets
+  max(`pm_mlmg_bottom_sweeps`, width²) sweeps: 81 for 144³ (8 cycles to
+  1.2e-11), about 4200 for a 1040-wide level (on 65³ cells, a fifth of
+  that level's own smoothing work). Layout-independent, deterministic,
+  and no Krylov bottom solver. A level that is not rectangular is
+  coarsened only log2(blocking factor × `pm_refine`) − 1 times, and a wide
+  irregular level would leave a wide bottom grid that no fixed sweep
+  count solves; for those the new warning (`pm_level_solve WARNING: level
+  l … reached pm_mlmg_iters … at relative residual … > 1e-06`, the first
+  time per level and every 100th after; the timers line shows `bottom`,
+  the bottom grid's width, and `capped N×`) is the guard. The zoom's
+  levels are boxes and agglomerate; the density-tagged production levels
+  are small patches whose bottom grids stay small. If a zoom level ever
+  warns, padding its PM mesh to a box that coarsens to 2–4 cells is the
+  next step.
+- **The klone re-run with this version:** to do
+  (`tools/hyak/pm_level_solve_profile.slurm` on main once this branch is
+  merged); the expected level solve is about 0.05 s per step against the
+  0.124 s of the table above.
 
 ## 6. How to run
 
