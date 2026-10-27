@@ -105,7 +105,15 @@ struct RunParams {
   // x = x_HII,V of the box at the end of the previous step (c0 below x1,
   // and before the RT has run: x = 0 while the RT grid is unwritten).
   // Overrides c_reduced. Stateless, so a restart reproduces it.
+  // c_reduced_schedule_interp = 1 (default 0, the steps above): c is
+  // continuous in x, linear between the midpoints of the plateaus
+  // ((x_k + x_{k+1})/2 with x_0 = 0 and x_{n+1} = 1, value c_k there) and
+  // constant below the first and above the last midpoint, so the mean of
+  // the step schedule is kept but the photon reservoir n_gamma ~ ndot
+  // lambda / c is never emptied in one step (the Gamma spikes of
+  // docs/rt_suite_512.md section 4).
   std::vector<double> c_sched_c, c_sched_x;
+  int c_sched_interp = 0;
   int deterministic_parallel = 0;  // parallel ray tracing (docs/parallel.md)
   int threads = 0;          // OpenMP threads (0: OpenMP default)
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
@@ -304,7 +312,9 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
         if (!(P.c_sched_x[i] > 0 && P.c_sched_x[i] <= 1) || (i > 0 && !(P.c_sched_x[i] > P.c_sched_x[i - 1])))
           throw std::runtime_error("c_reduced_schedule: thresholds must increase within (0, 1]");
     }
-  } else if (key == "ics")
+  } else if (key == "c_reduced_schedule_interp")
+    P.c_sched_interp = std::stoi(val);
+  else if (key == "ics")
     P.ics = val;
   else if (key == "fields_every")
     P.fields_every = std::stoi(val);
@@ -947,8 +957,29 @@ int main(int argc, char** argv) {
     auto apply_sched = [&]() {
       if (P.c_sched_c.empty()) return;
       double c = P.c_sched_c[0];
-      for (std::size_t i = 0; i < P.c_sched_x.size(); ++i)
-        if (sched_x >= P.c_sched_x[i]) c = P.c_sched_c[i + 1];
+      if (P.c_sched_interp && !P.c_sched_x.empty()) {
+        // linear between the plateau midpoints, constant outside them
+        const std::size_t n = P.c_sched_c.size();
+        std::vector<double> xm(n);
+        for (std::size_t k = 0; k < n; ++k) {
+          const double lo = k == 0 ? 0.0 : P.c_sched_x[k - 1];
+          const double hi = k + 1 == n ? 1.0 : P.c_sched_x[k];
+          xm[k] = 0.5 * (lo + hi);
+        }
+        if (sched_x >= xm[n - 1]) {
+          c = P.c_sched_c[n - 1];
+        } else {
+          for (std::size_t k = 0; k + 1 < n; ++k)
+            if (sched_x >= xm[k] && sched_x < xm[k + 1]) {
+              c = P.c_sched_c[k] +
+                  (P.c_sched_c[k + 1] - P.c_sched_c[k]) * (sched_x - xm[k]) / (xm[k + 1] - xm[k]);
+              break;
+            }
+        }
+      } else {
+        for (std::size_t i = 0; i < P.c_sched_x.size(); ++i)
+          if (sched_x >= P.c_sched_x[i]) c = P.c_sched_c[i + 1];
+      }
       if (c != s.cfg.c_reduced || !sched_announced) {
         if (io) {
           std::printf(" c_reduced_schedule: c_reduced = %g from step %d (z = %.5f, x_HII,V = %.6f)\n", c,

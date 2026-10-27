@@ -4,7 +4,7 @@ OTVET; docs/rt_moments.md section 6, docs/movies.md).
 
     compare_movie.py OUT.mp4 RUN1[:label] RUN2[:label] ... [--axis z] [--pos P]
                      [--thick 1] [--zmax Z] [--zmin Z] [--every n]
-                     [--fps 12] [--jobs 8] [--stills auto]
+                     [--fps 12] [--jobs 8] [--stills auto] [--diff] [--diff-range F]
 
 RUN is a run directory (<problem>/run). Columns are runs; the rows are
 slices of x_HII and log10 T, and of log10 Gamma_HI (fixed range 1e-14 -
@@ -17,7 +17,11 @@ same movie_dz redshifts, so they agree to within an RT substep; the
 largest mismatch is printed). All runs must have the same N and box.
 Full-cube and slab frames (movie_slab) both work; with slab frames the
 slice must lie in the stored slabs of every run.
-Uses the frame index, slab reader and colour scales of make_movie.py.
+--diff shows, in every column after the first, the field minus the first
+run's (x_HII and rho as differences, T and Gamma_HI in dex), on a diverging
+scale of +-F (--diff-range, default 0.5 for x_HII and rho, 1 dex for Gamma
+and T); the first column keeps the field itself. Uses the frame index, slab
+reader and colour scales of make_movie.py.
 """
 import argparse
 import multiprocessing as mp
@@ -34,6 +38,7 @@ from matplotlib.colors import Normalize  # noqa: E402
 
 COLORS = ["#4cc9f0", "#f72585", "#80ed99", "#ffd166"]
 ROWS = ("xHII", "temp")  # default rows; "gamma" is added when every run has gammaHI frames
+DIFF_RANGE = {"xHII": 0.5, "rhog": 0.5, "temp": 1.0, "gamma": 1.0}  # --diff half-ranges
 
 
 class Renderer:
@@ -58,18 +63,27 @@ class Renderer:
         # panel on the right; positions in pixels, converted to figure units
         gap, x0, y0 = 0.012 * W, 0.045 * W, 0.08 * H
         side = min((0.80 * H - (len(rows) - 1) * 2.5 * gap) / len(rows), 0.62 * W / nr)
+        # centre the block of rows vertically when the width limits the panels (one row, many runs)
+        y0 += 0.5 * (0.80 * H - (len(rows) * side + (len(rows) - 1) * 2.5 * gap))
         px = lambda x, y, w, h: [x / W, y / H, w / W, h / H]  # noqa: E731
         self.ims = {}
         hlab, vlab = mm.AXES[self.plane[0]], mm.AXES[self.plane[1]]
+        self.diff = getattr(args, "diff", False)
         for i, fld in enumerate(rows):
             st = mm.STYLE[fld]
             lo, hi = mm.fixed_range(fld, args)
+            dr = args.diff_range if getattr(args, "diff_range", None) else DIFF_RANGE.get(fld, 0.5)
             yb = y0 + (len(rows) - 1 - i) * (side + 2.5 * gap)
             for j in range(nr):
                 a = fig.add_axes(px(x0 + j * (side + gap), yb, side, side))
-                im = a.imshow(np.zeros((2, 2)), origin="lower", cmap=st["cmap"],
-                              norm=Normalize(lo, hi), interpolation="nearest",
-                              extent=(0, box, 0, box))
+                if self.diff and j > 0:
+                    im = a.imshow(np.zeros((2, 2)), origin="lower", cmap="RdBu_r",
+                                  norm=Normalize(-dr, dr), interpolation="nearest",
+                                  extent=(0, box, 0, box))
+                else:
+                    im = a.imshow(np.zeros((2, 2)), origin="lower", cmap=st["cmap"],
+                                  norm=Normalize(lo, hi), interpolation="nearest",
+                                  extent=(0, box, 0, box))
                 self._style(a)
                 step = 1.0 if box <= 5 else 2.0 if box <= 12 else 10.0 ** np.floor(np.log10(box / 2))
                 ticks = [t for t in np.arange(0, box, step)]
@@ -82,7 +96,8 @@ class Renderer:
                 self.ims[fld, j] = im
             cax = fig.add_axes(px(x0 + nr * (side + gap), yb, 0.012 * W, side))
             cb = fig.colorbar(im, cax=cax)
-            cb.set_label(st["label"], color="white")
+            cb.set_label((r"$\Delta$ " + st["label"] + " (run $-$ " + labels[0] + ")") if self.diff and nr > 1
+                         else st["label"], color="white")
             cb.ax.tick_params(colors="white")
             cb.outline.set_edgecolor("white")
         xt = x0 + nr * (side + gap) + (0.11 if "gamma" in rows else 0.09) * W
@@ -119,10 +134,16 @@ class Renderer:
             a.plot(series["zfull"][j], series["xfull"][j], color=c, lw=1, alpha=0.25)
             self.lines.append(a.plot([], [], color=c, lw=2.2, label=lab)[0])
         self.vline = a.axvline(z.max(), color="white", lw=1, alpha=0.7)
-        a.legend(loc="lower right", facecolor="black", edgecolor="gray", labelcolor="white")
+        if nr <= 4:  # with more runs the coloured column titles are the legend
+            a.legend(loc="lower right", facecolor="black", edgecolor="gray", labelcolor="white")
         self.title = fig.text(0.04, 0.955, "", color="white", fontsize=17, va="center")
-        self.xtext = a.text(0.02, 0.97, "", transform=a.transAxes, color="white", va="top",
-                            fontsize=12)
+        # the per-run x_HII,V readout: inside the panel for a few runs, above it for many
+        if nr > 4:
+            self.xtext = a.text(0.0, 1.02, "", transform=a.transAxes, color="white", va="bottom",
+                                fontsize=10)
+        else:
+            self.xtext = a.text(0.02, 0.97, "", transform=a.transAxes, color="white", va="top",
+                                fontsize=12)
         self.sub = fig.text(0.95, 0.955, "", color="white", fontsize=12, va="center", ha="right")
 
     @staticmethod
@@ -134,6 +155,7 @@ class Renderer:
 
     def render(self, k):
         s, args = self.s, self.args
+        ref = {}
         for j, run in enumerate(self.runs):
             fr = run.frames[self.match[j][k]]
             for fld in self.rows:
@@ -143,11 +165,19 @@ class Renderer:
                     im.set_data(np.full((2, 2), np.nan))
                     continue
                 data, _ = mm.to_plot(fld, mm.read_slab(path, run.N, self.ax, self.i0, self.thick), args)
+                if self.diff:
+                    if j == 0:
+                        ref[fld] = data
+                    elif fld in ref:
+                        data = data - ref[fld]
                 im.set_data(data.T)
         z = s["z"][k]
         self.title.set_text("z = %.2f    t = %.0f Myr" % (z, s["t"][k]))
-        self.xtext.set_text("\n".join(r"%s: $x_{\rm HII,V}$ = %.3f" % (lab, s["xV"][j][k])
-                                      for j, lab in enumerate(self.labels)))
+        if len(self.labels) > 4:
+            self.xtext.set_text(r"$x_{\rm HII,V}$ = %.3f (%s)" % (s["xV"][0][k], self.labels[0]))
+        else:
+            self.xtext.set_text("\n".join(r"%s: $x_{\rm HII,V}$ = %.3f" % (lab, s["xV"][j][k])
+                                          for j, lab in enumerate(self.labels)))
         proj = "slice" if self.thick == 1 else "projection over %d cells" % self.thick
         self.sub.set_text("%g Mpc/h, %d$^3$ — %s %s = %.2f Mpc/h" % (
             self.runs[0].box, self.N, proj, mm.AXES[self.ax], (self.i0 + 0.5 * self.thick) * self.cell))
@@ -194,6 +224,11 @@ def main():
     ap.add_argument("--fps", type=int, default=12)
     ap.add_argument("--crf", type=int, default=20)
     ap.add_argument("--jobs", type=int, default=1)
+    ap.add_argument("--diff", action="store_true",
+                    help="columns after the first show the field minus the first run's (x_HII, rho: "
+                         "differences; T, Gamma_HI: dex) on a diverging scale")
+    ap.add_argument("--diff-range", type=float, default=None,
+                    help="half-range of the --diff scale (default 0.5 for x_HII and rho, 1 for Gamma and T)")
     ap.add_argument("--stills", default="auto", help="auto (x_HII,V of the first run = 0.1, 0.5, "
                     "0.9, last), none, or frame indices")
     a = ap.parse_args()

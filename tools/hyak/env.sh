@@ -28,6 +28,13 @@ export RADRAY_SW RADRAY_FFTW RADRAY_CONDA_ENV
 # CMake comes from the conda env: every klone cmake module depends_on an
 # older gcc (cmake/3.25.1 -> gcc/11.2.0) and would replace gcc 13.
 module load gcc/13.2.0
+# The module's compilers, by absolute path: the conda env has carried the
+# conda-forge gcc/gfortran 15 compilers since 2026-10-23 (installed for
+# MUSIC), and conda's activation exports CC, CXX and FC pointing at them.
+# They default to PIE and cannot link the static FFTW of this setup (the
+# Fortran harnesses failed to link, "relocation R_X86_64_32S ... recompile
+# with -fPIE"), and the stored references were made with gfortran 13.
+_radray_gcc_bin="$(dirname "$(command -v gfortran)")"
 
 # Keep conda's package cache out of the small home quota.
 export CONDA_PKGS_DIRS="$RADRAY_SW/conda-pkgs"
@@ -57,6 +64,8 @@ if [ -d "$RADRAY_CONDA_ENV" ]; then
   done
   unset _v _b
 fi
+export CC="$_radray_gcc_bin/gcc" CXX="$_radray_gcc_bin/g++" FC="$_radray_gcc_bin/gfortran"
+unset _radray_gcc_bin
 
 # CMake: find_path(fftw3.h) / find_library(fftw3f).
 export CMAKE_PREFIX_PATH="$RADRAY_FFTW${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
