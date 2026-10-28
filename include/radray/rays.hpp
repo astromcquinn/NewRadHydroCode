@@ -80,6 +80,9 @@ struct ThreadRays {
   std::vector<std::int32_t> free;
   std::int64_t ncst1 = 0, ncst2 = 0, nmrg1 = 0, nmrg2 = 0, nspl1 = 0, nspl2 = 0;
   std::int64_t ndel1 = 0, ncreated = 0;
+  // plane_parallel = 1: the photons of the rays this thread deleted at their
+  // domain's far face (2^40 fixed point, plane_parallel.hpp)
+  __int128 plane_escaped_fx = 0;
   char pad[64];  // keep the counters of different threads on different lines
 };
 
