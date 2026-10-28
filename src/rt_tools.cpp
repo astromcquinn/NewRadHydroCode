@@ -927,7 +927,7 @@ void rt_step_1(Simulation& s) {
   if (det) {
     // plane_parallel = 1: the face rays of this substep (plane_emit), or
     // the sweep's cast of the packets in flight (plane_transport = sweep)
-    if (s.plane.on) {
+    if (s.plane.on && s.plane.active) {
       if (s.plane.transport == 1)
         plane_sweep_cast(s);
       else
@@ -941,7 +941,7 @@ void rt_step_1(Simulation& s) {
     if (s.clk.istep_rt > 1) ray_buffer_supplement(s);
     // plane_parallel = 1: the face rays of this substep (plane_emit), or
     // the sweep's cast of the packets in flight (plane_transport = sweep)
-    if (s.plane.on) {
+    if (s.plane.on && s.plane.active) {
       if (s.plane.transport == 1)
         plane_sweep_cast(s);
       else

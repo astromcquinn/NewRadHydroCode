@@ -1162,7 +1162,7 @@ struct Level : LevelBase {
       ray_substeps += S.nout;
     }
     // ---- plane_transport = sweep: the packets in flight cast as the rays they stand for ----
-    if (plane_sweep) {
+    if (plane_sweep && P.plane.L > 0) {  // (L = 0 before the turn-on: no face sources)
       const int L = P.plane.L, kc = P.cells;
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
         const int f = pfaces[fi], d = f / 2, sgn = rrk::plane_face_sign(f);
@@ -1349,7 +1349,7 @@ struct Level : LevelBase {
     (void)myproc; (void)hist_p; (void)cstat_p; (void)err_p; (void)NN; (void)ngh; (void)sfr_min;
     const rrk::RTP P = params_of(s);
     // ---- plane_transport = sweep: the packets move k cells on (cast_3) ----
-    if (plane_sweep) {
+    if (plane_sweep && P.plane.L > 0) {
       const int L = P.plane.L, kc = P.cells;
       i128 inf = 0, esc = 0;
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {

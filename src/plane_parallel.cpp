@@ -295,7 +295,7 @@ void plane_init(Simulation& s) {
 void plane_fill_rtp(const Simulation& s, rrk::RTP& P) {
   const PlaneState& ps = s.plane;
   P.plane.L = 0;
-  if (!ps.on) return;
+  if (!ps.on || !ps.active) return;  // no face sources (and no plane rules) before the turn-on
   P.plane.L = ps.L;
   // sweep: the kernels' per-cell emission (plane_rays) is off; the faces
   // are read from the PlaneState by the sweep itself
@@ -309,7 +309,7 @@ void plane_fill_rtp(const Simulation& s, rrk::RTP& P) {
 }
 
 double plane_emitted_per_substep(const Simulation& s, const rrk::RTP& P) {
-  if (!s.plane.on) return 0;
+  if (!s.plane.on || !s.plane.active) return 0;
   int nfaces = 0;
   for (int f = 0; f < 6; ++f) nfaces += (s.plane.faces >> f) & 1;
   const double N = s.cfg.nrtr;

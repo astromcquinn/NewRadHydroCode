@@ -1480,7 +1480,10 @@ int main(int argc, char** argv) {
       // plane_parallel = 1 (plane_parallel.hpp): from plane_z_re instead,
       // the faces of the RT domains as the only sources (no halo finder)
       if (cfg.plane_parallel) {
-        if (plane_rt_active(cfg, s.clk.scalefactor - s.clk.da_sim)) {
+        // before the turn-on the RT runs only for the X-ray background
+        // (xray_heating), with no face sources
+        s.plane.active = plane_rt_active(cfg, s.clk.scalefactor - s.clk.da_sim);
+        if (s.plane.active || s.xray.on) {
           th = Clock::now();
           if (on_level && cfg.amrex_balance) {
             double e0 = 0, e1 = 0;
