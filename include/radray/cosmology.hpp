@@ -59,6 +59,9 @@ struct Units {
   double Tgas_min = 0, Tgas_max = 0;
   double Tmf_min = 0, Tmf_max = 0;  // MF temperature limits (hydro smooth)
   double temp_min = 0, temp_max = 0;
+  // The hydro's temperature floor in the units of Tgas_min:
+  // Config::thermal_floor / temp1_unit (1/temp1_unit, i.e. 1 K, by default)
+  double Thydro_min = 0;
 
   double len_rt = 0, vol_rt = 0;
   double sfr_min = 0, ngam_min = 0, fgam_min = 0, seg_min = 0;

@@ -54,6 +54,7 @@ add_library(radray
   src/pm_backend.cpp
   src/hydro_backend.cpp
   src/amrex_state.cpp
+  src/thermal_history.cpp
   src/io.cpp)
 target_include_directories(radray PUBLIC include)
 
@@ -71,10 +72,12 @@ set(RADRAY_HAVE_AMREX OFF)
 if(RADRAY_AMREX)
   # (the PM backend, pm_backend = amrex, docs/stage_e_pm.md, adds the FFT
   # component: AMReX built with -DAMReX_FFT=ON, which needs FFTW3 on the CPU)
-  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE FFT)
+  # (the level Poisson solve of pm_level_solve, docs/stage_g.md, adds the
+  # linear solvers: AMReX built with -DAMReX_LINEAR_SOLVERS=ON, the default)
+  find_package(AMReX 26.10 CONFIG QUIET COMPONENTS 3D MPI OMP PARTICLES PSINGLE FFT LSOLVERS)
   if(NOT AMReX_FOUND)
     if(NOT RADRAY_FETCH_AMREX)
-      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE, FFT) was not "
+      message(FATAL_ERROR "RADRAY_AMREX=ON but AMReX (3D, MPI, OMP, PARTICLES, PSINGLE, FFT, LSOLVERS) was not "
                           "found: set -DAMReX_DIR=<install>/lib/cmake/AMReX or -DRADRAY_FETCH_AMREX=ON")
     endif()
     include(FetchContent)
@@ -85,7 +88,7 @@ if(RADRAY_AMREX)
     set(AMReX_PARTICLES_PRECISION SINGLE CACHE STRING "" FORCE)
     set(AMReX_FORTRAN OFF CACHE BOOL "" FORCE)
     set(AMReX_FASTMATH OFF CACHE BOOL "" FORCE)
-    set(AMReX_LINEAR_SOLVERS OFF CACHE BOOL "" FORCE)
+    set(AMReX_LINEAR_SOLVERS ON CACHE BOOL "" FORCE)
     set(AMReX_FFT ON CACHE BOOL "" FORCE)
     set(AMReX_PROBINIT OFF CACHE BOOL "" FORCE)
     set(AMReX_AMRLEVEL OFF CACHE BOOL "" FORCE)
@@ -175,7 +178,8 @@ add_library(radray_halos
   src/halo_sources.cpp
   src/halo_capi.cpp
   src/mass_function.cpp
-  src/abundance_matching.cpp)
+  src/abundance_matching.cpp
+  src/xray_background.cpp)
 target_link_libraries(radray_halos PUBLIC radray)
 add_executable(find_halos apps/find_halos.cpp)
 target_link_libraries(find_halos PRIVATE radray_halos)
@@ -259,3 +263,7 @@ add_executable(am_fit apps/am_fit.cpp)
 target_link_libraries(am_fit PRIVATE radray_halos)
 add_executable(hmf_table apps/hmf_table.cpp)
 target_link_libraries(hmf_table PRIVATE radray_halos)
+# The X-ray background of xray_heating = 1, and a one-zone thermal history
+# (docs/xray_heating.md)
+add_executable(xray_bkg apps/xray_bkg.cpp)
+target_link_libraries(xray_bkg PRIVATE radray_halos)

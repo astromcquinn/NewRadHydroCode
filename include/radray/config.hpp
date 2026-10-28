@@ -169,6 +169,21 @@ struct Config {
   // legacy_physics; no Fortran mirror (a new flag).
   double cool_suppress_overdensity = 200.0;
 
+  // params.txt thermal_init = floor (default, the original) | recfast
+  // (docs/thermal_history.md, quirk T1 of docs/port_notes.md 5b). floor:
+  // the gas starts at temp_min and neutral gas never couples to the CMB.
+  // recfast: the ICs start at the RECFAST temperature of z_init, every cell
+  // couples to the CMB through the residual electrons of recombination
+  // (thermal_history.hpp, compton_residual_step), and temp_min is no longer
+  // the instantaneous-decoupling adiabat (calc_sim_var). No Fortran mirror.
+  int thermal_init = 0;  // 0 floor, 1 recfast
+  // params.txt thermal_floor (K): the hydro's temperature floor (check_temp
+  // of the legacy scheme, the unsplit scheme, the AMReX hydro level), 1 K
+  // in the original; with thermal_init = recfast also the RT physics floor
+  // temp_min (at least 1 K with legacy_physics = 1, the rate table's lower
+  // edge). Default 1 K, or 0.1 K with thermal_init = recfast (radhydro).
+  double thermal_floor = 1.0;
+
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),
   // 1 = exposure, which keeps a ray's photons for the cells further along
@@ -333,10 +348,36 @@ struct Config {
   //                (docs/stage_f.md section 4); 0 the level-0 coupling of
   //                Stage F1 (the fine cells get the level-0 kick through
   //                the hydro's push-down). No effect without refinement.
+  //   pm_level_solve: Stage G (docs/stage_g.md): with a refined gas
+  //                hierarchy (amrex_max_level > 0, amrex_state = 1) the
+  //                particles live on the finest level covering them, every
+  //                level deposits its particles and gas on its own mesh
+  //                (the level's gas grid times pm_refine), level 0 keeps
+  //                the FFT and every refined level solves its own Poisson
+  //                equation with AMReX's MLMG (MLPoisson, Dirichlet values
+  //                from the parent's potential), the 4-point gradient and
+  //                the kicks per level. 0 (default): the uniform mesh of
+  //                pm_gas_levels. No effect without refinement.
+  //   pm_mlmg_iters: the V-cycles of each level solve (a fixed count, so
+  //                the solve is rank-independent; it stops early when the
+  //                residual is below pm_mlmg_tol times the initial one);
+  //   pm_mlmg_tol:   that relative residual target (0 = always the full count);
+  //   pm_mlmg_bottom_sweeps: the Gauss-Seidel sweeps of the bottom solve
+  //                (the coarsest multigrid level; a level whose width has
+  //                an odd factor, e.g. 144 = 16 x 9 cells, coarsens only a
+  //                few times and its bottom grid is large: 64 sweeps keep
+  //                the V-cycles converging there, at no cost on a deep
+  //                hierarchy);
+  //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
   int pm_gas_levels = 1;
+  int pm_level_solve = 0;
+  int pm_mlmg_iters = 20;
+  double pm_mlmg_tol = 1e-10;
+  int pm_mlmg_bottom_sweeps = 64;
+  int pm_mlmg_verbose = 0;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in

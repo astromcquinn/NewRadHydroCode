@@ -65,6 +65,9 @@ def main():
                          "0.2c to x = 0.5, 0.3c to 0.75, 0.5c after; docs/production_run.md "
                          "section 1); "
                          "'none' for the constant --c-reduced")
+    ap.add_argument("--c-schedule-interp", type=int, default=0, choices=(0, 1),
+                    help="1: c_reduced_schedule_interp = 1, the schedule continuous in x_HII,V "
+                         "(linear between the plateau midpoints; docs/production_run.md section 1)")
     ap.add_argument("--nray-max-factor", type=int, default=16)
     ap.add_argument("--movie-dz", type=float, default=0.05)
     ap.add_argument("--movie-fields", default="fHI,temp,rhog",
@@ -273,7 +276,8 @@ def main():
         f"deterministic_parallel = {0 if a.backend == 'amrex' else 1}",
         f"c_reduced = {a.c_reduced:g}",
         *([] if a.c_schedule in ("", "none") else
-          [f"c_reduced_schedule = {' '.join(x.strip() for x in a.c_schedule.split(','))}"]),
+          [f"c_reduced_schedule = {' '.join(x.strip() for x in a.c_schedule.split(','))}"]
+          + ([] if not a.c_schedule_interp else ["c_reduced_schedule_interp = 1"])),
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]
