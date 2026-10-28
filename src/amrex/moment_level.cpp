@@ -146,6 +146,9 @@ struct MomentLevel : CellLevel {
   // substep per cell, ngam (5) and egam (5), emitted at the next substep
   // (RecombState::ngam / egam on the slabs; every cell in launch mode)
   FFab RB;
+  // gammaHI_avg (Simulation::gamma_avg, rt.hpp): per cell the sum over this
+  // hydro step's substeps of gamma(1) * dtsec_rt, as gamma_avg_add
+  ax::FabArray<ax::BaseFab<double>> GA;
   bool recomb = false;
   double launched = 0;
   std::int64_t nsrc = 0;
@@ -232,6 +235,50 @@ struct MomentLevel : CellLevel {
     T.prep += now() - t0;
     s.timers.prep += now() - t0;
     if (s.cfg.rt_method == RTMethod::OTVET) tensor(s);
+    // gammaHI_avg: this step's sums (radiative_transfer resets the time)
+    if (s.gamma_avg.on) {
+      if (!GA.ok()) GA.define(ba, dm, 1, 0);
+      GA.setVal(0.0);
+    }
+  }
+
+  // gamma_avg_add on the cells: each cell its own sum (rank and thread
+  // independent, the serial expression)
+  void gamma_avg_add(const Simulation& s) {
+    const double dt = s.clk.dtsec_rt;
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      auto a = GA.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        a(i, j, k) += static_cast<double>(c(i, j, k).gamma[0]) * dt;
+      });
+    }
+  }
+
+  // gamma_avg_field on the cells, gathered onto rank 0 slab by slab
+  void gamma_avg_gather(const Simulation& s, std::vector<float>& out) const override {
+    const Simulation::GammaAvg& A = s.gamma_avg;
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    out.assign(io ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
+    if (!GA.ok() || !(A.time > 0)) return;  // zeros, as the serial code
+    const double inv = 1.0 / A.time;
+    FFab Cf(ba, dm, 1, 0);
+    for (ax::MFIter mfi(Cf); mfi.isValid(); ++mfi) {
+      auto a = GA.const_array(mfi);
+      auto f = Cf.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        f(i, j, k) = static_cast<float>(a(i, j, k) * inv);
+      });
+    }
+    const int NN = N;
+    float* o = out.data();
+    gs::gather_slabs(Cf, N, 1, [&](int k0, int nk, ax::Array4<float const> const& a) {
+#pragma omp parallel for schedule(static) collapse(2)
+      for (int k = k0; k < k0 + nk; ++k)
+        for (int j = 0; j < NN; ++j)
+          for (int i = 0; i < NN; ++i)
+            o[i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k)] = a(i, j, k);
+    });
   }
 
   // ---- the OTVET tensor (once per hydro step) -------------------------------
@@ -1150,6 +1197,7 @@ struct MomentLevel : CellLevel {
     lap(s.timers.sync, T.deposit);
 
     physics(s);
+    if (s.gamma_avg.on) gamma_avg_add(s);  // gammaHI_avg: after this substep's physics
     tw = now();
 
     // rt_step_3: N, F, E *= fgam; the absorbed photons by plane

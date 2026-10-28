@@ -126,6 +126,12 @@ struct LevelBase {
   virtual void ckpt_read(const std::function<void(void*, std::size_t)>&, int) {
     throw std::runtime_error("ckpt_read: not the moment level");
   }
+  // gammaHI_avg (Simulation::gamma_avg): the substep-averaged Gamma_HI of
+  // every cell onto rank 0 (amrex_gamma_avg_field, amrex_state.hpp).
+  // Collective.
+  virtual void gamma_avg_gather(const Simulation&, std::vector<float>&) const {
+    throw std::runtime_error("gammaHI_avg on rt_backend = amrex: implemented for the moment RT only");
+  }
 };
 
 // The cells of a level and their transfers

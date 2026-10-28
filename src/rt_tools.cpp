@@ -359,7 +359,16 @@ void radiative_transfer(Simulation& s) {
   if (L) *L << " Hydro step : " << clk.istep << " " << static_cast<float>(clk.redshift) << "\n";
 
   prep_rt(s);
-  if (s.gamma_avg.on) gamma_avg_begin(s);  // gammaHI_avg: this step's sums
+  if (s.gamma_avg.on) {  // gammaHI_avg: this step's sums
+    if (use_amrex(s.cfg)) {
+      // the level holds the per-cell sums (moment_level.cpp, reset by its prep)
+      s.gamma_avg.time = 0;
+      s.gamma_avg.substeps = 0;
+    } else {
+      gamma_avg_begin(s);
+    }
+  }
+  if (s.xray.on && s.xray_hook) s.xray_hook(s);  // xray_heating: this step's rates
 
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
@@ -368,6 +377,10 @@ void radiative_transfer(Simulation& s) {
     if (use_amrex(s.cfg)) {
       // rt_backend = amrex (rt_backend.hpp): the whole substep on the level
       amrex_rt_substep(s);
+      if (s.gamma_avg.on) {  // gammaHI_avg: the level added the cells' sums
+        s.gamma_avg.time += s.clk.dtsec_rt;
+        s.gamma_avg.substeps += 1;
+      }
     } else {
       if (s.raydump_state && !moments) {
         s.rays.prov_substep = ++s.raydump_state->substep;
@@ -1109,6 +1122,13 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   X.photon_conserve = s.cfg.photon_conserve;
   X.cool_suppress = s.cfg.cool_suppress_overdensity;
   X.want_nrab = static_cast<bool>(s.recomb);
+  // xray_heating (docs/xray_heating.md): the uniform X-ray rates of this
+  // hydro step; every cell is processed
+  X.xray = s.xray.on;
+  for (int sp = 0; sp < 3; ++sp) {
+    X.xray_gamma[sp] = s.xray.gamma[sp];
+    X.xray_phi[sp] = s.xray.phi[sp];
+  }
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {
     for (int irt = 1; irt <= Nrt; ++irt) {
@@ -1116,9 +1136,10 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
       const rrk::CellRef cr = cell_ref(G, c);
 
       // Effective frequency and unit direction vector; skip neutral cells
-      // without photons
+      // without photons (not with the X-ray background, which reaches them)
       double ngam_tot = 0;
-      if (!rrk::cell_radiation_prep(cr, u, ngam_tot)) continue;
+      const bool lit = rrk::cell_radiation_prep(cr, u, ngam_tot);
+      if (!lit && !X.xray) continue;
 
       if (ngam_tot > u.ngam_min) sink.ngfill += 1;
 

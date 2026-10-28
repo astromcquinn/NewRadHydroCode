@@ -344,7 +344,7 @@ void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroS
   }
   if (fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   if (gas.has_e()) return;
-  const double Tmin = 1 / un.temp1_unit;
+  const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
   gas.e.assign(static_cast<std::size_t>(gas.ncell), 0.0f);
   for (std::int64_t c = 0; c < gas.ncell; ++c) {
     const float* u = gas.u_p(c);
@@ -390,7 +390,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
   const rrh::DualEnergy de{eta1_of(cfg), cfg.dual_eta2, cfg.dual_eta1_local, cfg.dual_nb_radius,
                            cfg.dual_reset_rule, cfg.dual_eta2_local};
   const double rho_min = un.Dgas_min;
-  const double Tmin = 1 / un.temp1_unit;
+  const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
 
   double remaining = dt;
   std::int64_t nsub_call = 0;

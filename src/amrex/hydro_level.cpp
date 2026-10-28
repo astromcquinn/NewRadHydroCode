@@ -991,7 +991,7 @@ class HydroLevel {
     const rrh::DualEnergy de{cfg.dual_energy ? cfg.dual_eta1 : 0.0, cfg.dual_eta2, cfg.dual_eta1_local,
                              cfg.dual_nb_radius, cfg.dual_reset_rule, cfg.dual_eta2_local};
     const double rho_min = un.Dgas_min;
-    const double Tmin = 1 / un.temp1_unit;
+    const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
     UnsplitCounters& C = hs.ucounters;
     Counts total_c;
     double remaining = dt;

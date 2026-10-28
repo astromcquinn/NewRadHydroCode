@@ -128,14 +128,29 @@ struct Simulation {
   // step's RT (rt.hpp gamma_avg_*). Output only: never read by the RT,
   // not in the checkpoint (a restart begins at a step boundary; only a
   // step without RT right after a restart would write zeros where the
-  // uninterrupted run writes the previous step's average). Serial RT
-  // only (the backend's cells live on the level between the host syncs).
+  // uninterrupted run writes the previous step's average). Serial RT;
+  // the moment RT on rt_backend = amrex keeps acc on its level instead
+  // (moment_level.cpp; acc stays empty, time and substeps are kept here).
   struct GammaAvg {
     bool on = false;
     std::vector<double> acc;  // per RT cell, s^-1 * s
     double time = 0;          // s
     std::int64_t substeps = 0;
   } gamma_avg;
+
+  // X-ray background heating (xray_heating = 1, xray_background.hpp,
+  // docs/xray_heating.md): the uniform rates per HI, HeI, HeII atom for the
+  // current hydro step, set by xray_hook at the start of radiative_transfer
+  // (the hook needs the source model, which this library does not link).
+  // With on, radiative_physics processes every cell, also the neutral ones
+  // without photons. Stateless (recomputed every step), so not in the
+  // checkpoint. Serial RT only. Off by default: the original.
+  struct Xray {
+    bool on = false;
+    double gamma[3] = {0, 0, 0};  // primary photoionisation rate, 1/s
+    double phi[3] = {0, 0, 0};    // photoelectron power, erg/s
+  } xray;
+  std::function<void(Simulation&)> xray_hook;
 };
 
 }  // namespace radray

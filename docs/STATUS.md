@@ -1,6 +1,86 @@
 # Project status
 
-*Last updated: 2026-10-26: the Fortran split for a public repository (below). Before that, 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`, below); MUSIC installed on klone (below). Before that, 2026-10-22: the refined 512³ run against its control (branch `amr512-analysis`, below); the zoom-in turbulence plan and a PR audit (below). Before that, 2026-10-18: the substep-averaged Γ_HI (`gammaHI_avg`), the launch script of the uniform 512³ suite (`tools/hyak/rt_suite512.sh`) and the suite's decisions; before that the assessment and plan for the unified RT-methods suite (`docs/PLAN.md`, "Unified RT-methods suite", with the thread prompts; branch `claude/sleepy-feynman-dx6ic2`, below). Before that, 2026-10-17: ĉ by ionisation state, `c_reduced_schedule` (branch `c-schedule`, below); a falling escape fraction (branch `fesc-evolution`, PR #45, below). Before that, 2026-10-14 (evening): Stage F3, the 8 sources of `uniform_8src` with one and two refined levels, three fixes of the RT across levels (branch `stage-f3-8src`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-10-26: `thermal_init = recfast` and `thermal_floor` (below); the thermal history before heating checked against RECFAST (T1, below); X-ray preheating behind `xray_heating` (branch `xray-preheating`, below); `gammaHI_avg` for the moment RT on `rt_backend = amrex` (branch `gamma-avg-amrex`, below); the Fortran split for a public repository (below). Before that, 2026-10-22/24: Stage G, the level Poisson solve on the hierarchy, `pm_level_solve` (branch `claude/modest-mendel-8k29sb`, `docs/stage_g.md`, below; the klone profile 2026-10-24). Before that, 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`, below); MUSIC installed on klone (below). Before that, 2026-10-22: the uniform 512³ suite of every RT method run and reported (`docs/rt_suite_512.md`; the Sheth–Tormen sources, f6 = 0.11, the continuous ĉ schedule `c_reduced_schedule_interp`; branch `rt-suite-512`, below). Before that, 2026-10-22: the refined 512³ run against its control (branch `amr512-analysis`, below); the zoom-in turbulence plan and a PR audit (below). Before that, 2026-10-18: the substep-averaged Γ_HI (`gammaHI_avg`), the launch script of the uniform 512³ suite (`tools/hyak/rt_suite512.sh`) and the suite's decisions; before that the assessment and plan for the unified RT-methods suite (`docs/PLAN.md`, "Unified RT-methods suite", with the thread prompts; branch `claude/sleepy-feynman-dx6ic2`, below). Before that, 2026-10-17: ĉ by ionisation state, `c_reduced_schedule` (branch `c-schedule`, below); a falling escape fraction (branch `fesc-evolution`, PR #45, below). Before that, 2026-10-14 (evening): Stage F3, the 8 sources of `uniform_8src` with one and two refined levels, three fixes of the RT across levels (branch `stage-f3-8src`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Done 2026-10-26: `thermal_init = recfast`, `thermal_floor` (branch `xray-preheating`)
+
+User decisions: a new key (not `legacy_physics`), and a lower floor.
+`docs/thermal_history.md` §4.
+
+- **`thermal_init = recfast`:** the ICs start at T_RECFAST(z_init), and
+  every hydro step couples every cell to the CMB through the residual
+  electrons. It is exact relaxation with `coef_cool(14)`, using only the
+  electrons the cell lacks. The table is compiled in (`src/recfast_table.inc`,
+  `tools/thermal/make_recfast_table.py`).
+- **`thermal_floor`** (K) replaces the hard-coded 1 K hydro floors (legacy
+  `check_temp`, unsplit, AMReX level). Default 1 K, 0.1 K with recfast.
+  With recfast the RT floor `temp_min` = `thermal_floor` (≥ 1 K with
+  `legacy_physics = 1`) and there is no T_CMB ceiling.
+- **Result:** unheated mean-density gas on RECFAST to 0.4% from z = 100 to
+  11 at 64³ and 128³ (2–4% above at z ≲ 8, non-linear). Defaults
+  byte-identical.
+- **Tests:** `thermal_init` (unit), `thermal_init_recfast` (RECFAST to 1%,
+  threads, keys inert), `restart_smoke_thermal`.
+- **Open:** the lower floor uncovers a numerical over-cooling of cold
+  supersonic cells in the unsplit dual-energy hydro: without Compton
+  14% (64³) and 6% (128³) of cells below 0.1× their adiabat by z ≈ 18;
+  with recfast ≲ 1% at 128³. A separate task (`docs/thermal_history.md` §4).
+- `thermal_init = recfast` is refused with `amrex_state = 1` (the
+  production backend configuration) and with refined hydro levels: the
+  Compton step acts on the host gas grid only.
+
+## Done 2026-10-26: the thermal history before heating (branch `xray-preheating`)
+
+`docs/thermal_history.md`, quirk T1 (`docs/port_notes.md` §5b). The user
+asked whether the unheated runs reproduce the expected temperature history,
+Compton cooling off the CMB in particular. They do not.
+
+- **Unheated gas follows the code's floor,** an instantaneous decoupling at
+  z ≈ 216. Against CAMB + RECFAST for the simulation cosmology
+  (`data/thermal/recfast_sim_cosmology.txt`) it is 0.76× at z = 100 and
+  0.60× from z ≈ 30.
+- **Two causes, about equal:** the ICs start at the floor, and neutral gas
+  has no residual electrons, so no Compton coupling. A one-zone model with
+  both fixed reproduces RECFAST to 1%.
+- **No-source runs** (10 h⁻¹ Mpc, 64³ and 128³, z = 100 → 6,
+  `tools/analysis/thermal_history.py`, `docs/figures/thermal_history_noheat.png`):
+  - unsplit: mean-density gas on the floor curve to 1–2%, then the hydro's
+    1 K floor below z ≈ 8;
+  - legacy: numerical heating of the cold gas to 160–280 K by z = 7.
+- **Proposed fix, not implemented:** RECFAST initial temperature plus
+  residual-electron Compton coupling, behind a flag
+  (`docs/thermal_history.md` §4). Waits for the user's choice of flag
+  (`legacy_physics = 0` or a new key) and of the hydro floor.
+- `build/xray_bkg --zstart z --T0 K`: the one-zone model from any start.
+
+## Done 2026-10-26: X-ray preheating, a first model (branch `xray-preheating`)
+
+`docs/xray_heating.md`. Answer to the user's question: Compton cooling and
+heating off the CMB is in the code (the original's `coef_cool(14)`), only in
+cells the RT processes, and with no residual electrons in the neutral ICs.
+
+- **`xray_heating = 1`** (default 0, every reference byte-identical): a
+  uniform X-ray background from the source model's SFR. ρ̇_*(z) integrates
+  the Sheth–Tormen refit (`data/hmf/st_fof_40mpc_1024.txt`) times
+  L_UV(M, z)/l_per_sfr of `sfr_model = abundance` over all halos with
+  T_vir ≥ 10⁴ K. L_X/SFR = 10^40.5 erg/s per M☉/yr in 0.5–2 keV, an E⁻¹
+  spectrum from 0.5 to 10 keV (placeholders from memory until the user's
+  papers). J_E comes from the cosmological transfer with the box's
+  mass-weighted absorbers, and Γ_j, φ_j once per hydro step. The cell
+  physics adds the primary and secondary ionisations and f_heat × the
+  photoelectron power (Shull & van Steenberg 1985), and processes every
+  cell, the neutral ones too. `Log/xray.txt`. Serial RT only.
+- **`build/xray_bkg`**: the background and a one-zone thermal history of the
+  mean-density neutral IGM without a simulation. With the default the IGM
+  passes T_CMB at z ≈ 11.5, ~120 K at z ≈ 10, ~330 K at z ≈ 8; 0.3–5×10³ K
+  at z ≈ 8 for log L_X/SFR = 39.5–41.5 (`docs/figures/xray_onezone.png`).
+- Tests: `xray_background` (unit: ρ̇_*, M_min, the thin and opaque limits
+  of the transfer, the cell physics), `xray_heating` (threads, keys inert
+  when off, neutral cells heated), `restart_smoke_xray`.
+- **Next:** the user's papers for the emission model (`docs/xray_heating.md`
+  §5); an X-ray group in the RT for the soft, short-range photons; heating
+  before the first source; the AMReX backends.
+
 
 ## Done 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`)
 
@@ -55,6 +135,395 @@
   with the user's OK (regenerable in minutes). Still to come: the code
   reading the cosmology and checking `ics_info.txt` (thread C), and the
   refined files (WP2).
+
+
+## Done 2026-10-26: `gammaHI_avg` for the moment RT on `rt_backend = amrex` (branch `gamma-avg-amrex`)
+
+- Needed by the 1024³ cone run (`runs/reion1024_otvet_cone`, the 512³
+  cone's parameters at N = 1024 on four nodes), whose comparison with the
+  512³ cone uses `gamma_power.py --field gammaHI_avg`.
+- The moment level (`src/amrex/moment_level.cpp`) keeps the per-cell sums
+  of gamma(1) · dtsec_rt in a double FabArray: zeroed in its prep, added
+  after every substep's physics with the serial expression;
+  `amrex_gamma_avg_field` (`amrex_state.hpp`) gathers sum/time onto rank 0
+  slab by slab (collective; `write_fields` and `write_frame` call it on
+  every rank). `radiative_transfer` keeps only the time and the substep
+  count on the host for the backend, so no N³ array per rank. The ray
+  levels still refuse it.
+- Tests `amrex_moment_gamma_avg_{m1_state_r2t1, cone_state_r4t1,
+  otvet_state_r3t2, m1_host_r2t2}`: fields and a frame after every
+  substep byte-identical to the serial moment RT (state on the slabs and
+  host state). Label `amrex_moments` 104/104 on klone.
+
+## Done 2026-10-22: the uniform 512³ suite on klone (branch `rt-suite-512`)
+
+The launch of `tools/hyak/rt_suite512.sh` (the Thread D prompt of
+`docs/PLAN.md`): base rays (case B), the case A + RR rays, M1 and the four
+OTVET variants, one cpu-g2 node each. Report: `docs/rt_suite_512.md` (when
+the set is done).
+
+- **Disk before the launch** (`du -sh`, 2026-10-19): the 2026-10-11 set
+  without its checkpoints (deleted earlier): `reion512_rays` 84 GB,
+  `_caseB` 80, `_m1` 80, `_otvet` 83, `_otvet_split` 137, `_otvet_screen`
+  137, `_otvet_cone` 137 (738 GB; the six names the suite overwrites
+  hold 658 GB; `reion512_rays_caseB` is not overwritten and stays).
+  `/gscratch/astro` was at 97 % (38.8 of 39.9 TB, 1.1 TB free), so the
+  suite's ≈ 1.3 TB while running (one checkpoint kept per run) fits only
+  with the old set removed and leaves ≈ 0.4 TB for the group.
+- **Build** (2026-10-18, `tools/hyak/build_hyak.sh` on a cpu-g2 node,
+  gcc 13.2.0): `ctest -R "gamma_avg|c_schedule|movie_slab"` 6/6
+  (`gamma_avg_rays`, `gamma_avg_m1`, `c_schedule`,
+  `restart_smoke_c_schedule`, `movie_slab`, `restart_smoke_det_movie_slab`).
+- **Probe** (`rt_suite512.sh probe`, job 42013527): the old
+  `reion512_rays` removed; three steps of the base at the 2048³ PM mesh
+  for the peak memory and the PM time per step: **peak RSS 311 GB**
+  (326178764 kB; the estimate was ≈ 275 GB of PM arrays plus the fields,
+  no RT yet), **PM 220–235 s per step** (hydro 6–13 s, summaries 5.5 s;
+  13.7 min for the three steps on node n3440, 192 threads). Both are under
+  the stop limits (700 GB, 10 min); the PM adds ≈ 4 min × ≈ 55 steps ≈ 3.7 h
+  to each run against ≈ 1 h with `pm_refine = 1` at 512³.
+- **Base** `reion512_rays` submitted 2026-10-18 20:55 (job 42014611, one
+  cpu-g2 node, 192 threads, 1000 GB, 4 days); started 20:51 on n3440: 23
+  hydro steps of PM alone (≈ 240 s each) to z = 15 in 1.6 h, the first
+  sources (10191 halos) at z = 13.7 in step 24, steps of 380–760 s with
+  the RT at z = 13.7–12.4.
+- **Siblings** submitted 2026-10-18 23:17 after the base had run four RT
+  steps with sources (f6 is fixed, so the base's check is a report, not a
+  gate): the old `_m1`, `_otvet`, `_otvet_{split,screen,cone}` removed
+  (80–88 GB each by then); `reion512_rays_caseA` 42020712, `_m1`
+  42020713, `_otvet` 42020714, `_otvet_split` 42020715, `_otvet_screen`
+  42020716, `_otvet_cone` 42020717. Each sibling's `params.txt` differs
+  from the base's only in `rt_method` and the closure keys, or the
+  recombination keys (checked with diff). The old `reion512_rays_caseB`
+  (80 GB) is not part of the suite and stays.
+- **STOPPED 2026-10-19 08:30: the suite's sources are 20× too bright.**
+  The base reads x_HII,V = 0.29 at z = 12.1, 0.83 at z = 10.8 (the ĉ
+  schedule reached 0.5c at step 34) and 0.99999 at z = 9.2 with
+  Γ_HI ≈ 5.6×10⁻¹² s⁻¹, against z50 = 7.1 and z99 = 5.5 of the
+  calibration run `fesc512_b2.5`. Cause (from `step_NNNN/stats.txt`,
+  `Luv` = the source luminosity density): with 1024³ particles the
+  20-particle FoF floor (`fof_min_npart = 20`) is 1.3×10⁸ M☉ instead of
+  the 1.0×10⁹ M☉ of the 128³/512³ calibration, and the fitted
+  L_UV(M, z) of `am_params_128_10mpc.txt` (L ∝ M^1.19 below the break,
+  with the +0.4–0.9 dex high-z normalisation) is applied to those far more
+  numerous halos: 10191 sources at z = 13.7 against 15 at z = 13.2 in
+  `fesc512_b2.5`.
+
+  | z | `reion512_rays` (this suite) Luv | `fesc512_b2.5` (512³ particles) | `fesc512_b2.5_uniform` (1024³, ST L(M)) |
+  |---|---|---|---|
+  | 13.7 | 2.1×10²⁶ | 3.5×10²⁴ (z = 13.2) | 3.0×10²⁵ |
+  | 12.1 | 5.8×10²⁶ | — | 4.8×10²⁵ |
+  | 11.5 | 6.8×10²⁶ | 3.1×10²⁵ (z = 11.6) | 9.1×10²⁵ |
+  | 11.0 | 7.5×10²⁶ | — | 1.4×10²⁶ |
+  | 10.5 | 7.0×10²⁶ | 7.1×10²⁵ | 9.7×10²⁵ |
+  | 9.4 | 5.0×10²⁶ | 8.8×10²⁵ (z = 9.5) | 9.5×10²⁵ |
+
+  (erg s⁻¹ Hz⁻¹ per comoving volume unit of `stats.txt`; the calibration
+  run peaks at 2.1×10²⁶ at z = 6.9.) The decision of 2026-10-18 ("with
+  1024³ particles the halo counts shift a little") does not hold: the
+  emissivity at z = 11–13 is 20–60× the calibration's, and the RT itself
+  is consistent with it (the ionised volume per photon matches the other
+  runs). The six siblings carry the same sources. The runs were left to
+  the user to cancel (the session's `scancel` was blocked): base
+  42014611, siblings 42020712–42020717. Options for the relaunch (user
+  decision): a halo-mass floor equal to the calibration's, `m_min =
+  1.02e9` M☉ (or `fof_min_npart = 160`; neither is a `make_production.py`
+  option yet, `fof_min_npart = 20` is written by it), which keeps the
+  512³-calibrated luminosities literally; or a refit of L(M) to the 1024³
+  FoF mass function (`am_fit`, the route the Sheth–Tormen table took,
+  whose uniform run ended at z = 5.27 with Γ at half the data at 0.1c
+  with the sink).
+- **User decision 2026-10-19 (morning): the Sheth–Tormen table**
+  `data/uv_lf/am_params_st_fof.txt` with the 1024³ particles and
+  `fof_min_npart = 20`, the source population of `fesc512_b2.5_uniform`
+  and `fesc512_b2.5_amr` (the 2026-10-11 decision to calibrate to an
+  analytic mass function); no precheck, f6 = 0.135 and β = 2.5 kept. The
+  seven jobs cancelled at 09:05 after 9–11.5 h; the base relaunched with
+  `AM_PARAMS=data/uv_lf/am_params_st_fof.txt OVERWRITE=1 rt_suite512.sh
+  base` (job 42035621; **every later phase needs the same `AM_PARAMS`**,
+  the script's default is still the 128-box table). Plan: let the base
+  reach x_V ≈ 0.3 and compare its x_V(z) with the two earlier runs
+  (0.1c, the sink, cooling suppression 0, `ray_deposit = exposure`,
+  `fof_dt_myr = 30`, the AMReX backend; identical sources otherwise):
+  they had x_V = 0.023 at z = 12.05, 0.059–0.062 at 11.05, 0.113–0.118 at
+  10.05, 0.170–0.174 at 9.05, 0.204–0.206 at 8.55, 0.263–0.265 at 8.05,
+  0.35–0.36 at 7.55, 0.48–0.49 at 7.05; the schedule stays at 0.1c until
+  x_V = 0.25, so the base should track them to z ≈ 8.1 and then run
+  ahead. Then the siblings.
+- **The base's check, 2026-10-19 12:45 (z = 9.67, 4.2 h, still at
+  0.1c):** the sources are the reference's (`stats.txt`: at the steps
+  where `fesc512_b2.5_uniform` refreshed its FoF catalogue, N and Luv
+  agree to 3 digits: 10191 / 2.964×10²⁵ at z = 13.69, 79664 / 1.412×10²⁶
+  at 11.00, 171906 / 1.354×10²⁶ at 9.73; between refreshes the reference
+  lagged, e.g. 21601 against 36516 sources at z = 12.11). The base runs
+  ≈ 1.3× more ionised at fixed z from z = 13 on (x_V 0.0107 / 0.0085 at
+  z = 13, 0.0563 / 0.0419 at 11.5, 0.116 / 0.086 at 10.5, 0.172 / 0.133 at
+  9.7 against the uniform run; the AMR run is within 0.005 of the
+  uniform one): the reference's 30 Myr FoF cadence (fewer photons), the
+  sink and cooling suppression 0 against none and 200 (more
+  recombinations in dense gas there), and `ray_deposit = exposure`. Same
+  shape, a constant ratio, the sources verified: taken as the rough match
+  asked for.
+- **Siblings relaunched 2026-10-19 12:48** with the same `AM_PARAMS`
+  (the first launch's partial outputs removed, 204 + 104 + 102 GB):
+  `reion512_rays_caseA` 42044005, `_m1` 42044006, `_otvet` 42044007,
+  `_otvet_split` 42044008, `_otvet_screen` 42044011, `_otvet_cone`
+  42044012; each `params.txt` differs from the base's only in the method
+  or recombination keys (diff).
+- **Stopped again 2026-10-19 15:30 (user): tune f6 so that reionization
+  ends at z = 5.5.** The base had reached z = 8.02, x_V = 0.345 (7 h; the
+  schedule at 0.2c from z = 8.59); the siblings 2–2.6 h. Two estimates of
+  the base's end disagreed: the lead over `fesc512_b2.5_uniform` at
+  fixed x_V (Δz = 0.41–0.47 from x_V = 0.05 to 0.3) plus the schedule's
+  faster end (≈ 0.4 from the ĉ study) gave z99 ≈ 6.1; a one-zone model
+  (dQ/dt = ṅ/n̄_H − C α_B n̄_e Q with the run's own emissivity, the
+  reference's refresh-step `Luv` below z = 8, C = 4.75 fitted to the
+  base's x_V(z) to 25 %; `scratchpad/onezone.py`) gave z50 = 7.13,
+  z90 = 5.76, z99 = 5.53 at f6 = 0.135, and 5.28 / 5.10 / 4.92 at f6 =
+  0.12 / 0.11 / 0.10 (β = 2.5), 5.46 / 5.42 at β = 2.0 / 1.5 with f6 =
+  0.135. So the calibration is measured instead: **`rt_suite512.sh
+  precheck`** with `AM_PARAMS=data/uv_lf/am_params_st_fof.txt` and
+  `PRECHECK_F6="0.06 0.08 0.1 0.135"` (0.135 anchors the 20 → 40 Mpc/h
+  offset against the cancelled base's history to z = 8): the ICs job
+  42051860 (256³ gas, 512³ particles, 20 Mpc/h, seed 7), the runs
+  `$RUNS/rt512cal256_f{0.06,0.08,0.1,0.135}` 42051864, 42051915–42051917
+  (one node and ≈ 3 h each, the suite's configuration at the suite's
+  cell size and particle mass, `pm_refine = 2`). Then `precheck-post`;
+  pick the f6 whose z99 at 256³ in 20 Mpc/h is ≈ 5.3 (the 40 Mpc/h box
+  ends ≈ 0.2 later, `docs/fesc_evolution.md` §4), β = 2.5 kept; then the
+  base with `F6=<that>` and the siblings.
+- **Precheck results (2026-10-19 20:46; ICs 3 min, the runs 1.6–2.9 h
+  each):**
+
+  | f6 (β = 2.5) | z10 | z25 | z50 | z75 | z90 | z99 | z99.9 | τ_es | x_V(z = 4.95) |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 0.135 | 10.30 | 8.33 | 7.37 | 6.80 | 6.51 | 6.21 | 6.09 | 0.0614 | 1 |
+  | 0.1 | 9.55 | 7.67 | 6.72 | 6.03 | 5.67 | 5.36 | 5.26 | | 1 |
+  | 0.08 | 8.67 | 7.18 | 6.09 | 5.33 | 5.05 | — | — | | 0.944 |
+  | 0.06 | 7.89 | 6.42 | 5.13 | — | — | — | — | | 0.574 |
+
+  z99 moves by 2.8 per e-fold of f6 between 0.1 and 0.135 (the earlier
+  "0.07 per 11 %" reading was wrong; the one-zone model, which gave
+  z99 = 5.53 at f6 = 0.135, is 0.6–0.7 too early and is dropped; the
+  lead-based estimate of ≈ 6.1 for the 40 Mpc/h base was right). The
+  anchor: the 40 Mpc/h base at f6 = 0.135 was *ahead* of the 20 Mpc/h
+  256³ run early (z at x_V = 0.05, 0.1, 0.2, 0.3, 0.34: 11.64 / 11.28,
+  10.74 / 10.30, 9.29 / 8.79, 8.28 / 8.07, 8.05 / 7.93), the gap
+  shrinking from 0.4–0.5 to 0.1 by x_V = 0.34, unlike the 128-table
+  calibration where the big box was later throughout (0.3 at z10, 0.2 at
+  z99). Taking the end offset as ≈ +0.1 (the big box a little later), the
+  target is z99 = 5.6 at 20 Mpc/h, i.e. **f6 = 0.11** by interpolation in
+  ln f6 (5.36 + 2.8 ln(0.11/0.1) = 5.63); the expected 40 Mpc/h end is
+  z99 = 5.5 ± 0.15. **Base relaunched 2026-10-19 20:52 with `F6=0.11`**
+  (job 42061340; the cancelled f6 = 0.135 base removed). `precheck-post`
+  running (igm_diag 42061305, summary 42061306:
+  `$RUNS/rt512cal256/igm/summary.md`, done 21:05): the IGM of the grid
+  against the data (ratio in brackets):
+
+  | f6 | τ_es | ṅ(5.4) [log] | Γ(5.4) | Γ(5.1) | ⟨F⟩(5.4) | ⟨F⟩(5.1) | λ(5.4) | λ(5.1) |
+  |---|---|---|---|---|---|---|---|---|
+  | 0.1 | 0.0548 (+0.1σ) | 50.74 | 0.190 (0.51×, x_V = 0.98) | 0.403 (0.79×) | 0.043 (0.5×) | 0.168 (1.2×) | 5.9 (1.2×) | 21.0 (2.3×) |
+  | 0.135 | 0.0614 (+1.1σ) | 50.87 | 1.072 (2.9×) | 1.339 (2.6×) | 0.265 (3.3×) | 0.353 (2.5×) | 39.2 (8.1×) | 60.5 (6.7×) |
+
+  (f6 = 0.08 and 0.06 are unfinished at z = 5.1: Γ 0.16× and 0.07×.)
+  f6 = 0.11 sits between: at z = 5.1 Γ ≈ 1.0–1.2× and ⟨F⟩ ≈ 1.4× the
+  data, ṅ_ion ≈ 0.4 dex below Becker+21 as in `docs/fesc_evolution.md`;
+  λ_mfp stays 2–3× the data after overlap (the known resolution excess,
+  §5–6 there).
+- **The f6 = 0.11 base's check (2026-10-20 04:05, z = 7.75, x_V = 0.300,
+  7.2 h; 0.2c from z = 7.94):** z at x_V = 0.05, 0.1, 0.2, 0.25, 0.3 is
+  11.32, 10.28, 8.42, 7.98, 7.75 against 10.94, 9.79, 8.26, 7.88, 7.66
+  interpolated (in ln f6) between the 256³ f6 = 0.1 and 0.135 runs: the
+  40 Mpc/h box ahead by 0.4–0.5 early, 0.1 by x_V = 0.3, as the 0.135
+  anchor was. On track for z99 ≈ 5.5. **Siblings launched 04:08** from
+  this base (the cancelled second launch's partial outputs removed, 73 +
+  90 + 88 + 74 GB): `reion512_rays_caseA` 42070978, `_m1` 42070979,
+  `_otvet` 42070980, `_otvet_split` 42070981, `_otvet_screen` 42070982,
+  `_otvet_cone` 42070983; `params.txt` checked (f_esc = 0.11, the ST
+  table; the method or recombination keys the only differences).
+- **Base done 2026-10-21 01:00** (job 42061340, n3476; 28 h 10 min wall,
+  99 hydro steps, 5225 RT substeps, peak RSS 475 GB; `DONE` at z = 4.99;
+  the ray pool guard never fired; 281 GB with the last checkpoint).
+  Cost (`timing.txt`): RT 16.3 h (ray_tracing_1 6.4 h + ray_tracing_3
+  5.8 h + physics 3.1 h), PM 6.3 h (the 2048³ mesh, 230 s per step), I/O
+  4.4 h, halos 0.6 h, P(k) 0.5 h, hydro 0.2 h. Against the 2026-10-11
+  case-B rays (8.6 h): the schedule's 0.5c end, the PM and twice the
+  steps. **History** (`reion_history.py`, volume-weighted): z10 = 10.28,
+  z25 = 7.98, **z50 = 6.92**, z75 = 6.27, **z90 = 5.95**, **z99 = 5.59**,
+  z99.9 = 5.46, **τ_es = 0.059** (+0.7σ); mass-weighted z50 = 7.33, z99 =
+  5.62. The end is 0.09 above the z = 5.5 target (the 256³ interpolation
+  put the 20 Mpc/h box at 5.63; the 40 Mpc/h box ended 0.04 earlier, not
+  0.1 later). Against `fesc512_b2.5` (z50 = 7.11, z99 = 5.51, τ = 0.056):
+  a later start and midpoint, the same end to 0.1. IGM statistics: job
+  42100957 (`$RUNS/rt_methods_512/igm_base/`). The automatic post job
+  42100693 (stills, movie).
+- **The checkout moved (2026-10-21 01:10):** another session checked out
+  `split-on-entry` in `NewRadHydroCode/`. The suite's jobs resolve
+  `build/radhydro` there at start, so the suite's binary (built
+  2026-10-18 20:28 from `rt-suite-512`) was copied to
+  `$RUNS/rt_suite512_bin/radhydro` (with `COMMIT`, `README`) and the
+  three queued closure jobs were resubmitted with `EXE=` that path:
+  `_otvet_split` 42101054, `_otvet_screen` 42101055, `_otvet_cone`
+  42101056 (the running three keep their loaded binary; a resubmission
+  after a failure must use the copy). This thread's docs work continues
+  in the worktree `$RADHYDRO/worktrees/rt-suite-512`.
+- **The base's IGM (2026-10-21, `igm_diag.slurm` 22 min + `fesc_summary.py`;
+  `$RUNS/rt_methods_512/igm_base/`), next to `fesc512_b2.5` (128-box
+  table, 512³ particles, 0.2c, case A + RR; `docs/fesc_evolution.md` §4);
+  ratio to the data in brackets; Γ is the mean over x_HI < 10⁻² as in that
+  table, the PR #48 median estimator (G_medx, the neutral volume as zero)
+  in the last column:**
+
+  | z | run | x_V | Γ_HI [10⁻¹²] | λ_mfp [pMpc] | ⟨F⟩ | A | Γ_medx/obs |
+  |---|---|---|---|---|---|---|---|
+  | 5.9 | `reion512_rays` (f6 = 0.11, this suite) | 0.918 | 0.205 (1.36×) | 3.9 (3.6×) | 0.023 (2.0×) | 1.41 | 1.05 (z = 5.98) |
+  | | `fesc512_b2.5` | 0.924 | 0.237 (1.6×) | 3.2 (2.9×) | 0.022 (1.9×) | 1.40 | |
+  | 5.4 | `reion512_rays` | 0.9999 | 0.462 (1.24×) | 19.0 (3.9×) | 0.149 (1.9×) | 1.82 | 1.10 (z = 5.49) |
+  | | `fesc512_b2.5` | 0.997 | 0.371 (1.00×) | 9.4 (1.9×) | 0.090 (1.1×) | 1.12 | |
+  | 5.1 | `reion512_rays` | 1 | 0.721 (1.42×) | 37.0 (4.1×) | 0.259 (1.8×) | 2.09 | 1.28–1.45 (z = 5.25–4.99) |
+  | | `fesc512_b2.5` | 1 | 0.493 (0.97×) | 16.3 (1.8×) | 0.155 (1.1×) | 1.14 | |
+
+  ṅ_ion = 10^50.73–50.82 at z = 5.9–5.1 (0.4–0.75 dex below Becker+21).
+  Reported only (f6 not retuned): Γ is 1.2–1.4× the data by the mean
+  estimator (1.05–1.1× by the median one at z ≥ 5.5, rising to 1.45× at
+  z = 5), ⟨F⟩ 1.8–2.0× and λ_mfp 3.6–4.1× the data, i.e. about 2× the λ
+  excess of `fesc512_b2.5` at the same Γ: the Sheth–Tormen sources with
+  the schedule's 0.5c end give a more transparent post-overlap IGM at
+  this resolution (the faint 1.3×10⁸ M☉ halos ionise the voids early;
+  the 1024³ particles on the 2048³ mesh do not add Lyman-limit opacity,
+  the open item of `docs/fesc_evolution.md` §6).
+- **M1 done 2026-10-21 04:52** (job 42070979, 14 h 32 min, peak RSS
+  367 GB; RT 6.7 h, PM 6.2 h) and **OTVET thin done 05:08** (42070980,
+  14 h 45 min, 373 GB; RT 6.8 h). Histories (V-weighted): M1 z50 = 6.93,
+  z90 = 5.98, z99 = 5.67, τ = 0.0593; OTVET 6.92 / 5.99 / 5.64 / 0.0594;
+  the rays 6.92 / 5.95 / 5.59 / 0.0591: the same midpoint, the moment
+  methods end 0.05–0.08 later. Running: the case A + RR rays (z = 5.60 at
+  22 h), `_otvet_split` (z = 9.9), `_otvet_screen` (started 05:10);
+  `_otvet_cone` queued.
+- **The Γ spikes and the continuous schedule (2026-10-21 morning).** The
+  median Γ_HI of the ionised cells (and Γ_V) jumps at every switch of the
+  ĉ schedule, in the rays and M1 alike: ×1.9 at step 52 (0.1 → 0.2c,
+  z = 7.94), ×1.46 at step 63 (0.2 → 0.3c, z = 6.89), ×1.71 at step 74
+  (0.3 → 0.5c, z = 6.25), then a relaxation over 3–5 steps: the photon
+  reservoir n_γ ≈ ṅ λ/ĉ of the old speed is drained at the new one
+  (Γ = σ ĉ n_γ; the steady state σ ṅ λ is ĉ-independent; no photons are
+  created). Built: `c_reduced_schedule_interp = 1` (ĉ linear in x_HII,V
+  between the plateau midpoints, `docs/production_run.md` §1;
+  `make_production.py --c-schedule-interp`; the `c_schedule` test's
+  third check; 4/4 tests on klone, commit df3f26a; the binary
+  `$RUNS/rt_suite512_bin/radhydro_interp`). **User decision: rerun the
+  whole suite with the continuous schedule, overwriting the step-schedule
+  runs; the base first, checked, then the six siblings.** The step-schedule
+  set's record: the histories and IGM tables above, the partial movie
+  `$RUNS/rt_methods_512/compare_partial.mp4` (rays, M1, OTVET, case A + RR
+  to z = 5.2) and `igm_base/`; its runs are overwritten. The four running
+  jobs (case A + RR at z = 5.2 after 27 h, split, screen, cone) cancelled
+  at 09:55; **base relaunched 09:56** (job 42114332; `MAKE_EXTRA="--c-schedule-interp 1"
+  EXE=$RUNS/rt_suite512_bin/radhydro_interp`, submitted from the
+  worktree so the job's scripts are the branch's). Every later phase:
+  the same `AM_PARAMS`, `F6=0.11`, `MAKE_EXTRA`, `EXE`.
+- **The continuous base's check (2026-10-21 17:56, z = 7.70, x_V = 0.305,
+  5.1 h):** ĉ rose from 0.1c at x_V = 0.125 by ≈ 0.0045c per step to 0.169c
+  at x_V = 0.30 (the step schedule would have jumped to 0.2c at 0.25); no
+  spike: Γ_V 2.92 → 3.07 → 3.36 ×10⁻¹⁴ over steps 50–52 (the step base:
+  2.86 → 5.43); z at x_V = 0.05, 0.1, 0.2, 0.25, 0.3 = 11.32, 10.28, 8.46,
+  8.02, 7.72 against 11.32, 10.28, 8.42, 7.98, 7.75 of the step base.
+  **Siblings launched 18:00** (the step-schedule runs removed, 985 GB):
+  `_caseA` 42132367, `_m1` 42132368, `_otvet` 42132369, `_otvet_split`
+  42132370, `_otvet_screen` 42132374, `_otvet_cone` 42132375, all with
+  `c_reduced_schedule_interp = 1`, f6 = 0.11 and the `radhydro_interp`
+  binary (checked). Another session's `conserve-test` job holds one of
+  the account's five nodes.
+- **Continuous set, M1 and OTVET thin done 2026-10-22 03:5x** (9 h 47 min
+  and 9 h 56 min; peak RSS 367 / 373 GB). Histories: M1 z50 = 6.95, z90 =
+  5.97, z99 = 5.66, τ = 0.0594; OTVET 6.94 / 5.98 / 5.64 / 0.0594, within
+  0.02 of the step-schedule runs (6.93 / 5.98 / 5.67 and 6.92 / 5.99 /
+  5.64): the continuous ĉ changes the history by nothing measurable. Cost:
+  the RT the same (6.6–6.8 h) but the PM 1.65 h against 6.2 h in the step
+  set (60 against 230 s per step, M1 on the same node n3484 both times):
+  the step set's binary (`rt_suite512_bin/radhydro`, built 2026-10-18 in
+  the main checkout) was linked against the single-threaded FFTW because
+  that checkout's `build/CMakeCache.txt` of 2026-10-12 still named
+  `fftw-3.3.10-float` (`FFTW3F_OMP_LIBRARY-NOTFOUND`), so the 2048³ PM
+  FFTs ran on one thread; the worktree's fresh build (`radhydro_interp`)
+  has `libfftw3f_omp`. The probe's 220–235 s per PM step was this too.
+  The continuous set is consistent within itself (one binary); the
+  cost table of the report uses it.
+- **Continuous set: OTVET split done 2026-10-22 05:00** (10 h 38 min;
+  z50 = 6.94, z90 = 5.98, z99 = 5.64, τ = 0.0594; RT 7.5 h) and **the base
+  done 12:41** (job 42114332, 23 h 52 min, peak RSS 475 GB; RT 16.4 h, PM
+  1.9 h, I/O 4.4 h; `DONE` at z = 4.99). Base history: z10 = 10.28, z25 =
+  8.02, **z50 = 6.94, z90 = 5.94, z99 = 5.58**, z99.9 = 5.46, **τ_es =
+  0.0591**, within 0.02 of the step-schedule base. Across the former
+  switch points Γ_V now moves by 4–5 % per step (7.62 → 7.96 ×10⁻¹⁴ at
+  step 63, 1.24 → 1.29 ×10⁻¹³ at step 74) instead of ×1.46 and ×1.71. IGM
+  diagnostics: job 42163385 (`$RUNS/rt_methods_512/igm_base_interp/`).
+  Running: case A + RR (z = 5.54 at 19 h), screen (z = 5.24), cone
+  (z = 5.38). **Its IGM** (`igm_base_interp/`, done 13:05): the same as
+  the step base's at every snapshot after z = 5.98 (Γ_medx/obs 1.06, 1.06,
+  1.09, 1.28, 1.45 at z = 5.98, 5.70, 5.49, 5.25, 4.99; ⟨F⟩ 1.76–2.03×;
+  λ 2.4–4.3×), but at the z = 6.20 snapshot Γ_medx is 0.118 against 0.153
+  in the step base, whose snapshot there sat inside the 0.3 → 0.5c spike:
+  the continuous schedule removes a 30 % artefact from that snapshot and
+  changes nothing after relaxation.
+- **OTVET screen done 2026-10-22 13:59** (10 h 08 min, peak 370 GB; z50 =
+  6.96, z90 = 6.01, z99 = 5.68, τ = 0.0596) and **OTVET cone done 14:34**
+  (10 h 35 min, 376 GB; z50 = 6.94, z90 = 5.96, z99 = 5.60, τ = 0.0594;
+  RT 7.4 h of which the cone tensor 0.5 h). **Case A + RR rays done
+  18:50** (24 h 51 min, peak 483 GB; z50 = 6.98, z90 = 5.97, z99 = 5.61,
+  τ = 0.0595; RT 17.7 h, only 1.04× the case-B rays' wall time against
+  1.67× in the 2026-10-11 set: with `recomb_rad_cell_onspot = 1` most
+  recombination photons are absorbed on the spot and the pool guard never
+  fired). **The continuous set is complete** (7 runs, 1.40 TB with one
+  checkpoint each: 281 + 284 GB the ray runs, 167 GB each moment run;
+  /gscratch/astro at 96 %, 2.0 TB free). Analysis jobs submitted 19:05:
+  `rt_suite512.sh post` (42179001: `rt_methods_runs.py`, the seven-run
+  movie, `igm_stats.py` on every run into `$RUNS/rt_methods_512/`),
+  `gamma_power.py --field gammaHI_avg` (plain and `--clip 3`), the
+  last-substep field for comparison, and `rt_methods_runs.py --gamma-field
+  gammaHI_avg` (42179002, `logs/rt512_gamma_avg.slurm`), and the paper
+  figures `tools/analysis/rt_suite_figures.py` (42179003: maps of x_HII and
+  Γ_HI at x_V = 0.5, 0.8, 0.97 (and 1 for Γ), the 3D P(k) of both fields
+  and r(k) against the case-B rays; `figures/` and `figures_clip3/`).
+- **Report written 2026-10-22: `docs/rt_suite_512.md`** (configuration,
+  the first launch and the table change, the probe, cost, histories, Γ
+  maps and PDFs, P(k) and r(k) of x_HII and Γ against the rays, the IGM
+  table, the movie `docs/movies/rt_suite_512.mp4`, conclusions and what
+  differs from the first set; figures `docs/figures/rt_suite_512_*`).
+  Headline: histories method-independent to 0.1 in z (z99 = 5.58–5.68,
+  τ = 0.059); M1 the outlier (fronts decorrelated at k ≈ 1 h/Mpc, no
+  proximity zones, 25× too little large-scale P_Γ after overlap); OTVET
+  thin 11–14× too much P_Γ after overlap, removed by split/screen/cone
+  (0.7–1.9× the rays with r = 0.92–0.96); the cone the best match to the
+  rays overall; case A + RR within 5 % of case B in Γ and r ≥ 0.99 at
+  k ≤ 2 h/Mpc; Γ within 10 % of Gaikwad at z ≥ 5.5 for every method,
+  λ_mfp 3.5–5× and ⟨F⟩ 1.9–2.1× the data for all. New tool
+  `tools/analysis/rt_suite_figures.py`. Ordering changes from the first
+  set: the moment methods now end slightly *later* than the rays (the
+  schedule's 0.5c end), and recombination radiation costs 4 % instead of
+  67 % (`recomb_rad_cell_onspot = 1`).
+- `origin/main` merged into the branch 2026-10-22 (one STATUS conflict);
+  the fast suite on klone 145/145 (job 42184776, 38 min). PR opened.
+- **2026-10-26, after the repository move:** `origin` re-pointed, the
+  branch reset to the re-created `origin/rt-suite-512` (no unpushed
+  commits), the new `main` (the Fortran split) merged, the submodule
+  `reference/fortran` initialised; PR #2 on the public repository. **The
+  live Fortran tests had been broken on klone since 2026-10-23:** the
+  conda-forge gcc/gfortran 15 compilers installed into the shared `radray`
+  env (for MUSIC) are exported by conda's activation as `CC`/`CXX`/`FC`,
+  and the harness Makefiles' `$(FC)` then built PIE objects that cannot
+  link the static FFTW ("relocation R_X86_64_32S ... recompile with
+  -fPIE"). Fix: `tools/hyak/env.sh` exports the module's gcc 13 `CC`,
+  `CXX`, `FC` after the activation (commit 5c4c6c5), **and** the stale
+  `reference/fortran/harness*/build` directories must be removed once
+  (objects from gfortran 15 with compressed debug sections the gcc 13
+  linker rejects: "file not recognized"). With both, the fast suite is
+  145/145 (137 in job 42408423 plus the 8 `fortran_live` tests rerun on a
+  node, job 42409410). Other checkouts built after 2026-10-23 need the
+  same cleanup. Merged with `main` the same day: the `zoom-ics` branch had
+  fixed the same breakage by restoring every `CONDA_BACKUP_*` variable
+  after the activation (above, 2026-10-23); `env.sh` now does both, the
+  restore and then the explicit gcc 13 paths.
 
 ## Done 2026-10-18: `gammaHI_avg` and the 512³ suite's launch script (branch `claude/sleepy-feynman-dx6ic2`)
 
@@ -140,6 +609,80 @@ FFTW and camb), `tools/ics/music/test32.conf` ran, and the CAMB table of
 `$RUNS/ics_test/camb_z300.dat`. Thread D of `docs/zoom_turbulence.md` §6
 (the MUSIC converter) is unblocked; the configs for the C26 box and the
 Z3 zoom are in `tools/ics/music/`.
+
+## Done 2026-10-22: Stage G, the level Poisson solve on the hierarchy (branch `claude/modest-mendel-8k29sb`)
+
+`pm_level_solve = 1` (`docs/stage_g.md`; default 0; acts only with
+`amrex_max_level > 0`, needs `amrex_state = 1`): the particles live on
+the finest level covering them (one `ParticleContainer` with the
+hierarchy's levels, `Redistribute` by level after every drift and regrid),
+every level deposits its particles and gas on its own mesh (its gas boxes
+times `pm_refine`, int64 fixed point with per-level bits), the deposits
+are restricted onto the parents with the [1, 3, 3, 1]/8 stencil (the
+parent CIC's spectrum: the plain mean of the children made the coarse
+source NGP-like, 5–8 % far-field force errors), level 0 keeps the FFT
+(bitwise the Stage E level when no refined level exists) and every
+refined level solves lap φ = (2a/3)(ρ − mean) with AMReX MLMG
+(`MLPoisson`, Dirichlet values from the parent's potential, a fixed
+number of V-cycles, the smoother as the bottom solver, the multigrid depth
+fixed by the blocking factor: every operation per cell, so the solve is
+bitwise rank- and layout-independent); the 4-point gradient, the DM and
+gas kicks per level, the kicked momenta averaged down. `pm_gas_levels`
+stays as the comparison. `pm_mlmg_iters` (20), `pm_mlmg_tol` (1e-10),
+`pm_mlmg_verbose`; `step_timers = 1` prints the iterations and residual
+per level. AMReX built with its linear solvers (`AMReX_LINEAR_SOLVERS=ON`,
+the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
+`amrex-26.10-mlmg`). More particles than base-mesh cells are allowed
+(`PMConfig::dm_mass_ratio`).
+
+* **Validation** (`ctest -L level_solve`, 10 tests + the nightly T1, all
+  passing on the 4-core VM): the single-particle force against Ewald on
+  a 32³ state with level 1 everywhere (the uniform `pm_refine = 2` mesh at
+  every distance; its forces on 16³ random particles match the uniform
+  backend's to 3.7e-7: the same discrete problem), with level 1 over a
+  16³-cell region and with two nested levels (the finest level's
+  resolution inside, 0.6 % at 8 cells across the boundary, the base
+  mesh's own 0.9 % beyond); no self-force (< 4e-6); momentum conserved to
+  2e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet
+  boundary); the refined-everywhere 16³ run matches the uniform 32³ run
+  as `pm_gas_levels` does (ρ 2.7e-3, momenta 7.5e-3, particles 1.0e-4
+  cells); 1, 2 and 3 ranks byte-identical and bit-identical restarts with
+  two levels over half the box for `pm_refine` 1 and 2; the identity
+  without refinement.
+* **T1** (`tests/pm_zoom_t1_check.py`, nightly `amrex_pm_zoom_t1`, 3 min
+  on 2 ranks; `docs/stage_g.md` §4): a 32³ base with two levels over the
+  central eighth and the level solve (B), the same hierarchy with the
+  uniform 128³ mesh (C), both with 128³ particles, against the uniform
+  128³ run (A), 10 Mpc/h, z = 100 → 5, gravity and uniform gas. C's
+  particles are A's to 6e-3 fine cells (the fine mesh everywhere); B's
+  are within 0.14 cells rms in the inner half of the region, 0.30 over
+  the region and 0.84 outside: the coarse base's resolution carried into
+  the region by the infalling matter, not the solver's (the
+  refined-everywhere test is 1e-4 cells). All 12 of A's halos above 128
+  particles in the region are found in B within 0.5 cells, 11 within 25 %
+  in mass (two at the region's edge at 0.64 and 0.75); the density PDF
+  fractions above overdensity 1 and 10 agree to 10 % and 4 %.
+* **klone profile** (2026-10-24, one node, 24 × 8, `docs/stage_g.md`
+  §5.1; the build job's 311 AMReX tests all pass): 128³ with two levels
+  over the central eighth (levels of 3.0 M and 16.8 M cells), 10 steps:
+  the level solve's PM 0.17 s per step against 0.27 s for the uniform
+  512³ mesh of `pm_gas_levels`; the step 1.5 s in both, dominated by the
+  hydro hierarchy (1.2 s); unrefined 0.23 s. It showed level 1 (144
+  cells wide, a 9³ bottom grid) stalling at the 20-cycle cap (4e-7):
+  fixed with `pm_mlmg_bottom_sweeps` (default 64; reproduced here: 20
+  cycles → 8, 5.6e-7 → 3.5e-11, the solve 2.2× faster).
+* **Timing on the VM** (`docs/stage_g.md` §5; the 4-core VM, 2 ranks × 2 threads,
+  128³ gas and particles, two levels over the central quarter width,
+  level 2 of 2.1 M cells): the level solve adds 1.0 s per step to the
+  base PM (0.4 s; the two MLMG solves 0.56 s, 16 and 7 V-cycles to 4e-11),
+  the uniform 512³ mesh of `pm_gas_levels` 9.1 s (its FFT 4.4 s); the
+  hydro hierarchy costs 7.5 s per step in both. The klone profile at the
+  central eighth (level 2 of 17 M cells, too much for this VM's memory)
+  is `tools/hyak/pm_level_solve_profile.slurm`, ready to submit.
+* **Open:** the zoom itself needs WP1/WP2
+  (multi-mass particles tag the levels). The composite solve is not
+  planned (user decision 2026-10-23, `docs/PLAN.md`): the level solve of
+  Enzo and RAMSES is enough unless the zoom's boundary misbehaves.
 
 ## Done 2026-10-22: zoom-in turbulence plan; PR audit (branch `claude/epic-cannon-5laltb`)
 
@@ -2175,11 +2718,11 @@ differ on klone are skipped there (label `platform_ref`).
    - multigrid/tree gravity (Stage G);
    - adaptive RT.
 9. **Before AMR is ready for science** (2026-10-15, after PR #41):
-   - **Gravity on the refined levels (Stage G).** Since `pm_gas_levels`
-     (below) every level gets the force of the uniform PM mesh over its
-     own cells; the force resolution is still the mesh's everywhere.
-     Multigrid Poisson on the hierarchy (adaptive resolution, no huge
-     uniform mesh) remains Stage G, TreePM optional.
+   - ~~**Gravity on the refined levels (Stage G).**~~ Done 2026-10-22
+     (`pm_level_solve = 1`, `docs/stage_g.md`, above): every refined
+     level solves its own Poisson equation with MLMG at its own
+     resolution; `pm_gas_levels` (the uniform mesh fed by the levels)
+     stays as the comparison (klone profile done 2026-10-24); no composite solve (user decision 2026-10-23).
    - **Hydro validation with refinement (F2):** the pancake and KH cases,
      the full tier, and the composite of the finest data for comparisons
      at the matched finest resolution.
