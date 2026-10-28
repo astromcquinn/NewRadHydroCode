@@ -158,7 +158,7 @@ face (`plane_faces = +x`).
 | `plane_gamma12` | 0.3 | Γ_HI in the source cells, 10⁻¹² s⁻¹ (C26: 0.3) |
 | `plane_z_re` | −1 | the turn-on redshift (required by `radhydro`; `rt_driver` runs the RT every step) |
 | `plane_alpha`, `plane_nu_max_ry` | 1.5, 4 | J_ν ∝ ν^−α between 1 Ry and ν_max |
-| `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 |
+| `photon_consume_dense` | −1 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); 0: the original. −1 follows `legacy_physics` (on with `legacy_physics = 0`: P11, `docs/port_notes.md` §5b, user decision 2026-10-28), so the plane runs of `make_production.py` and the tests, all with `legacy_physics = 0`, have it on; the plane-parallel problems also set 1 explicitly. Since 2026-10-28 a general key, parsed by the drivers rather than `set_plane_param` |
 | `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
 | `land_outputs` | 0 | 1: the hydro step before a `zdata1` output ends exactly on it (so runs with different step caps are compared at the same times); the plane-parallel problems use 1 |
 
@@ -166,7 +166,10 @@ face (`plane_faces = +x`).
 `params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
 `--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`):
 DM20's schedule `c_reduced_schedule = 0.1 0.99 0.01` unless given, cooling
-on, `photon_consume_dense = 1`, no abundance matching.
+on, no abundance matching. Dense gas consumes its photons through
+`legacy_physics = 0` (P11; the explicit `photon_consume_dense = 1` line the
+script wrote before 2026-10-28 is gone, `--photon-consume-dense 0|1`
+overrides).
 
 ### Geometry and rays
 

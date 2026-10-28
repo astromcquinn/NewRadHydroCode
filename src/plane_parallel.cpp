@@ -194,15 +194,6 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
       throw std::runtime_error("land_outputs must be 0 or 1");
     return true;
   }
-  if (key == "photon_consume_dense") {
-    if (val == "0")
-      c.photon_consume_dense = false;
-    else if (val == "1")
-      c.photon_consume_dense = true;
-    else
-      throw std::runtime_error("photon_consume_dense must be 0 or 1");
-    return true;
-  }
   return false;
 }
 
@@ -217,7 +208,6 @@ void copy_plane_param(const Config& from, Config& to) {
   to.plane_nu_max_ry = from.plane_nu_max_ry;
   to.dt_max_myr = from.dt_max_myr;
   to.rt_substeps_max = from.rt_substeps_max;
-  to.photon_consume_dense = from.photon_consume_dense;
   to.land_outputs = from.land_outputs;
 }
 
@@ -257,7 +247,6 @@ std::string plane_summary(const Config& c) {
     std::string s;
     if (c.dt_max_myr > 0) s += "dt_max_myr = " + std::to_string(c.dt_max_myr);
     if (c.rt_substeps_max > 0) s += (s.empty() ? "" : ", ") + std::string("rt_substeps_max = ") + std::to_string(c.rt_substeps_max);
-    if (c.photon_consume_dense) s += (s.empty() ? "" : ", ") + std::string("photon_consume_dense = 1");
     if (c.land_outputs) s += (s.empty() ? "" : ", ") + std::string("land_outputs = 1");
     return s;
   }
@@ -268,7 +257,6 @@ std::string plane_summary(const Config& c) {
   std::string s = buf;
   if (c.dt_max_myr > 0) s += ", dt_max_myr = " + std::to_string(c.dt_max_myr);
   if (c.rt_substeps_max > 0) s += ", rt_substeps_max = " + std::to_string(c.rt_substeps_max);
-  if (c.photon_consume_dense) s += ", photon_consume_dense = 1";
   if (c.land_outputs) s += ", land_outputs = 1";
   return s;
 }

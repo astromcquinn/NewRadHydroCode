@@ -11,6 +11,7 @@
 // Rays crossing k RT cells per substep (docs/rt_multicell.md):
 // --set rt_cells_per_substep=k (legacy_rt = 0); --set rt_substep_carry=1;
 // --set photon_conserve=1 (the B17 fix of photo_cell's photon limit);
+// --set photon_consume_dense=0|1 (P11; both follow legacy_physics by default);
 // --set ray_deposit=exposure.
 //
 // For each "hydro step" this does what radhydro.f90's main loop does with
@@ -97,6 +98,8 @@ int main(int argc, char** argv) {
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
+    s.cfg.photon_consume_dense =
+        Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     if (P.rt_substep_carry) {
@@ -151,6 +154,10 @@ int main(int argc, char** argv) {
                       : std::string())
               << (s.cfg.photon_conserve != !s.cfg.legacy_physics
                       ? " photon_cons: " + std::to_string(int(s.cfg.photon_conserve)) + " (B17 fix; set explicitly)\n"
+                      : std::string())
+              << (s.cfg.photon_consume_dense != !s.cfg.legacy_physics
+                      ? " consume_den: " + std::to_string(int(s.cfg.photon_consume_dense)) +
+                            " (P11 fix; set explicitly)\n"
                       : std::string())
               << (P.ray_deposit ? " ray_deposit: exposure\n" : "")
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"

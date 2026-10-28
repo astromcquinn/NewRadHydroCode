@@ -1561,11 +1561,36 @@ be designed); `recomb_rad` on the backend (block emission and
   cell equals Γ_HI exactly (checked to 5e-8); the face rays are never
   split, merged or redshifted and are deleted at the far face; the halo
   finder and the halo sources are off in the mode; the step before z_re
-  lands on it. **For the user to confirm:** `photon_consume_dense` (the
-  original lets cells denser than 50× the mean ionise without consuming
-  photons, `rho_source` in `docs/port_notes.md`; the plane-parallel
-  problems and `make_production.py --plane-parallel` set 1 so dense gas
-  self-shields; the code default stays 0, the original).
+  lands on it. ~~**For the user to confirm:** `photon_consume_dense`~~
+  **Resolved 2026-10-28 (user decision):** dense gas consumes its photons
+  by default in production, i.e. `photon_consume_dense` follows
+  `legacy_physics` (P11, below).
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+
+## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
+
+* **User decision:** dense gas must consume photons by default in
+  production. Following the ground rules (the original stays the
+  default; corrections go behind `legacy_physics`), the key
+  `photon_consume_dense` now works like `photon_conserve` (B17): −1 (the
+  default) follows `legacy_physics`, so it is on with `legacy_physics = 0`
+  and off (the original `rho_source` factor of `photo_cell`) with
+  `legacy_physics = 1`; an explicit 0 or 1 overrides in either mode. ID
+  **P11** (`docs/port_notes.md` §5b).
+* **Scope:** only the photon-consumption factor of `photo_cell`. The other
+  two uses of `rho_source` stay as they are in both modes: the SN heating
+  above 50× the mean (a subgrid feedback term, not photon bookkeeping)
+  and the `rho_source`-weighted clumping factor of the gas summary (an
+  output diagnostic compared with the Fortran full harness).
+* **No Fortran mirror** (user decision 2026-10-08: new flags need none),
+  so every comparison of a `legacy_physics = 0` run with the Fortran
+  harnesses or their stored outputs sets `photon_consume_dense = 0`.
+* **Production:** `make_production.py` (`legacy_physics = 0`) gets it
+  without a line; `--photon-consume-dense 0` restores the original. It
+  lowers the effective escape fraction, so the f_esc(z) calibration
+  (`docs/production_run.md` §8, already pending for the ĉ schedule) must
+  be redone with it. A run already in progress keeps the old behaviour
+  only if `photon_consume_dense = 0` is added to its `params.txt` before
+  it is restarted with a binary that has P11.

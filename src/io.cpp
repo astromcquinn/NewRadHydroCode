@@ -107,6 +107,10 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (p.photon_conserve < -1 || p.photon_conserve > 1)
       throw std::runtime_error("photon_conserve must be 0 or 1");
+  } else if (key == "photon_consume_dense") {
+    p.photon_consume_dense = std::stoi(val);  // -1: follow legacy_physics (the default)
+    if (p.photon_consume_dense < -1 || p.photon_consume_dense > 1)
+      throw std::runtime_error("photon_consume_dense must be 0 or 1");
   } else if (key == "rt_substep_carry") {
     p.rt_substep_carry = std::stoi(val);
     if (p.rt_substep_carry != 0 && p.rt_substep_carry != 1)

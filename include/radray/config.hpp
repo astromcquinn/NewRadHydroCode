@@ -480,15 +480,22 @@ struct Config {
   //                    every substep).
   double dt_max_myr = 0;
   int rt_substeps_max = 0;
-  // params.txt photon_consume_dense (set_plane_param; docs/port_notes.md
-  // "rho_source"): 0 (default) = the original: a cell denser than
-  // rho_source = 50 times the mean removes only the fraction
-  // exp(-(delta - 50)/50) of the photons its photoionisations used from the
-  // radiation, so dense gas is ionised without consuming photons (no
-  // self-shielding of dense cells); 1 = every photoionisation consumes its
-  // photon. Not tied to legacy_physics (a new flag; the plane-parallel
-  // problems and tools/production/make_production.py --plane-parallel use 1).
+  // P11 (docs/port_notes.md 5b; photo_cell's rho_source factor): false =
+  // the original: a cell denser than rho_source = 50 times the mean removes
+  // only the fraction exp(-(delta - 50)/50) of the photons its
+  // photoionisations used from the radiation, so dense gas is ionised
+  // without consuming photons (no self-shielding of dense cells); true =
+  // every photoionisation consumes its photon. Part of legacy_physics = 0
+  // since 2026-10-28 (user decision); not mirrored in the Fortran harnesses
+  // (a new flag), so the Fortran comparisons of legacy_physics = 0 set
+  // photon_consume_dense = 0. Rays (serial, sweep, AMReX) and the moment RT.
   bool photon_consume_dense = false;
+  // The params.txt key photon_consume_dense: -1 (default) follows
+  // legacy_physics (P11 is part of legacy_physics = 0 since 2026-10-28),
+  // 0 | 1 override in either mode.
+  static bool photon_consume_dense_effective(int key, bool legacy_physics) {
+    return key < 0 ? !legacy_physics : key == 1;
+  }
   // params.txt land_outputs (set_plane_param): 1 = the hydro step before a
   // zdata1 output ends exactly on it (apps/radhydro sets land_a to the next
   // output's scale factor before every step; timestep_core clips da to it),

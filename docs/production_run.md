@@ -581,6 +581,12 @@ runs are `docs/cluster.md`.*
 therefore biased high, as the bias list below already anticipated, and
 **must be redone at 0.1c** (and at 256³) before the production run.
 
+**Also (2026-10-28):** `legacy_physics = 0` now includes P11
+(`photon_consume_dense`, `docs/port_notes.md` §5b): photoionisations in
+cells denser than 50× the mean, i.e. the source cells, consume their
+photons. Every calibration here was made without it; P11 lowers the
+effective escape fraction, so the recalibration must use it.
+
 The configuration of the calibration runs:
 
 | Setting | Value |
