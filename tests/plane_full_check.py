@@ -23,6 +23,18 @@ then 0.01 c). Checks:
     before are the normal ones); rt_substeps_max = 50: every RT step holds
     at most 50 substeps; both capped runs end within 2 per cent of the
     uncapped x_HII,V and T_M (the same photons, redistributed in time);
+  * plane_turnon_cfl (the default 1): the step that starts at z_re is at
+    most the CFL step with the sound speed of fully ionised gas at
+    plane_turnon_temp added, dt_sim (cmax_gas + c_hot) = 1 in code units,
+    c_hot = sqrt(gamma k T (2X + 3Y/4) / m_H) converted here from first
+    principles (vel_unit = x_unit / time_unit), i.e. dt_yr <=
+    dx_phys / (v_max + c_hot) at z_re up to the growth of time_unit ~ a^2
+    over the step; the steps before z_re are those of the uncapped run,
+    and with plane_turnon_cfl = 0 the turn-on step is the old one. In the
+    default problem (uniform, cold, 16^3 at z = 9) the cap does not bind
+    (one cell crossing at c_hot(2e4 K) = 100 Myr, the ra_max step 97 Myr),
+    so the check runs with plane_turnon_temp = 1e5 (45 Myr) to z = 8.5,
+    against the same run with plane_turnon_cfl = 0;
   * --amrex: the backend run (rt_backend = hydro_backend = pm_backend =
     amrex, amrex_state = 1) agrees with the serial run to round-off:
     x_HII,V and T_M to 1e-4 and fHI cell by cell to 1e-3 at the last step.
@@ -149,6 +161,65 @@ def matched(ref, other, z_re):
     return worst
 
 
+# the code's constants (include/radray/constants.hpp; real(4) literals)
+F32 = lambda x: float(np.float32(x))
+OM, H0, GAMMA, XHY, YHE = F32(0.27), F32(0.70), F32(5.0 / 3.0), F32(0.76), F32(0.24)
+H0_CGS, MPC2CM, K_CGS, MH_CGS, YR2SEC = 3.24086e-18, 3.08560e24, 1.38066e-16, 1.67223e-24, 365 * 86400.0
+
+
+def c_hot_kms(T):
+    """The sound speed of fully ionised H + He (mu = 1/(2X + 3Y/4)) at T [km/s]."""
+    return np.sqrt(GAMMA * K_CGS * T * (2 * XHY + 3 * YHE / 4) / MH_CGS) / 1e5
+
+
+def vel_unit_kms(a, box, N):
+    """calc_sim_var's vel_unit = x_unit / time_unit at a [km/s per code unit]."""
+    x_unit = a * box / H0 / N * MPC2CM
+    time_unit = 2 / (3 * H0_CGS * H0 * np.sqrt(OM)) * a * a
+    return x_unit / time_unit / 1e5
+
+
+def turnon_checks(a, prob, base, st, N, box, z_re):
+    """plane_turnon_cfl: the turn-on step at plane_turnon_temp = 1e5 K (binds
+    here) against the same run with plane_turnon_cfl = 0 and the default run."""
+    T_hot = 1e5
+    stop = ["zdata1=15 12 10 9 8.5"]
+    hot = steps(run(a.exe, prob, os.path.join(a.work, "turnon_hot"), a.set + stop + [f"plane_turnon_temp={T_hot:g}"]))
+    off = steps(run(a.exe, prob, os.path.join(a.work, "turnon_off"), a.set + stop + [f"plane_turnon_temp={T_hot:g}", "plane_turnon_cfl=0"]))
+    land = lambda ss: [i for i, s in enumerate(ss) if abs(s["redshift"][0] - z_re) < 1e-9]
+    lh, lo, lb = land(hot), land(off), land(st)
+    check(len(lh) == 1 and len(lo) == 1 and len(lb) == 1 and lh == lo == lb, f"the same landing step on z_re ({lh}, {lo}, {lb})")
+    if not (lh and lo and lb) or lh[0] + 1 >= len(hot) or lo[0] + 1 >= len(off):
+        return
+    il = lh[0]
+    same = all(hot[i]["dt_yr"][0] == st[i]["dt_yr"][0] and hot[i]["redshift"][0] == st[i]["redshift"][0] for i in range(il + 1))
+    check(same, "the steps up to z_re are those of the default run, bit for bit")
+    # the rule in code units: dt_sim (cmax_gas + c_hot) = 1 (cmax_gas of stats.txt is the code
+    # value at the end of the landing step, the one the turn-on step uses)
+    a_re = 1 / (1 + z_re)
+    vu = vel_unit_kms(a_re, box, N)
+    ch = c_hot_kms(T_hot) / vu
+    cmax = hot[il]["cmax_gas"][0]
+    s1, s0 = hot[il + 1], off[il + 1]
+    r = s1["dt_sim"][0] * (cmax + ch)
+    check(abs(r - 1) < 1e-4, f"turn-on step: dt_sim (cmax_gas + c_hot) = {r:.7f} (1 to 1e-4; c_hot = {c_hot_kms(T_hot):.2f} km/s = {ch:.4f} code units)")
+    # the same in physical units: dt <= dx_phys / (v_max + c_hot) at z_re, up to the growth of
+    # time_unit ~ a^2 over the step (the code velocities are held fixed through the step)
+    dx_km = a_re * box / H0 / N * MPC2CM / 1e5
+    vmax = hot[il]["vmax_gas"][0] * vu
+    bound = dx_km / (vmax + c_hot_kms(T_hot)) / YR2SEC
+    grow = ((a_re + s1["da_sim"][0]) / a_re) ** 2
+    check(s1["dt_yr"][0] <= bound * grow, f"turn-on step dt = {s1['dt_yr'][0] / 1e6:.3f} Myr <= dx/(v_max + c_hot) = {bound / 1e6:.3f} Myr (x {grow:.4f}, the expansion over the step)")
+    check(s0["dt_yr"][0] == st[il + 1]["dt_yr"][0] and s0["dt_yr"][0] > 1.5 * s1["dt_yr"][0],
+          f"plane_turnon_cfl = 0: the old turn-on step ({s0['dt_yr'][0] / 1e6:.2f} Myr, the default run's: "
+          f"{st[il + 1]['dt_yr'][0] / 1e6:.2f} Myr) against {s1['dt_yr'][0] / 1e6:.2f} Myr")
+    # the default (2e4 K) does not bind in this problem: the turn-on step is the old one
+    ch2 = c_hot_kms(2e4) / vu
+    check(st[il + 1]["dt_sim"][0] * (st[il]["cmax_gas"][0] + ch2) < 1 + 1e-9,
+          "the default run's turn-on step is within the 2e4 K CFL step (which does not bind here)")
+    return hot
+
+
 def last_fields(out, N):
     last = sorted(glob.glob(os.path.join(out, "step_*", "fHI.bin")))[-1]
     d = os.path.dirname(last)
@@ -220,6 +291,9 @@ def main():
         prev = s["ngam_rays_total"][0]
     check(worst < 1e-3, f"photon bookkeeping closes to {worst:.1e}")
 
+    print("the turn-on step (plane_turnon_cfl)")
+    hot = turnon_checks(a, prob, base, st, N, 0.25, z_re)
+
     print("the step caps")
     capd = run(a.exe, prob, os.path.join(a.work, "dt_max"), a.set + ["dt_max_myr=2"])
     sd = steps(capd)
@@ -254,6 +328,14 @@ def main():
         check(d < 1e-3, f"fHI cell by cell within {d:.1e} at the last step")
         ca = [sa[i]["c_reduced"][0] for i in range(n)]
         check(ca == cs[:n], "the same schedule steps on the backend")
+        if hot:
+            ah = steps(run(a.amrex, prob, os.path.join(a.work, "amrex_turnon_hot"), a.set + [
+                "rt_backend=amrex", "hydro_backend=amrex", "pm_backend=amrex", "amrex_state=1",
+                "amrex_max_grid_size=8", "amrex_hydro_max_grid_size=0", "deterministic_parallel=0",
+                "zdata1=15 12 10 9 8.5", "plane_turnon_temp=1e5"], launch))
+            m = min(len(ah), len(hot))
+            ddt = max(abs(ah[i]["dt_yr"][0] / hot[i]["dt_yr"][0] - 1) for i in range(1, m))
+            check(len(ah) == len(hot) and ddt < 1e-9, f"the turn-on step on the backend: the serial steps to {ddt:.1e} ({len(ah)} vs {len(hot)} steps)")
 
     if FAILS:
         print(f"\n{len(FAILS)} check(s) failed")

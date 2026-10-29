@@ -185,6 +185,20 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
     if (c.rt_substeps_max < 0) throw std::runtime_error("rt_substeps_max must be >= 0 (0 = off)");
     return true;
   }
+  if (key == "plane_turnon_cfl") {
+    if (val == "0")
+      c.plane_turnon_cfl = 0;
+    else if (val == "1")
+      c.plane_turnon_cfl = 1;
+    else
+      throw std::runtime_error("plane_turnon_cfl must be 0 or 1");
+    return true;
+  }
+  if (key == "plane_turnon_temp") {
+    c.plane_turnon_temp = std::stod(val);
+    if (!(c.plane_turnon_temp > 0)) throw std::runtime_error("plane_turnon_temp must be > 0 (K)");
+    return true;
+  }
   if (key == "land_outputs") {
     if (val == "0")
       c.land_outputs = false;
@@ -219,6 +233,8 @@ void copy_plane_param(const Config& from, Config& to) {
   to.rt_substeps_max = from.rt_substeps_max;
   to.photon_consume_dense = from.photon_consume_dense;
   to.land_outputs = from.land_outputs;
+  to.plane_turnon_cfl = from.plane_turnon_cfl;
+  to.plane_turnon_temp = from.plane_turnon_temp;
 }
 
 void check_plane_param(const Config& c) {
@@ -270,6 +286,10 @@ std::string plane_summary(const Config& c) {
   if (c.rt_substeps_max > 0) s += ", rt_substeps_max = " + std::to_string(c.rt_substeps_max);
   if (c.photon_consume_dense) s += ", photon_consume_dense = 1";
   if (c.land_outputs) s += ", land_outputs = 1";
+  if (!c.plane_turnon_cfl)
+    s += ", plane_turnon_cfl = 0";
+  else if (c.plane_turnon_temp != 2e4)
+    s += ", plane_turnon_temp = " + std::to_string(c.plane_turnon_temp);
   return s;
 }
 

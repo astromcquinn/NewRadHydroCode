@@ -537,6 +537,19 @@ struct Config {
   // time. 0 (default) = the original: the first step past the redshift.
   bool land_outputs = false;
   double land_a = 0;  // the next landing scale factor (0 = none); set per step by the driver
+  // params.txt plane_turnon_cfl, plane_turnon_temp (set_plane_param;
+  // docs/plane_parallel.md "Turn-on and the step caps"; user request
+  // 2026-10-28). Plane-parallel mode only (plane_parallel = 1 with
+  // plane_z_re >= 0; nothing changes otherwise). The hydro step runs before
+  // the RT of the same interval, so the RT heating reaches the hydro only
+  // at the next step, and the step starting at the turn-on is sized by the
+  // cold gas's signal speed. plane_turnon_cfl = 1 (default): the step that
+  // starts at plane_z_re (the first with the RT on) is at most the CFL step
+  // 2 dt_gas_factor / (cmax_gas + c_hot), c_hot the sound speed of fully
+  // ionised gas at plane_turnon_temp (K, default 2e4); 0 = the uncapped
+  // step (the behaviour before 2026-10-28).
+  int plane_turnon_cfl = 1;
+  double plane_turnon_temp = 2e4;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

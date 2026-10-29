@@ -1737,3 +1737,19 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+* **The turn-on step (user request, 2026-10-28: "could we just make sure
+  the first step after turn on of RT is small in plane parallel
+  cases?"):** `plane_turnon_cfl` (default 1 in plane mode, 0 = the step
+  before 2026-10-28) and `plane_turnon_temp` (default 2e4 K). The hydro
+  step runs before the RT of the same interval, so the step that starts
+  at z_re is sized by the cold gas (44 Myr at 64³ in the T4 problem) and
+  the photoheated gas waits that long for its first hydro response. That
+  one step is now at most the CFL step 2 dt_gas_factor / (cmax_gas +
+  c_hot), c_hot the sound speed of fully ionised gas at 2e4 K; the steps
+  after it are unchanged (their cmax_gas already holds the hot gas).
+  Implementation choices (this thread; `docs/plane_parallel.md`, "Turn-on
+  and the step caps"): μ of H II + He III (2X + 3Y/4 particles per m_H,
+  the code's own X, Y, γ, k, m_H); the cap applied after the other caps
+  so that it changes nothing when it does not bind; a function of a only
+  (a = a_re to 1e-9), so a restart at z_re repeats it bit for bit.
+  `make_production.py --plane-parallel` needs nothing (the default is on).
