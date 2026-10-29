@@ -1384,9 +1384,9 @@ int main(int argc, char** argv) {
       // without them starts with level 0 only and regrids at the first step)
       if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr")) {
         amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
-        // the RT's levels and their rays as they were (version 9 keeps the
-        // refined levels' dr, checkpoint.cpp)
-        if (use_amrex(cfg)) amrex_rt_restore_levels(s, ckpt_version >= 9);
+        // the RT's levels, their rays and fgam as they were (version 9
+        // keeps the refined levels' dr, checkpoint.cpp)
+        if (use_amrex(cfg)) amrex_rt_restore_levels(s, ckpt_version >= 9, restart_from + ".amr");
       }
       update_sched_x();  // the checkpoint's RT grid: the last step's x_HII,V
     } else {
@@ -1625,7 +1625,10 @@ int main(int argc, char** argv) {
           std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
         write_checkpoint(odir + name, s, hs, pm, dst);
         // Stage F: the refined hydro levels next to it (docs/stage_f.md)
-        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) amrex_hydro_write_levels(odir + name + ".amr");
+        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) {
+          amrex_hydro_write_levels(odir + name + ".amr");
+          if (use_amrex(cfg)) amrex_rt_write_levels(s, odir + name + ".amr");  // the RT levels' fgam
+        }
         if (P.restart_keep > 0 && io) {
           // keep the newest restart_keep numbered checkpoints (names sort by step)
           std::vector<std::string> ck;

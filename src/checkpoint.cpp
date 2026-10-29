@@ -41,8 +41,9 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // Version 9 (docs/stage_g.md section 3): the same layout; the rays of the
 // AMReX backend's refined levels (amrex_max_level > 0) keep the dr they had
 // on their level (in base units otherwise), so a restart puts them back
-// as they were (amrex_rt_restore_levels); earlier checkpoints restore them
-// with dr recomputed from r, as before.
+// as they were (amrex_rt_restore_levels; with the levels' fgam of the last
+// substep in the level directory, amrex_rt_write_levels); earlier
+// checkpoints restore them with dr recomputed from r, as before.
 constexpr std::int32_t kVersion = 9;
 
 // The ray layout of versions <= 4

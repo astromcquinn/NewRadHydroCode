@@ -61,6 +61,8 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Particles.H>
 #include <AMReX_Reduce.H>
+#include <AMReX_Utility.H>
+#include <AMReX_VisMF.H>
 #include <AMReX_Scan.H>
 #ifdef AMREX_USE_OMP
 #include <omp.h>
@@ -342,7 +344,12 @@ struct Level : LevelBase {
         ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) { c(i, j, k) = RTCell{}; });
       }
     }
+    // TF (tau, fgam per frequency group) is defined before its first use:
+    // a substep's exchange_deposits reads the parent's fgam of the previous
+    // substep, which a new level has not computed yet (it read undefined
+    // memory there; 0 is the thick-gas weight, docs/stage_g.md section 3)
     TF.define(ba, dm, 10, ng);
+    TF.setVal(0.0f);
     A.define(ba, dm, rrk::kNdep, ng);
     plane_sweep = cfg.plane_parallel && cfg.plane_transport == 1;
     if (plane_sweep) {
@@ -1729,8 +1736,15 @@ struct Level : LevelBase {
       });
     }
     C = std::move(C2);
+    // TF follows its cells (the previous substep's fgam, read by the next
+    // substep's exchange_deposits; it was undefined after a remap)
+    {
+      FFab TF2(ba, dm2, 10, ng);
+      TF2.setVal(0.0f);
+      TF2.ParallelCopy(TF, 0, 0, 10, ng, ng);
+      TF = std::move(TF2);
+    }
     dm = dm2;
-    TF.define(ba, dm, 10, ng);
     A.define(ba, dm, rrk::kNdep, ng);
     if (plane_sweep) {  // the packets in flight follow their cells
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
@@ -2166,7 +2180,56 @@ struct Hierarchy : LevelBase {
   // ends with a migration), so the rays are those of the uninterrupted
   // run; the first prep then regrids, if the hydro step did, as the
   // uninterrupted run does. Collective.
-  void restore_levels(bool keep_dr) override { sync(keep_dr); }
+  // The parents' fgam of the last substep (TF components 5-9), which the
+  // next substep's exchange_deposits weighs the deposits beyond a level
+  // with, come from the checkpoint's level directory (write_levels; a
+  // checkpoint without them leaves them 0), and the ghosts are filled as at
+  // the end of a substep.
+  void restore_levels(bool keep_dr, const std::string& dir) override {
+    sync(keep_dr);
+    if (finest == 0 || dir.empty()) return;
+    for (int l = 0; l <= finest; ++l)
+      if (!ax::VisMF::Exist(dir + "/RT_fgam_" + std::to_string(l))) return;
+    for (int l = 0; l <= finest; ++l) {
+      L& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::MultiFab p;
+      ax::VisMF::Read(p, dir + "/RT_fgam_" + std::to_string(l));
+      if (p.nComp() != 5 || !(p.boxArray().minimalBox() == Ll.ba.minimalBox()))
+        throw std::runtime_error("amrex_rt_restore_levels: the checkpoint's fgam of level " + std::to_string(l) +
+                                 " does not match the level");
+      ax::MultiFab q(Ll.ba, Ll.dm, 5, 0);
+      q.ParallelCopy(p, 0, 0, 5);
+      for (ax::MFIter mfi(q); mfi.isValid(); ++mfi) {
+        auto tf = Ll.TF.array(mfi);
+        auto a = q.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          tf(i, j, k, 5 + m) = static_cast<float>(a(i, j, k, m));
+        });
+      }
+      Ll.TF.FillBoundary(5, 5, Ll.period);
+    }
+    for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 5, 5);
+  }
+  // The checkpoint's part of the levels next to the hydro's (the
+  // directory amrex_hydro_write_levels made): every level's TF fgam, as
+  // doubles (VisMF; exact). Collective.
+  void write_levels(const std::string& dir) const override {
+    if (finest == 0) return;
+    if (ax::ParallelDescriptor::IOProcessor()) ax::UtilCreateDirectory(dir, 0755);
+    ax::ParallelDescriptor::Barrier();
+    for (int l = 0; l <= finest; ++l) {
+      const L& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::MultiFab t(Ll.ba, Ll.dm, 5, 0);
+      for (ax::MFIter mfi(t); mfi.isValid(); ++mfi) {
+        auto a = t.array(mfi);
+        auto tf = Ll.TF.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          a(i, j, k, m) = tf(i, j, k, 5 + m);
+        });
+      }
+      ax::VisMF::Write(t, dir + "/RT_fgam_" + std::to_string(l));
+    }
+  }
 
   // Rays (in level-l units) onto level l, or, where level l has no grid
   // there, onto the next coarser level that has one (level 0 covers the
@@ -2795,7 +2858,10 @@ void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<f
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
-void amrex_rt_restore_levels(Simulation& s, bool keep_dr) { level_of(s).restore_levels(keep_dr); }
+void amrex_rt_restore_levels(Simulation& s, bool keep_dr, const std::string& dir) {
+  level_of(s).restore_levels(keep_dr, dir);
+}
+void amrex_rt_write_levels(Simulation& s, const std::string& dir) { level_of(s).write_levels(dir); }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }
 void amrex_rt_substep(Simulation& s) { level_of(s).substep(s); }
