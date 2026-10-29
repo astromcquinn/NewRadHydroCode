@@ -948,13 +948,30 @@ int main(int argc, char** argv) {
         pm::summarize_dm(pm, s.units, out);
       }
       if (on_level) {
-        // the clamps on the level, the sums on rank 0's mirror in the serial
-        // order; the maxima of the timestep onto every rank
+        // the clamps on the level, the sums on rank 0 over the gas streamed
+        // slab by slab in the serial order (docs/rank0_streaming.md; the
+        // grid velocity is zero with the unsplit hydro); the maxima of the
+        // timestep onto every rank
         amrex_state_clamp_gas(s);
-        amrex_state_gather_gas(s);
+        GasSummer gsr(cfg, s.units);
+        std::vector<float> su, sw, se;
+        amrex_state_stream_gas(s, 0, 10, [&](const StreamSlab& sl) {
+          const std::int64_t n = sl.ncell();
+          su.resize(static_cast<std::size_t>(5 * n));
+          sw.resize(static_cast<std::size_t>(4 * n));
+          se.resize(static_cast<std::size_t>(n));
+          const float* a = sl.data;
+#pragma omp parallel for schedule(static)
+          for (std::int64_t c = 0; c < n; ++c) {
+            for (int m = 0; m < 5; ++m) su[5 * c + m] = a[10 * c + kStreamGasU + m];
+            se[c] = a[10 * c + kStreamGasE];
+            for (int m = 0; m < 4; ++m) sw[4 * c + m] = a[10 * c + kStreamGasW + m];
+          }
+          gsr.add_planes(sl.nk, su.data(), sw.data(), se.data(), nullptr);
+        });
         double v[3] = {0, 0, 0};
         if (io) {
-          const GasSummary gsum = summarize_gas(cfg, s.units, s.clk, s.gas, hs, out);
+          const GasSummary gsum = gsr.finish(s.clk, out);
           hydrolog << format_gas_record(gsum.record) << "\n";
           v[0] = s.clk.cmax_gas;
           v[1] = s.clk.vmax_gas;

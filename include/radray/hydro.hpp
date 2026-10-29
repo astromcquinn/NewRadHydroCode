@@ -21,6 +21,7 @@
 
 #include "radray/config.hpp"
 #include "radray/cosmology.hpp"
+#include "radray/fortran.hpp"
 #include "radray/grid.hpp"
 #include "radray/simulation.hpp"
 
@@ -108,6 +109,37 @@ struct GasSummary {
 };
 GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
                          GasGrid& gas, HydroState& hs, std::ostream* out = nullptr);
+
+// summarize_gas in parts (docs/rank0_streaming.md): the planes of the gas
+// grid in k order, in runs of any length, then finish. summarize_gas runs
+// it over the host arrays; with amrex_state = 1 rank 0 runs it over the
+// slabs streamed from the level. add_planes takes nk consecutive planes,
+// cells in the serial order: u (5 per cell) and w (4 per cell) are clamped
+// in place as in summarize_gas; e (1 per cell) is the unsplit hydro's
+// internal energy or null; v (3 per cell) the grid velocity or null (zero).
+class GasSummer {
+ public:
+  GasSummer(const Config& cfg, const Units& un);
+  void add_planes(int nk, float* u, float* w, const float* e, const float* v);
+  GasSummary finish(SimClock& clk, std::ostream* out);
+
+ private:
+  struct Rec {
+    double rho, vel[3], cs, tmp, fHI, fHeI, fHeII, fe, Z, nH, nHII, ne, alpha, x, cmax;
+  };
+  void acc(int m, double val, double rho) {
+    x1[m] = x1[m] + val;
+    x2[m] = x2[m] + val * rho;
+    x3[m] = f::gmin(x3[m], val);
+    x4[m] = f::gmax(x4[m], val);
+  }
+  const Config& cfg_;
+  const Units& un_;
+  double x1[11], x2[11], x3[11], x4[11];
+  double cmax = 0, vrms = 0;
+  double clump[21];  // 1-based
+  std::vector<Rec> recs;
+};
 
 // Fortran "(50es13.5)" formatting of a record (gfortran style).
 std::string format_es(double x, int w, int d);
