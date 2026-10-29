@@ -14,14 +14,14 @@ gradient and the kicks per level. Behind `pm_level_solve = 1` (default 0);
 
 | Item | State | Validation |
 |---|---|---|
-| The flag and its parameters (`pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_bottom_sweeps`, `pm_mlmg_verbose`; `include/radray/config.hpp`, `pm_backend.hpp`) | done | without refinement `pm_level_solve = 1` is byte-identical to 0 (`amrex_pm_level_solve_identity_smoke`) |
+| The flag and its parameters (`pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_bottom_sweeps`, `pm_mlmg_bottom_scale`, `pm_mlmg_verbose`; `include/radray/config.hpp`, `pm_backend.hpp`) | done | without refinement `pm_level_solve = 1` is byte-identical to 0 (`amrex_pm_level_solve_identity_smoke`) |
 | The particles on their levels (one `ParticleContainer` with the hierarchy's levels, `Redistribute` by level after every drift and regrid) | done | the particle count and masses add up on every level (`RADRAY_PM_LEVEL_DEBUG=1`) |
 | The deposit per level, the [1, 3, 3, 1] restriction onto the parents, the spill of the fine CIC clouds outside a level | done | §3: the far field of a refined particle is the base mesh's CIC force (0.9 % at 8 cells) |
 | The level solve (MLMG, fixed V-cycles, smoother bottom, the multigrid depth fixed by the blocking factor) | done | level 1 over the whole box reproduces the uniform `pm_refine = 2` force to 3.7e-7; bitwise identical on 1, 2 and 3 ranks for `pm_refine` 1 and 2, bit-identical restarts |
 | The forces and kicks per level, the average-down of the kicked momenta | done | momentum conserved to 1e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet boundary) |
 | Tests `ctest -L level_solve` (10 tests) | done | all pass here (4-core VM, OpenMPI 4.1.6, AMReX 26.10 with the linear solvers) |
 | T1 of the zoom ladder (32³ base, two levels over the central eighth, against uniform 128³) | §4 | nightly `amrex_pm_zoom_t1` |
-| Timing at 128³ with two levels | §5: klone, one node (2026-10-24): the level solve's PM 0.17 s per step against 0.27 s for the uniform 512³ mesh; the step 1.5 s in both (the hydro hierarchy, 1.2 s); the VM numbers as well | the profile found the bottom-solve stall of a 144-cell level, fixed (`pm_mlmg_bottom_sweeps`) |
+| Timing at 128³ with two levels | §5: klone, one node (2026-10-24, re-run 2026-10-28): the level solve's PM 0.16–0.17 s per step against 0.27 s for the uniform 512³ mesh; the step 1.5 s in both (the hydro hierarchy, 1.2 s); the VM numbers as well | the profile found the bottom-solve stall of a 144-cell level, fixed at no cost (width² sweeps, a floor of 8: 0.122 s per step against 0.124 s, 1.5e-11 against 4e-7); the 2026-10-28 step slowdown was `/gscratch` metadata latency, §5.1 |
 
 Ground rules kept: `reference/` untouched; every new behaviour behind
 `pm_level_solve = 1`, which only acts with `amrex_max_level > 0` (and
@@ -97,7 +97,7 @@ per dimension in the periodic box, dx = 2^-l level-0 mesh cells.
    Gauss–Seidel (2 + 2 sweeps), the smoother as the bottom solver with
    at least `pm_mlmg_bottom_sweeps` sweeps (default 8, AMReX's) and, on a
    rectangular level, at least the square of its bottom grid's width
-   (AMReX's 8 left a level whose width has an odd factor, 144 = 16 × 9
+   (⌈`pm_mlmg_bottom_scale` × width²⌉, scale 1 by default; AMReX's 8 left a level whose width has an odd factor, 144 = 16 × 9
    cells, with a 9³ bottom grid that the V-cycles could not converge,
    §5.1); a solve that ends at `pm_mlmg_iters` above 1e-6 of the initial
    residual is reported (no
@@ -158,7 +158,7 @@ same arithmetic): byte-identical.
 
 | File | What |
 |---|---|
-| `include/radray/config.hpp` | `pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_bottom_sweeps`, `pm_mlmg_verbose` |
+| `include/radray/config.hpp` | `pm_level_solve`, `pm_mlmg_iters`, `pm_mlmg_tol`, `pm_mlmg_bottom_sweeps`, `pm_mlmg_bottom_scale`, `pm_mlmg_verbose` |
 | `include/radray/pm_backend.hpp`, `src/pm_backend.cpp` | the parameters, `check_pm_backend_param` (needs `amrex_state = 1` with refinement), `amrex_pm_force_at` (tests) |
 | `include/radray/pm.hpp`, `src/pm.cpp` | `PMConfig::level_solve`, `max_level`, `blocking_factor`, `mlmg_*`; `dm_mass_ratio`; `Ndm` a multiple of the mesh |
 | `src/amrex/pm_level.cpp` | `FineMesh`, `bits_of`, `interp_parent(_quad)`; `PMLevel::sync_levels`, `deposit_level`, `restrict_and_spill`, `rho_level`, `solve_level`, `force_level`, `kick_dm_level`, `kick_levels`, `average_down_momenta`, `force_at`; `fpos`/`home_l` (the positions by level), `for_tiles` |
@@ -392,32 +392,91 @@ cumulative timers):
   width² rule with the 64-sweep floor of PR #7; the build job's 9
   `level_solve` tests pass; the same problem, nodes and layout as above):
 
-  | configuration | step [s] | PM [s] | hydro [s] | level solve per step [s] |
-  |---|---|---|---|---|
-  | uniform 128³ | 1.83 (before: 0.23) | 0.013 | 0.03 | |
-  | two levels, `pm_level_solve = 1` | 3.26 (1.52) | 0.191 (0.169) | 1.16 | 0.146 (0.124) |
-  | two levels, `pm_gas_levels = 1` | 3.22 (1.58) | 0.269 (0.267) | 1.13 | |
+  | configuration | step [s] | step without I/O [s] | PM [s] | hydro [s] | level solve per step [s] |
+  |---|---|---|---|---|---|
+  | uniform 128³ | 1.83 (before: 0.23) | 0.20 (0.21) | 0.013 | 0.03 | |
+  | two levels, `pm_level_solve = 1` | 3.26 (1.52) | 1.51 (1.50) | 0.191 (0.169) | 1.16 | 0.146 (0.124) |
+  | two levels, `pm_gas_levels = 1` | 3.22 (1.58) | 1.55 (1.55) | 0.269 (0.267) | 1.13 | |
+
+  (The whole-step column is the filesystem's, see the last item; the
+  step without `t_io` did not change.)
 
   Level 1 now converges: 8 cycles to 1.5e-11 (bottom grid 9, 81 sweeps),
   against 20 cycles stalled at 4.0e-7; level 2 as before (7 cycles,
   5.3e-11, bottom grid 2); no capped solve, no warning. But the level
   solve got **slower**, 0.146 s against 0.124 s per step, where on the
-  4-core VM it was 2.2× faster. The sweeps cost nothing to compute on a
-  9³ or 2³ grid, so the time is in what each sweep does besides the
-  arithmetic on 24 ranks (its boundary fill), and the 64-sweep floor made
-  level 2 pay 8× AMReX's sweeps for a bottom grid of width 2 that needs
-  none of them. Hence the floor is now AMReX's 8 (`pm_mlmg_bottom_sweeps`
-  default), and only a wide bottom grid gets more (width²). To measure
+  4-core VM it was 2.2× faster. The hypothesis (confirmed below): the
+  sweeps cost nothing to compute on a 9³ or 2³ grid, so the time is in
+  what each sweep does besides the arithmetic (its boundary fill and
+  kernel launches), and the 64-sweep floor made level 2 pay 8× AMReX's
+  sweeps for a bottom grid of width 2 that needs none of them. Hence the
+  floor is now AMReX's 8 (`pm_mlmg_bottom_sweeps` default), and only a
+  wide bottom grid gets more (width²). To measure
   rather than infer, the profile job takes `EXTRA="--set
   pm_mlmg_verbose=1"`, which prints MLMG's own Solve / Iter / Bottom
-  timers per level solve; that re-run is to do.
-- **The whole step is 1.6 s slower in all three configurations**,
-  including the unrefined one (0.23 → 1.83 s), with the PM and the hydro
-  unchanged: the extra time is outside the gravity and the hydro, and
-  none of main's changes since the first profile run in these steps (the
-  X-ray background and the RECFAST thermal history are off; the problem
-  has no sources, so no RT). The per-step columns of `timing.txt`
-  (halos, summaries, I/O) will say where it goes; to do.
+  timers per level solve.
+- **Measured (2026-10-28, 777cccf, the floor of 8; MLMG's timers, mean
+  per solve; one node, 24 × 8):** level 1 (bottom 9³, 81 sweeps, 8
+  cycles to 1.5e-11) 0.070 s, of which the bottom solve 0.045 s (81 × 8
+  sweeps at about 70 µs each on a 729-cell grid: two boundary fills and
+  two kernel launches per sweep, not arithmetic); level 2 (bottom 2³, 8
+  sweeps, 7 cycles to 5.3e-11) 0.054 s, its bottom 0.0008 s. The level
+  solve is 0.122 s per step (job 42554825; 0.136 s in job 42554081 with
+  the same code on the same node: the latency-bound bottom varies by
+  ~25 % between runs), against 0.124 s at 7faad08 where level 1 stalled
+  at 4e-7 and 0.146 s at a28d87c, whose 64-sweep floor cost level 2
+  about 64 × 7 sweeps ≈ 27 ms per solve for a 2³ grid. So the
+  convergence fix is now free: same cost as before it, 4e-7 → 1.5e-11.
+- **Fewer sweeps, more cycles** (`pm_mlmg_bottom_scale`, the width² rule
+  as ⌈scale × width²⌉, default 1; the same job, level 1 per solve):
+
+  | scale | sweeps | cycles | final residual | level-1 solve [s] | its bottom [s] | level solve per step [s] |
+  |---|---|---|---|---|---|---|
+  | 1 (default) | 81 | 8 | 1.5e-11 | 0.070 | 0.045 | 0.122 |
+  | 0.5 | 41 | 11 | 3.3e-11 | 0.071 | 0.032 | 0.123 |
+  | 0.33 | 27 | 15–16 | 7.5e-11 | 0.074 | 0.029 | 0.130 |
+  | 0.25 | 21 | 19 | 5.7e-11 | 0.095 | 0.028 | 0.143 |
+  | 0.15 | 13 | 20 (cap) | 9.2e-9 | 0.077 | 0.018 | 0.128 |
+
+  Each cycle away from the bottom costs ~3 ms on level 1, so the sweeps
+  saved come back as cycles: width² is the cheapest setting that
+  converges, and the default stays. The key is there for wide bottom
+  grids (a 1040-wide zoom level: 65², 4225 sweeps, ~0.3 s per cycle at
+  this per-sweep cost) where the balance may differ; measure it there
+  with `pm_mlmg_verbose = 1` before changing it. Padding the level's PM
+  mesh to a width that coarsens to 2–4 (144 → 160 = 32 × 5 or 192 =
+  64 × 3) would remove most of the bottom at +37 % or +137 % cells on
+  the level; for 0.045 s of a 1.5 s step it is not worth building now.
+- **The whole step 1.6 s slower in the second run: the filesystem, not
+  the build.** All of it is `t_io` in `timing.txt` (0.024 → 1.6–1.7 s
+  per step in every configuration), and on a step without output that
+  is the gather of five fields onto rank 0 (the RT `sync` timer:
+  0.124–0.139 s for the whole run in both jobs, unchanged), then
+  `create_directories(step_NNNN)` and a 1 KB `stats.txt` on
+  `/gscratch/astro`. No code on that path changed between the runs, and
+  the binary links only the module's gcc 13 runtime and
+  `/sw/ompi/4.1.6-2` (RUNPATH), FFTW statically, no conda library.
+  Measured on compute nodes (2026-10-28, `runs/iotest_20261028`):
+  - the same binary, node and rank count (job 42554783, 24 ranks):
+    1.3–3.5 s per step of `t_io` writing to `/gscratch/astro`, twice,
+    and 0.029–0.034 s writing to the node-local `$TMPDIR` in between;
+  - 4 against 24 ranks alternating on one node (job 42556904): 0.04–0.07
+    s per step for both, so the rank count does not matter;
+  - a single process creating 20 directories with a 1 KB file each:
+    `mkdir` 0.4 ms to 70 ms on average and up to 0.72 s, the file up to
+    1.4 s, on `/gscratch/astro` (93 % full); 5 ms and 0.8 ms on
+    `/gscratch/scrubbed`; 0.1 ms on `$TMPDIR`; good and bad minutes
+    alternate within half an hour.
+  The 2026-10-28 05:25 run started one minute after the 1024³ run ended
+  and alongside its post-processing job on the same fileset. Without
+  the I/O the three runs agree: level_solve 1.46–1.52 s, gas_levels
+  1.55 s, uniform 0.20–0.21 s per step. Hence
+  `pm_level_solve_table.py` now prints `io` and the step without it, and
+  `LOCAL=1` makes the profile job run in `$TMPDIR` and copy back only
+  the logs and `timing.txt`. Production runs pay the same per-step
+  metadata cost (one directory and one small file per step): negligible
+  against their 30–60 s steps, but a short benchmark on `/gscratch`
+  should not be read without the `io` column.
 
 ## 6. How to run
 
@@ -427,7 +486,7 @@ cumulative timers):
 mpirun -np 4 build-amrex/radhydro RUN out --set rt_backend=amrex --set hydro_backend=amrex \
   --set pm_backend=amrex --set amrex_state=1 --set hydro_scheme=unsplit \
   --set amrex_max_level=2 --set amrex_refine_box=8,8,8,23,23,23 --set amrex_n_error_buf=0 \
-  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_bottom_sweeps=8 --set pm_mlmg_verbose=1] \
+  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_bottom_sweeps=8 --set pm_mlmg_bottom_scale=1 --set pm_mlmg_verbose=1] \
   --set step_timers=1      # the MLMG iterations and residual per level in the timers line
 ctest --test-dir build-amrex -L level_solve
 RADRAY_PM_LEVEL_DEBUG=1 ...   # the mass of every level's deposits after each PM deposit

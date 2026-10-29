@@ -345,6 +345,7 @@ struct FineMesh {
   bool aggable = false;  // the boxes fill their bounding box (MLMG may agglomerate: deeper multigrid)
   int mg_depth = 0;      // the multigrid coarsenings (layout-independent)
   int bottom = 0;        // the coarsest multigrid grid's widest side (aggable levels; 0 = not known)
+  int sweeps = 0;        // the bottom solve's red-black sweeps (solve_level)
   int iters = 0;         // the last solve: V-cycles, final / initial residual
   double resid = 0;
   Long capped = 0;       // solves that ended at the V-cycle cap above kCapResid
@@ -430,7 +431,7 @@ struct PMLevel {
   int max_level = 0;
   int bf = 8;  // the hierarchy's blocking factor (the multigrid depth)
   int mlmg_iters = 20, mlmg_bottom_sweeps = 8, mlmg_verbose = 0;
-  double mlmg_tol = 1e-10;
+  double mlmg_tol = 1e-10, mlmg_bottom_scale = 1.0;
   std::vector<FineMesh> fm;
   LFab own0, tot0;
   double rho_mean = 0;
@@ -479,6 +480,7 @@ struct PMLevel {
       mlmg_iters = pc_.mlmg_iters;
       mlmg_tol = pc_.mlmg_tol;
       mlmg_bottom_sweeps = pc_.mlmg_bottom_sweeps;
+      mlmg_bottom_scale = pc_.mlmg_bottom_scale;
       mlmg_verbose = pc_.mlmg_verbose;
       if (level_solve && static_cast<std::int64_t>(Nm) * (std::int64_t(1) << max_level) > (std::int64_t(1) << 23))
         throw std::runtime_error("pm_level_solve = 1: the finest mesh exceeds 2^23 cells per dimension (the "
@@ -1687,7 +1689,9 @@ struct PMLevel {
     // pm_mlmg_bottom_sweeps (8, AMReX's default: a bottom grid of width 2
     // needs no more, and every extra sweep is a boundary exchange; the 64 of
     // before cost more than it saved on 24 ranks), docs/stage_g.md 5.1
-    mlmg.setFinalSmooth(std::max(mlmg_bottom_sweeps, M.bottom * M.bottom));
+    M.sweeps = std::max(mlmg_bottom_sweeps,
+                        static_cast<int>(std::ceil(mlmg_bottom_scale * M.bottom * M.bottom)));
+    mlmg.setFinalSmooth(M.sweeps);
     mlmg.solve({&sol}, {&rhs}, mlmg_tol, 0.0);
     M.iters = mlmg.getNumIters();
     const double r0 = mlmg.getInitResidual();
@@ -2161,8 +2165,8 @@ struct PMLevel {
       std::string out = std::string(buf) + b2;
       for (const FineMesh& M : fm) {
         char b3[128];
-        std::snprintf(b3, sizeof b3, " [%d: %lld cells, mg depth %d, bottom %d, %d iters, resid %.2e%s]", M.lev,
-                      static_cast<long long>(M.ba.numPts()), M.mg_depth, M.bottom, M.iters, M.resid,
+        std::snprintf(b3, sizeof b3,  " [%d: %lld cells, mg depth %d, bottom %d, sweeps %d, %d iters, resid %.2e%s]", M.lev,
+                      static_cast<long long>(M.ba.numPts()), M.mg_depth, M.bottom, M.sweeps, M.iters, M.resid,
                       M.capped ? (", capped " + std::to_string(M.capped) + "x").c_str() : "");
         out += b3;
       }
