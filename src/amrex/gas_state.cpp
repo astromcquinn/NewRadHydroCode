@@ -131,6 +131,14 @@ void amrex_state_gather_gas(Simulation& s) {
   });
 }
 
+void amrex_state_stream_gas(Simulation& s, int c0, int ncomp, const StreamFn& fn) {
+  gs::GasState& g = state_of(s);
+  if (c0 < 0 || ncomp < 1 || c0 + ncomp > gs::kNC)
+    throw std::runtime_error("amrex_state_stream_gas: components out of range");
+  std::vector<float> buf;
+  gs::stream_slabs(g.G, g.N, c0, ncomp, buf, fn);
+}
+
 void amrex_state_clamp_gas(Simulation& s) {
   namespace ax = amrex;
   gs::GasState& g = state_of(s);

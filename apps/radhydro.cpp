@@ -972,21 +972,52 @@ int main(int argc, char** argv) {
       T.summaries += std::chrono::duration<double>(Clock::now() - ts).count();
     };
 
-    auto write_stats = [&](const std::string& d) {
-      if (on_level) amrex_state_gather_rt(s, true);  // rhog, fHI, fHeI, fHeII, temp onto rank 0
-      if (!io) return;
-      // global diagnostics over the RT grid, k,j,i order, real(8) sums
+    // The sums of write_stats over the RT grid (k,j,i order, real(8)), also
+    // those of update_sched_x: from rank 0's host grid, or (amrex_state = 1)
+    // streamed from the level slab by slab in the same order
+    // (docs/rank0_streaming.md). Collective with amrex_state = 1; the sums
+    // are rank 0's.
+    struct GridSums {
       double xv = 0, xm = 0, mass = 0, tv = 0, tm = 0, xhe3 = 0;
-      const RTGrid& G = s.rt;
-      for (std::int64_t c = 0; c < G.ncell; ++c) {
-        const double fHI = G.fHI[c], rho = G.rhog[c], T_ = G.temp[c];
+      bool filled = false;  // the RT has written the grid (allocate zero-fills it)
+      void add(double fHI, double rho, double T_, float fHeI, float fHeII) {
         xv = xv + (1 - fHI);
         xm = xm + rho * (1 - fHI);
         mass = mass + rho;
         tv = tv + T_;
         tm = tm + rho * T_;
-        xhe3 = xhe3 + (1 - static_cast<double>(G.fHeI[c]) - static_cast<double>(G.fHeII[c]));
+        xhe3 = xhe3 + (1 - static_cast<double>(fHeI) - static_cast<double>(fHeII));
+        filled = filled || fHI != 0;
       }
+    };
+    auto grid_sums = [&]() {
+      GridSums g;
+      if (on_level) {
+        // rhog, fHI, fHeI, fHeII, temp (the first 5 components of a cell)
+        amrex_state_stream_rt(s, 0, 5, [&](const StreamSlab& sl) {
+          const std::int64_t n = sl.ncell();
+          for (std::int64_t c = 0; c < n; ++c) {
+            const float* a = sl.data + 5 * c;
+            g.add(a[1], a[0], a[4], a[2], a[3]);
+          }
+        });
+      } else if (io) {
+        const RTGrid& G = s.rt;
+        for (std::int64_t c = 0; c < G.ncell; ++c) g.add(G.fHI[c], G.rhog[c], G.temp[c], G.fHeI[c], G.fHeII[c]);
+      }
+      return g;
+    };
+    // write_stats' sums, kept for update_sched_x right after it
+    GridSums stats_sums;
+    bool stats_fresh = false;
+
+    auto write_stats = [&](const std::string& d) {
+      stats_sums = grid_sums();
+      stats_fresh = true;
+      if (!io) return;
+      // global diagnostics over the RT grid, k,j,i order, real(8) sums
+      const double xv = stats_sums.xv, xm = stats_sums.xm, mass = stats_sums.mass, tv = stats_sums.tv,
+                   tm = stats_sums.tm, xhe3 = stats_sums.xhe3;
       const double nc = cfg.nrtcr;
       std::FILE* fp = std::fopen((d + "/stats.txt").c_str(), "w");
       if (!fp) throw std::runtime_error("cannot write stats.txt in " + d);
@@ -1036,23 +1067,17 @@ int main(int argc, char** argv) {
     };
 
     // c_reduced_schedule: x_HII,V of the box at the end of the last step
-    // (rank 0's RT grid, summed as in write_stats; called after write_stats,
-    // which brings the cells onto rank 0 for amrex_state = 1, or after
-    // reading a checkpoint) and the speed it selects for the next step
+    // (the RT grid, summed as in write_stats: write_stats' sums when it has
+    // just run, else a pass of its own, e.g. after reading a checkpoint) and
+    // the speed it selects for the next step
     double sched_x = 0;
     auto update_sched_x = [&]() {
+      const bool fresh = stats_fresh;
+      stats_fresh = false;
       if (P.c_sched_c.empty()) return;
+      const GridSums g = fresh ? stats_sums : grid_sums();
       double v = 0;
-      if (io) {
-        const RTGrid& G = s.rt;
-        bool filled = false;  // the RT has written the grid (allocate zero-fills it)
-        for (std::int64_t c = 0; c < G.ncell; ++c) {
-          const double fHI = G.fHI[c];
-          v = v + (1 - fHI);
-          filled = filled || fHI != 0;
-        }
-        v = filled ? v / cfg.nrtcr : 0;  // before the first RT step: c0
-      }
+      if (io) v = g.filled ? g.xv / cfg.nrtcr : 0;  // before the first RT step: c0
       if (on_level) backend_bcast(&v, 1);
       sched_x = v;
     };

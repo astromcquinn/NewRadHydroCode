@@ -112,6 +112,9 @@ struct LevelBase {
   // moment level; the ray levels gather every field)
   virtual void gather_movie(Simulation& s) { gather_fields(s, false); }
   virtual void scatter_fields(Simulation& s) = 0;
+  // amrex_state_stream_rt (amrex_state.hpp): the float components c0 ..
+  // c0 + nc - 1 of every cell onto rank 0, slab by slab. Collective.
+  virtual void stream(int c0, int nc, const StreamFn& fn) = 0;
   // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
   // and rays moved onto a new mapping of the same BoxArray
   virtual void box_ray_counts(ax::Vector<ax::Real>& count) const = 0;
@@ -139,6 +142,24 @@ struct LevelBase {
     throw std::runtime_error("gammaHI_avg on rt_backend = amrex: implemented for the moment RT only");
   }
 };
+
+// amrex_state_stream_rt for a level's cells C: the components c0 .. c0 +
+// nc - 1 copied into a float FabArray of the same decomposition, then
+// streamed to rank 0 slab by slab (gs::stream_slabs)
+inline void stream_cells(const CFab& C, const ax::BoxArray& ba, const ax::DistributionMapping& dm, int N, int c0,
+                         int nc, const StreamFn& fn) {
+  if (c0 < 0 || nc < 1 || c0 + nc > NC) throw std::runtime_error("amrex_state_stream_rt: components out of range");
+  FFab Cf(ba, dm, nc, 0);
+  for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+    auto c = C.const_array(mfi);
+    auto f = Cf.array(mfi);
+    ax::ParallelForOMP(mfi.validbox(), nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+      f(i, j, k, m) = cf(c, i, j, k, c0 + m);
+    });
+  }
+  std::vector<float> buf;
+  gs::stream_slabs(Cf, N, 0, nc, buf, fn);
+}
 
 // The cells of a level and their transfers
 struct CellLevel : LevelBase {
@@ -398,6 +419,12 @@ struct CellLevel : LevelBase {
     });
     T.sync += now() - t0;
     s.timers.sync += now() - t0;
+  }
+
+  void stream(int c0, int nc, const StreamFn& fn) override {
+    const double t0 = now();
+    stream_cells(C, ba, dm, N, c0, nc, fn);
+    T.sync += now() - t0;
   }
 
   void gather_fields(Simulation& s, bool stats_only) override {

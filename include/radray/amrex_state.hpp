@@ -16,12 +16,41 @@
 // (check_amrex_state_param).
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "radray/config.hpp"
 
 namespace radray {
+
+struct Simulation;
+
+// ---- streaming the level to rank 0 (docs/rank0_streaming.md) ---------------
+// A run of consecutive k-planes of the level on rank 0: planes k0 .. k0 + nk
+// - 1 (0-based), every i and j, in the serial cell order (i fastest, then j,
+// then k), ncomp floats per cell with the components fastest:
+// data[(i + N j + N^2 (k - k0)) * ncomp + m]. The cells of the slab are the
+// cells c0() .. c0() + ncell() - 1 of the serial grid.
+struct StreamSlab {
+  int k0 = 0, nk = 0, N = 0, ncomp = 0;
+  const float* data = nullptr;
+  std::int64_t ncell() const { return static_cast<std::int64_t>(nk) * N * N; }
+  std::int64_t c0() const { return static_cast<std::int64_t>(k0) * N * N; }
+};
+using StreamFn = std::function<void(const StreamSlab&)>;
+
+// The components c0 .. c0 + ncomp - 1 of the RT level's cells (the float
+// layout of rrk::CellData: rhog, fHI, fHeI, fHeII, temp, Luv, sfr, dx(3),
+// gamma(3), lambda(3), nu(5), ngam(5), fgam(5), tau(5), u(5), w(4), e; the
+// first 36 are the rt_grid record) onto rank 0, slab by slab in k order:
+// fn(slab) on rank 0 only. Collective. Rank 0's transient is one slab
+// (gs::kSlabPlanes planes). Makes the level if it does not exist yet.
+void amrex_state_stream_rt(Simulation& s, int c0, int ncomp, const StreamFn& fn);
+// The same for the gas state's components (gas_state.hpp: u(5) at 0, e at
+// 5, w(4) at 6)
+void amrex_state_stream_gas(Simulation& s, int c0, int ncomp, const StreamFn& fn);
+constexpr int kStreamGasU = 0, kStreamGasE = 5, kStreamGasW = 6;
 
 struct Simulation;
 namespace pm {

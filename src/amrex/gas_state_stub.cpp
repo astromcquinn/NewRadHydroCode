@@ -13,6 +13,7 @@ namespace {
 void amrex_state_init(Simulation&) { no_amrex(); }
 void amrex_state_scatter_gas(Simulation&) { no_amrex(); }
 void amrex_state_gather_gas(Simulation&) { no_amrex(); }
+void amrex_state_stream_gas(Simulation&, int, int, const StreamFn&) { no_amrex(); }
 void amrex_state_clamp_gas(Simulation&) { no_amrex(); }
 void amrex_state_add_metals(Simulation&, const std::vector<std::int64_t>&, const std::vector<double>&) { no_amrex(); }
 void amrex_state_release() {}

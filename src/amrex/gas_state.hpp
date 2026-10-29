@@ -3,6 +3,7 @@
 // the AMReX backends (src/amrex/*.cpp); the AMReX-free interface is
 // include/radray/amrex_state.hpp.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -14,6 +15,8 @@
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_REAL.H>
 #include <AMReX_Vector.H>
+
+#include "radray/amrex_state.hpp"
 
 namespace radray {
 
@@ -70,15 +73,45 @@ constexpr int kSlabPlanes = 8;
 // a = Array4<float const> of the slab (indices i, j in 0..N-1, k in
 // k0..k0+nk-1, components 0..ncomp-1). Collective.
 template <class F>
-void gather_slabs(const FFab& src, int N, int ncomp, F fn) {
+void gather_slabs(const FFab& src, int N, int scomp, int ncomp, F fn) {
   const ax::DistributionMapping dm0(ax::Vector<int>{0});
   for (int k0 = 0; k0 < N; k0 += kSlabPlanes) {
     const int nk = std::min(kSlabPlanes, N - k0);
     const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
     FFab s0(ax::BoxArray(slab), dm0, ncomp, 0);
-    s0.ParallelCopy(src, 0, 0, ncomp);
+    s0.ParallelCopy(src, scomp, 0, ncomp);
     if (ax::ParallelDescriptor::IOProcessor()) fn(k0, nk, s0.const_array(0));
   }
+}
+template <class F>
+void gather_slabs(const FFab& src, int N, int ncomp, F fn) {
+  gather_slabs(src, N, 0, ncomp, fn);
+}
+
+// gather_slabs as a StreamSlab (amrex_state.hpp): the slab's components
+// interleaved per cell in the serial cell order, on rank 0. buf is rank
+// 0's transient (one slab).
+template <class F>
+void stream_slabs(const FFab& src, int N, int scomp, int ncomp, std::vector<float>& buf, F fn) {
+  gather_slabs(src, N, scomp, ncomp, [&](int k0, int nk, ax::Array4<float const> const& a) {
+    const std::int64_t N2 = static_cast<std::int64_t>(N) * N;
+    buf.resize(static_cast<std::size_t>(nk * N2 * ncomp));
+    float* b = buf.data();
+#pragma omp parallel for schedule(static) collapse(2)
+    for (int k = k0; k < k0 + nk; ++k)
+      for (int j = 0; j < N; ++j)
+        for (int i = 0; i < N; ++i) {
+          const std::int64_t c = i + static_cast<std::int64_t>(N) * j + N2 * (k - k0);
+          for (int m = 0; m < ncomp; ++m) b[c * ncomp + m] = a(i, j, k, m);
+        }
+    StreamSlab sl;
+    sl.k0 = k0;
+    sl.nk = nk;
+    sl.N = N;
+    sl.ncomp = ncomp;
+    sl.data = b;
+    fn(sl);
+  });
 }
 
 // The reverse: rank 0 fills each slab (fill(k0, nk, a) with a =

@@ -21,6 +21,7 @@ void backend_bcast(double*, int) {}
 void backend_bcast_bytes(void*, std::size_t) {}
 void amrex_state_gather_rt(Simulation&, bool) { no_amrex(); }
 void amrex_state_gather_rt_movie(Simulation&) { no_amrex(); }
+void amrex_state_stream_rt(Simulation&, int, int, const StreamFn&) { no_amrex(); }
 void amrex_gamma_avg_field(Simulation&, std::vector<float>&) { no_amrex(); }
 void amrex_rt_level_slice(Simulation&, int, int, std::vector<float>&, int&, int&, int&) { no_amrex(); }
 void amrex_state_scatter_rt(Simulation&) { no_amrex(); }

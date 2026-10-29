@@ -1750,6 +1750,12 @@ struct Level : LevelBase {
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
   // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)
+  void stream(int c0, int nc, const StreamFn& fn) override {
+    const double t0 = now();
+    stream_cells(C, ba, dm, N, c0, nc, fn);
+    T.sync += now() - t0;
+  }
+
   void gather_fields(Simulation& s, bool stats_only) override {
     const double t0 = now();
     const int nc = stats_only ? 5 : NC;
@@ -2489,6 +2495,7 @@ struct Hierarchy : LevelBase {
   }
   void sync_fields(Simulation& s) override { base().sync_fields(s); }
   void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
+  void stream(int c0, int nc, const StreamFn& fn) override { base().stream(c0, nc, fn); }
   void scatter_fields(Simulation& s) override { base().scatter_fields(s); }
   // the live rays per base box: the base level's, plus every refined
   // level's per fine box mapped to the base box holding its lower corner
@@ -2661,6 +2668,7 @@ void backend_bcast_bytes(void* p, std::size_t n) {
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
 void amrex_state_gather_rt_movie(Simulation& s) { level_of(s).gather_movie(s); }
+void amrex_state_stream_rt(Simulation& s, int c0, int ncomp, const StreamFn& fn) { level_of(s).stream(c0, ncomp, fn); }
 void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out) {
   if (!s.amrex) {  // no RT step yet: zeros, as the serial code
     out.assign(io_rank() ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
