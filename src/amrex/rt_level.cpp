@@ -1940,6 +1940,100 @@ struct Level : LevelBase {
     }
   }
 
+  // The rays of a refined level in a layout-independent order (the
+  // hierarchy's checkpoint): a refined level's own boxes are chopped by
+  // AMReX according to the rank count, so visiting them box by box, as
+  // gather_rays_chunks does, made the checkpoints of 1, 2 and 3 ranks list
+  // the same rays in different orders. Here the rays are visited by the
+  // boxes of `order` (the base level's boxes refined to this level and
+  // chopped, kept where they meet the level: layout-independent), each
+  // order box's rays sorted by home cell and then by their bytes (a total
+  // order). Every rank contributes the rays of its tiles whose home cell
+  // lies in the order box; rank 0 receives them, sorts the union and hands
+  // it to sink in chunks. Collective. Throws if a ray lies in no order box.
+  void gather_rays_ordered(const ax::BoxArray& order,
+                           const std::function<void(const std::vector<RayP>&)>& sink) const {
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const int nranks = ax::ParallelDescriptor::NProcs();
+    const int root = ax::ParallelDescriptor::IOProcessorNumber();
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    const int NN = N;
+    auto cell_index = [NN](const RayP& r) {
+      return rrk::cell_of(r.x[0], NN) +
+             static_cast<std::int64_t>(NN) * (rrk::cell_of(r.x[1], NN) +
+                                              static_cast<std::int64_t>(NN) * rrk::cell_of(r.x[2], NN));
+    };
+    auto key_less = [&](const RayP& a, const RayP& b) {
+      const std::int64_t ca = cell_index(a), cb = cell_index(b);
+      if (ca != cb) return ca < cb;
+      return std::memcmp(&a, &b, sizeof(RayP)) < 0;
+    };
+    std::vector<RayP> mine, all, chunk;
+    Long ngathered = 0;
+#ifdef AMREX_USE_MPI
+    const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+#endif
+    for (int b = 0; b < static_cast<int>(order.size()); ++b) {
+      const ax::Box ob = order[b];
+      mine.clear();
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        if (!mfi.validbox().intersects(ob)) continue;
+        auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+        const int np = static_cast<int>(pt.numParticles());
+        const PTD p = pt.getParticleTileData();
+        for (int n = 0; n < np; ++n) {
+          const RayP r = Enc::load(p, n, ectx);
+          const ax::IntVect iv(rrk::cell_of(r.x[0], NN), rrk::cell_of(r.x[1], NN), rrk::cell_of(r.x[2], NN));
+          if (ob.contains(iv)) mine.push_back(r);
+        }
+      }
+      ngathered += static_cast<Long>(mine.size());
+      all.clear();
+      if (nranks == 1) {
+        all.swap(mine);
+      } else {
+#ifdef AMREX_USE_MPI
+        long long cnt = static_cast<long long>(mine.size());
+        std::vector<long long> counts(static_cast<std::size_t>(nranks), 0);
+        MPI_Gather(&cnt, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
+        if (io) {
+          all.insert(all.end(), mine.begin(), mine.end());
+          for (int r = 0; r < nranks; ++r) {
+            if (r == root || counts[static_cast<std::size_t>(r)] == 0) continue;
+            const std::size_t total = static_cast<std::size_t>(counts[static_cast<std::size_t>(r)]);
+            const std::size_t n0 = all.size();
+            all.resize(n0 + total);
+            for (std::size_t off = 0; off < total; off += kGatherChunk) {
+              const int n = static_cast<int>(std::min(kGatherChunk, total - off));
+              MPI_Recv(all.data() + n0 + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 13, comm,
+                       MPI_STATUS_IGNORE);
+            }
+          }
+        } else if (cnt > 0) {
+          for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
+            const int n = static_cast<int>(std::min(kGatherChunk, mine.size() - off));
+            MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 13, comm);
+          }
+        }
+#endif
+      }
+      if (!io || all.empty()) continue;
+      std::sort(all.begin(), all.end(), key_less);
+      for (std::size_t off = 0; off < all.size(); off += kGatherChunk) {
+        const std::size_t n = std::min(kGatherChunk, all.size() - off);
+        chunk.assign(all.begin() + off, all.begin() + off + n);
+        sink(chunk);
+      }
+    }
+    // every ray of the level in exactly one order box (a ray's home cell
+    // lies in the level's grids, which the order boxes cover, and the order
+    // boxes are disjoint)
+    ax::ParallelDescriptor::ReduceLongSum(ngathered);
+    if (ngathered != static_cast<Long>(nrays()))
+      throw std::runtime_error("checkpoint: level " + std::to_string(lev) + " has " + std::to_string(nrays()) +
+                               " rays but the ordered gather found " + std::to_string(ngathered));
+  }
+
   // Rank 0 holds the whole list (a checkpoint): the rays go to their owners
   // in chunks of kScatterChunk, each written into rank 0's first tile and
   // redistributed, so rank 0's peak holds one chunk of particles and its
@@ -2520,19 +2614,29 @@ struct Hierarchy : LevelBase {
   }
   int bytes_per_ray() const override { return base_c().bytes_per_ray(); }
   // the checkpoint: every level's rays in the base level's units (a restart
-  // scatters them onto the base level; the first prep moves them down)
+  // scatters them onto the base level; the first prep moves them down).
+  // Level 0 box by box (its boxes are fixed); a refined level by the order
+  // boxes of gather_rays_ordered: the base boxes refined to the level,
+  // chopped to kOrderBox cells, where they meet the level, so the file does
+  // not depend on how AMReX chopped the refined grids (the rank count)
   void gather_rays(std::vector<RayP>& out) const override {
     out.clear();
     gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
   }
+  static constexpr int kOrderBox = 32;
   void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
-    for (int l = 0; l <= finest; ++l) {
+    levels[0]->gather_rays_chunks(sink);
+    for (int l = 1; l <= finest; ++l) {
+      const L& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::BoxArray fine0 = levels[0]->ba;
+      fine0.refine(1 << l);
+      fine0.maxSize(kOrderBox);
+      ax::BoxList kept;
+      for (int b = 0; b < static_cast<int>(fine0.size()); ++b)
+        if (Ll.ba.intersects(fine0[b])) kept.push_back(fine0[b]);
+      const ax::BoxArray order(kept);
       const double f = std::ldexp(1.0, -l);
-      levels[static_cast<std::size_t>(l)]->gather_rays_chunks([&](const std::vector<RayP>& chunk) {
-        if (l == 0) {
-          sink(chunk);
-          return;
-        }
+      Ll.gather_rays_ordered(order, [&](const std::vector<RayP>& chunk) {
         std::vector<RayP> c2(chunk.size());
         for (std::size_t n = 0; n < chunk.size(); ++n) c2[n] = L::rescaled(chunk[n], f);
         sink(c2);
