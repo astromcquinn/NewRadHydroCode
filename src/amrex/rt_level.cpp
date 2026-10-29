@@ -78,6 +78,7 @@
 #include "radray/hydro_backend.hpp"
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/kernels/rt_cell.hpp"
+#include "radray/plane_parallel.hpp"
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_backend.hpp"
@@ -251,6 +252,14 @@ struct Level : LevelBase {
   CFab C;
   FFab TF;
   LFab A;
+  // plane_transport = sweep (plane_parallel.hpp, src/plane_sweep.cpp): the
+  // packets in flight per lit face (pfaces), kNfreq floats per cell with
+  // `cells` ghost cells (the upstream packet of the advance), and the
+  // next substep's packets; their sum after the advance (fixed point)
+  bool plane_sweep = false;
+  std::vector<int> pfaces;
+  std::vector<FFab> PF, PFn;
+  i128 plane_inflight_fx = 0;
   std::unique_ptr<RayPC> pc;
   std::vector<BoxScratch> scratch;
   ax::Gpu::DeviceVector<Long> hist;   // ngam_pdf[kNpdfMax] + spl_pdf[kNpdfMax] + npos
@@ -335,14 +344,26 @@ struct Level : LevelBase {
     }
     TF.define(ba, dm, 10, ng);
     A.define(ba, dm, rrk::kNdep, ng);
+    plane_sweep = cfg.plane_parallel && cfg.plane_transport == 1;
+    if (plane_sweep) {
+      pfaces = plane_face_list(cfg.plane_faces);
+      PF.clear();
+      PFn.clear();
+      for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
+        PF.emplace_back(ba, dm, 5, cells);
+        PFn.emplace_back(ba, dm, 5, cells);
+        PF.back().setVal(0.0f);
+        PFn.back().setVal(0.0f);
+      }
+    }
     pc = std::make_unique<RayPC>(geom, dm, ba);
     scratch.resize(C.local_size());
     hist.resize(2 * rrk::kNpdfMax + 1);
     cstat.resize(4);
     err.resize(1, 0);
-    double nu[5];
-    for (int n = 0; n < 5; ++n) nu[n] = cp::freq_init[n];
-    rrk::photoion_sigma(nu, sig_init);
+    // the optical depths' frequencies: freq_init, or the plane-parallel
+    // mode's bins (plane_parallel.hpp)
+    rrk::photoion_sigma(group_frequencies(cfg).data(), sig_init);
     if (rrk::pdf_nbins() + 2 > rrk::kNpdfMax) throw std::runtime_error("rrk::kNpdfMax too small");
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)
       pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
@@ -980,8 +1001,12 @@ struct Level : LevelBase {
           rrk::frame_rotation(P, i + 1, j + 1, k + 1, 0, rot);
           rrk::set_rotation(spec, rot);
         }
+        // plane_parallel = 1: the face rays of this cell (rrk::plane_rays)
+        rrk::RayP padd[6];
+        const int nadd = rrk::plane_rays(i, j, k, P, padd);
         rrk::CellStats cs;
-        cnt[q] = rrk::step1_count(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, P, cs);
+        cnt[q] = rrk::step1_count(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, P, cs,
+                                  padd, nadd);
         cm[3 * q] = cs.ncst;
         cm[3 * q + 1] = cs.nspl;
         cm[3 * q + 2] = cs.nmrg;
@@ -1026,13 +1051,17 @@ struct Level : LevelBase {
           rrk::frame_rotation(P, i + 1, j + 1, k + 1, 0, rot);
           rrk::set_rotation(spec, rot);
         }
+        rrk::RayP padd[6];
+        const int nadd = rrk::plane_rays(i, j, k, P, padd);  // plane_parallel = 1
         const int w = rrk::step1_write(rays + off[q], off[q + 1] - off[q], (src && !thick) ? &spec : nullptr, i,
-                                       j, k, P, idx + off[q], key + off[q], out + n0);
+                                       j, k, P, idx + off[q], key + off[q], out + n0, padd, nadd);
         if (w != nc) ax::HostDevice::Atomic::Add(err_p, 1);
         for (Long r = n0; r < n0 + nc; ++r) ocell[r] = q;
       });
     }
     check_err("step1");
+    // plane_parallel = 1: the photons emitted this substep (every rank the same)
+    if (s.plane.on && !in_hierarchy) s.plane.emitted += plane_emitted_per_substep(s, P);
     // the cell-sorted input and its sort scratch are no longer needed
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       BoxScratch& S = scratch[mfi.LocalIndex()];
@@ -1132,6 +1161,60 @@ struct Level : LevelBase {
       }
       ray_substeps += S.nout;
     }
+    // ---- plane_transport = sweep: the packets in flight cast as the rays they stand for ----
+    if (plane_sweep && P.plane.L > 0) {  // (L = 0 before the turn-on: no face sources)
+      const int L = P.plane.L, kc = P.cells;
+      for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
+        const int f = pfaces[fi], d = f / 2, sgn = rrk::plane_face_sign(f);
+        for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+          const Box_t bx = mfi.validbox();
+          const Box_t gbx = ax::grow(bx, ngh);
+          const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx);
+          auto tfa = TF.const_array(mfi);
+          auto acc = A.array(mfi);
+          auto pf = PF[fi].const_array(mfi);
+          ax::ParallelForOMP(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            const int idx[3] = {i, j, k};
+            const int m = rrk::plane_packet_m(idx[d], L, sgn);
+            if (m % kc != 0) return;
+            float pk[5];
+            for (int q = 0; q < 5; ++q) pk[q] = m == 0 ? P.plane.ngam[q] : pf(i, j, k, q);
+            bool zero = true;
+            for (int q = 0; q < 5; ++q) zero = zero && pk[q] == 0;
+            if (m > 0 && zero) return;
+            const RayP ry = rrk::plane_packet_ray(idx, f, m, P, pk);
+            if (rrk::classify(ry, P) == rrk::kRemove) return;
+            bool bad = false;
+            auto map = [&](int a, int b, int c, int& ii, int& jj, int& kk) {
+              ii = near_image(a, i, NN);
+              jj = near_image(b, j, NN);
+              kk = near_image(c, k, NN);
+              if (ii < glo.x || ii > ghi.x || jj < glo.y || jj > ghi.y || kk < glo.z || kk > ghi.z) {
+                bad = true;
+                ii = i;
+                jj = j;
+                kk = k;
+              }
+            };
+            float tb[5];
+            auto tau = [&](int a, int b, int c) -> const float* {
+              int ii, jj, kk;
+              map(a, b, c, ii, jj, kk);
+              for (int q = 0; q < 5; ++q) tb[q] = tfa(ii, jj, kk, q);
+              return tb;
+            };
+            auto dep = [&](int a, int b, int c, const double* v) {
+              int ii, jj, kk;
+              map(a, b, c, ii, jj, kk);
+              for (int q = 0; q < rrk::kNdep; ++q)
+                ax::HostDevice::Atomic::Add(&acc(ii, jj, kk, q), Long(rrk::to_fx(v[q], rrk::dep_scale(q))));
+            };
+            rrk::cast_1(ry, P, tau, dep);
+            if (bad) ax::HostDevice::Atomic::Add(err_p, 1);
+          });
+        }
+      }
+    }
     const double tsb = now();
     A.SumBoundary(period);  // fold ghost deposits into their owners (int64: exact)
     T.sumbnd += now() - tsb;
@@ -1164,6 +1247,7 @@ struct Level : LevelBase {
       X.cells = cells;  // the crossing speed of this level's path
       X.photon_conserve = s.cfg.photon_conserve;
       X.cool_suppress = s.cfg.cool_suppress_overdensity;
+      X.photon_consume_dense = s.cfg.photon_consume_dense;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;
       const bool he = has_e;
@@ -1172,6 +1256,7 @@ struct Level : LevelBase {
       const double nrtcr = s.cfg.nrtcr * static_cast<double>(1 << (3 * lev));
       const Units u = units_of(s);
       const double dtsec_rt = s.clk.dtsec_rt;
+      const bool plane_on = s.plane.on;
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         BoxScratch& S = scratch[mfi.LocalIndex()];
         const Box_t bx = mfi.validbox();
@@ -1200,7 +1285,9 @@ struct Level : LevelBase {
           cp_ = CellPhys{};
           bool processed = false;
           double ngam_tot = 0;
+          const double dep = static_cast<double>(rrf::sum4<5>(d.ngam));  // plane_parallel: the deposit
           cp_.err = rrk::physics_cell(d, X, &cp_.st, he, &processed, &ngam_tot);
+          cp_.plane_abs = processed ? dep - static_cast<double>(rrf::sum4<5>(d.ngam)) : 0;
           if (processed) {
             cp_.flags |= 1;
             if (ngam_tot > u.ngam_min) cp_.flags |= 2;
@@ -1235,6 +1322,7 @@ struct Level : LevelBase {
             stats[kSLambda + sp] += to_fx128(st.lam[sp] / Ncell, kBitsLambda);
           }
           stats[kSDtau] += to_fx128(st.dtau / Ncell, kBitsTau);
+          if (plane_on) stats[kSPlaneAbs] += to_fx128(cp_.plane_abs, kBitsNgam);
         }
       }
       const double tf0 = now();
@@ -1260,6 +1348,92 @@ struct Level : LevelBase {
     const double sfr_min = units_of(s).sfr_min;
     (void)myproc; (void)hist_p; (void)cstat_p; (void)err_p; (void)NN; (void)ngh; (void)sfr_min;
     const rrk::RTP P = params_of(s);
+    // ---- plane_transport = sweep: the packets move k cells on (cast_3) ----
+    if (plane_sweep && P.plane.L > 0) {
+      const int L = P.plane.L, kc = P.cells;
+      i128 inf = 0, esc = 0;
+      for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
+        const int f = pfaces[fi], d = f / 2, sgn = rrk::plane_face_sign(f);
+        PF[fi].FillBoundary(period);  // the upstream packets of the boxes' edges
+        for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+          const Box_t bx = mfi.validbox();
+          const Box_t gbx = ax::grow(bx, ngh);
+          const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx);
+          auto tfa = TF.const_array(mfi);
+          auto pfo = PF[fi].const_array(mfi);
+          auto pfn = PFn[fi].array(mfi);
+          // the transmitted packet of the upstream cell, k cells back
+          ax::ParallelForOMP(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            int idx[3] = {i, j, k};
+            const int m = rrk::plane_packet_m(idx[d], L, sgn);
+            for (int q = 0; q < 5; ++q) pfn(i, j, k, q) = 0;
+            if (m == 0 || m % kc != 0) return;
+            idx[d] -= sgn * kc;
+            const int mu = m - kc;
+            float pk[5];
+            for (int q = 0; q < 5; ++q) pk[q] = mu == 0 ? P.plane.ngam[q] : pfo(idx[0], idx[1], idx[2], q);
+            bool zero = true;
+            for (int q = 0; q < 5; ++q) zero = zero && pk[q] == 0;
+            if (mu > 0 && zero) return;
+            RayP ry = rrk::plane_packet_ray(idx, f, mu, P, pk);
+            if (rrk::classify(ry, P) == rrk::kRemove) return;
+            bool bad = false;
+            float tb[5], fb[5];
+            auto tf = [&](int a, int b, int c, const float*& tau, const float*& fgam) {
+              int ii = near_image(a, i, NN), jj = near_image(b, j, NN), kk = near_image(c, k, NN);
+              if (ii < glo.x || ii > ghi.x || jj < glo.y || jj > ghi.y || kk < glo.z || kk > ghi.z) {
+                bad = true;
+                ii = i;
+                jj = j;
+                kk = k;
+              }
+              for (int q = 0; q < 5; ++q) {
+                tb[q] = tfa(ii, jj, kk, q);
+                fb[q] = tfa(ii, jj, kk, 5 + q);
+              }
+              tau = tb;
+              fgam = fb;
+            };
+            if (rrk::cast_3(ry, P, tf))
+              for (int q = 0; q < 5; ++q) pfn(i, j, k, q) = ry.ngam[q];
+            if (bad) ax::HostDevice::Atomic::Add(err_p, 1);
+          });
+          // the packets leaving at the far face (m + k = L), and the sum in flight
+          const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+          for (int k = lo.z; k <= hi.z; ++k)
+            for (int j = lo.y; j <= hi.y; ++j)
+              for (int i = lo.x; i <= hi.x; ++i) {
+                for (int q = 0; q < 5; ++q) inf += to_fx128(static_cast<double>(pfn(i, j, k, q)), kBitsNgam);
+                const int idx[3] = {i, j, k};
+                const int m = rrk::plane_packet_m(idx[d], L, sgn);
+                if (m + kc != L) continue;
+                float pk[5];
+                for (int q = 0; q < 5; ++q) pk[q] = m == 0 ? P.plane.ngam[q] : pfo(i, j, k, q);
+                bool zero = true;
+                for (int q = 0; q < 5; ++q) zero = zero && pk[q] == 0;
+                if (m > 0 && zero) continue;
+                RayP ry = rrk::plane_packet_ray(idx, f, m, P, pk);
+                if (rrk::classify(ry, P) == rrk::kRemove) continue;
+                float tb[5], fb[5];
+                auto tf = [&](int a, int b, int c, const float*& tau, const float*& fgam) {
+                  const int ii = near_image(a, i, NN), jj = near_image(b, j, NN), kk = near_image(c, k, NN);
+                  for (int q = 0; q < 5; ++q) {
+                    tb[q] = tfa(ii, jj, kk, q);
+                    fb[q] = tfa(ii, jj, kk, 5 + q);
+                  }
+                  tau = tb;
+                  fgam = fb;
+                };
+                if (rrk::cast_3(ry, P, tf)) esc += to_fx128(rrk::sum_ngam(ry), kBitsNgam);
+              }
+        }
+        std::swap(PF[fi], PFn[fi]);
+      }
+      check_err("plane sweep");
+      allreduce_i128(&inf, 1);
+      plane_inflight_fx = inf;
+      stats_sub[kSPlaneEsc] += esc;
+    }
     // ---- 3. advance (cast_3) ----
     Long nout_loc = 0, nkeep_loc = 0;
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1299,8 +1473,20 @@ struct Level : LevelBase {
           fgam = fb;
         };
         keep[r] = rrk::cast_3(out[r], P, tf) ? 1 : 0;
+        // plane_parallel = 1: a ray that crossed its domain is deleted (2:
+        // its photons are counted below, then it is dropped)
+        if (keep[r] && rrk::plane_done(out[r], P)) keep[r] = 2;
         if (bad) ax::HostDevice::Atomic::Add(err_p, 1);
       });
+      if (P.plane.L > 0) {
+        i128 esc = 0;
+        for (Long r = 0; r < nout; ++r)
+          if (keep[r] == 2) {
+            esc += to_fx128(rrk::sum_ngam(out[r]), kBitsNgam);
+            keep[r] = 0;
+          }
+        stats_sub[kSPlaneEsc] += esc;
+      }
       nout_loc += nout;
     }
     check_err("cast_3");
@@ -1424,6 +1610,11 @@ struct Level : LevelBase {
         t.lambda[sp] = from_fx128(stats[kSLambda + sp], kBitsLambda);
       }
       t.dtau = from_fx128(stats[kSDtau], kBitsTau);
+      if (s.plane.on) {  // plane_parallel = 1 (plane_parallel.hpp; the same fixed point)
+        static_assert(kBitsNgam == PlaneState::kFxBits, "plane fixed point");
+        s.plane.absorbed_fx += static_cast<__int128>(stats[kSPlaneAbs]);
+        s.plane.escaped_fx += static_cast<__int128>(stats[kSPlaneEsc]);
+      }
       accumulate_rt_stats(s);
     }
   }
@@ -1447,11 +1638,13 @@ struct Level : LevelBase {
       auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
       const int np = static_cast<int>(pt.numParticles());
       const PTD p = pt.getParticleTileData();
-      ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
-        RayP r = Enc::load(p, n, ectx);
-        rrk::redshift_ray(r, RT, fscale, ngam_min);
-        Enc::store(p, n, r, ectx);
-      });
+      // plane_parallel = 1: the face rays keep their spectrum (ray_redshifting)
+      if (!s.plane.on)
+        ax::ParallelForOMP(np, [=] AMREX_GPU_DEVICE(int n) {
+          RayP r = Enc::load(p, n, ectx);
+          rrk::redshift_ray(r, RT, fscale, ngam_min);
+          Enc::store(p, n, r, ectx);
+        });
       for (int n = 0; n < np; ++n) {
         const RayP r = Enc::load(p, n, ectx);
         // each group in fixed point (as spike/serial rt_serial: exact sum)
@@ -1466,6 +1659,7 @@ struct Level : LevelBase {
     allreduce_i128(&tot, 1);
     ax::ParallelDescriptor::ReduceLongSum(nr);
     s.ngam_total_backend = from_fx128(tot, kBitsNgam);
+    if (plane_sweep) s.ngam_total_backend = from_fx128(plane_inflight_fx, kBitsNgam);  // the packets in flight
     s.rays.Nray = nr;
     s.rays.save.nfree = 0;
     T.post += now() - t0;
@@ -1534,6 +1728,15 @@ struct Level : LevelBase {
     dm = dm2;
     TF.define(ba, dm, 10, ng);
     A.define(ba, dm, rrk::kNdep, ng);
+    if (plane_sweep) {  // the packets in flight follow their cells
+      for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
+        FFab nf(ba, dm, 5, cells);
+        nf.setVal(0.0f);
+        nf.ParallelCopy(PF[fi], 0, 0, 5);
+        PF[fi] = std::move(nf);
+        PFn[fi].define(ba, dm, 5, cells);
+      }
+    }
     pc->SetParticleDistributionMap(0, dm);
     pc->Redistribute();
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi)

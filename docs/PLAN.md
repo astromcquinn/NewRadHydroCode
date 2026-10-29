@@ -1709,3 +1709,40 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **Test data:** the fast suite's zoom is a committed MUSIC output packed to
   `.npz` (895 KB, mantissas rounded to 14 bits; numpy only), not the
   in-repo nest of §4.1 steps 1–2, which is not built.
+## Plane-parallel RT-domain mode (2026-10-26)
+
+* **Decisions (user, 2026-10-26, the open questions of
+  `docs/plane_parallel.md`):** cooling fully on in the plane-parallel
+  problems (`cool_suppress_overdensity = 0`; the code default stays the
+  original's 200); one face per domain and direction (`plane_faces = +x
+  +y`, two orthogonal directions as DM20 and C26); no Supplemental §C 2
+  procedure (follow the C26 text: hydro and gravity to z_re, then every
+  face at the full Γ_HI at once, the reduced ĉ from the existing
+  schedule); the C1 ladder with fixed 8³ domains of 31.25 kpc/h at every
+  resolution. **Also requested:** a mode with one plane-parallel front
+  crossing the entire box: `plane_ndom = 1` with a single face.
+* **Implementation choices (this thread; `docs/plane_parallel.md`,
+  "Implementation"):** the 5 groups carry the equal-photon bins of ν^−1.5
+  with the photon-weighted mean frequency of each bin as the group's
+  effective frequency, and the grid's optical depths use these
+  frequencies; the photons per ray are set so that Γ = n_γ σ ĉ of a lit
+  cell equals Γ_HI exactly (checked to 5e-8); the face rays are never
+  split, merged or redshifted and are deleted at the far face; the halo
+  finder and the halo sources are off in the mode; the step before z_re
+  lands on it. **For the user to confirm:** `photon_consume_dense` (the
+  original lets cells denser than 50× the mean ionise without consuming
+  photons, `rho_source` in `docs/port_notes.md`; the plane-parallel
+  problems and `make_production.py --plane-parallel` set 1 so dense gas
+  self-shields; the code default stays 0, the original).
+* **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
+  `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
+  from the turn-on, otherwise always.
+
+## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
+
+* **`dual_e_self = 1` for production and for `thermal_init = recfast`**
+  (user, 2026-10-27). `make_production.py` writes `dual_e_self = 1` with
+  the unsplit hydro (`--dual-e-self 0` for the scheme before the key).
+  In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
+  explicit key wins. Without `recfast` the code default stays 0, so
+  every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).

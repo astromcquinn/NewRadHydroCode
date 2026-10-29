@@ -224,6 +224,25 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(ifront_rsla_${m} PROPERTIES TIMEOUT 600 LABELS "physics;moments")
   endforeach()
 
+  # Plane-parallel RT-domain mode (docs/plane_parallel.md, plane_parallel = 1):
+  # the Gamma_HI normalisation and the bins, slab attenuation, one front
+  # across the box against the photon budget (thin and with recombinations),
+  # the light-limited front, photon conservation, the domains and the thread
+  # independence, on the RT-only driver (tests/plane_check.py)
+  add_test(NAME plane_rt
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/plane_rt)
+  set_tests_properties(plane_rt PROPERTIES TIMEOUT 1800 LABELS "physics;plane")
+  # the same physics with plane_transport = sweep (the packets in flight as a
+  # field per face instead of rays), and the sweep against the rays
+  add_test(NAME plane_rt_sweep
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/plane_rt_sweep --only gamma slab front conserve domains threads
+                   --set plane_transport=sweep)
+  set_tests_properties(plane_rt_sweep PROPERTIES TIMEOUT 1800 LABELS "physics;plane")
+
   # rays crossing k = 2 cells per substep (docs/rt_multicell.md): the
   # uniform I-front of ifront_rsla at c_reduced = 1 against k = 1 (within
   # half a cell), the finite-c solution and the interior x_HI (the
@@ -852,6 +871,24 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/c_schedule --set legacy_rt=0 --set legacy_physics=0)
     set_tests_properties(c_schedule PROPERTIES TIMEOUT 600 LABELS physics)
+    # Plane-parallel RT-domain mode in the full loop (docs/plane_parallel.md):
+    # the turn-on at plane_z_re (the step before lands on it), DM20's speed
+    # of light schedule, the step caps dt_max_myr and rt_substeps_max
+    # (docs/zoom_turbulence.md section 4.4) on a uniform 16^3 box
+    add_test(NAME plane_full
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_full)
+    set_tests_properties(plane_full PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # the scaled-down DM20 problem (0.256 Mpc/h, 32^3, z_re = 8, Gamma_-12 =
+    # 0.3, cooling on): the post-front temperature and the clumping factor
+    # (~ minutes: label nightly)
+    add_test(NAME plane_dm20
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_dm20 --dm20)
+    set_tests_properties(plane_dm20 PROPERTIES TIMEOUT 3600 LABELS "physics;plane;full;nightly")
+    if(NOT RADRAY_NIGHTLY_TESTS)
+      set_tests_properties(plane_dm20 PROPERTIES DISABLED TRUE)
+    endif()
     # gammaHI_avg (docs/igm_diagnostics.md): the substep-averaged Gamma_HI in
     # fields and movie frames is the mean of the per-substep gammaHI frames,
     # thread-independent and output only; the rays and M1
@@ -874,6 +911,14 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
                      ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
     set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7): no cell of the
+    # cold unheated IGM over-cooled, the mean-density gas on its adiabat,
+    # thread independence, the key inert at 0; the default shows the defect
+    add_test(NAME unsplit_dual_e_self
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/dual_e_self_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/dual_e_self)
+    set_tests_properties(unsplit_dual_e_self PROPERTIES TIMEOUT 600 LABELS "physics;threads")
     # restart: the Compton step and the floors are stateless
     add_test(NAME restart_smoke_thermal
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
@@ -1601,6 +1646,19 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --set restart_keep_latest=0)
     set_tests_properties(amrex_hydro_full_vs_serial_hydro PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
                          ENVIRONMENT OMP_NUM_THREADS=2)
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7) on the cold
+    # unheated IGM, where many cells evolve e from its own value: the AMReX
+    # level byte-identical to the serial step (8^3 boxes, so the stencils
+    # cross box boundaries)
+    add_test(NAME amrex_hydro_dual_e_self_vs_serial
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                     ${amrex_runs}/hydro_dual_e_self_pair $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     "hydro_backend=serial" "hydro_backend=amrex,amrex_hydro_max_grid_size=8"
+                     --quiet --set zdata1=20 --set hydro_scheme=unsplit --set dual_e_self=1
+                     --set thermal_floor=0.01 --set fields_every=1 --set fields=u_gas,e_gas)
+    set_tests_properties(amrex_hydro_dual_e_self_vs_serial PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=2)
     # amrex_state = 1 (docs/stage_e_state.md): the gas on the levels, byte-
     # identical to the three backends with the host state on every rank
     # (fields, stats, movie frames, checkpoints), for 1/2/3 ranks x 1/2
@@ -1622,6 +1680,32 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # Plane-parallel RT-domain mode on the backend (docs/plane_parallel.md):
+    # the RT-only physics checks with 2 ranks (the face rays across the
+    # boxes, the far-face deletion and the fixed-point photon bookkeeping),
+    # and the full loop on the three backends against the serial run
+    add_test(NAME amrex_plane_rt
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${amrex_runs}/plane_rt --only gamma slab front conserve domains
+                     --set rt_backend=amrex --set amrex_max_grid_size=8
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rt PROPERTIES TIMEOUT 1800 LABELS "amrex;plane;physics"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_rt_sweep
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${amrex_runs}/plane_rt_sweep --only gamma slab front conserve domains sweep
+                     --set rt_backend=amrex --set amrex_max_grid_size=8
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rt_sweep PROPERTIES TIMEOUT 1800 LABELS "amrex;plane;physics"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_full
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
+                     $<TARGET_FILE:radhydro> ${amrex_runs}/plane_full --amrex $<TARGET_FILE:radhydro>
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_full PROPERTIES TIMEOUT 3600 LABELS "amrex;plane;physics;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
     # amrex_slab = 1: the shared decomposition as z-slabs (P planes; 0 = N /
     # ranks), byte-identical to the host state on the default boxes; N = 16:
     # 3 ranks hold 2, 1, 1 slabs of 4; P = 2 is thinner than the hydro's

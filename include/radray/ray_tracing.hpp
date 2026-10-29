@@ -23,6 +23,9 @@ void ray_tracing_3(Simulation& s, const std::array<int, 6>& box);
 
 // ray_tracing_tools.f90: ray_source
 void ray_source(Simulation& s, int irt, int jrt, int krt);
+// plane_parallel = 1 (plane_parallel.hpp): the face rays of this substep,
+// inserted before the sweep of rt_step_1
+void plane_emit(Simulation& s);
 
 // The rotation ray_source applies to its HEALPix directions when
 // Config::ray_rotate != 0 (B16): a uniformly random rotation matrix rot

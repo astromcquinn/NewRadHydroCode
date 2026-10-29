@@ -34,6 +34,7 @@
 #include "radray/io.hpp"
 #include "radray/ray_dump.hpp"
 #include "radray/parallel.hpp"
+#include "radray/plane_parallel.hpp"
 #include "radray/rt.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
@@ -86,7 +87,7 @@ int main(int argc, char** argv) {
 
     auto sim = std::make_unique<Simulation>();
     Simulation& s = *sim;
-    init_simulation(s, P.N, P.nray_max_factor, P.z_init);
+    init_simulation(s, P.N, P.nray_max_factor, P.z_init, P.box);
     s.cfg.legacy_rt = (P.legacy_rt == 1);
     s.cfg.legacy_physics = (P.legacy_physics == 1);
     s.cfg.c_reduced = P.c_reduced;
@@ -104,9 +105,12 @@ int main(int argc, char** argv) {
     }
     copy_rt_method(P.rtm, s.cfg);  // rt_method = rays | m1 | otvet
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
+    copy_plane_param(P.rtm, s.cfg);       // plane_parallel (plane_parallel.hpp)
     check_recomb_param(s.cfg);     // recomb_case, recomb_rad (recomb_rad.hpp)
     check_rt_backend_param(s.cfg);
     check_rt_cells_param(s.cfg);
+    check_plane_param(s.cfg);
+    plane_init(s);  // plane_parallel = 1: the face sources (the RT runs every step here)
     par::set_threads(P.threads);
     // The rate tables were built by init_rt with the default (legacy) physics.
     if (!s.cfg.legacy_physics) calc_atomic_rates(s.rates, s.cfg.legacy_physics);
@@ -150,11 +154,14 @@ int main(int argc, char** argv) {
                       : std::string())
               << (P.ray_deposit ? " ray_deposit: exposure\n" : "")
               << " rt_method  : " << rt_method_summary(s.cfg) << "\n"
+              << (plane_summary(s.cfg).empty() ? std::string() : " plane      : " + plane_summary(s.cfg) + "\n")
+              << (P.box != 5 ? " box        : " + std::to_string(P.box) + " Mpc/h\n" : std::string())
               << " backend    : " << rt_backend_summary(s.cfg) << ", ranks " << backend_nranks() << "\n"
               << " threads    : " << par::max_threads() << "\n"
               << " sources    : " << sources.size() << "\n";
 
     calc_sim_var(s.cfg, s.clk, s.units);
+    if (io) plane_write_spectrum(odir, s);  // plane_parallel = 1: the bins and fluxes
     for (int step = 1; step <= P.nsteps; ++step) {
       calc_sim_var(s.cfg, s.clk, s.units);
       const double z1 = s.clk.redshift;

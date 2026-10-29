@@ -14,6 +14,7 @@
 #include "radray/cosmology.hpp"
 #include "radray/grid.hpp"
 #include "radray/halos.hpp"
+#include "radray/plane_parallel.hpp"
 #include "radray/ray_quant.hpp"
 #include "radray/rays.hpp"
 #include "radray/rt_rates.hpp"
@@ -120,6 +121,9 @@ struct Simulation {
   std::shared_ptr<TensorDiag> tdiag;
   // On-the-fly FoF cache (fof_dt_myr > 0, halos.hpp); unused otherwise.
   FofCache fof;
+  // Plane-parallel RT-domain mode (plane_parallel.hpp, docs/plane_parallel.md):
+  // off unless plane_parallel = 1 (plane_init).
+  PlaneState plane;
 
   // The substep-averaged HI photoionization rate (fields / movie_fields
   // gammaHI_avg, docs/igm_diagnostics.md): per RT cell the sum over the
