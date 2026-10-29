@@ -208,8 +208,10 @@ void force_at(const PMState& s, const float* xv, double F[3]);
 // (Fortran layout pk[(k-1)*5 + c]) and leaves density/linked lists as the
 // original does. write_power_spectrum writes the Fortran file format
 // "(7es14.6)" for k = 2..Hgas+1.
+// u_gas: the gas density at u_gas[gcell * stride] (stride 5: u_gas itself;
+// 1: a density array, amrex_state = 1, docs/rank0_streaming.md)
 void calc_power_spectrum(PMState& s, const float* u_gas, double box,
-                         std::vector<double>& pk_dm, std::vector<double>& pk_gas);
+                         std::vector<double>& pk_dm, std::vector<double>& pk_gas, int stride = 5);
 void write_power_spectrum(const std::string& path, const PMState& s,
                           const std::vector<double>& pk_dm,
                           const std::vector<double>& pk_gas);
@@ -237,6 +239,11 @@ DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out);
 // energy of that temperature instead of the minimum (Tgas_min).
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
                           std::vector<float>& w_gas, const Units& u, double T_init_K = -1);
+// Its per-cell part, shared with the streamed reader of amrex_state = 1
+// (docs/rank0_streaming.md): the thermal energy per unit density added to
+// u(5) (ics_tinit), and one cell's u(5) and w (ics_gas_cell).
+double ics_tinit(const Units& u, double T_init_K);
+void ics_gas_cell(float* ug, float* wg, double Tinit);
 
 // cosmo_tools.f90: ztag (the redshift file tag set in calc_sim_var).
 std::string ztag(double z);

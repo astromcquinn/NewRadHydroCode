@@ -47,10 +47,22 @@ using StreamFn = std::function<void(const StreamSlab&)>;
 // fn(slab) on rank 0 only. Collective. Rank 0's transient is one slab
 // (gs::kSlabPlanes planes). Makes the level if it does not exist yet.
 void amrex_state_stream_rt(Simulation& s, int c0, int ncomp, const StreamFn& fn);
+// The same for any list of components, streamed in the order listed
+void amrex_state_stream_rt(Simulation& s, const std::vector<int>& comps, const StreamFn& fn);
 // The same for the gas state's components (gas_state.hpp: u(5) at 0, e at
 // 5, w(4) at 6)
 void amrex_state_stream_gas(Simulation& s, int c0, int ncomp, const StreamFn& fn);
 constexpr int kStreamGasU = 0, kStreamGasE = 5, kStreamGasW = 6;
+// The reverse (a restart, the initial conditions): rank 0 fills each slab
+// in k order, fill(slab, data) writing slab.ncell() * slab.ncomp floats in
+// the StreamSlab layout, and the values are copied onto the level's
+// components. Collective; fill runs on rank 0 only. Rank 0's transient is
+// one slab.
+using FillFn = std::function<void(const StreamSlab& slab, float* data)>;
+void amrex_state_fill_gas(Simulation& s, int c0, int ncomp, const FillFn& fill);
+// The RT cells' components comps (rrk::CellData floats); the level is made
+// if it does not exist yet
+void amrex_state_fill_rt(Simulation& s, const std::vector<int>& comps, const FillFn& fill);
 
 struct Simulation;
 namespace pm {
@@ -100,6 +112,8 @@ void amrex_state_gather_rt_movie(Simulation& s);
 // substep-averaged Gamma_HI of every cell (gamma_avg_field, rt.hpp) into
 // rank 0's out, N^3 floats; out is empty on the other ranks (collective)
 void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out);
+// The same streamed onto rank 0 slab by slab (one component; collective)
+void amrex_gamma_avg_stream(Simulation& s, const StreamFn& fn);
 void amrex_state_scatter_rt(Simulation& s);
 // fields_levels = 1 (radhydro): one plane of the RT cells at the finest
 // resolution, normal to axis (0, 1, 2 = x, y, z) through base cell

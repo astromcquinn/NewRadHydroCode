@@ -114,6 +114,40 @@ void stream_slabs(const FFab& src, int N, int scomp, int ncomp, std::vector<floa
   });
 }
 
+// The reverse of stream_slabs: rank 0 fills each slab in the StreamSlab
+// layout (fill(slab, data)) and it is copied onto dst's components scomp ..
+// scomp + ncomp - 1. Collective.
+template <class F>
+void fill_slabs(FFab& dst, int N, int scomp, int ncomp, std::vector<float>& buf, F fill) {
+  const ax::DistributionMapping dm0(ax::Vector<int>{0});
+  for (int k0 = 0; k0 < N; k0 += kSlabPlanes) {
+    const int nk = std::min(kSlabPlanes, N - k0);
+    const ax::Box slab(ax::IntVect(0, 0, k0), ax::IntVect(N - 1, N - 1, k0 + nk - 1));
+    FFab s0(ax::BoxArray(slab), dm0, ncomp, 0);
+    if (ax::ParallelDescriptor::IOProcessor()) {
+      StreamSlab sl;
+      sl.k0 = k0;
+      sl.nk = nk;
+      sl.N = N;
+      sl.ncomp = ncomp;
+      const std::int64_t N2 = static_cast<std::int64_t>(N) * N;
+      buf.assign(static_cast<std::size_t>(sl.ncell() * ncomp), 0.0f);
+      fill(static_cast<const StreamSlab&>(sl), buf.data());
+      sl.data = buf.data();
+      auto a = s0.array(0);
+      const float* b = buf.data();
+#pragma omp parallel for schedule(static) collapse(2)
+      for (int k = k0; k < k0 + nk; ++k)
+        for (int j = 0; j < N; ++j)
+          for (int i = 0; i < N; ++i) {
+            const std::int64_t c = i + static_cast<std::int64_t>(N) * j + N2 * (k - k0);
+            for (int m = 0; m < ncomp; ++m) a(i, j, k, m) = b[c * ncomp + m];
+          }
+    }
+    dst.ParallelCopy(s0, 0, scomp, ncomp);
+  }
+}
+
 // The reverse: rank 0 fills each slab (fill(k0, nk, a) with a =
 // Array4<float>) and it is copied onto the level. Collective.
 template <class F>

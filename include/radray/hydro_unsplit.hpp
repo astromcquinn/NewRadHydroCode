@@ -41,6 +41,9 @@ std::string hydro_scheme_summary(const Config& cfg);
 // conditions, or a restart from a legacy checkpoint). Call after the ICs or
 // a checkpoint are read and calc_sim_var has run.
 void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroState& hs);
+// Its per-cell e = max(E - KE, rho Tmin) of the cell u(5), shared with the
+// streamed initial conditions of amrex_state = 1 (docs/rank0_streaming.md)
+float unsplit_init_e(const float* u, const Units& un);
 
 // Advances the gas by dt (code time) with the unsplit kernel, sub-cycled
 // on dt_cfl = unsplit_cfl / max_cells(sum_d |v_d| + 3 c) (dx = 1 cell).

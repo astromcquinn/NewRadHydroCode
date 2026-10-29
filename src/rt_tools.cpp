@@ -238,8 +238,8 @@ void RTGrid::allocate_none(int n) {
 
 // rt_tools.f90: init_rt
 void init_rt(Simulation& s) {
-  if (use_amrex_state(s.cfg) && !io_rank())
-    s.rt.allocate_none(s.cfg.Nrt);  // the mirror is rank 0's (amrex_state.hpp)
+  if (use_amrex_state(s.cfg))
+    s.rt.allocate_none(s.cfg.Nrt);  // the grid lives on the levels; no rank keeps a copy (docs/rank0_streaming.md)
   else
     s.rt.allocate(s.cfg.Nrt);
   s.rt_save = RTStat{};

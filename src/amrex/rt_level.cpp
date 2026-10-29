@@ -1750,9 +1750,14 @@ struct Level : LevelBase {
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
   // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)
-  void stream(int c0, int nc, const StreamFn& fn) override {
+  void stream(const std::vector<int>& comps, const StreamFn& fn) override {
     const double t0 = now();
-    stream_cells(C, ba, dm, N, c0, nc, fn);
+    stream_cells(C, ba, dm, N, comps, fn);
+    T.sync += now() - t0;
+  }
+  void fill(const std::vector<int>& comps, const FillFn& fn) override {
+    const double t0 = now();
+    fill_cells(C, ba, dm, N, comps, fn);
     T.sync += now() - t0;
   }
 
@@ -2495,7 +2500,8 @@ struct Hierarchy : LevelBase {
   }
   void sync_fields(Simulation& s) override { base().sync_fields(s); }
   void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
-  void stream(int c0, int nc, const StreamFn& fn) override { base().stream(c0, nc, fn); }
+  void stream(const std::vector<int>& comps, const StreamFn& fn) override { base().stream(comps, fn); }
+  void fill(const std::vector<int>& comps, const FillFn& fn) override { base().fill(comps, fn); }
   void scatter_fields(Simulation& s) override { base().scatter_fields(s); }
   // the live rays per base box: the base level's, plus every refined
   // level's per fine box mapped to the base box holding its lower corner
@@ -2668,13 +2674,27 @@ void backend_bcast_bytes(void* p, std::size_t n) {
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
 void amrex_state_gather_rt_movie(Simulation& s) { level_of(s).gather_movie(s); }
-void amrex_state_stream_rt(Simulation& s, int c0, int ncomp, const StreamFn& fn) { level_of(s).stream(c0, ncomp, fn); }
-void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out) {
+void amrex_state_stream_rt(Simulation& s, int c0, int ncomp, const StreamFn& fn) {
+  std::vector<int> comps(static_cast<std::size_t>(std::max(ncomp, 0)));
+  for (int m = 0; m < ncomp; ++m) comps[static_cast<std::size_t>(m)] = c0 + m;
+  level_of(s).stream(comps, fn);
+}
+void amrex_state_stream_rt(Simulation& s, const std::vector<int>& comps, const StreamFn& fn) {
+  level_of(s).stream(comps, fn);
+}
+void amrex_state_fill_rt(Simulation& s, const std::vector<int>& comps, const FillFn& fn) { level_of(s).fill(comps, fn); }
+void amrex_gamma_avg_stream(Simulation& s, const StreamFn& fn) {
   if (!s.amrex) {  // no RT step yet: zeros, as the serial code
-    out.assign(io_rank() ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
+    stream_zeros(s.cfg.Nrt, fn);
     return;
   }
-  s.amrex->level->gamma_avg_gather(s, out);
+  s.amrex->level->gamma_avg_stream(s, fn);
+}
+void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out) {
+  out.assign(io_rank() ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
+  amrex_gamma_avg_stream(s, [&](const StreamSlab& sl) {
+    std::copy(sl.data, sl.data + sl.ncell(), out.begin() + sl.c0());
+  });
 }
 void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
                           int& plane) {
