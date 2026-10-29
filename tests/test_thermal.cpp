@@ -2,9 +2,12 @@
 // RECFAST table and its interpolation, the residual-electron Compton step
 // against the exact relaxation (with and without the dual-energy field, an
 // ionised cell untouched), and calc_sim_var's floors (bit-identical by
-// default, the recfast floors otherwise).
+// default, the recfast floors otherwise), and recfast_table = FILE (the
+// table of another cosmology; last, since it replaces the compiled table).
 #include <cmath>
 #include <cstdio>
+#include <fstream>
+#include <stdexcept>
 
 #include "check.hpp"
 #include "radray/config.hpp"
@@ -107,6 +110,47 @@ int main() {
     const float u4 = g.u[4];
     CHECK(compton_residual_step(u, a, dt, C14, g) == 0);
     CHECK(g.u[4] == u4);
+  }
+
+  // --- recfast_table = FILE (make_recfast_table.py --out) ---
+  {
+    Cosmology planck;
+    planck.omegam = static_cast<float>(0.305);  // params.txt values are rounded to real(4)
+    planck.omegab = static_cast<float>(0.048);
+    planck.hubble0 = static_cast<float>(0.68);
+    planck.derive();
+    const Cosmology orig;
+    CHECK(recfast_table_matches(orig) && !recfast_table_matches(planck));
+    const char* path = "test_thermal_recfast.txt";
+    auto write = [&](bool with_cosmo) {
+      std::ofstream f(path);
+      f << "# a test table\n";
+      if (with_cosmo) f << "# cosmology omegam=0.305 omegab=0.048 hubble0=0.68\n";
+      f << "# z  x_e  T_gas[K]  T_cmb[K]\n  200.00 2.0e-04 4.0e+02 5.4e+02\n  100.00 1.0e-04 1.0e+02 2.7e+02\n"
+           " 2000.00 1.0e+00 5.0e+03 5.4e+03\n";
+    };
+    auto throws = [&](const Cosmology& c) {
+      try {
+        load_recfast_table(path, c);
+      } catch (const std::runtime_error&) {
+        return true;
+      }
+      return false;
+    };
+    write(false);
+    CHECK(throws(planck));  // no cosmology line
+    write(true);
+    CHECK(throws(orig));  // another cosmology than the run's
+    CHECK(recfast_table_matches(orig));  // the compiled table still in use
+    CHECK(!throws(planck));
+    CHECK(recfast_table_matches(planck) && !recfast_table_matches(orig));
+    CHECK(recfast_T(100.0) == 1e2 && recfast_xe(200.0) == 2e-4);  // the rows, sorted
+    // log-linear in ln(1+z) between the rows
+    const double w = (std::log1p(150.0) - std::log1p(100.0)) / (std::log1p(200.0) - std::log1p(100.0));
+    CHECK_CLOSE(recfast_T(150.0), std::exp(std::log(1e2) * (1 - w) + std::log(4e2) * w), 1e-14);
+    CHECK(recfast_T(50.0) == 1e2);  // below the table: the lowest row
+    CHECK(recfast_T(3000.0) == Tcmb0 * 3001);  // above it: T_CMB
+    std::remove(path);
   }
 
   TEST_MAIN_END();

@@ -137,6 +137,7 @@ and a lower thermal floor.
 | `thermal_init` | `floor` | `floor`: the original. `recfast`: RECFAST start + residual-electron Compton coupling |
 | `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K |
 | `dual_e_self` | 0 (`floor`), 1 (`recfast`) | the unsplit hydro's internal energy evolved as itself (`docs/hydro_unsplit.md` §7, U7; user decision 2026-10-27) |
+| `recfast_table` | unset (the compiled table) | the RECFAST table of a non-original cosmology, `tools/thermal/make_recfast_table.py --out FILE --omegam .. --omegab .. --hubble0 ..` (2026-10-29) |
 
 **What `recfast` does:**
 
@@ -166,8 +167,13 @@ and a lower thermal floor.
 **The table.** x_e(z) and T(z) are compiled in (`src/recfast_table.inc`,
 from `tools/thermal/make_recfast_table.py`: CAMB + RECFAST, no
 reionization, z = 0–2000, the cosmology of `cosmo_parameters.f90`). A run
-needs no data file, but the table must be regenerated if the cosmology
-becomes a runtime parameter (`docs/zoom_turbulence.md` §4.1).
+needs no data file. **Another cosmology** (the runtime cosmology,
+`docs/production_run.md` §10) needs its own table: `make_recfast_table.py
+--out FILE --omegam .. --omegab .. --hubble0 ..` writes it (Tcmb, YHe and
+N_eff stay the code's) with a `# cosmology omegam=.. omegab=.. hubble0=..`
+line, and `recfast_table = FILE` reads it. `radhydro` refuses
+`thermal_init = recfast` when the table's cosmology is not the run's (to
+1e-6 after real(4) rounding).
 
 **Not supported:** `amrex_state = 1` (the gas lives on the levels between
 steps) and refined hydro levels (`hydro_backend = amrex`, `amrex_max_level
@@ -257,7 +263,10 @@ decision 2026-10-27; an explicit `dual_e_self = 0` gives the earlier
   * `coef_cool(14)` = 4 a σ_T k/(m_e c);
   * the Compton step against the exact relaxation (to 10⁻⁴, with and
     without the dual-energy field);
-  * an ionised cell untouched.
+  * an ionised cell untouched;
+  * `recfast_table`: a file without its cosmology line or for another
+    cosmology refused, the rows sorted and interpolated as the compiled
+    table, the compiled table in use until a file is loaded.
 * **`thermal_init_recfast`** (`tests/thermal_check.py`, the 32³ onthefly
   problem without RT):
   * 1 against 2 threads byte-identical;
@@ -265,3 +274,28 @@ decision 2026-10-27; an explicit `dual_e_self = 0` gives the earlier
   * mean-density gas within 1% of RECFAST (0.3% measured) and the original
     within 2% of the floor curve, at z ≥ 30.
 * **`restart_smoke_thermal`**: a restart at step 13 is byte-identical.
+
+## 6. Linear growth from MUSIC ICs (2026-10-29)
+
+The check asked for with the MUSIC ICs (user, 2026-10-28: "Have we tested
+linear growth for DM and gas with MUSIC ICs?"; set up after the runtime
+cosmology, PR #8, reached `main`). `tools/hyak/linear_growth.slurm` makes and
+runs it, `tools/analysis/linear_growth.py` compares:
+
+* **Problem:** 0.25 Mpc/h, 128³ gas and dark matter, the C26 cosmology
+  (Ωm 0.305, Ωb 0.048, h 0.68, σ8 0.82, ns 0.9667: the `planck_c26` preset),
+  MUSIC from z = 300 with CAMB's separate CDM and baryon transfer functions
+  at z = 300 (`c2_uniform.conf` at level 7, seed[10] = 2026 as the C1
+  ladder), 1LPT; the production settings of `make_production.py
+  --plane-parallel` (unsplit hydro, `legacy_physics = 0`) with the RT after
+  the run (`plane_z_re = 6`); `thermal_init = recfast` with this
+  cosmology's table; outputs at z = 100, 50, 30.
+* **Measured:** P_cdm(k) and P_b(k) of the ICs and the outputs with one
+  estimator (DM CIC deconvolved, gas cells), against CAMB's linear P_cdm and
+  P_b at the same z (the run's cosmology, σ8 normalised at z = 0). G_c and
+  G_b, the growth since z = 300 over CAMB's, use the same modes, so the
+  box's cosmic variance cancels; R_bc = (P_b/P_c)_sim/(P_b/P_c)_CAMB tests
+  the baryons' catch-up and their pressure suppression, independently of
+  the ICs' normalisation. Linear theory holds where CAMB's Δ²_cdm ≪ 1.
+* **Results:** pending.
+

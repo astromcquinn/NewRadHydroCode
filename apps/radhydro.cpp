@@ -132,6 +132,9 @@ struct RunParams {
   // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
   int thermal_init = 0;
   double thermal_floor = -1;
+  // recfast_table = FILE: the RECFAST table of a non-original cosmology
+  // (tools/thermal/make_recfast_table.py --out FILE; thermal_history.hpp)
+  std::string recfast_table;
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -253,6 +256,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
       P.thermal_init = 1;
     else
       throw std::runtime_error("thermal_init must be floor or recfast");
+  } else if (key == "recfast_table") {
+    P.recfast_table = val;
   } else if (key == "thermal_floor") {
     P.thermal_floor = to_double(val);
     if (!(P.thermal_floor > 0)) throw std::runtime_error("thermal_floor must be > 0 (K)");
@@ -753,12 +758,14 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "thermal_init = recfast is implemented for the host gas grid only (amrex_state = 0, no refined "
           "hydro levels)");
-    // The RECFAST table (recfast_table.inc) was computed for the original
-    // cosmology; another cosmology needs its own table
-    if (cfg.thermal_init == 1 && !cfg.cosmo.is_original())
+    // The compiled RECFAST table (recfast_table.inc) is for the original
+    // cosmology; another cosmology reads its own (recfast_table = FILE)
+    if (cfg.thermal_init == 1 && !P.recfast_table.empty()) load_recfast_table(P.recfast_table, cfg.cosmo);
+    if (cfg.thermal_init == 1 && !recfast_table_matches(cfg.cosmo))
       throw std::runtime_error(
-          "thermal_init = recfast: the RECFAST table is for the original cosmology (omegam 0.27, omegab "
-          "0.045, hubble0 0.70), not " + cfg.cosmo.summary());
+          "thermal_init = recfast: the compiled RECFAST table is for the original cosmology (omegam 0.27, "
+          "omegab 0.045, hubble0 0.70), not " + cfg.cosmo.summary() +
+          "; give recfast_table = FILE (tools/thermal/make_recfast_table.py --out FILE --omegam ..)");
     std::unique_ptr<XrayBackground> xbg;
     std::ofstream xraylog;
     if (P.xray.on) {
