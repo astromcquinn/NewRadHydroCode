@@ -1760,3 +1760,16 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
   explicit key wins. Without `recfast` the code default stays 0, so
   every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).
+
+## Rank 0 without the full grid copy (2026-10-29, branch `rank0-no-mirror`)
+
+User decisions (2026-10-29):
+
+- Remove rank 0's full copy of the grid under `amrex_state = 1`
+  (`docs/rank0_streaming.md`). At 1024³ it was about 270 GB of the
+  458 GB peak of rank 0, and at 2048³ it would be about 2 TB.
+- Leave the halo finder on rank 0's particle copy for now. A distributed
+  friends-of-friends is a separate, later project. Runs that need no halo
+  sources, such as the plane-parallel mode, can turn the halo finder off.
+- Recommendation adopted: do the grid part first, then the power spectrum
+  on the level, which frees the host PM mesh arrays on rank 0.
