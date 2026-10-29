@@ -1749,6 +1749,15 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   `docs/port_notes.md`); the plane-parallel problems and
   `make_production.py --plane-parallel` set 1 so dense gas self-shields;
   the code default stays 0, the original.
+* **The default floor of the plane-parallel problems (user decision,
+  2026-10-29):** no preheating floor by default (`T_min = 0`), and the
+  original's 1 K floor lowered to 0.1 K in the plane-parallel problems
+  (`make_production.py --plane-parallel` writes `thermal_floor = 0.1`):
+  the mean-density adiabat crosses 1 K at z ≈ 8, so in the C26 boxes the
+  unheated gas ahead of the fronts sat on the clamp. With `legacy_physics
+  = 0` a `thermal_floor` below 1 K now also lowers the 1 K clamp of the
+  RT physics floor (`docs/thermal_history.md` §4); the code default and
+  every legacy combination stay byte-identical.
 * **The pre-heating floor (user decision, 2026-10-29):** the C26 / DM20
   stand-in for X-ray heating is a temperature floor with a plain switch-on
   at z = 15, no ramp. The keys are PR #8's `T_min` (K, default off) and

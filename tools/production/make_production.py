@@ -150,6 +150,11 @@ def main():
                     help="hydro_scheme (docs/hydro_unsplit.md): unsplit for production (it fixes "
                          "the cold-gas overheating of the legacy scheme; user decision "
                          "2026-10-11); legacy: the original, the code default")
+    ap.add_argument("--thermal-floor", type=float, default=None,
+                    help="thermal_floor in K (docs/thermal_history.md section 4): the hydro floor and, "
+                         "with legacy_physics = 0, the clamp of the RT physics floor below 1 K; "
+                         "unset: the code default (1 K), or 0.1 K with --plane-parallel (user "
+                         "decision 2026-10-29)")
     ap.add_argument("--dual-e-self", type=int, default=1, choices=(0, 1),
                     help="dual_e_self with the unsplit hydro (docs/hydro_unsplit.md section 7, "
                          "U7): 1 for production (rho e evolved as itself where the pressure comes "
@@ -244,6 +249,8 @@ def main():
             a.cool_suppress_overdensity = 0.0  # cooling on everywhere (user decision 2026-10-26)
         if a.am_params:
             sys.exit("--plane-parallel uses no halo sources: drop --am-params")
+        if a.thermal_floor is None:
+            a.thermal_floor = 0.1  # the unheated gas ahead of the fronts is below 1 K at z < 8 (user decision 2026-10-29)
         a.zdata1 = a.zdata1  # the outputs; the RT starts at --plane-z-re, not at the first zdata1
     # the speed of light: the default schedule, unless a constant --c-reduced
     # is given alone (then that constant)
@@ -371,6 +378,10 @@ def main():
             lines.append(f"sf_efficiency = {a.sf_efficiency:g}")
     if a.rt_cells_per_substep != 1:
         lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
+    if a.thermal_floor is not None:
+        lines += ["# the temperature floor (docs/thermal_history.md section 4): the hydro floor and,",
+                  "# with legacy_physics = 0, the clamp of the RT physics floor below 1 K",
+                  f"thermal_floor = {a.thermal_floor:g}"]
     if a.plane_parallel:
         lines += ["# Plane-parallel RT-domain mode (docs/plane_parallel.md): the domain faces are the",
                   "# only sources from plane_z_re; the halo finder and the sources are not used",
