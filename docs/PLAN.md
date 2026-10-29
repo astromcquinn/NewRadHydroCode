@@ -1742,7 +1742,7 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   cases?"):** `plane_turnon_cfl` (default 1 in plane mode, 0 = the step
   before 2026-10-28) and `plane_turnon_temp` (default 2e4 K). The hydro
   step runs before the RT of the same interval, so the step that starts
-  at z_re is sized by the cold gas (44 Myr at 64³ in the T4 problem) and
+  at z_re is sized by the cold gas (25 Myr at 64³ in the T4 problem) and
   the photoheated gas waits that long for its first hydro response. That
   one step is now at most the CFL step 2 dt_gas_factor / (cmax_gas +
   c_hot), c_hot the sound speed of fully ionised gas at 2e4 K; the steps
