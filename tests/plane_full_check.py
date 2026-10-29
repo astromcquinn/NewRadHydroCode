@@ -24,8 +24,9 @@ then 0.01 c). Checks:
     at most 50 substeps; both capped runs end within 2 per cent of the
     uncapped x_HII,V and T_M (the same photons, redistributed in time);
   * plane_turnon_cfl (the default 1): the step that starts at z_re is at
-    most the CFL step with the sound speed of fully ionised gas at
-    plane_turnon_temp added, dt_sim (cmax_gas + c_hot) = 1 in code units,
+    most plane_turnon_courant times the CFL step with the sound speed of
+    fully ionised gas at plane_turnon_temp added, dt_sim (cmax_gas +
+    c_hot) = plane_turnon_courant in code units,
     c_hot = sqrt(gamma k T (2X + 3Y/4) / m_H) converted here from first
     principles (vel_unit = x_unit / time_unit), i.e. dt_yr <=
     dx_phys / (v_max + c_hot) at z_re up to the growth of time_unit ~ a^2
@@ -33,8 +34,9 @@ then 0.01 c). Checks:
     and with plane_turnon_cfl = 0 the turn-on step is the old one. In the
     default problem (uniform, cold, 16^3 at z = 9) the cap does not bind
     (one cell crossing at c_hot(2e4 K) = 100 Myr, the ra_max step 97 Myr),
-    so the check runs with plane_turnon_temp = 1e5 (45 Myr) to z = 8.5,
-    against the same run with plane_turnon_cfl = 0;
+    so the check runs with plane_turnon_temp = 4e4 and plane_turnon_courant
+    = 0.5 (36 Myr) to z = 8.5, against the same run with plane_turnon_cfl
+    = 0;
   * --amrex: the backend run (rt_backend = hydro_backend = pm_backend =
     amrex, amrex_state = 1) agrees with the serial run to round-off:
     x_HII,V and T_M to 1e-4 and fHI cell by cell to 1e-3 at the last step.
@@ -179,13 +181,17 @@ def vel_unit_kms(a, box, N):
     return x_unit / time_unit / 1e5
 
 
+T_HOT, COURANT = 4e4, 0.5
+TURNON_SETS = [f"plane_turnon_temp={T_HOT:g}", f"plane_turnon_courant={COURANT:g}"]
+
+
 def turnon_checks(a, prob, base, st, N, box, z_re):
-    """plane_turnon_cfl: the turn-on step at plane_turnon_temp = 1e5 K (binds
-    here) against the same run with plane_turnon_cfl = 0 and the default run."""
-    T_hot = 1e5
+    """plane_turnon_cfl: the turn-on step at plane_turnon_temp = 4e4 K and
+    plane_turnon_courant = 0.5 (binds here) against the same run with
+    plane_turnon_cfl = 0 and the default run."""
     stop = ["zdata1=15 12 10 9 8.5"]
-    hot = steps(run(a.exe, prob, os.path.join(a.work, "turnon_hot"), a.set + stop + [f"plane_turnon_temp={T_hot:g}"]))
-    off = steps(run(a.exe, prob, os.path.join(a.work, "turnon_off"), a.set + stop + [f"plane_turnon_temp={T_hot:g}", "plane_turnon_cfl=0"]))
+    hot = steps(run(a.exe, prob, os.path.join(a.work, "turnon_hot"), a.set + stop + TURNON_SETS))
+    off = steps(run(a.exe, prob, os.path.join(a.work, "turnon_off"), a.set + stop + TURNON_SETS + ["plane_turnon_cfl=0"]))
     land = lambda ss: [i for i, s in enumerate(ss) if abs(s["redshift"][0] - z_re) < 1e-9]
     lh, lo, lb = land(hot), land(off), land(st)
     check(len(lh) == 1 and len(lo) == 1 and len(lb) == 1 and lh == lo == lb, f"the same landing step on z_re ({lh}, {lo}, {lb})")
@@ -198,18 +204,18 @@ def turnon_checks(a, prob, base, st, N, box, z_re):
     # value at the end of the landing step, the one the turn-on step uses)
     a_re = 1 / (1 + z_re)
     vu = vel_unit_kms(a_re, box, N)
-    ch = c_hot_kms(T_hot) / vu
+    ch = c_hot_kms(T_HOT) / vu
     cmax = hot[il]["cmax_gas"][0]
     s1, s0 = hot[il + 1], off[il + 1]
     r = s1["dt_sim"][0] * (cmax + ch)
-    check(abs(r - 1) < 1e-4, f"turn-on step: dt_sim (cmax_gas + c_hot) = {r:.7f} (1 to 1e-4; c_hot = {c_hot_kms(T_hot):.2f} km/s = {ch:.4f} code units)")
+    check(abs(r / COURANT - 1) < 1e-4, f"turn-on step: dt_sim (cmax_gas + c_hot) = {r:.7f} = plane_turnon_courant {COURANT} to 1e-4 (c_hot = {c_hot_kms(T_HOT):.2f} km/s = {ch:.4f} code units)")
     # the same in physical units: dt <= dx_phys / (v_max + c_hot) at z_re, up to the growth of
     # time_unit ~ a^2 over the step (the code velocities are held fixed through the step)
     dx_km = a_re * box / H0 / N * MPC2CM / 1e5
     vmax = hot[il]["vmax_gas"][0] * vu
-    bound = dx_km / (vmax + c_hot_kms(T_hot)) / YR2SEC
+    bound = COURANT * dx_km / (vmax + c_hot_kms(T_HOT)) / YR2SEC
     grow = ((a_re + s1["da_sim"][0]) / a_re) ** 2
-    check(s1["dt_yr"][0] <= bound * grow, f"turn-on step dt = {s1['dt_yr'][0] / 1e6:.3f} Myr <= dx/(v_max + c_hot) = {bound / 1e6:.3f} Myr (x {grow:.4f}, the expansion over the step)")
+    check(s1["dt_yr"][0] <= bound * grow, f"turn-on step dt = {s1['dt_yr'][0] / 1e6:.3f} Myr <= {COURANT} dx/(v_max + c_hot) = {bound / 1e6:.3f} Myr (x {grow:.4f}, the expansion over the step)")
     check(s0["dt_yr"][0] == st[il + 1]["dt_yr"][0] and s0["dt_yr"][0] > 1.5 * s1["dt_yr"][0],
           f"plane_turnon_cfl = 0: the old turn-on step ({s0['dt_yr'][0] / 1e6:.2f} Myr, the default run's: "
           f"{st[il + 1]['dt_yr'][0] / 1e6:.2f} Myr) against {s1['dt_yr'][0] / 1e6:.2f} Myr")
@@ -332,10 +338,15 @@ def main():
             ah = steps(run(a.amrex, prob, os.path.join(a.work, "amrex_turnon_hot"), a.set + [
                 "rt_backend=amrex", "hydro_backend=amrex", "pm_backend=amrex", "amrex_state=1",
                 "amrex_max_grid_size=8", "amrex_hydro_max_grid_size=0", "deterministic_parallel=0",
-                "zdata1=15 12 10 9 8.5", "plane_turnon_temp=1e5"], launch))
+                "zdata1=15 12 10 9 8.5"] + TURNON_SETS, launch))
+            # the steps to the turn-on step included bit for bit; the later CFL steps
+            # follow the hot gas's cmax_gas, which carries the backend's round-off
             m = min(len(ah), len(hot))
-            ddt = max(abs(ah[i]["dt_yr"][0] / hot[i]["dt_yr"][0] - 1) for i in range(1, m))
-            check(len(ah) == len(hot) and ddt < 1e-9, f"the turn-on step on the backend: the serial steps to {ddt:.1e} ({len(ah)} vs {len(hot)} steps)")
+            lt = [i for i, s in enumerate(hot) if abs(s["redshift"][0] - z_re) < 1e-9][0] + 1
+            same = m > lt and all(ah[i]["dt_yr"][0] == hot[i]["dt_yr"][0] for i in range(lt + 1))
+            ddt = max(abs(ah[i]["dt_yr"][0] / hot[i]["dt_yr"][0] - 1) for i in range(lt + 1, m)) if m > lt + 1 else 0.0
+            check(len(ah) == len(hot) and same and ddt < 1e-6,
+                  f"the turn-on step on the backend: the serial steps bit for bit to the turn-on step, the later ones to {ddt:.1e} ({len(ah)} vs {len(hot)} steps)")
 
     if FAILS:
         print(f"\n{len(FAILS)} check(s) failed")

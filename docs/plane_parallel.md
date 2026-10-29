@@ -161,7 +161,7 @@ face (`plane_faces = +x`).
 | `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 |
 | `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
 | `land_outputs` | 0 | 1: the hydro step before a `zdata1` output ends exactly on it (so runs with different step caps are compared at the same times); the plane-parallel problems use 1 |
-| `plane_turnon_cfl`, `plane_turnon_temp` | 1, 2e4 | the step that starts at `plane_z_re` is at most the CFL step with the sound speed of ionised gas at `plane_turnon_temp` (K) added (below; 2026-10-28); 0 = the uncapped turn-on step of before |
+| `plane_turnon_cfl`, `plane_turnon_temp`, `plane_turnon_courant` | 1, 2e4, 1 | the step that starts at `plane_z_re` is at most `plane_turnon_courant` × the CFL step with the sound speed of ionised gas at `plane_turnon_temp` (K) added (below; 2026-10-28; the T4 test needs a Courant fraction ≈ 0.05 to remove the turn-on lag); `plane_turnon_cfl = 0` = the uncapped turn-on step of before |
 
 `tools/production/make_production.py --plane-parallel` writes a production
 `params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
@@ -258,16 +258,17 @@ holds the hot gas, so only this step needs care. With `plane_turnon_cfl =
 1` (the default) the step that starts at the turn-on (a = a_re to 1e-9,
 the first step with the RT on) is at most
 
-  dt = 2 dt_gas_factor / (cmax_gas + c_hot),  c_hot² = γ k T_hot / (μ m_H),
+  dt = C_on 2 dt_gas_factor / (cmax_gas + c_hot),  c_hot² = γ k T_hot / (μ m_H),
 
-T_hot = `plane_turnon_temp` (2e4 K), μ = 1/(2X + 3Y/4) = 0.588 (H II and
+C_on = `plane_turnon_courant` (default 1), T_hot = `plane_turnon_temp`
+(2e4 K), μ = 1/(2X + 3Y/4) = 0.588 (H II and
 He III; the code's γ = 5/3, X = 0.76, Y = 0.24, k_cgs, mH_cgs of
 `constants.hpp`), i.e. the hydro's own c_s² = γ(γ − 1) e/ρ of fully
 ionised gas at T = `temp3_unit` e/ρ: 21.6 km/s at 2e4 K. c_hot enters in
 code units through `vel_unit` = x_unit / time_unit, the conversion
 `calc_timestep` applies to vmax_gas (checked in `plane_full`: dt_sim
-(cmax_gas + c_hot) = 1 to 1e-7 with c_hot converted independently in the
-test). It shortens da like the other caps and comes after them, so where
+(cmax_gas + c_hot) = C_on to 1e-7 with c_hot converted independently in
+the test). It shortens da like the other caps and comes after them, so where
 it does not bind (`dt_max_myr` ≤ the CFL step, or a box where `ra_max`
 is shorter) nothing changes bit for bit. As every CFL step of the code it
 holds the code velocities fixed through the step: in physical time dt
@@ -289,9 +290,9 @@ step that starts at a_re is the turn-on step). `make_production.py
 | test | what |
 |---|---|
 | `plane_rt` (`tests/plane_check.py`, RT-only driver, uniform gas built per check) | Γ_HI normalisation to 5e-8 in the source cells and to the attenuation elsewhere, for 1, 2 and 4 cells per substep; the bins and the optical depths; slab attenuation per bin = Π(1 − τ_j) to 4e-4 and e^−τ to 2 %; one front across the whole box against the photon budget (thin gas: 0.5 %; 100× the mean density with recombinations: the column = (photons − the code's recombinations)/n_H and α_eff against case B); the light-limited front at ĉ; photon conservation (3e-5); 2³ domains ionising identically (1e-6) with no ray crossing a domain edge; 1 vs 2 threads byte-identical |
-| `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 1e5`, as 2e4 K does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 1, dt ≤ Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 47.5 Myr) |
+| `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 4e4`, `plane_turnon_courant = 0.5`, as the default does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 0.5, dt ≤ 0.5 Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 37.1 Myr) |
 | `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
-| `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step of the serial run to 1e-9 (identical) |
+| `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step: the steps to it bit for bit those of the serial run (the later CFL steps to 4e-8) |
 
 The bitwise suite is untouched: every new flag defaults to the original.
 
@@ -314,6 +315,14 @@ The bitwise suite is untouched: every new flag defaults to the original.
   (44 Myr) lags by factors 2–4 in E(k) for 200 Myr. The ionisation
   profiles do not depend on the coupling. Figure
   `docs/figures/plane_t4_N64.png`, table `docs/data/plane/t4_N64.txt`.
+* **The turn-on step** (2026-10-28; `docs/STATUS.md`, "Done 2026-10-28",
+  the table; `docs/figures/plane_t4_turnon_N64.png`,
+  `docs/data/plane/t4_turnon_N64.txt`): the default CFL step with c_hot
+  (20.2 Myr at 64³) leaves the lag of the uncapped step (E(k) off by
+  1–2 at 25–100 Myr); a turn-on step of ~1 Myr (`plane_turnon_courant =
+  0.05`) brings E(k) to 9–20 % of the 0.1-Myr coupling and ⟨v²⟩ at 25 Myr
+  from 9 to 26 (km/s)² (reference 27.1); the lag is set by the first
+  step alone.
 * **C1 at 64³** (local; `docs/figures/plane_c1_N64_ek.png`): the fronts
   cross in the first step, T_M = 17 900 K behind them, E(k) steepens from
   k^−3.6 to k^−5 with no k^−5/3 range, as C26 Fig. 3 (bottom) at Δx ≥ 0.5

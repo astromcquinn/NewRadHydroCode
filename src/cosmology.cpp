@@ -282,8 +282,9 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     // at the turn-on (a = a_re within 1e-9: the step before lands on it; the
     // first step with the RT on) would be sized by the cold gas only and the
     // photoheated gas would sit that long without a hydro response. It is
-    // at most 2 dt_gas_factor / (cmax_gas + c_hot), the CFL step with the
-    // sound speed of fully ionised gas at plane_turnon_temp added:
+    // at most plane_turnon_courant 2 dt_gas_factor / (cmax_gas + c_hot), the
+    // CFL step with the sound speed of fully ionised gas at plane_turnon_temp
+    // added (times a Courant fraction, default 1):
     // c_hot^2 = gamma k T / (mu m_H), mu = 1 / (2 X + 3 Y/4) (H II, He III:
     // the hydro's c_s^2 = gamma (gamma - 1) e / rho of that gas at T =
     // temp3_unit e / rho), in code units by vel_unit = x_unit / time_unit as
@@ -298,7 +299,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
         const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
         t.c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
         double da_hot = 0, dty = 0;
-        calc_da_from_dt(a, da_hot, 2 * dt_gas_factor / (clk.cmax_gas + t.c_hot), dty);
+        calc_da_from_dt(a, da_hot, cfg.plane_turnon_courant * (2 * dt_gas_factor / (clk.cmax_gas + t.c_hot)), dty);
         if (da_hot < da_cap) {
           da_cap = da_hot;
           t.turnon_capped = true;
@@ -367,8 +368,9 @@ TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode,
     char buf[256];
     std::snprintf(buf, sizeof buf,
                   " calc_timestep: plane turn-on step: c_hot = %.4g km/s (plane_turnon_temp = %g K), "
-                  "cmax_gas = %.4g km/s, %s\n",
+                  "cmax_gas = %.4g km/s, plane_turnon_courant = %g, %s\n",
                   t.c_hot * u.vel_unit / 1e5, cfg.plane_turnon_temp, clk.cmax_gas * u.vel_unit / 1e5,
+                  cfg.plane_turnon_courant,
                   t.turnon_capped ? "the step is capped" : "the cap does not bind");
     *out << buf;
   }

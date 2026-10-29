@@ -28,6 +28,11 @@ The variants, the same problem with one params.txt override each:
   sub     rt_substeps_max = 1: the hydro step is one RT substep, the light
           crossing of a cell at c_hat (0.02 Myr at 0.1 c, 0.2 Myr at 0.01 c
           here): coupling every substep, as C26's uniform boxes;
+  turnon1 a diagnostic: plane_turnon_temp = 2e7 K, so that the turn-on step
+          is ~1 Myr at 64^3 (the following steps as turnon): whether a short
+          first step alone removes the lag;
+  turnon0.05  plane_turnon_courant = 0.05: the turn-on step 1/20 of the
+          CFL step with c_hot (~1 Myr at 64^3), the following steps as turnon;
   dt0.1_pert, ..._pert   a variant on the perturbed initial conditions of
           ROOT/prob_pert (`make` writes them: the gas of cell (1,1,1), its
           density, momentum and kinetic energy, times 1 + 1e-6, float32): the
@@ -55,6 +60,8 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 VARIANTS = {
     "base": ["plane_turnon_cfl=0"],
     "turnon": [],
+    "turnon1": ["plane_turnon_temp=2e7"],
+    "turnon0.05": ["plane_turnon_courant=0.05"],
     "dt100": ["dt_max_myr=100"],
     "dt10": ["dt_max_myr=10"],
     "dt1": ["dt_max_myr=1"],
@@ -179,14 +186,16 @@ def analyse(a):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        import matplotlib.ticker
     except ImportError:
         return
-    # the outputs 25, 100 and 400 Myr after the turn-on (the 2nd, 4th and last)
-    zall = sorted(set(round(r["z"], 2) for r in ek), reverse=True)
+    # the outputs 25, 100 and 400 Myr after the turn-on (the 2nd, 4th and last
+    # of the reference run)
+    zall = sorted(set(round(r["z"], 2) for r in ek if r["label"] == ref), reverse=True)
     zs = [z for i, z in enumerate(zall) if i in (1, 3, len(zall) - 1)]
     fig, axs = plt.subplots(2, len(zs), figsize=(5 * len(zs), 8), squeeze=False)
     styles = {"base": "-", "turnon": "--", "dt100": "--", "dt10": "-.", "dt1": ":", "dt0.1": (0, (5, 1)),
-              "dt0.1_pert": (0, (1, 2)), "sub": "-"}
+              "dt0.1_pert": (0, (1, 2)), "turnon1": (0, (3, 1, 1, 1)), "turnon0.05": (0, (3, 1, 1, 1)), "sub": "-"}
     for j, z in enumerate(zs):
         for v in variants:
             rr = [r for r in ek if r["label"] == v and abs(r["z"] - z) < 0.05]
@@ -197,6 +206,7 @@ def analyse(a):
             if pp:
                 axs[1, j].semilogy(np.maximum(pp[0]["T"], 1), ls=styles.get(v, "-"), lw=2 if v == ref else 1, label=v)
         axs[0, j].set_title(f"z = {z}")
+        axs[0, j].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
         axs[0, j].set_xticks([0.1, 0.3, 1.0][:1 + int(axs[0, j].get_xlim()[1] > 0.3) + int(axs[0, j].get_xlim()[1] > 1.0)])
         axs[0, j].set_xlabel("k [h/kpc]")
         axs[0, j].set_ylabel("E(k) [(km/s)^2 kpc/h]")

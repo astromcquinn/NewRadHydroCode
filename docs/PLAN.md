@@ -1753,3 +1753,7 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   so that it changes nothing when it does not bind; a function of a only
   (a = a_re to 1e-9), so a restart at z_re repeats it bit for bit.
   `make_production.py --plane-parallel` needs nothing (the default is on).
+  Added in this thread: `plane_turnon_courant` (default 1), because the
+  T4 runs at 64³ show the requested CFL step with c_hot (20 Myr) does not
+  remove the lag while a ~1 Myr turn-on step (0.05) does. **For the user
+  to decide:** its default (`docs/STATUS.md`, "Done 2026-10-28").
