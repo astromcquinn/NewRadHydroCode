@@ -30,7 +30,8 @@ void init_rt(Simulation& s);
 
 // Full initialisation of a Simulation for grid size N (init_variables,
 // init_domain_rt, init_rt, init_ray_tracing, calc_sim_var).
-void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init);
+// box in Mpc/h (the original's 5 unless given: params.txt box of rt_driver)
+void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init, double box = 5);
 
 // halo_tools.f90: calc_halo / add_halo_to_rt (metal injection skipped).
 // Sources are summed per cell in the given order (= link_halo order).
@@ -53,7 +54,8 @@ void radiative_physics(Simulation& s, int krt);
 void accumulate_rt_stats(Simulation& s);
 
 // The substep-averaged Gamma_HI (Simulation::gamma_avg; output only, serial
-// RT): begin zeroes the per-cell sums at the start of a hydro step's RT, add
+// RT; the moment RT on rt_backend = amrex keeps the sums on its level,
+// amrex_gamma_avg_field in amrex_state.hpp): begin zeroes the per-cell sums at the start of a hydro step's RT, add
 // accumulates gamma(1) * dtsec_rt after a substep's physics, field gives the
 // average over the substeps so far of the last hydro step with RT (zeros
 // before the first), one float per RT cell.

@@ -295,6 +295,9 @@ struct PhysCtx {
   // kPhotonIterMax iterations), not only until ne converges (at most 5, the
   // original). false is the original.
   bool photon_conserve = false;
+  // Config::photon_consume_dense: true = every photoionisation consumes its
+  // photon; false (the original) = the rho_source factor below
+  bool photon_consume_dense = false;
   // Config::cool_suppress_overdensity: the overdensity above which the
   // cooling and SN heating are suppressed ((x0/x)^2, (x0/x)^1.5); 200 is
   // the original, 0 switches the suppression off.
@@ -305,7 +308,26 @@ struct PhysCtx {
   // alpha_A - alpha_B (recomb_rad = 1).
   int ia = 3;
   bool want_nrab = false;
+  // xray_heating (docs/xray_heating.md, xray_background.hpp): the uniform
+  // X-ray background's primary photoionisation rates (1/s) and
+  // photoelectron powers (erg/s) per HI, HeI, HeII atom, set by the host
+  // for the hydro step. false (the default) is the original: no X-rays.
+  bool xray = false;
+  double xray_gamma[3] = {0, 0, 0};
+  double xray_phi[3] = {0, 0, 0};
 };
+
+// xray_heating: the fractions of a fast photoelectron's energy that go into
+// heat and into HI and HeI ionisations, at x = n_HII/n_H clamped to the
+// fits' range [1e-4, 1]: Shull & van Steenberg (1985) as fitted in Ricotti,
+// Gnedin & Shull (2002). Coefficients from memory, to be confirmed
+// (docs/xray_heating.md section 5).
+RR_HD void xray_secondary(double x, double& fheat, double& fion_HI, double& fion_HeI) {
+  x = x < 1e-4 ? 1e-4 : (x > 1 ? 1 : x);
+  fheat = 0.9971 * (1 - std::pow(1 - std::pow(x, 0.2663), 1.3163));
+  fion_HI = 0.3908 * std::pow(1 - std::pow(x, 0.4092), 1.7592);
+  fion_HeI = 0.0554 * std::pow(1 - std::pow(x, 0.4614), 1.6660);
+}
 
 // rt_stat addends of one gas cell (before the /navg/Ncell normalisation of
 // the host) and the photo-heating/photoionisation rates of the RT grid
@@ -484,6 +506,22 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   };
   sum_dim2(gam_pht);
 
+  // xray_heating: the X-ray background's ionisation rates per atom, primary
+  // plus the secondary ionisations of HI and HeI by the photoelectrons, with
+  // the densities and ionised fraction at the start of the substep. Not
+  // limited by the RT's photons (a uniform background); zero without X-rays,
+  // which leaves the sums below unchanged bit for bit.
+  double gx[3] = {0, 0, 0};
+  double fheat_x = 0;
+  if (X.xray) {
+    double fion_HI = 0, fion_HeI = 0;
+    xray_secondary(nHII / nH, fheat_x, fion_HI, fion_HeI);
+    const double edep = (X.xray_phi[0] * nHI + X.xray_phi[1] * nHeI) + X.xray_phi[2] * nHeII;
+    gx[0] = X.xray_gamma[0] + (nHI > 0 ? fion_HI * edep / (HI_eV * eV2erg * nHI) : 0.0);
+    gx[1] = X.xray_gamma[1] + (nHeI > 0 ? fion_HeI * edep / (HeI_eV * eV2erg * nHeI) : 0.0);
+    gx[2] = X.xray_gamma[2];
+  }
+
   // Implicit solution for ionisation balance. B17: the photon limit below
   // rescales gamma_pht after the densities were computed with the previous
   // rates, and the loop ends when ne has converged or after 5 iterations.
@@ -505,9 +543,9 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
     const double AH2 = rs.alpha[ia + 0] * ne * dtsec_rt;
     const double AHe2 = rs.alpha[ia + 1] * ne * dtsec_rt;
     const double AHe3 = rs.alpha[ia + 2] * ne * dtsec_rt;
-    const double BH1 = (gam_pht[0] + rs.gcol[0] * ne) * dtsec_rt;
-    const double BHe1 = (gam_pht[1] + rs.gcol[1] * ne) * dtsec_rt;
-    const double BHe2 = (gam_pht[2] + rs.gcol[2] * ne) * dtsec_rt;
+    const double BH1 = (gam_pht[0] + gx[0] + rs.gcol[0] * ne) * dtsec_rt;
+    const double BHe1 = (gam_pht[1] + gx[1] + rs.gcol[1] * ne) * dtsec_rt;
+    const double BHe2 = (gam_pht[2] + gx[2] + rs.gcol[2] * ne) * dtsec_rt;
     const double sub1 = 1 + AHe3 + AHe2 + BHe2;
     const double sub2 = AHe2;
     const double sub3 = BHe1 - AHe3;
@@ -548,7 +586,7 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   double nion[3] = {0, 0, 0};
   for (int inu = 0; inu < 5; ++inu) {
     const double d = rhog / u.rhob_avg;
-    const double x = rrf::min(std::exp(-(d - rho_source) / rho_source), 1.0);
+    const double x = X.photon_consume_dense ? 1.0 : rrf::min(std::exp(-(d - rho_source) / rho_source), 1.0);
     const double num3[3] = {gamma_pht[0][inu] * nHI * dtsec_rt, gamma_pht[1][inu] * nHeI * dtsec_rt,
                             gamma_pht[2][inu] * nHeII * dtsec_rt};
     for (int sp = 0; sp < 3; ++sp) nion[sp] = nion[sp] + num3[sp];
@@ -576,7 +614,12 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
     for (int inu = 0; inu < 5; ++inu) t += gamma_pht[sp][inu] * (nu[inu] - nu0[sp]) * eV2erg;
     lam_pht[sp] = t;
   }
-  const double heat_rate = ((0.0 + lam_pht[0] * nHI) + lam_pht[1] * nHeI) + lam_pht[2] * nHeII;
+  double heat_rate = ((0.0 + lam_pht[0] * nHI) + lam_pht[1] * nHeI) + lam_pht[2] * nHeII;
+  // xray_heating: the heat share of the photoelectron power absorbed by the
+  // updated densities (as the UV photo-heating)
+  if (X.xray)
+    heat_rate = heat_rate +
+                fheat_x * ((X.xray_phi[0] * nHI + X.xray_phi[1] * nHeI) + X.xray_phi[2] * nHeII);
 
   // SN heating
   double sn_rate;

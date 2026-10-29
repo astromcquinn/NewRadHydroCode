@@ -115,11 +115,6 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.temp_max = folded::ten_lgT_max;
     u.temp_min = f::max(Tcmb0 / x / f::pow2(a), 1.0);
   }
-  // The preheating floor of the RT cell physics (Config::T_min, z_floor);
-  // temp_min itself (the hydro and PM limits, the outputs) is unchanged.
-  u.temp_floor = u.temp_min;
-  if (cfg.T_min > 0 && z < cfg.z_floor) u.temp_floor = f::max(u.temp_min, cfg.T_min);
-
   // Density limits in grid units
   u.Dgas_avg = ob / om;
   u.Dgas_min = u.Dgas_avg * folded::ten_lgD_min;
@@ -129,6 +124,23 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   // Velocity limits in grid units (3E8 is exact in real(4))
   u.vgas_min = 0;
   u.vgas_max = static_cast<double>(3e8f) / u.vel_unit;
+
+  // thermal_init = recfast (docs/thermal_history.md): the CMB coupling of
+  // the residual electrons sets the cold gas's temperature, so the floor is
+  // only thermal_floor (with legacy_physics = 1 at least 1 K, the lower edge
+  // of the nearest-node rate table, as the original's max(..., 1)), and no
+  // ceiling at T_CMB above z = 216
+  if (cfg.thermal_init == 1) {
+    u.temp_max = folded::ten_lgT_max;
+    u.temp_min = cfg.legacy_physics ? f::max(cfg.thermal_floor, 1.0) : cfg.thermal_floor;
+  }
+  u.Thydro_min = cfg.thermal_floor / u.temp1_unit;
+
+  // The preheating floor of the RT cell physics (Config::T_min, z_floor),
+  // after thermal_init's temp_min; temp_min itself (the hydro and PM
+  // limits, the outputs) is unchanged.
+  u.temp_floor = u.temp_min;
+  if (cfg.T_min > 0 && z < cfg.z_floor) u.temp_floor = f::max(u.temp_min, cfg.T_min);
 
   u.Tgas_min = u.temp_min / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
@@ -233,6 +245,58 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     t.dt_vg = clk.dt_yr * (t.dt_vg / clk.dt_sim);
     t.dt_ap = clk.dt_yr * (t.dt_ap / clk.dt_sim);
     clk.dt_sec = clk.dt_yr * yr2sec;
+  }
+
+  // Caps on the hydro step (config.hpp; docs/zoom_turbulence.md section
+  // 4.4, docs/plane_parallel.md), all off by default:
+  //   plane_z_re: the step before the turn-on redshift lands on it exactly,
+  //               so the RT starts at z_re;
+  //   dt_max_myr: the step is at most dt_max_myr Myr;
+  //   rt_substeps_max: the step holds at most this many RT substeps (the
+  //               light crossing of rt_substeps_max * rt_cells_per_substep
+  //               RT cells at c_reduced).
+  // Each one shortens da_sim; dt follows from da as above.
+  {
+    double da_cap = clk.da_sim;
+    // plane_parallel = 1: the caps act from the turn-on (the RT is off
+    // before plane_z_re; the step before it lands on it)
+    bool caps = true;
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (a < a_re * (1 - 1e-9)) {
+        caps = false;
+        if (a + da_cap > a_re) da_cap = a_re - a;
+      }
+    }
+    // land_outputs = 1: the step ends on the next zdata1 output (land_a)
+    if (cfg.land_outputs && cfg.land_a > 0 && a < cfg.land_a * (1 - 1e-9) && a + da_cap > cfg.land_a)
+      da_cap = cfg.land_a - a;
+    if (caps && cfg.rt_substeps_max > 0) {
+      // dl_c(da) = 2c/(H0 h sqrt(om)) (sqrt(a+da) - sqrt(a)) = nmax dl_sub / cscale
+      const double h0 = cfg.cosmo.hubble0;
+      const double dl_sub = cfg.box / h0 * Mpc2cm / cfg.Nrt * cfg.rt_cells_per_substep;
+      const double x = cfg.rt_substeps_max * dl_sub / cfg.c_reduced * (H0_cgs * h0 * std::sqrt(cfg.cosmo.omegam)) / (2 * c_cgs);
+      const double sa = std::sqrt(a) + x;
+      da_cap = f::gmin(da_cap, sa * sa - a);
+    }
+    if (caps && cfg.dt_max_myr > 0 && clk.dt_yr > cfg.dt_max_myr * 1e6) {
+      // the da whose dt_yr is the cap: bisection (dt_yr grows with da)
+      double lo = 0, hi = da_cap, dts = 0, dty = 0;
+      for (int it = 0; it < 80; ++it) {
+        const double mid = 0.5 * (lo + hi);
+        calc_dt_from_da(cfg.cosmo, a, mid, dts, dty);
+        if (dty > cfg.dt_max_myr * 1e6)
+          hi = mid;
+        else
+          lo = mid;
+      }
+      da_cap = f::gmin(da_cap, lo);
+    }
+    if (da_cap < clk.da_sim) {
+      clk.da_sim = da_cap;
+      calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+      clk.dt_sec = clk.dt_yr * yr2sec;
+    }
   }
 
   // RT time step. Rays move one RT cell per substep, so the number of

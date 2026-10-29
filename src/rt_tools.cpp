@@ -1,6 +1,7 @@
 // Port of rt_tools.f90, domain_tools.f90 (RT domains) and
 // halo_tools.f90 (calc_halo / add_halo_to_rt).
 #include "radray/rt.hpp"
+#include "radray/plane_parallel.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -201,6 +202,13 @@ void det_fold(RayState& R) {
     t.ncst1 = t.ncst2 = t.nmrg1 = t.nmrg2 = t.nspl1 = t.nspl2 = t.ndel1 = t.ncreated = 0;
   }
 }
+// plane_parallel = 1: the threads' escaped-photon sums into the simulation
+void det_fold_plane(Simulation& s) {
+  for (ThreadRays& t : s.rays.tl) {
+    s.plane.escaped_fx += t.plane_escaped_fx;
+    t.plane_escaped_fx = 0;
+  }
+}
 
 }  // namespace
 
@@ -239,8 +247,8 @@ void init_rt(Simulation& s) {
   calc_atomic_rates(s.rates, s.cfg.legacy_physics);
 }
 
-void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init) {
-  s.cfg = Config::make(N, nray_max_factor);
+void init_simulation(Simulation& s, int N, int nray_max_factor, double z_init, double box) {
+  s.cfg = Config::make(N, nray_max_factor, -1, box);
   init_variables(s.cfg.cosmo, z_init, s.clk);
   init_domain_rt(s.cfg, s.dom);
   s.gas.allocate(s.cfg.Ngas);
@@ -359,7 +367,17 @@ void radiative_transfer(Simulation& s) {
   if (L) *L << " Hydro step : " << clk.istep << " " << static_cast<float>(clk.redshift) << "\n";
 
   prep_rt(s);
-  if (s.gamma_avg.on) gamma_avg_begin(s);  // gammaHI_avg: this step's sums
+  if (s.gamma_avg.on) {  // gammaHI_avg: this step's sums
+    if (use_amrex(s.cfg)) {
+      // the level holds the per-cell sums (moment_level.cpp, reset by its prep)
+      s.gamma_avg.time = 0;
+      s.gamma_avg.substeps = 0;
+    } else {
+      gamma_avg_begin(s);
+    }
+  }
+  if (s.xray.on && s.xray_hook) s.xray_hook(s);  // xray_heating: this step's rates
+  if (s.plane.on) s.plane.reset_step();     // plane_parallel: this step's photon bookkeeping
 
   for (clk.istep_rt = 1; clk.istep_rt <= clk.nstep_rt; ++clk.istep_rt) {
     if (L) *L << " RT step    : " << clk.istep_rt << " " << static_cast<float>(clk.redshift) << "\n";
@@ -368,6 +386,10 @@ void radiative_transfer(Simulation& s) {
     if (use_amrex(s.cfg)) {
       // rt_backend = amrex (rt_backend.hpp): the whole substep on the level
       amrex_rt_substep(s);
+      if (s.gamma_avg.on) {  // gammaHI_avg: the level added the cells' sums
+        s.gamma_avg.time += s.clk.dtsec_rt;
+        s.gamma_avg.substeps += 1;
+      }
     } else {
       if (s.raydump_state && !moments) {
         s.rays.prov_substep = ++s.raydump_state->substep;
@@ -576,7 +598,7 @@ void post_rt(Simulation& s) {
   RayState& R = s.rays;
   const int Nrt = s.cfg.Nrt;
   double sig[3][kNfreq];
-  rrk::photoion_sigma(freq_init.data(), sig);
+  rrk::photoion_sigma(group_frequencies(s.cfg).data(), sig);  // freq_init, or the plane bins
 
   std::int64_t nray_pdf[24] = {0};
   // Fortran: dimension(-9:10), but 1E-9 is real(4) (9.99999972e-10) so empty
@@ -815,7 +837,7 @@ void rt_step_1(Simulation& s) {
   // (B4).
   const bool legacy = s.cfg.legacy_rt;
   double sig[3][kNfreq];
-  rrk::photoion_sigma(freq_init.data(), sig);
+  rrk::photoion_sigma(group_frequencies(s.cfg).data(), sig);  // freq_init, or the plane bins
 #pragma omp parallel for schedule(static) if (par::worth(s.cfg.Nrtc))
   for (int krt = 1; krt <= Nrt; ++krt)
     for (int jrt = 1; jrt <= Nrt; ++jrt)
@@ -903,11 +925,29 @@ void rt_step_1(Simulation& s) {
 
   lap(s.timers.calc_ray1);
   if (det) {
+    // plane_parallel = 1: the face rays of this substep (plane_emit), or
+    // the sweep's cast of the packets in flight (plane_transport = sweep)
+    if (s.plane.on && s.plane.active) {
+      if (s.plane.transport == 1)
+        plane_sweep_cast(s);
+      else
+        plane_emit(s);
+      s.plane.emitted += plane_emitted_per_substep(s, rt_params(s));
+    }
     // deterministic_parallel: colour-major sweep over the 8^3 domains
     det_sweep(s, [&](const std::array<int, 6>& box) { ray_tracing_1(s, box); });
     det_fold(R);
   } else {
     if (s.clk.istep_rt > 1) ray_buffer_supplement(s);
+    // plane_parallel = 1: the face rays of this substep (plane_emit), or
+    // the sweep's cast of the packets in flight (plane_transport = sweep)
+    if (s.plane.on && s.plane.active) {
+      if (s.plane.transport == 1)
+        plane_sweep_cast(s);
+      else
+        plane_emit(s);
+      s.plane.emitted += plane_emitted_per_substep(s, rt_params(s));
+    }
 
     // Ray casting, domain by domain (order 1..Ndomain with one thread)
     for (int n = 1; n <= s.dom.Ndomain; ++n) {
@@ -946,6 +986,9 @@ struct RPSink {
   std::vector<std::uint8_t> id;
   std::vector<double> val;
   std::int64_t ngfill = 0, nsfill = 0;
+  // plane_parallel = 1: the photons the plane's cells absorbed (deposit
+  // minus transmitted), an exact fixed-point sum (plane_parallel.hpp)
+  __int128 plane_abs_fx = 0;
 
   void bind(RTStat& t) {
     for (int sp = 0; sp < 3; ++sp) {
@@ -991,6 +1034,7 @@ void radiative_physics(Simulation& s, int krt) {
   radiative_physics_plane(s, krt, sink);
   s.rt_stat.ngfill += sink.ngfill;
   s.rt_stat.nsfill += sink.nsfill;
+  s.plane.absorbed_fx += sink.plane_abs_fx;
 }
 
 // rt_tools.f90: rt_step_2. The k-planes are independent (each touches only
@@ -1023,7 +1067,11 @@ void rt_step_2(Simulation& s) {
       }
     }
     if (!err.empty()) throw std::runtime_error(err);
-    for (int b = 0; b < nb; ++b) sinks[b].replay(s.rt_stat);
+    for (int b = 0; b < nb; ++b) {
+      sinks[b].replay(s.rt_stat);
+      s.plane.absorbed_fx += sinks[b].plane_abs_fx;
+      sinks[b].plane_abs_fx = 0;
+    }
   }
 }
 
@@ -1108,7 +1156,15 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   X.cells = s.cfg.rt_cells_per_substep;
   X.photon_conserve = s.cfg.photon_conserve;
   X.cool_suppress = s.cfg.cool_suppress_overdensity;
+  X.photon_consume_dense = s.cfg.photon_consume_dense;
   X.want_nrab = static_cast<bool>(s.recomb);
+  // xray_heating (docs/xray_heating.md): the uniform X-ray rates of this
+  // hydro step; every cell is processed
+  X.xray = s.xray.on;
+  for (int sp = 0; sp < 3; ++sp) {
+    X.xray_gamma[sp] = s.xray.gamma[sp];
+    X.xray_phi[sp] = s.xray.phi[sp];
+  }
 
   for (int jrt = 1; jrt <= Nrt; ++jrt) {
     for (int irt = 1; irt <= Nrt; ++irt) {
@@ -1116,9 +1172,10 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
       const rrk::CellRef cr = cell_ref(G, c);
 
       // Effective frequency and unit direction vector; skip neutral cells
-      // without photons
+      // without photons (not with the X-ray background, which reaches them)
       double ngam_tot = 0;
-      if (!rrk::cell_radiation_prep(cr, u, ngam_tot)) {
+      const bool lit = rrk::cell_radiation_prep(cr, u, ngam_tot);
+      if (!lit && !X.xray) {
         // The preheating floor (Config::T_min) also holds in the cells the
         // original skips; off by default (rrk::floor_gas_cell)
         if (rrk::temp_floor_active(u)) {
@@ -1131,6 +1188,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
         }
         continue;
       }
+      const bool plane = s.plane.on;
+      const double plane_dep = plane ? static_cast<double>(f::sum4<kNfreq>(cr.ngam)) : 0;
 
       if (ngam_tot > u.ngam_min) sink.ngfill += 1;
 
@@ -1207,6 +1266,8 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
       // Remaining photons -> fgam, the gas on the RT grid, the transmitted
       // fraction (photo_cell_finish)
       rrk::photo_cell_finish(cr, nrad, us, ws, s.gas.e.empty() ? -1.0 : es, Nc, u);
+      // plane_parallel = 1: absorbed = deposited - transmitted (plane_parallel.hpp)
+      if (plane) sink.plane_abs_fx += plane_to_fx(plane_dep - static_cast<double>(f::sum4<kNfreq>(cr.ngam)));
     }
   }
 }
@@ -1219,11 +1280,14 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
 void rt_step_3(Simulation& s) {
   RTGrid& G = s.rt;
   const double tw0 = wall_seconds();
+  // plane_transport = sweep: the packets in flight move on (plane_sweep.cpp)
+  if (s.plane.on && s.plane.transport == 1) plane_sweep_advance(s);
   if (use_moments(s.cfg)) {
     moment_step_3(s);  // rt_method = m1 | otvet (rt_moments.hpp)
   } else if (s.cfg.det_parallel) {
     det_sweep(s, [&](const std::array<int, 6>& box) { ray_tracing_3(s, box); });
     det_fold(s.rays);
+    if (s.plane.on) det_fold_plane(s);
   } else {
     for (int n = 1; n <= s.dom.Ndomain; ++n) {
       const int i = set_domain_rt(s.dom);
@@ -1339,6 +1403,8 @@ double ngam_rays_total(const Simulation& s) {
   if (use_amrex(s.cfg)) return s.ngam_total_backend;
   // rt_method = m1 | otvet: the photons of the moment solver
   if (use_moments(s.cfg)) return moment_photons_total(s);
+  // plane_transport = sweep: the packets in flight (plane_sweep.cpp)
+  if (s.plane.on && s.plane.transport == 1) return s.plane.inflight();
   return ngam_rays_total_serial(s);
 }
 

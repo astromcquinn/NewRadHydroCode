@@ -16,6 +16,11 @@ AMReX backends every rank must take the speed rank 0 takes from x.
    written its grid (x_HII,V = 1 exactly there: fHI is still zero). At least
    two switches must happen (in the smoke problem at steps 14 and 15), and
    every change is announced on stdout.
+3. Interpolation: with c_reduced_schedule_interp = 1 and the same schedule
+   every step's c_reduced is the piecewise-linear rule of the previous
+   step's x (linear between the plateau midpoints 0.0025, 0.0075 and 0.505,
+   constant outside), and at least one step takes a speed strictly between
+   two of the schedule's.
 Exit 0 on success.
 """
 import glob
@@ -59,6 +64,19 @@ def rule(x):
         if x >= SCHED[i]:
             c = SCHED[i + 1]
     return c
+
+
+def rule_interp(x):
+    c = SCHED[0::2]
+    xs = SCHED[1::2]
+    n = len(c)
+    xm = [0.5 * ((0.0 if k == 0 else xs[k - 1]) + (1.0 if k + 1 == n else xs[k])) for k in range(n)]
+    if x >= xm[-1]:
+        return c[-1]
+    for k in range(n - 1):
+        if xm[k] <= x < xm[k + 1]:
+            return c[k] + (c[k + 1] - c[k]) * (x - xm[k]) / (xm[k + 1] - xm[k])
+    return c[0]
 
 
 def main():
@@ -116,6 +134,29 @@ def main():
     if len(ann) != switches + 1:
         sys.exit(f"{len(ann)} announcements for {switches} switches")
     print(f"rule: {len(used)} steps, speeds {sorted(set(used))}, {switches} switches")
+
+    d = os.path.join(work, "interp")
+    run(common + [d] + opts + ["--set", "c_reduced_schedule=" + " ".join(map(str, SCHED)),
+                               "--set", "c_reduced_schedule_interp=1"], d + ".log")
+    st = [stats(p) for p in sorted(glob.glob(os.path.join(d, "step_*", "stats.txt")))]
+    used, prev_x, between = [], None, 0
+    for s in st:
+        istep = int(s["istep"])
+        if istep == 0:
+            prev_x = float(s["xHII_V"])
+            continue
+        x = 0.0 if prev_x == 1.0 else prev_x
+        want = rule_interp(x)
+        got = float(s["c_reduced"])
+        if abs(got - want) > 1e-12 * max(1.0, abs(want)):
+            sys.exit(f"interp step {istep}: c_reduced = {got}, rule gives {want} (x = {x})")
+        if got not in SCHED[0::2]:
+            between += 1
+        used.append(got)
+        prev_x = float(s["xHII_V"])
+    if between < 1:
+        sys.exit(f"interp: no step took a speed between the schedule's: {used}")
+    print(f"interp: {len(used)} steps, {between} with interpolated speeds, min {min(used)} max {max(used)}")
 
 
 if __name__ == "__main__":

@@ -64,6 +64,9 @@ struct Units {
   // temp_min, or max(temp_min, cfg.T_min) at z < cfg.z_floor (the
   // preheating floor, docs/production_run.md section 10). Not an output.
   double temp_floor = 0;
+  // The hydro's temperature floor in the units of Tgas_min:
+  // Config::thermal_floor / temp1_unit (1/temp1_unit, i.e. 1 K, by default)
+  double Thydro_min = 0;
 
   double len_rt = 0, vol_rt = 0;
   double sfr_min = 0, ngam_min = 0, fgam_min = 0, seg_min = 0;

@@ -64,6 +64,11 @@ bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::stri
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
     cfg.dual_p_old = v == 1;
+  } else if (key == "dual_e_self") {
+    const int v = std::stoi(val);
+    if (v != 0 && v != 1) bad("must be 0 or 1");
+    cfg.dual_e_self = v == 1;
+    cfg.dual_e_self_set = true;
   } else if (key == "dual_eta1_local") {
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
@@ -85,6 +90,8 @@ void copy_hydro_scheme(const Config& from, Config& to) {
   to.dual_reset_rule = from.dual_reset_rule;
   to.dual_eta2_local = from.dual_eta2_local;
   to.dual_p_old = from.dual_p_old;
+  to.dual_e_self = from.dual_e_self;
+  to.dual_e_self_set = from.dual_e_self_set;
 }
 
 std::string hydro_scheme_summary(const Config& cfg) {
@@ -97,7 +104,8 @@ std::string hydro_scheme_summary(const Config& cfg) {
          ", dual_nb_radius = " + std::to_string(cfg.dual_nb_radius) +
          ", dual_reset_rule = " + std::to_string(cfg.dual_reset_rule) +
          ", dual_eta2_local = " + (cfg.dual_eta2_local ? "1" : "0") +
-         ", dual_p_old = " + (cfg.dual_p_old ? "1" : "0");
+         ", dual_p_old = " + (cfg.dual_p_old ? "1" : "0") +
+         (cfg.dual_e_self ? ", dual_e_self = 1" : "");
 }
 
 namespace {
@@ -188,13 +196,26 @@ void select_pass(Work& W, const rrh::DualEnergy& de) {
 
 using Face = rrh::FaceData;
 
+// e_self: whether the cell's internal energy is evolved from its own value
+// (rrh::e_own), and its ratio to the selected thermal energy (rrh::e_ratio;
+// 1 without)
+inline bool e_own_at(const Work& W, std::int64_t c, bool e_self) {
+  return e_self && rrh::e_own(W.S[c * NS], W.Es[c]);
+}
+inline double e_ratio_at(const Work& W, std::int64_t c, bool e_self) {
+  return e_self ? rrh::e_ratio(W.S[c * NS], W.Es[c]) : 1.0;
+}
+
 // The face between cell a and cell b = a + e_d, direction d (rrh::face_all
 // on the work arrays)
-inline void compute_face(const Work& W, int ia, int ja, int ka, int d, double dtdx, Face& f) {
+inline void compute_face(const Work& W, int ia, int ja, int ka, int d, double dtdx, bool e_self,
+                         Face& f) {
   auto Qa = [&W](int i, int j, int k) { return &W.Q[W.aq(i, j, k) * NQ]; };
   auto Ua = [&W](int i, int j, int k, int c) { return W.U[W.at(i, j, k) * NV + c]; };
   auto Sa = [&W](int i, int j, int k, int s) { return W.S[W.at(i, j, k) * NS + s]; };
-  rrh::face_all(Qa, Ua, Sa, ia, ja, ka, d, dtdx, f);
+  const bool own_a = e_own_at(W, W.at(ia, ja, ka), e_self);
+  const bool own_b = e_own_at(W, W.at(ia + (d == 0), ja + (d == 1), ka + (d == 2)), e_self);
+  rrh::face_all(Qa, Ua, Sa, ia, ja, ka, d, dtdx, f, own_a, own_b);
 }
 
 // Thread-local face buffers of one slab
@@ -236,13 +257,13 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
   for (int k = 0; k < n; ++k) {
     SlabFaces& sf = faces[par::thread_id()];
     for (int j = 0; j < n; ++j)
-      for (int i = 0; i <= n; ++i) compute_face(W, i - 1, j, k, 0, dtdx, sf.fx[i + (n + 1) * j]);
+      for (int i = 0; i <= n; ++i) compute_face(W, i - 1, j, k, 0, dtdx, de.e_self, sf.fx[i + (n + 1) * j]);
     for (int j = 0; j <= n; ++j)
-      for (int i = 0; i < n; ++i) compute_face(W, i, j - 1, k, 1, dtdx, sf.fy[i + n * j]);
+      for (int i = 0; i < n; ++i) compute_face(W, i, j - 1, k, 1, dtdx, de.e_self, sf.fy[i + n * j]);
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
-        compute_face(W, i, j, k - 1, 2, dtdx, sf.fz0[i + n * j]);
-        compute_face(W, i, j, k, 2, dtdx, sf.fz1[i + n * j]);
+        compute_face(W, i, j, k - 1, 2, dtdx, de.e_self, sf.fz0[i + n * j]);
+        compute_face(W, i, j, k, 2, dtdx, de.e_self, sf.fz1[i + n * j]);
       }
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
@@ -254,9 +275,11 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
         const Face& z0 = sf.fz0[i + n * j];
         const Face& z1 = sf.fz1[i + n * j];
         // the cell pressure of the work term: time-centred (Hancock) or at
-        // the old time (Bryan et al. 2014 eq. 43)
-        const double p_half = p_old ? (rrh::kGamma - 1) * rrf::max(W.Es[c], 0.0)
-                                    : W.Q[W.aq(i, j, k) * NQ + 4];
+        // the old time (Bryan et al. 2014 eq. 43); with e_self that of the
+        // cell's own internal energy
+        const double p_half = (p_old ? (rrh::kGamma - 1) * rrf::max(W.Es[c], 0.0)
+                                     : W.Q[W.aq(i, j, k) * NQ + 4]) *
+                              e_ratio_at(W, c, de.e_self);
         rrh::update_from_faces(&W.U[c * NV], &W.S[c * NS], x0, x1, y0, y1, z0, z1, p_half, dtdx,
                                &W.Un[cn * NV], &W.Sn[cn * NS]);
       }
@@ -344,7 +367,7 @@ void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroS
   }
   if (fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   if (gas.has_e()) return;
-  const double Tmin = 1 / un.temp1_unit;
+  const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
   gas.e.assign(static_cast<std::size_t>(gas.ncell), 0.0f);
   for (std::int64_t c = 0; c < gas.ncell; ++c) {
     const float* u = gas.u_p(c);
@@ -387,10 +410,11 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
         for (int s = 0; s < 4; ++s) W.S[c * NS + 1 + s] = w[s];
       }
 
-  const rrh::DualEnergy de{eta1_of(cfg), cfg.dual_eta2, cfg.dual_eta1_local, cfg.dual_nb_radius,
-                           cfg.dual_reset_rule, cfg.dual_eta2_local};
+  const rrh::DualEnergy de{eta1_of(cfg),        cfg.dual_eta2,       cfg.dual_eta1_local,
+                           cfg.dual_nb_radius,   cfg.dual_reset_rule, cfg.dual_eta2_local,
+                           cfg.dual_e_self && cfg.dual_energy};
   const double rho_min = un.Dgas_min;
-  const double Tmin = 1 / un.temp1_unit;
+  const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
 
   double remaining = dt;
   std::int64_t nsub_call = 0;

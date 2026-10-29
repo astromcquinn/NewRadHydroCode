@@ -67,12 +67,14 @@ At the start of a session, read:
 | `include/radray/`, `src/` | C++17 library, namespace `radray` |
 | `apps/rt_driver.cpp` | RT only (`docs/validation_spec.md`) |
 | `src/rt_moments.cpp` | moment RT, `rt_method = m1 \| otvet` (`docs/rt_moments.md`) |
-| `src/amrex/` | the AMReX backends: `rt_level.cpp` (`rt_backend = amrex`, `docs/stage_d.md`), `pm_level.cpp` (`pm_backend = amrex`, `docs/stage_e_pm.md`), stubs for builds without AMReX |
+| `src/amrex/` | the AMReX backends: `rt_level.cpp` (`rt_backend = amrex`, `docs/stage_d.md`), `pm_level.cpp` (`pm_backend = amrex`, `docs/stage_e_pm.md`; the level Poisson solve `pm_level_solve`, `docs/stage_g.md`), stubs for builds without AMReX |
 | `apps/hydro_driver.cpp` | hydro only |
 | `apps/pm_driver.cpp` | PM gravity only |
 | `apps/radhydro.cpp` | full `radhydro.f90` loop (`docs/full_run.md`) |
 | `apps/find_halos.cpp` | FoF on a snapshot (`docs/halos_and_sources.md`) |
 | `apps/am_fit.cpp`, `apps/hmf_table.cpp` | abundance matching fit and analytic mass functions (`docs/abundance_matching.md`) |
+| `src/xray_background.cpp`, `apps/xray_bkg.cpp` | X-ray preheating background from the source model's SFR, `xray_heating` (`docs/xray_heating.md`) |
+| `src/thermal_history.cpp`, `tools/thermal` | the pre-heating thermal history against RECFAST, `thermal_init = recfast`, `thermal_floor` (`docs/thermal_history.md`) |
 | `data/hmf`, `data/uv_lf` | fitted FoF mass function and UV LF parameters used by the sources |
 | `reference/fortran` | private submodule (`astromcquinn/RadHydro-fortran`): `Radhydro/` (the original), the gfortran harnesses `harness` (RT), `harness_hydro`, `harness_pm`, `harness_full`, `harness_common` (the FFTW-based MKL DFTI shim, the shared timestep), `tests/` (`reference/README.md`) |
 | `tests/problems*` | validation problems |
@@ -102,15 +104,24 @@ cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~
   and every pull request (Ubuntu 24.04, gcc 13); `nightly.yml` runs the
   nightly label once a day and on demand. A PR is mergeable only when CI is
   green.
-- Needs `g++`, `gfortran` (for the live Fortran comparison tests), `libfftw3-dev`
-  (FFTW3 single precision; MKL is replaced by FFTW in both codes) and python3
-  with numpy (and matplotlib for figures).
+- Needs `g++`, `libfftw3-dev` (FFTW3 single precision; MKL is replaced by
+  FFTW in both codes) and python3 with numpy (and matplotlib for figures).
+- `gfortran` is needed only when the private submodule `reference/fortran`
+  is checked out: it builds the live Fortran comparison tests, which CMake
+  skips without the submodule (CI populates it from the `FORTRAN_TOKEN`
+  secret). Sessions without access to `RadHydro-fortran` should not
+  install it; the stored-reference tests still run.
 - Each harness has a `Makefile`/`run_all.sh`; see its README.
 - The RT harness needs `ulimit -s unlimited`, which its run scripts set.
 - Runtime parameters: `params.txt` plus `--set key=value` on every driver.
 
 ## Working conventions
 
+- **The repository is the public `astromcquinn/NewRadHydroCode`** (since
+  2026-10-26). `NewRadHydroCode-private` is the pre-move archive whose
+  history still holds the Fortran: never push there, and never copy from
+  it. A clone or worktree made before the move has stale commit ids and
+  must be re-pointed before it pushes (`docs/fortran_split.md` §3b).
 - **Branches:** a feature branch and a PR per workstream.
 - **Commits:** end each commit message with the attribution lines the
   harness asks for.

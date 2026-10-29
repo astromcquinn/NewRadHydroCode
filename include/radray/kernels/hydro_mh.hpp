@@ -71,6 +71,14 @@ struct DualEnergy {
   // 4 never (Enzo: E is never modified)
   int reset_rule = 0;
   bool eta2_local = false;  // eta2 test against the cell's own E (Nyx's resync)
+  // e_self: in cells whose pressure comes from E - KE the internal energy
+  // is advected with its own specific value (reconstructed like the
+  // species) and does the p div v work with its own pressure (e_ratio
+  // below), so it stays on its own adiabat between eta2 synchronisations.
+  // Off: with the face values and pressure of the selected energy E - KE,
+  // so e is not evolved as itself there and drifts (docs/hydro_unsplit.md
+  // section 7, U7).
+  bool e_self = false;
 };
 
 RR_HD double kinetic_energy(const double U[NV]) {
@@ -91,6 +99,14 @@ RR_HD double select_thermal(const double U[NV], double eD, double Eref, double e
 RR_HD double thermal_energy(const double U[NV], double eD, double eta1) {
   return select_thermal(U, eD, U[4], eta1);
 }
+
+// e_self: whether a cell's internal energy is evolved from its own value
+// (its pressure comes from E - KE, es != eD), and the ratio of the evolved
+// internal energy eD to the selected thermal energy es that scales the
+// work term (exactly 1 where es = eD, so those cells are updated as
+// without e_self, bit for bit).
+RR_HD bool e_own(double eD, double es) { return es != eD; }
+RR_HD double e_ratio(double eD, double es) { return es > 0 ? eD / es : 1.0; }
 
 // Primitives from U and the (already selected) thermal energy density e
 RR_HD void cons_to_prim(const double U[NV], double e, double W[NV]) {
@@ -304,12 +320,14 @@ struct FaceData {
 // the predictor states and the state. Accessors (local index space, ghosts
 // included): Q(i, j, k) returns the NQ predictor values of a cell (const
 // double*), U(i, j, k, m) the conserved state, S(i, j, k, s) the scalars.
-// Reads Q of a and b, U and S of a - e_d .. b + e_d. The one implementation
-// of the serial driver (src/hydro_unsplit.cpp) and the AMReX level
-// (src/amrex/hydro_level.cpp).
+// Reads Q of a and b, U and S of a - e_d .. b + e_d. own_a, own_b (e_self
+// and e_own of the cell): the internal energy's face value on that side is
+// its own specific value e/rho reconstructed along d, not that of the
+// face state. The one implementation of the serial driver
+// (src/hydro_unsplit.cpp) and the AMReX level (src/amrex/hydro_level.cpp).
 template <class QA, class UA, class SA>
 RR_HD void face_all(const QA& Q, const UA& U, const SA& S, int ia, int ja, int ka, int d,
-                    double dtdx, FaceData& f) {
+                    double dtdx, FaceData& f, bool own_a = false, bool own_b = false) {
   const int ei = d == 0, ej = d == 1, ek = d == 2;
   const int ib = ia + ei, jb = ja + ej, kb = ka + ek;
   const double* Qa = Q(ia, ja, ka);
@@ -317,11 +335,18 @@ RR_HD void face_all(const QA& Q, const UA& U, const SA& S, int ia, int ja, int k
   FaceInfo fi;
   face_flux(Qa, Qb, d, f.F, fi);
   f.v = fi.v;
-  // internal energy: the specific internal energy of the upwind face state
-  f.Fs[0] = scalar_flux(f.F, fi, fi.eL, fi.eR);
-  // species: specific abundances w/rho reconstructed along d
+  // species (and e with own_*): specific values s/rho reconstructed along d
   auto spec = [&](int i, int j, int k, int s) { return S(i, j, k, s) / rrf::max(U(i, j, k, 0), kSmallRho); };
   const double ua = Qa[1 + d], ub = Qb[1 + d];
+  // internal energy: the specific internal energy of the upwind face state,
+  // or with own_* the cell's own reconstructed e/rho
+  const double eL = own_a ? scalar_face(spec(ia - ei, ja - ej, ka - ek, 0), spec(ia, ja, ka, 0),
+                                        spec(ib, jb, kb, 0), ua, dtdx, 1)
+                          : fi.eL;
+  const double eR = own_b ? scalar_face(spec(ia, ja, ka, 0), spec(ib, jb, kb, 0),
+                                        spec(ib + ei, jb + ej, kb + ek, 0), ub, dtdx, 0)
+                          : fi.eR;
+  f.Fs[0] = scalar_flux(f.F, fi, eL, eR);
   for (int s = 1; s < NS; ++s) {
     const double sL = scalar_face(spec(ia - ei, ja - ej, ka - ek, s), spec(ia, ja, ka, s), spec(ib, jb, kb, s),
                                   ua, dtdx, 1);

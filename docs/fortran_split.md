@@ -78,13 +78,49 @@ Either way the rewrite happens once, at a quiet moment: after the current
 thread PRs (A, B, C, D of `docs/zoom_turbulence.md` §6) have merged or been
 re-based, since their branches are rewritten too.
 
+## 3b. Done 2026-10-26: route A, the public repository
+
+* PR #61 (the tree) merged in the private repository on the local
+  verification (Actions were blocked by the budget).
+* The user renamed the repository to **`NewRadHydroCode-private`** (the
+  archive: full history, issues, PRs 1–61) and created the new, public
+  **`astromcquinn/NewRadHydroCode`**.
+* A mirror clone of the private repository was scrubbed with
+  `tools/git/scrub_fortran_history.sh` (two passes: the script's paths,
+  then the root-level `Radhydro/` of the first commits, now in the
+  script), verified (no commit on any ref touches the removed paths; the
+  only Fortran left is HEALPix; no blob holds his module names) and pushed
+  with `--mirror`: 42 branches, 744 commits, `main` at db2f4b4 (the
+  rewritten merge of #61). Pull-request refs were dropped before the push.
+* The open PRs were re-opened on the new repository with their
+  descriptions: private #60 (`zoom-ics`) is public **#1**, private #58
+  (`rt-suite-512`) is public **#2**. PR numbers start over there.
+* **Every clone and worktree made before the move must be re-pointed**;
+  the branches have the same content under new commit ids:
+
+  ```
+  git remote set-url origin https://github.com/astromcquinn/NewRadHydroCode.git
+  git fetch origin
+  git rebase --onto origin/<branch> <old base> <branch>   # or, with no local commits: git reset --hard origin/<branch>
+  git submodule update --init reference/fortran           # with access to RadHydro-fortran
+  ```
+
+  A push of a pre-move branch is refused by the new repository's history
+  (non-fast-forward) rather than silently reintroducing the Fortran; the
+  private repository still accepts them, so keep its remote out of
+  everyday work.
+* Actions on the public repository are free on the standard runners, so
+  the budget block of 2026-10-25 no longer applies there.
+
 ## 4. Checklist for the user
 
-1. Create the private repository `astromcquinn/RadHydro-fortran` (empty,
-   no README); the content and history are ready to push from this session.
+1. ~~Create the private repository `astromcquinn/RadHydro-fortran`~~ done
+   (`main` at 6e7e31b).
 2. Create a fine-grained token with "Contents: read" on `RadHydro-fortran`
-   and add it to NewRadHydroCode as the Actions secret `FORTRAN_TOKEN`.
-3. Merge PR fortran-split (CI runs without the token until step 2).
-4. On klone: `git submodule update --init reference/fortran` in the
-   checkout (the harness builds and the live tests need it).
-5. Decide A or B of §3, and when; then the scrub and the switch to public.
+   and add it to the public NewRadHydroCode as the Actions secret
+   `FORTRAN_TOKEN` (until then CI skips the live comparisons).
+3. ~~Merge PR fortran-split~~ done (#61 in the private repository).
+4. On klone: re-point the checkout (§3b) and
+   `git submodule update --init reference/fortran`.
+5. ~~Decide A or B~~ A, done (§3b). Tell the running threads to re-point
+   (§3b); their PRs are #1 and #2 on the new repository.

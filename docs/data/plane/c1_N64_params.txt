@@ -1,0 +1,40 @@
+# Production reionization run (tools/production/make_production.py)
+N = 64
+Ndm = 64
+box = 0.25
+nray_max_factor = 8
+z_init = 100
+zdata1 = 7 6.9 6.8 6.6 6.4 6.2 6 5.5 5 4.5 4
+ics = ics
+source_mode = onthefly
+fof_min_npart = 20
+legacy_rt = 0
+legacy_physics = 0
+deterministic_parallel = 1
+c_reduced = 0.1
+c_reduced_schedule = 0.1 0.99 0.01
+rt_substep_carry = 1
+ray_rotate = 3
+hydro_scheme = unsplit
+movie_dz = 0
+movie_fields = fHI,temp,rhog
+movie_slab = 1
+restart_every = 20
+restart_keep = 1
+fields_at_data1 = 1
+fields = fHI,temp,rhog,u_gas
+data_files = gas
+recomb_case = B
+moment_inject = 1
+redshift_per_distance = 1
+cool_suppress_overdensity = 0
+# Plane-parallel RT-domain mode (docs/plane_parallel.md): the domain faces are the
+# only sources from plane_z_re; the halo finder and the sources are not used
+plane_parallel = 1
+plane_ndom = 8
+plane_faces = +x +y
+plane_gamma12 = 0.3
+plane_z_re = 7
+# every photoionisation consumes its photon (self-shielding of dense cells;
+# the original's rho_source factor is off)
+photon_consume_dense = 1

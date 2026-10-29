@@ -51,6 +51,16 @@ add_test(NAME halos COMMAND test_halos)
 add_executable(test_abundance_matching test_abundance_matching.cpp)
 target_link_libraries(test_abundance_matching PRIVATE radray_halos)
 add_test(NAME abundance_matching COMMAND test_abundance_matching)
+# X-ray background heating (docs/xray_heating.md)
+add_executable(test_xray test_xray.cpp)
+target_link_libraries(test_xray PRIVATE radray_halos)
+add_test(NAME xray_background COMMAND test_xray)
+set_tests_properties(xray_background PROPERTIES LABELS physics)
+# thermal_init = recfast (docs/thermal_history.md)
+add_executable(test_thermal test_thermal.cpp)
+target_link_libraries(test_thermal PRIVATE radray)
+add_test(NAME thermal_init COMMAND test_thermal)
+set_tests_properties(thermal_init PROPERTIES LABELS physics)
 
 add_executable(test_halo_catalog test_halo_catalog.cpp)
 target_link_libraries(test_halo_catalog PRIVATE radray_halos)
@@ -201,6 +211,29 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/movie_tool)
   set_tests_properties(movie_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+  # Zoom ICs from MUSIC (tools/ics/music_convert.py, music_ladder.py;
+  # docs/zoom_turbulence.md section 4.1): the converter and the generator on
+  # a committed two-level MUSIC zoom (numpy only), and the code run from its
+  # base files. With -DRADRAY_MUSIC=<MUSIC binary> (klone,
+  # tools/hyak/setup_music.sh) also T0 against make_ics.py and the ladder
+  # property (label music).
+  add_test(NAME music_zoom
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music_zoom_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/music_zoom ${PROJECT_SOURCE_DIR} $<TARGET_FILE:radhydro>)
+  set_tests_properties(music_zoom PROPERTIES TIMEOUT 300 ENVIRONMENT OMP_NUM_THREADS=1)
+  set(RADRAY_MUSIC "" CACHE FILEPATH "MUSIC binary for the music-labelled tests")
+  if(RADRAY_MUSIC)
+    add_test(NAME music_t0
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music/t0_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/music_t0 ${RADRAY_MUSIC} $<TARGET_FILE:radhydro>
+                     ${PROJECT_SOURCE_DIR})
+    set_tests_properties(music_t0 PROPERTIES TIMEOUT 900 LABELS music ENVIRONMENT OMP_NUM_THREADS=1)
+    add_test(NAME music_ladder
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music/ladder_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/music_ladder ${RADRAY_MUSIC} ${PROJECT_SOURCE_DIR})
+    set_tests_properties(music_ladder PROPERTIES TIMEOUT 900 LABELS music)
+  endif()
+
   # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
   # (retarded-time / Shapiro et al. 2006) solution (docs/production_run.md)
   add_test(NAME ifront_rsla
@@ -217,6 +250,25 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/ifront_rsla_${m} --set rt_method=${m} --rmin 5)
     set_tests_properties(ifront_rsla_${m} PROPERTIES TIMEOUT 600 LABELS "physics;moments")
   endforeach()
+
+  # Plane-parallel RT-domain mode (docs/plane_parallel.md, plane_parallel = 1):
+  # the Gamma_HI normalisation and the bins, slab attenuation, one front
+  # across the box against the photon budget (thin and with recombinations),
+  # the light-limited front, photon conservation, the domains and the thread
+  # independence, on the RT-only driver (tests/plane_check.py)
+  add_test(NAME plane_rt
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/plane_rt)
+  set_tests_properties(plane_rt PROPERTIES TIMEOUT 1800 LABELS "physics;plane")
+  # the same physics with plane_transport = sweep (the packets in flight as a
+  # field per face instead of rays), and the sweep against the rays
+  add_test(NAME plane_rt_sweep
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                   $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                   ${CMAKE_CURRENT_BINARY_DIR}/plane_rt_sweep --only gamma slab front conserve domains threads
+                   --set plane_transport=sweep)
+  set_tests_properties(plane_rt_sweep PROPERTIES TIMEOUT 1800 LABELS "physics;plane")
 
   # rays crossing k = 2 cells per substep (docs/rt_multicell.md): the
   # uniform I-front of ifront_rsla at c_reduced = 1 against k = 1 (within
@@ -859,6 +911,13 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/c_schedule 13 --set legacy_rt=0
                      --set legacy_physics=0 --set c_reduced_schedule=0.3,0.005,0.6,0.01,1)
+    # xray_heating = 1 (docs/xray_heating.md): stateless, the rates of step 15
+    # from the restored state (the default L_UV(M, z) of sfr_model = abundance)
+    add_test(NAME restart_smoke_xray
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/xray 14 --set sfr_model=abundance
+                     --set xray_heating=1 --set xray_log_lx_sfr=44 --set xray_dlog=0.01)
     # the one-speed schedule is the constant c_reduced byte for byte; the
     # switching rule, step by step
     add_test(NAME c_schedule
@@ -866,6 +925,24 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/c_schedule --set legacy_rt=0 --set legacy_physics=0)
     set_tests_properties(c_schedule PROPERTIES TIMEOUT 600 LABELS physics)
+    # Plane-parallel RT-domain mode in the full loop (docs/plane_parallel.md):
+    # the turn-on at plane_z_re (the step before lands on it), DM20's speed
+    # of light schedule, the step caps dt_max_myr and rt_substeps_max
+    # (docs/zoom_turbulence.md section 4.4) on a uniform 16^3 box
+    add_test(NAME plane_full
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_full)
+    set_tests_properties(plane_full PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # the scaled-down DM20 problem (0.256 Mpc/h, 32^3, z_re = 8, Gamma_-12 =
+    # 0.3, cooling on): the post-front temperature and the clumping factor
+    # (~ minutes: label nightly)
+    add_test(NAME plane_dm20
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_dm20 --dm20)
+    set_tests_properties(plane_dm20 PROPERTIES TIMEOUT 3600 LABELS "physics;plane;full;nightly")
+    if(NOT RADRAY_NIGHTLY_TESTS)
+      set_tests_properties(plane_dm20 PROPERTIES DISABLED TRUE)
+    endif()
     # gammaHI_avg (docs/igm_diagnostics.md): the substep-averaged Gamma_HI in
     # fields and movie frames is the mean of the per-substep gammaHI frames,
     # thread-independent and output only; the rays and M1
@@ -881,6 +958,35 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/gamma_avg/m1 --set legacy_rt=0
                      --set legacy_physics=0 --set rt_method=m1)
     set_tests_properties(gamma_avg_m1 PROPERTIES TIMEOUT 1200 LABELS "physics;threads;moments")
+    # thermal_init = recfast (docs/thermal_history.md): the mean-density gas on
+    # RECFAST, thread independence, the default keys inert
+    add_test(NAME thermal_init_recfast
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thermal_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
+    set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7): no cell of the
+    # cold unheated IGM over-cooled, the mean-density gas on its adiabat,
+    # thread independence, the key inert at 0; the default shows the defect
+    add_test(NAME unsplit_dual_e_self
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/dual_e_self_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/dual_e_self)
+    set_tests_properties(unsplit_dual_e_self PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # restart: the Compton step and the floors are stateless
+    add_test(NAME restart_smoke_thermal
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/thermal 13 --set thermal_init=recfast
+                     --set hydro_scheme=unsplit)
+    # xray_heating = 1 (docs/xray_heating.md): thread independence, the keys
+    # alone change nothing, the neutral cells heated and ionised
+    add_test(NAME xray_heating
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/xray_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/xray_heating
+                     ${PROJECT_SOURCE_DIR}/data/uv_lf/am_params_st_fof.txt)
+    set_tests_properties(xray_heating PROPERTIES TIMEOUT 600 LABELS "physics;threads")
     # ray_rotate = 3 (B16 fix): the per-substep rotation is keyed on the clock
     add_test(NAME restart_smoke_rotate
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
@@ -1469,6 +1575,71 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(amrex_pm_gas_levels_restart_smoke PROPERTIES TIMEOUT 1800
                            LABELS "amrex;amrex_pm;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1)
     endif()
+    # Stage G (pm_level_solve, docs/stage_g.md, label level_solve): a 16^3 run
+    # refined everywhere to level 1 with the level solve against the uniform
+    # 32^3 run with the same particles (and against pm_gas_levels), the DM +
+    # gas momentum with two levels over the whole box (periodic level
+    # solves) and over half of it (pm_level_solve_check.py, ~40 s on 2
+    # ranks); two levels over half the box with pm_refine = 1 and 2: 1, 2
+    # and 3 ranks byte-identical and a bit-identical restart (to z = 28: the
+    # gravity steps before the smoke problem's sources appear; with the RT
+    # on, the checkpoints of a rank-dependent fine-level layout order their
+    # rays differently and a restart through an RT step is not bit-identical,
+    # with pm_gas_levels as well: docs/stage_g.md section 3).
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME amrex_pm_level_solve_check
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_level_solve_check.py
+                       ${amrex_runs}/pm_level_solve "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} $<TARGET_FILE:radhydro> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_pm_level_solve_check PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_pm;amr;level_solve"
+                           ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+      foreach(r 1 2)
+        set(levsolve_sets --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                          --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                          --set pm_backend=amrex --set amrex_state=1 --set amrex_max_grid_size=8
+                          --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=0,0,0,7,7,7
+                          --set pm_level_solve=1 --set pm_refine=${r} --set movie_dz=0.5 --set movie_z0=25
+                          --set "zdata1=30 28")  # the run ends at z = 27.5 (step 12), before the smoke problem's sources appear at z = 24.7 (step 13)
+                                                 # (the RT costs 100 s a step here; the restart must end where the run does)
+        add_test(NAME amrex_pm_level_solve_ranks_smoke_r${r}
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                         ${amrex_runs}/pm_level_solve_ranks_r${r} "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                         ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                         ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${levsolve_sets}
+                         --set restart_every=1 --set restart_keep_latest=0)
+        set_tests_properties(amrex_pm_level_solve_ranks_smoke_r${r} PROPERTIES TIMEOUT 1800
+                             LABELS "amrex;amrex_pm;amr;level_solve;full" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+        add_test(NAME amrex_pm_level_solve_restart_smoke_r${r}
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                         $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                         ${amrex_runs}/pm_level_solve_restart_r${r} 9 ${levsolve_sets})
+        set_tests_properties(amrex_pm_level_solve_restart_smoke_r${r} PROPERTIES TIMEOUT 1800
+                             LABELS "amrex;amrex_pm;amr;level_solve;restart" ENVIRONMENT OMP_NUM_THREADS=1)
+      endforeach()
+      # T1 of the zoom ladder (docs/zoom_turbulence.md section 5, docs/stage_g.md
+      # section 4; nightly, ~15 min on 2 ranks): 32^3 base with two levels over
+      # the central eighth and the level solve, and the same hierarchy with the
+      # uniform 128^3 mesh (pm_gas_levels), against the uniform 128^3 run with
+      # the same 128^3 particles: the particles, the FoF halos and the density
+      # PDF inside the region
+      add_test(NAME amrex_pm_zoom_t1
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_zoom_t1_check.py
+                       ${amrex_runs}/pm_zoom_t1 "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> $<TARGET_FILE:find_halos> ${PROJECT_SOURCE_DIR})
+      set_tests_properties(amrex_pm_zoom_t1 PROPERTIES TIMEOUT 7200 LABELS "amrex;amrex_pm;amr;level_solve;nightly"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 4 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+      # without refinement the level solve is the Stage E level: byte-identical
+      add_test(NAME amrex_pm_level_solve_identity_smoke
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/flag_identity_check.py
+                       ${amrex_runs}/pm_level_solve_identity "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       pm_level_solve --quiet --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                       --set amrex_max_grid_size=8 --set run_steps=6)
+      set_tests_properties(amrex_pm_level_solve_identity_smoke PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_pm;level_solve" ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    endif()
     # Stage F3 (docs/stage_f.md section 3): the I-front of one source in
     # uniform gas with a refined level over the central region, the front
     # crossing the level boundary, against the uniform runs at the base and
@@ -1544,6 +1715,19 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --set restart_keep_latest=0)
     set_tests_properties(amrex_hydro_full_vs_serial_hydro PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
                          ENVIRONMENT OMP_NUM_THREADS=2)
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7) on the cold
+    # unheated IGM, where many cells evolve e from its own value: the AMReX
+    # level byte-identical to the serial step (8^3 boxes, so the stencils
+    # cross box boundaries)
+    add_test(NAME amrex_hydro_dual_e_self_vs_serial
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                     ${amrex_runs}/hydro_dual_e_self_pair $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     "hydro_backend=serial" "hydro_backend=amrex,amrex_hydro_max_grid_size=8"
+                     --quiet --set zdata1=20 --set hydro_scheme=unsplit --set dual_e_self=1
+                     --set thermal_floor=0.01 --set fields_every=1 --set fields=u_gas,e_gas)
+    set_tests_properties(amrex_hydro_dual_e_self_vs_serial PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=2)
     # amrex_state = 1 (docs/stage_e_state.md): the gas on the levels, byte-
     # identical to the three backends with the host state on every rank
     # (fields, stats, movie frames, checkpoints), for 1/2/3 ranks x 1/2
@@ -1565,6 +1749,32 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # Plane-parallel RT-domain mode on the backend (docs/plane_parallel.md):
+    # the RT-only physics checks with 2 ranks (the face rays across the
+    # boxes, the far-face deletion and the fixed-point photon bookkeeping),
+    # and the full loop on the three backends against the serial run
+    add_test(NAME amrex_plane_rt
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${amrex_runs}/plane_rt --only gamma slab front conserve domains
+                     --set rt_backend=amrex --set amrex_max_grid_size=8
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rt PROPERTIES TIMEOUT 1800 LABELS "amrex;plane;physics"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_rt_sweep
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_check.py
+                     $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src
+                     ${amrex_runs}/plane_rt_sweep --only gamma slab front conserve domains sweep
+                     --set rt_backend=amrex --set amrex_max_grid_size=8
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rt_sweep PROPERTIES TIMEOUT 1800 LABELS "amrex;plane;physics"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_full
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
+                     $<TARGET_FILE:radhydro> ${amrex_runs}/plane_full --amrex $<TARGET_FILE:radhydro>
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_full PROPERTIES TIMEOUT 3600 LABELS "amrex;plane;physics;full"
+                         ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
     # amrex_slab = 1: the shared decomposition as z-slabs (P planes; 0 = N /
     # ranks), byte-identical to the host state on the default boxes; N = 16:
     # 3 ranks hold 2, 1, 1 slabs of 4; P = 2 is thinner than the hydro's
@@ -1624,6 +1834,47 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                        --set pm_backend=amrex --set movie_dz=0.5 --set movie_z0=25 --set restart_every=0)
       set_tests_properties(${tname} PROPERTIES TIMEOUT 1800
                            LABELS "amrex;amrex_state;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
+                           PROCESSORS ${np})
+    endforeach()
+    # gammaHI_avg (the substep-averaged Gamma_HI) of the moment RT on the
+    # level: the fields and a movie frame after every substep (the running
+    # average) byte-identical to the serial moment RT, the state on the
+    # slabs (state) or on rank 0's host arrays (host)
+    foreach(rt "m1 state 2 1 4" "cone state 4 1 4" "otvet state 3 2 4" "m1 host 2 2 4")
+      separate_arguments(rt)
+      list(GET rt 0 mc)
+      list(GET rt 1 md)
+      list(GET rt 2 np)
+      list(GET rt 3 nt)
+      list(GET rt 4 planes)
+      if(mc STREQUAL "m1")
+        set(margs --set rt_method=m1)
+      elseif(mc STREQUAL "otvet")
+        set(margs --set rt_method=otvet)
+      else()
+        set(margs --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2)
+      endif()
+      if(md STREQUAL "state")
+        set(st 1)
+        set(bargs --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex)
+      else()
+        set(st 0)
+        set(bargs)
+      endif()
+      set(tname amrex_moment_gamma_avg_${mc}_${md}_r${np}t${nt})
+      add_test(NAME ${tname}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       ${amrex_runs}/moment_gamma_avg_${mc}_${md}_r${np}t${nt} $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke "rt_backend=serial,amrex_state=0"
+                       "rt_backend=amrex,amrex_state=${st},amrex_slab=1,amrex_slab_planes=${planes}"
+                       --quiet ${margs} ${bargs} --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1
+                       --set hydro_scheme=unsplit --set fields=fHI,gammaHI,gammaHI_avg
+                       --set movie_fields=fHI,gammaHI,gammaHI_avg --set movie_dz=0.5 --set movie_z0=25
+                       --set movie_every_substep=1 --set movie_slab=1
+                       --set restart_every=0)
+      set_tests_properties(${tname} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
     # the moment RT on the level through a checkpoint (rank 0 streams the
@@ -1759,6 +2010,23 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                COMMAND ${RADRAY_MPIEXEC} ${RADRAY_MPIEXEC_FLAGS} ${RADRAY_MPIEXEC_NP} ${np}
                        $<TARGET_FILE:test_amrex_pm> --fft ${fft} --mgs ${mgs})
       set_tests_properties(amrex_pm_unit_r${np}_${fft} PROPERTIES LABELS "amrex_pm;pm"
+                           ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS ${np})
+    endforeach()
+    # Stage G (pm_level_solve, docs/stage_g.md): the level Poisson solve on a
+    # gas state with refined levels built by the test (no hydro): the
+    # single-particle force against Ewald with level 1 everywhere, over a
+    # region and with two nested levels; no self-force; level 1 everywhere
+    # against the uniform pm_refine = 2 backend (the same discrete problem:
+    # MLMG against the FFT); the DM + gas momentum over one step (1, 2 and 3
+    # ranks; the test needs C++20 for the AMReX headers it includes)
+    add_executable(test_amrex_pm_levels test_amrex_pm_levels.cpp)
+    target_link_libraries(test_amrex_pm_levels PRIVATE radray_pm ${RADRAY_RT_BACKEND_LIB})
+    set_target_properties(test_amrex_pm_levels PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    foreach(np 1 2 3)
+      add_test(NAME amrex_pm_levels_unit_r${np}
+               COMMAND ${RADRAY_MPIEXEC} ${RADRAY_MPIEXEC_FLAGS} ${RADRAY_MPIEXEC_NP} ${np}
+                       $<TARGET_FILE:test_amrex_pm_levels> --mgs 8)
+      set_tests_properties(amrex_pm_levels_unit_r${np} PROPERTIES LABELS "amrex_pm;pm;amr;level_solve"
                            ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS ${np})
     endforeach()
     # round-off against the serial pm_driver on the PM problems (fixtures of

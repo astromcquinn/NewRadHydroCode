@@ -242,6 +242,21 @@ Sizes: a level-8 region of 1024³ with a 128-cell pad is 1280³ complex
 arrays, about 35 GB per field in double; the generator runs on one klone
 node in an hour, like the 1024³ ICs today (293 GB, 10 min).
 
+**Status (2026-10-23, thread D, branch `zoom-ics`):** built as
+`tools/ics/music_convert.py` (MUSIC's generic HDF5 → `xv_dm.init`,
+`u_gas.init`, `u_gas.init.L<l>`, `xv_dm.L<l>`, `ics_levels.txt`) and
+`tools/ics/music_ladder.py` (the ladder's configurations), with T0, the
+ladder check and a fast-suite zoom (`tools/ics/music/README.md`; decisions
+in `docs/PLAN.md`). Two corrections to the text above: MUSIC2 constrains a
+level's noise to its parent by Fourier splicing over the level's patch,
+not by the block-mean rule of step 1, so the ladder property needs every
+rung to put each shared level on the same grid (the generator does); and
+the fast suite uses a committed MUSIC zoom (895 KB) instead of a built-in
+nest in `make_ics.py`. The amplitude and velocities follow the code's
+growth (step 5): with CAMB's velocity columns the CDM moves at 0.92× the
+code's growing mode at z = 300 and the gas lags (0.74× at k = 50 h/Mpc,
+0.06× at 2500), CAMB's physics rather than the code's single-fluid growth.
+
 ### 4.2 WP2: static zoom levels
 
 * **Tagging by particle mass class** instead of fixed boxes: a level-l
@@ -380,6 +395,10 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   z < 15; `docs/plane_parallel.md`), applied in the RT cell physics; the
   default 0 keeps every reference. **User decision 2026-10-22: the first
   runs are unheated; preheating is added later.**
+  A physical alternative to the floor now exists: the uniform X-ray
+  background of `xray_heating = 1`, from the source model's SFR
+  (`docs/xray_heating.md`, 2026-10-26); its one-zone IGM reaches 100 K and
+  1000 K at z ≈ 10 for log L_X/SFR ≈ 40.5 and 41.5.
 * **Runtime cosmology and z_init** (§4.1 item 5).
 * Cooling stays on in the dense gas (the Stage F decision) with the sink
   above a few thousand × mean; C26 had no sink and no star formation in
@@ -725,6 +744,10 @@ about three months of threads from now.
    the smallest subregion more slowly than sound crosses a cell (§4.4:
    ĉ ≲ 0.07c on a 1024³ rung at 20 km/s).
 
-Still open: the sink threshold inside the zoom (§4.5), the non-ideal
-MHD term (7), and how short the RT–hydro coupling interval must be
-while the front crosses the zoom (§4.4, the T4 test).
+Still open: the sink threshold inside the zoom (§4.5) and the non-ideal
+MHD term (7). **The T4 test (2026-10-27, `docs/plane_parallel.md`
+"Results", `docs/STATUS.md`): a coupling interval of 1 Myr reproduces the
+per-substep coupling to a few per cent in E(k) at 64³ (Δx = 3.9 kpc/h,
+about 1/30 of the cell's sound-crossing time); 10 Myr does not during
+the first 100 Myr. `dt_max_myr` (and `rt_substeps_max`) exist; the
+zoom's value scales with the finest cell (~0.2 Myr at 0.3 kpc/h).**

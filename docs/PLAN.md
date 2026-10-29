@@ -1220,7 +1220,10 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   fitted so that the FoF halos of the 128³, 10 Mpc/h box, the same cell
   and particle mass as 512³ in 40 Mpc/h, reproduce the observed UV LFs;
   with 1024³ particles the halo counts shift a little, which the base run's
-  check absorbs; the Sheth–Tormen table `am_params_st_fof.txt` would have
+  check absorbs — *wrong, found at the launch on 2026-10-19: the 20-particle
+  floor is then 1.3×10⁸ M☉ and the source luminosity density at z = 11–13
+  is 20–60× the calibration's; the box ionised by z ≈ 9; see
+  docs/STATUS.md, "STOPPED 2026-10-19", and the open decision below*; the Sheth–Tormen table `am_params_st_fof.txt` would have
   changed the emissivity by about 0.04 dex); (2) cooling suppression 200
   and no sink; a sink on the serial path is wanted later; (3) overwrite
   the old run names; (7) no dark matter in the outputs, only in the
@@ -1322,6 +1325,42 @@ in `docs/STATUS.md` and `docs/rt_multicell.md` §9.
   Rough costs at the revised schedule (≈ 1.2× the 0.2c runs): rays
   A + RR 17 h, rays B 10 h, M1 5 h, each OTVET variant 5–6 h; about 60
   node-hours.
+* **Open (2026-10-19, from the launch): the halo-mass floor with 1024³
+  particles.** The suite's first launch ionised the box by z ≈ 9 because
+  `fof_min_npart = 20` with 1024³ particles admits 1.3×10⁸ M☉ halos,
+  8× below the floor of the L(M) calibration, and the fitted L(M)
+  (L ∝ M^1.19 at low mass, plus the high-z boost) makes them 20–60× the
+  calibration's emissivity at z = 11–13 (`docs/STATUS.md`). Choices:
+  (i) `m_min = 1.02e9` M☉ (the calibration's 20 × 5.1×10⁷ M☉; or
+  `fof_min_npart = 160`), the literal "512³-calibrated luminosities",
+  needing a `make_production.py` option and one line in
+  `rt_suite512.sh`; (ii) refit L(M) on the 1024³ FoF mass function; (iii)
+  512³ particles (`pm_refine` with Ndm = 512). **Decided (user,
+  2026-10-19): (ii) in the form of the Sheth–Tormen refit table
+  `am_params_st_fof.txt` already used by `fesc512_b2.5_{uniform,amr}`
+  (the 2026-10-11 calibration decision), with f6 = 0.135 and β = 2.5
+  kept and no precheck; the base first, checked against those two runs'
+  early x_V(z), then the siblings.** **2026-10-19 (afternoon, user): f6 tuned
+  so that reionization ends at z = 5.5**: the precheck grid gave
+  f6 = 0.11 (z99 = 5.59 at 40 Mpc/h, τ = 0.059). **2026-10-21 (user): the
+  ĉ schedule made continuous in x_HII,V** (`c_reduced_schedule_interp = 1`,
+  linear between the plateau midpoints) after the Γ_HI jumps of ×1.5–2 at
+  each step switch were traced to the photon reservoir ṅ λ/ĉ; **the whole
+  suite rerun with it, overwriting the step-schedule runs**, base first. **Done 2026-10-22:** the seven runs and the report
+  `docs/rt_suite_512.md` (histories method-independent to 0.1 in z; M1 the
+  outlier in morphology and P_Γ; the attenuated tensors remove OTVET's
+  after-overlap excess, the cone the best match to the rays; Γ within 10 %
+  of Gaikwad at z ≥ 5.5 for all methods, λ_mfp 3.5–5× the data). Open
+  from it: a lower β rather than f6 to end later at fixed Γ(5.4); the
+  λ_mfp excess; the AMR repeat and FLD (threads B, C). The first launch's runs were
+  cancelled and the names reused. The halo floor (i) remains the
+  alternative if the base's history does not match. **2026-10-19 (afternoon,
+  user): tune f6 so that reionization ends at z = 5.5** (the base at
+  f6 = 0.135 was heading for z99 ≈ 6.1; the runs stopped again). Measured
+  with `rt_suite512.sh precheck` at f6 = 0.06, 0.08, 0.1, 0.135 (256³,
+  20 Mpc/h, the suite's configuration): z99 = 6.21 at 0.135, 5.36 at
+  0.1, unfinished below (`docs/STATUS.md`); **f6 = 0.11, β = 2.5** for the
+  suite, launched 2026-10-19 20:52.
 * **Decisions open for the user:** (a) ~~ĉ~~ decided 2026-10-17: the
   schedule above; (b) ~~case B~~ decided 2026-10-18: case B for the suite,
   one ray run with case A + RR; (c) ~~the
@@ -1499,6 +1538,45 @@ be designed); `recomb_rad` on the backend (block emission and
   1/(1 + √fgam): the parent absorbs what the ray loses) are the defaults.
   Evidence: `docs/stage_f.md` §3, "Rays at the level faces".
 
+## Stage G thread (2026-10-22): gravity on the hierarchy (`pm_level_solve`)
+
+* **Request (user):** WP3 of `docs/zoom_turbulence.md` §4.3: particles on
+  the finest level covering them, the CIC deposit per level, the level
+  Poisson solve with AMReX MLMG (MLPoisson) and Dirichlet boundaries from
+  the parent's potential, the 4-point gradient and the per-level kick;
+  level 0 keeps the FFT, bitwise. Behind a flag (`pm_level_solve`, default
+  off) with `pm_gas_levels` kept as the comparison; deterministic across
+  rank counts. Tests: the Ewald single-particle force on a refined level,
+  the refined-everywhere run against the uniform 2N run, momentum
+  conservation, rank independence and restart; then T1 of §5. Profile the
+  solve at 128³ with two levels on klone.
+* **Implementer's choices** (`docs/stage_g.md`): one particle container
+  with the hierarchy's levels (AMReX's Redistribute by level, the AMReX
+  position at the finest level's resolution); deposits in density units
+  with per-level fixed-point bits; the [1, 3, 3, 1]/8 restriction (the
+  parent CIC's spectrum; the plain mean of the children made the coarse
+  source NGP-like and gave 5–8 % far-field force errors); the fine CIC
+  mass that falls outside a level lumped into the adjacent parent cells;
+  MLMG with a fixed number of V-cycles, the smoother as the bottom solver
+  and a multigrid depth fixed by the blocking factor (no dot products:
+  bitwise layout-independent), `setEnforceSingularSolvable(false)`;
+  tri-quadratic interpolation of the parent's potential into a level's
+  ghost cells; the kicked momenta averaged down as in `pm_gas_levels`.
+  More particles than base-mesh cells allowed (the T1 test: 128³
+  particles on a 32³ base). AMReX built with its linear solvers
+  (`amrex-26.10-mlmg` on klone).
+* **klone profile:** submitted by the user (2026-10-24), results in
+  `docs/stage_g.md` §5.1; it led to `pm_mlmg_bottom_sweeps` (default 64,
+  an implementer's choice: AMReX's 8 bottom sweeps stalled a level whose
+  width has an odd factor).
+* **Decision (user, 2026-10-23): no composite (two-way) solve**, at
+  least for now and probably not at all: the level solve is what Enzo and
+  RAMSES use; its cost is the momentum change across level boundaries
+  (5e-4 of the summed gas |Δp| per step with a region) and a self-force
+  of 4e-6 of the force at one cell near a boundary (`docs/stage_g.md`
+  §1.1, §3), to be revisited only if the zoom runs show the region's
+  boundary doing something unphysical.
+
 ## Zoom-in turbulence programme (2026-10-22)
 
 * **Request (user):** a plan to zoom repeatedly on one region of the box
@@ -1554,3 +1632,131 @@ be designed); `recomb_rad` on the backend (block emission and
   neutral photon-free cells the original's RT physics skips, but not the
   hydro/PM limits; `radhydro` and `pm_driver` check the ICs' `ics_info.txt`
   (z_init and cosmology) unless `ics_check = 0`.
+
+## X-ray preheating from the source model (2026-10-26)
+
+* **Question (user):** does the code include Compton cooling? Yes: Compton
+  cooling and heating off the CMB (`coef_cool(14)`), as in the original, but
+  only in cells the RT processes (ionised or reached by photons), and with no
+  residual electrons in the neutral ICs (`docs/xray_heating.md` §0).
+* **Request (user):** start a preheating model from the X-ray background,
+  with the X-ray emissivity predicted from the mass function fit that the
+  source model was calibrated with and the SFR the source model implies.
+  The user will supply papers with an X-ray emission model later; until then
+  a simple model, to be improved.
+* **Done (behind `xray_heating = 1`, default off):** a uniform background from
+  ρ̇_*(z) of all halos above 10⁴ K (the Sheth–Tormen refit × L_UV(M, z)/l_per_sfr),
+  L_X/SFR = 10^40.5 in 0.5–2 keV with an E⁻¹ spectrum from 0.5 to 10 keV,
+  cosmological transfer with the box's mean absorbers, the Shull & van
+  Steenberg energy split in the cell physics; `docs/xray_heating.md`.
+* **Open for the user:** the emission model from the papers (L_X/SFR and its
+  dependence on metallicity, the spectrum and its soft cut-off), the
+  secondary-electron fractions, whether to go on to an inhomogeneous
+  treatment (an X-ray group in the RT) (`docs/xray_heating.md` §5).
+* **Request (user, 2026-10-26, later):** check that the simulations reproduce
+  the expected temperature history before preheating, Compton cooling off
+  the CMB in particular. Result (`docs/thermal_history.md`): they do not.
+  The unheated gas follows the code's floor (instantaneous decoupling at
+  z ≈ 216), 0.60–0.76× RECFAST, because the ICs start at the floor and
+  neutral gas has no residual electrons for Compton coupling (quirk T1).
+  **Decision needed:** whether to add the proposed fix (RECFAST initial
+  temperature plus residual-electron Compton coupling), behind
+  `legacy_physics = 0` or a new key, and whether to lower the unsplit
+  hydro's 1 K floor.
+* **Decisions (user, 2026-10-26):** implement the fix with a new key
+  `thermal_init` (not `legacy_physics = 0`), and lower the thermal floor.
+  Done: `thermal_init = floor | recfast` and `thermal_floor` (K; 0.1 K by
+  default with recfast, chosen to stay below the coldest physical gas,
+  voids at ~0.2 K at z ≈ 6, while bounding the unsplit hydro's
+  numerically over-cooled cells; `docs/thermal_history.md` §4).
+
+## Zoom ICs from MUSIC, thread D (2026-10-23, branch `zoom-ics`)
+
+The converter `tools/ics/music_convert.py` and the ladder generator
+`tools/ics/music_ladder.py` (`tools/ics/music/README.md`). Decisions taken
+in the thread; **confirmed by the user on 2026-10-23**, including the
+ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
+
+* **Amplitude and velocities from the code's growth (as asked).** MUSIC
+  normalises σ₈ today and scales back with its own growth, which has no
+  radiation (Ω_r = 0 in its log; D₊ at z = 300 is 6 % below the code's,
+  f = 1.000 against the code's 0.944). The converter multiplies every field
+  by r_D = D_code(a)/D_MUSIC(a) (MUSIC's computed from the exact integral and
+  checked against its log), so the fields carry σ₈ evolved back with the
+  code's growth, as `make_ics.py` does. Velocities: without velocity
+  transfer functions (Eisenstein–Hu) v = (dD/dτ)/D × displacement, the
+  code's growing mode exactly; with CAMB's v_CDM, v_b columns (which carry
+  f(k) at z_start) v = (d ln a/dτ) × MUSIC's velocity displacement, i.e.
+  CAMB's f(k) with the code's H(a) (using (dD/dτ)/D there would count f
+  twice).
+* **Ndm = Ngas = N on every level**, one particle per MUSIC cell; the base
+  `xv_dm.init` keeps all N³ particles so the code reads it as today, and
+  the finer classes (`xv_dm.L<l>`, the cells not covered by the next level)
+  supersede the base particles under level 1 (`ics_levels.txt`). Velocities
+  of every level in level-0 cell units (the AMReX hierarchy's convention).
+* **Cosmology until thread C:** a preset (`original`, `planck_c26`) or the
+  five keys `omegam omegab hubble0 sigma8 ns` (`pmcosmo.Cosmology`, the
+  names thread C is to read from params.txt); the converter refuses a MUSIC
+  run made for another cosmology and writes the target into
+  `ics_info.txt`. The code itself does not yet check `ics_info.txt`
+  (thread C).
+* **The ladder: the region is given once, at the deepest level**
+  (`--ladder-max`), and every rung's grids follow from it by MUSIC's own
+  coarsening rule, the finest one written exactly (`ref_center` +
+  `ref_dims`). Reason: MUSIC2 constrains a level's noise to its parent by
+  Fourier splicing over the level's whole patch, so the noise depends on the
+  grid; with `ref_extent` at each rung's own levelmax (as `zoom_z3.conf` was
+  written) Z1's level 13 would be a different grid from Z3's and its noise
+  redrawn. With the generator the shared levels are identical (noise to
+  1e-15, the gas outside the deeper rung's new level bit for bit). A rung's
+  finest region is therefore the deepest region plus the shells of the
+  levels below it: Z1 = level 13 over 96³ cells (0.47 Mpc/h) for the
+  0.3125 Mpc/h Z3 region. **Open (user):** `docs/zoom_turbulence.md` §3's
+  table gives Z1 as 512³ over 2.5 Mpc/h and Z2 as 1024³ over 1.25 Mpc/h,
+  while the README calls Z1 and Z2 `zoom_z3.conf` at levelmax 13 and 15;
+  both cannot hold with an exact ladder (a Z3 that kept a 2.5 Mpc/h level 13
+  would carry 512³ cells there, not a thin shell). The generator does the
+  latter; the former needs per-level minimum extents (a small addition).
+* **Seeds:** seed[l] = seed + 1000 (l − base level) for the zooms (the rule
+  of the hand-written `zoom_z3.conf`); the uniform C ladder keeps one seed
+  at the finest rung's level (`c2_uniform.conf`, MUSIC restricts it down).
+* **Test data:** the fast suite's zoom is a committed MUSIC output packed to
+  `.npz` (895 KB, mantissas rounded to 14 bits; numpy only), not the
+  in-repo nest of §4.1 steps 1–2, which is not built.
+## Plane-parallel RT-domain mode (2026-10-26)
+
+* **Decisions (user, 2026-10-26, the open questions of
+  `docs/plane_parallel.md`):** cooling fully on in the plane-parallel
+  problems (`cool_suppress_overdensity = 0`; the code default stays the
+  original's 200); one face per domain and direction (`plane_faces = +x
+  +y`, two orthogonal directions as DM20 and C26); no Supplemental §C 2
+  procedure (follow the C26 text: hydro and gravity to z_re, then every
+  face at the full Γ_HI at once, the reduced ĉ from the existing
+  schedule); the C1 ladder with fixed 8³ domains of 31.25 kpc/h at every
+  resolution. **Also requested:** a mode with one plane-parallel front
+  crossing the entire box: `plane_ndom = 1` with a single face.
+* **Implementation choices (this thread; `docs/plane_parallel.md`,
+  "Implementation"):** the 5 groups carry the equal-photon bins of ν^−1.5
+  with the photon-weighted mean frequency of each bin as the group's
+  effective frequency, and the grid's optical depths use these
+  frequencies; the photons per ray are set so that Γ = n_γ σ ĉ of a lit
+  cell equals Γ_HI exactly (checked to 5e-8); the face rays are never
+  split, merged or redshifted and are deleted at the far face; the halo
+  finder and the halo sources are off in the mode; the step before z_re
+  lands on it. **For the user to confirm:** `photon_consume_dense` (the
+  original lets cells denser than 50× the mean ionise without consuming
+  photons, `rho_source` in `docs/port_notes.md`; the plane-parallel
+  problems and `make_production.py --plane-parallel` set 1 so dense gas
+  self-shields; the code default stays 0, the original).
+* **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
+  `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
+  from the turn-on, otherwise always.
+
+## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
+
+* **`dual_e_self = 1` for production and for `thermal_init = recfast`**
+  (user, 2026-10-27). `make_production.py` writes `dual_e_self = 1` with
+  the unsplit hydro (`--dual-e-self 0` for the scheme before the key).
+  In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
+  explicit key wins. Without `recfast` the code default stays 0, so
+  every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).

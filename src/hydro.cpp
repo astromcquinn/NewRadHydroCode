@@ -86,6 +86,7 @@ struct Sweep {
   double Dgas_min = 0, Dgas_frz = 0;
   double c_limit = 0, Tmf_min = 0, Tmf_max = 0;
   double temp1_unit = 0, dt_hy = 0, ngasr = 0;
+  double Thydro_min = 0;  // check_temp's floor, Units::Thydro_min
   HydroCounters* cnt = nullptr;
   Fft1d* fft = nullptr;
 
@@ -162,12 +163,12 @@ inline void smooth_cells_2(int i, double* u, double* w, Sweep& S) {
 }
 
 // --------------------------------------------------------------------------
-// check_temp: temperature floor Tmin = 1/temp1_unit (1 K), energy
+// check_temp: temperature floor Tmin = 1/temp1_unit (1 K; thermal_floor), energy
 // redistributed with the two neighbours in proportion to the old T.
 // --------------------------------------------------------------------------
 void check_temp(float* u, const float* u0, Sweep& S) {
   const int N = S.N;
-  const double Tmin = 1 / S.temp1_unit;
+  const double Tmin = S.Thydro_min;
   for (int i = 1; i <= N; ++i) {
     float* ui = u + 5 * (i - 1);
     const double d = ui[0];
@@ -830,6 +831,7 @@ void hydro_step(const Config& cfg, const Units& un, const SimClock& clk,
     S.Tmf_min = un.Tmf_min;
     S.Tmf_max = un.Tmf_max;
     S.temp1_unit = un.temp1_unit;
+    S.Thydro_min = un.Thydro_min;
     S.dt_hy = hs.dt_hy;
     S.ngasr = cfg.ngasr;
     S.cnt = &cnts[t];

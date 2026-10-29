@@ -1,6 +1,8 @@
 #include "radray/io.hpp"
 
 #include "radray/cosmology.hpp"
+#include "radray/plane_parallel.hpp"
+
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
@@ -38,6 +40,7 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   }
   if (set_rt_method_param(p.rtm, key, val)) return;  // rt_moments.hpp
   if (set_rt_backend_param(p.rtm, key, val)) return;  // rt_backend.hpp
+  if (set_plane_param(p.rtm, key, val)) return;       // plane_parallel.hpp
   for (auto& ch : val)
     if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
   // omegam, omegab, hubble0, sigma8, ns, T_min, z_floor (cosmology.hpp)
@@ -52,6 +55,10 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.nsteps = std::stoi(val);
   else if (key == "nray_max_factor")
     p.nray_max_factor = std::stoi(val);
+  else if (key == "box") {
+    p.box = std::stod(val);
+    if (!(p.box > 0)) throw std::runtime_error("box must be > 0");
+  }
   else if (key == "ray_dump_every")
     p.ray_dump_every = std::stoll(val);
   else if (key == "ray_dump_at")
@@ -208,6 +215,11 @@ void write_step_output(const std::string& dir, const Simulation& s) {
   std::fprintf(fp, "nspl1 = %lld\n", static_cast<long long>(rv.nspl1));
   std::fprintf(fp, "ndel1 = %lld\n", static_cast<long long>(rv.ndel1));
   std::fprintf(fp, "ngam_rays_total = %.17g\n", ngam_rays_total(s));
+  if (s.plane.on) {  // plane_parallel = 1: the step's photon bookkeeping (plane_parallel.hpp)
+    std::fprintf(fp, "plane_emitted = %.17g\n", s.plane.emitted);
+    std::fprintf(fp, "plane_absorbed = %.17g\n", s.plane.absorbed());
+    std::fprintf(fp, "plane_escaped = %.17g\n", s.plane.escaped());
+  }
   std::fclose(fp);
 
   // rt_stats.txt: the extra diagnostics written by the Fortran harness
