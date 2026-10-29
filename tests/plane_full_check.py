@@ -31,12 +31,12 @@ then 0.01 c). Checks:
     principles (vel_unit = x_unit / time_unit), i.e. dt_yr <=
     dx_phys / (v_max + c_hot) at z_re up to the growth of time_unit ~ a^2
     over the step; the steps before z_re are those of the uncapped run,
-    and with plane_turnon_cfl = 0 the turn-on step is the old one. In the
-    default problem (uniform, cold, 16^3 at z = 9) the cap does not bind
-    (one cell crossing at c_hot(2e4 K) = 100 Myr, the ra_max step 97 Myr),
-    so the check runs with plane_turnon_temp = 4e4 and plane_turnon_courant
-    = 0.5 (36 Myr) to z = 8.5, against the same run with plane_turnon_cfl
-    = 0;
+    and with plane_turnon_cfl = 0 the turn-on step is the old one. The
+    check runs with plane_turnon_temp = 4e4 and plane_turnon_courant = 0.5
+    (36 Myr) to z = 8.5, against the same run with plane_turnon_cfl = 0
+    (the ra_max step, 97 Myr, in this uniform, cold 16^3 box at z = 9), and
+    the default run's turn-on step is plane_turnon_courant = 0.05 (the
+    default, 2026-10-28) times the CFL step with c_hot(2e4 K);
   * --amrex: the backend run (rt_backend = hydro_backend = pm_backend =
     amrex, amrex_state = 1) agrees with the serial run to round-off:
     x_HII,V and T_M to 1e-4 and fHI cell by cell to 1e-3 at the last step.
@@ -188,7 +188,7 @@ TURNON_SETS = [f"plane_turnon_temp={T_HOT:g}", f"plane_turnon_courant={COURANT:g
 def turnon_checks(a, prob, base, st, N, box, z_re):
     """plane_turnon_cfl: the turn-on step at plane_turnon_temp = 4e4 K and
     plane_turnon_courant = 0.5 (binds here) against the same run with
-    plane_turnon_cfl = 0 and the default run."""
+    plane_turnon_cfl = 0, and the default run's (Courant 0.05 at 2e4 K)."""
     stop = ["zdata1=15 12 10 9 8.5"]
     hot = steps(run(a.exe, prob, os.path.join(a.work, "turnon_hot"), a.set + stop + TURNON_SETS))
     off = steps(run(a.exe, prob, os.path.join(a.work, "turnon_off"), a.set + stop + TURNON_SETS + ["plane_turnon_cfl=0"]))
@@ -216,13 +216,15 @@ def turnon_checks(a, prob, base, st, N, box, z_re):
     bound = COURANT * dx_km / (vmax + c_hot_kms(T_HOT)) / YR2SEC
     grow = ((a_re + s1["da_sim"][0]) / a_re) ** 2
     check(s1["dt_yr"][0] <= bound * grow, f"turn-on step dt = {s1['dt_yr'][0] / 1e6:.3f} Myr <= {COURANT} dx/(v_max + c_hot) = {bound / 1e6:.3f} Myr (x {grow:.4f}, the expansion over the step)")
-    check(s0["dt_yr"][0] == st[il + 1]["dt_yr"][0] and s0["dt_yr"][0] > 1.5 * s1["dt_yr"][0],
-          f"plane_turnon_cfl = 0: the old turn-on step ({s0['dt_yr'][0] / 1e6:.2f} Myr, the default run's: "
-          f"{st[il + 1]['dt_yr'][0] / 1e6:.2f} Myr) against {s1['dt_yr'][0] / 1e6:.2f} Myr")
-    # the default (2e4 K) does not bind in this problem: the turn-on step is the old one
+    check(s0["dt_yr"][0] > 1.5 * s1["dt_yr"][0],
+          f"plane_turnon_cfl = 0: the old turn-on step ({s0['dt_yr'][0] / 1e6:.2f} Myr) against {s1['dt_yr'][0] / 1e6:.2f} Myr")
+    # the default run (plane_turnon_temp = 2e4 K, plane_turnon_courant = 0.05): its turn-on step
+    # is 0.05 times the CFL step with c_hot(2e4 K)
     ch2 = c_hot_kms(2e4) / vu
-    check(st[il + 1]["dt_sim"][0] * (st[il]["cmax_gas"][0] + ch2) < 1 + 1e-9,
-          "the default run's turn-on step is within the 2e4 K CFL step (which does not bind here)")
+    r2 = st[il + 1]["dt_sim"][0] * (st[il]["cmax_gas"][0] + ch2)
+    check(abs(r2 / 0.05 - 1) < 1e-4,
+          f"the default run's turn-on step: dt_sim (cmax_gas + c_hot(2e4 K)) = {r2:.7f} = 0.05 to 1e-4 "
+          f"({st[il + 1]['dt_yr'][0] / 1e6:.2f} Myr)")
     return hot
 
 
@@ -280,8 +282,11 @@ def main():
     sw = [i for i in range(1, len(cs)) if cs[i] != cs[i - 1]]
     check(len(sw) == 1, f"exactly one switch (steps {sw})")
     if sw:
-        n0, n1 = st[sw[0] - 1]["nstep_rt"][0], st[sw[0]]["nstep_rt"][0]
-        check(n0 / max(n1, 1) > 5, f"the RT substeps per step drop {n0:.0f} -> {n1:.0f} at the switch (> 5x)")
+        # per Myr: the step before the switch is the short turn-on step (plane_turnon_courant 0.05)
+        a, b = st[sw[0] - 1], st[sw[0]]
+        r0 = a["nstep_rt"][0] / (a["dt_yr"][0] / 1e6)
+        r1 = b["nstep_rt"][0] / (b["dt_yr"][0] / 1e6)
+        check(r0 / max(r1, 1e-30) > 5, f"the RT substeps per Myr drop {r0:.2f} -> {r1:.2f} at the switch (> 5x)")
     x_end, T_end = st[-1]["xHII_V"][0], st[-1]["T_M"][0]
     check(x_end > 0.99, f"x_HII,V = {x_end:.4f} > 0.99 at the end")
     T_first = st[il + 1]["T_M"][0] if il + 1 < len(st) else 0

@@ -1755,5 +1755,7 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   `make_production.py --plane-parallel` needs nothing (the default is on).
   Added in this thread: `plane_turnon_courant` (default 1), because the
   T4 runs at 64³ show the requested CFL step with c_hot (20 Myr) does not
-  remove the lag while a ~1 Myr turn-on step (0.05) does. **For the user
-  to decide:** its default (`docs/STATUS.md`, "Done 2026-10-28").
+  remove the lag while a ~1 Myr turn-on step (0.05) does.
+* **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
+  default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
+  64³, one extra hydro step).

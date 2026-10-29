@@ -161,7 +161,7 @@ face (`plane_faces = +x`).
 | `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 |
 | `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
 | `land_outputs` | 0 | 1: the hydro step before a `zdata1` output ends exactly on it (so runs with different step caps are compared at the same times); the plane-parallel problems use 1 |
-| `plane_turnon_cfl`, `plane_turnon_temp`, `plane_turnon_courant` | 1, 2e4, 1 | the step that starts at `plane_z_re` is at most `plane_turnon_courant` × the CFL step with the sound speed of ionised gas at `plane_turnon_temp` (K) added (below; 2026-10-28; the T4 test needs a Courant fraction ≈ 0.05 to remove the turn-on lag); `plane_turnon_cfl = 0` = the uncapped turn-on step of before |
+| `plane_turnon_cfl`, `plane_turnon_temp`, `plane_turnon_courant` | 1, 2e4, 0.05 | the step that starts at `plane_z_re` is at most `plane_turnon_courant` × the CFL step with the sound speed of ionised gas at `plane_turnon_temp` (K) added (below; 2026-10-28; the T4 test needs a Courant fraction ≈ 0.05 to remove the turn-on lag, the default by the user's decision); `plane_turnon_cfl = 0` = the uncapped turn-on step of before |
 
 `tools/production/make_production.py --plane-parallel` writes a production
 `params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
@@ -260,7 +260,7 @@ the first step with the RT on) is at most
 
   dt = C_on 2 dt_gas_factor / (cmax_gas + c_hot),  c_hot² = γ k T_hot / (μ m_H),
 
-C_on = `plane_turnon_courant` (default 1), T_hot = `plane_turnon_temp`
+C_on = `plane_turnon_courant` (default 0.05, user decision 2026-10-28; 1 is the plain CFL step with c_hot), T_hot = `plane_turnon_temp`
 (2e4 K), μ = 1/(2X + 3Y/4) = 0.588 (H II and
 He III; the code's γ = 5/3, X = 0.76, Y = 0.24, k_cgs, mH_cgs of
 `constants.hpp`), i.e. the hydro's own c_s² = γ(γ − 1) e/ρ of fully
@@ -320,9 +320,9 @@ The bitwise suite is untouched: every new flag defaults to the original.
   `docs/data/plane/t4_turnon_N64.txt`): the default CFL step with c_hot
   (20.2 Myr at 64³) leaves the lag of the uncapped step (E(k) off by
   1–2 at 25–100 Myr); a turn-on step of ~1 Myr (`plane_turnon_courant =
-  0.05`) brings E(k) to 9–20 % of the 0.1-Myr coupling and ⟨v²⟩ at 25 Myr
-  from 9 to 26 (km/s)² (reference 27.1); the lag is set by the first
-  step alone.
+  0.05`, the default since the user's decision of 2026-10-28) brings E(k)
+  to 9–20 % of the 0.1-Myr coupling and ⟨v²⟩ at 25 Myr from 9 to 26
+  (km/s)² (reference 27.1); the lag is set by the first step alone.
 * **C1 at 64³** (local; `docs/figures/plane_c1_N64_ek.png`): the fronts
   cross in the first step, T_M = 17 900 K behind them, E(k) steepens from
   k^−3.6 to k^−5 with no k^−5/3 range, as C26 Fig. 3 (bottom) at Δx ≥ 0.5

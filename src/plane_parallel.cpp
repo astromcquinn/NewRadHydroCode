@@ -295,7 +295,7 @@ std::string plane_summary(const Config& c) {
   if (c.land_outputs) s += ", land_outputs = 1";
   if (!c.plane_turnon_cfl)
     s += ", plane_turnon_cfl = 0";
-  else if (c.plane_turnon_temp != 2e4 || c.plane_turnon_courant != 1)
+  else if (c.plane_turnon_temp != 2e4 || c.plane_turnon_courant != 0.05)
     s += ", plane_turnon_temp = " + std::to_string(c.plane_turnon_temp) +
          ", plane_turnon_courant = " + std::to_string(c.plane_turnon_courant);
   return s;

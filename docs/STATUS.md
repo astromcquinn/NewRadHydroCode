@@ -14,7 +14,8 @@ is small in plane parallel cases?" (`docs/PLAN.md`; `docs/plane_parallel.md`,
   × 2 dt_gas_factor / (cmax_gas + c_hot), c_hot the sound speed of H II +
   He III gas (μ = 0.588, the code's γ, X, Y) at `plane_turnon_temp` = 2e4 K
   (21.6 km/s), converted with `vel_unit`. `plane_turnon_cfl = 1` (default;
-  0 = the old step), `plane_turnon_courant = 1` (default). Applied after
+  0 = the old step), `plane_turnon_courant = 0.05` (default, user
+  decision 2026-10-28; 1 = the plain CFL step with c_hot). Applied after
   the other caps, so it changes nothing where it does not bind; a function
   of a only, so a restart from the checkpoint at z_re repeats it bit for
   bit (checked). `plane_parallel = 0` untouched.
@@ -36,13 +37,13 @@ is small in plane parallel cases?" (`docs/PLAN.md`; `docs/plane_parallel.md`,
   | variant | 25 Myr | 50 | 100 | 200 | 400 | ⟨v²⟩ 25 Myr [(km/s)²] |
   |---|---|---|---|---|---|---|
   | base (`plane_turnon_cfl = 0`) | 0.99 | 1.99 | 2.92 | 1.37 | 0.28 | 9.2 |
-  | turnon (default, Courant 1: 20.2 Myr) | 0.99 | 2.11 | 2.06 | 1.04 | 0.26 | 8.9 |
-  | turnon0.05 (`plane_turnon_courant = 0.05`: 1.0 Myr) | 0.09 | 0.20 | 0.17 | 0.12 | 0.14 | 26.0 |
+  | turnon (Courant 1: 20.2 Myr) | 0.99 | 2.11 | 2.06 | 1.04 | 0.26 | 8.9 |
+  | turnon0.05 (`plane_turnon_courant = 0.05`, now the default: 1.0 Myr) | 0.09 | 0.20 | 0.17 | 0.12 | 0.14 | 26.0 |
   | sub (every substep) | 0.015 | 0.020 | 0.021 | 0.024 | 0.012 | 26.8 |
   | dt0.1, ICs × (1 + 1e-6) in one cell (the floor) | 1.4e-7 | 1.1e-7 | 1.4e-7 | 1.5e-7 | 1.2e-7 | 27.06 |
   | dt0.1 (reference) | 0 | 0 | 0 | 0 | 0 | 27.06 |
 
-  **The default rule as requested does not remove the lag:** a one-cell
+  **The rule as requested (Courant 1) does not remove the lag:** a one-cell
   CFL step with c_hot is ~20 Myr here, as long as the old turn-on step.
   **What removes it is a turn-on step of ~1 Myr** (Courant 0.05, or
   equivalently `plane_turnon_temp = 2e7`, run as `turnon1`: the same E(k)
@@ -51,10 +52,9 @@ is small in plane parallel cases?" (`docs/PLAN.md`; `docs/plane_parallel.md`,
   lags by the first step only. The 12–14 % left at 200–400 Myr (dt1 of the
   2026-10-27 table: 2 %) comes from the later CFL steps. The perturbed run
   shows no chaotic decorrelation over the 400 Myr (1e-7), so every
-  difference above is the coupling. **For the user to decide:** the
-  default of `plane_turnon_courant` (1 = the rule as requested; 0.05 makes
-  the first step ~1/20 of the hot cell crossing, ~1 Myr at 64³, and costs
-  one extra hydro step). Cost: dt0.1 and sub took 2.0 h and 1.2 h on 6–8
+  difference above is the coupling. **Decided (user, 2026-10-28):** the
+  default of `plane_turnon_courant` is 0.05 (the first step ~1/20 of the
+  hot cell crossing, ~1 Myr at 64³, one extra hydro step). Cost: dt0.1 and sub took 2.0 h and 1.2 h on 6–8
   threads, the turn-on variants 34 min on 4–8.
 
 ## Done 2026-10-26: the plane-parallel RT-domain mode (branch `claude/eager-sagan-h6a0tu`)

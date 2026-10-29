@@ -18,11 +18,11 @@ The variants, the same problem with one params.txt override each:
   base    the hydro step as it was before 2026-10-28 (plane_turnon_cfl = 0):
           ra_max (da/a <= 1/9) and the CFL, so the RT runs its 10^3-10^4
           substeps inside hydro steps of 50-100 Myr and the gas feels the
-          heating once per step; the step that starts at z_re (44 Myr at 64^3)
+          heating once per step; the step that starts at z_re (25 Myr at 64^3)
           is sized by the cold gas;
-  turnon  the default since 2026-10-28 (plane_turnon_cfl = 1): as base, but
-          the step that starts at z_re is the CFL step with the sound speed
-          of ionised gas at 2e4 K added (docs/plane_parallel.md);
+  turnon  plane_turnon_courant = 1: as base, but the step that starts at
+          z_re is the CFL step with the sound speed of ionised gas at 2e4 K
+          added (the rule as first requested, docs/plane_parallel.md);
   dt100, dt10, dt1, dt0.1   dt_max_myr = 100, 10, 1, 0.1: the heating is
           coupled to the hydro every that many Myr;
   sub     rt_substeps_max = 1: the hydro step is one RT substep, the light
@@ -31,8 +31,9 @@ The variants, the same problem with one params.txt override each:
   turnon1 a diagnostic: plane_turnon_temp = 2e7 K, so that the turn-on step
           is ~1 Myr at 64^3 (the following steps as turnon): whether a short
           first step alone removes the lag;
-  turnon0.05  plane_turnon_courant = 0.05: the turn-on step 1/20 of the
-          CFL step with c_hot (~1 Myr at 64^3), the following steps as turnon;
+  turnon0.05  plane_turnon_courant = 0.05, the default (user decision
+          2026-10-28): the turn-on step 1/20 of the CFL step with c_hot
+          (~1 Myr at 64^3), the following steps as turnon;
   dt0.1_pert, ..._pert   a variant on the perturbed initial conditions of
           ROOT/prob_pert (`make` writes them: the gas of cell (1,1,1), its
           density, momentum and kinetic energy, times 1 + 1e-6, float32): the
@@ -59,9 +60,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 VARIANTS = {
     "base": ["plane_turnon_cfl=0"],
-    "turnon": [],
+    "turnon": ["plane_turnon_courant=1"],
     "turnon1": ["plane_turnon_temp=2e7"],
-    "turnon0.05": ["plane_turnon_courant=0.05"],
+    "turnon0.05": ["plane_turnon_courant=0.05"],  # the default since 2026-10-28
     "dt100": ["dt_max_myr=100"],
     "dt10": ["dt_max_myr=10"],
     "dt1": ["dt_max_myr=1"],

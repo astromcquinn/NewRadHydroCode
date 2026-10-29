@@ -547,12 +547,14 @@ struct Config {
   // starts at plane_z_re (the first with the RT on) is at most the CFL step
   // 2 dt_gas_factor / (cmax_gas + c_hot), c_hot the sound speed of fully
   // ionised gas at plane_turnon_temp (K, default 2e4), times
-  // plane_turnon_courant (default 1; the T4 test at 64^3 needs ~0.05, a
-  // turn-on step of ~1 Myr, to remove the lag: docs/plane_parallel.md);
-  // 0 = the uncapped step (the behaviour before 2026-10-28).
+  // plane_turnon_courant (default 0.05, user decision 2026-10-28: the T4
+  // test at 64^3 needs a turn-on step of ~1 Myr to remove the lag, which 1,
+  // the CFL step with c_hot alone, does not: docs/plane_parallel.md);
+  // plane_turnon_cfl = 0 = the uncapped step (the behaviour before
+  // 2026-10-28).
   int plane_turnon_cfl = 1;
   double plane_turnon_temp = 2e4;
-  double plane_turnon_courant = 1.0;
+  double plane_turnon_courant = 0.05;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
