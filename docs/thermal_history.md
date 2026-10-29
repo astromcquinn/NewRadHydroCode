@@ -266,39 +266,44 @@ decision 2026-10-27; an explicit `dual_e_self = 0` gives the earlier
     within 2% of the floor curve, at z ≥ 30.
 * **`restart_smoke_thermal`**: a restart at step 13 is byte-identical.
 
-## 5. The pre-heating floor: `preheat_floor` from `preheat_z` (implemented 2026-10-29)
+## 5. The preheating floor in the hydro: `T_min` from `z_floor` (2026-10-29)
 
 The stand-in for X-ray pre-heating of DM20 and C26 (`docs/plane_parallel.md`
 §1): a temperature floor imposed from a set redshift. DM20 used T_i =
-1000 K from z = 20, C26 T_min = 100 and 1000 K for z < 15. User decision
-(2026-10-29): a plain switch-on at z = 15, no ramp (the gas that is below the
-floor is lifted to it in the first hydro step after `preheat_z`, an
+1000 K from z = 20, C26 T_min = 100 and 1000 K for z < 15. The keys are
+`T_min` (K, default 0 = off) and `z_floor` of `docs/production_run.md` §10
+(PR #8), whose floor acted in the RT cell physics only. User decision
+(2026-10-29): a plain switch-on at z = 15, no ramp (the gas below the
+floor is lifted to it in the first hydro step after `z_floor`, an
 impulsive injection that the gas then smooths on its sound-crossing time,
 as in C26). The physical alternative is `xray_heating`
 (`docs/xray_heating.md`), serial only for now.
 
-| key | default | meaning |
-|---|---|---|
-| `preheat_floor` | 0 (off) | the floor in K from `preheat_z` on |
-| `preheat_z` | 15 | the redshift the floor switches on at (z < `preheat_z`) |
-
-`calc_sim_var` raises both floors to at least `preheat_floor` below
-`preheat_z`: the hydro floor `Thydro_min` (the legacy `check_temp`, the
-unsplit scheme, the AMReX hydro level, the PM step's thermal-energy clamp)
-and the RT physics floor `temp_min` (so the cell physics does not cool a
-cell below the floor between hydro steps). Above `preheat_z` nothing
-changes: the keys are inert there and by default. The floors act on the
-units of the start of each half step, so at the end of a long step the
-mean-density gas sits a little below the floor (the expansion over the
-second half: 0.90 of it with the onthefly problem's steps at z ≈ 25, the
+**What changed:** `calc_sim_var` now also raises the hydro floor
+`Thydro_min` (the legacy `check_temp`, the unsplit scheme, the AMReX hydro
+level) and the PM step's clamp `Tgas_min` to the floor below `z_floor`.
+Without that the floor holds only while the RT runs, which in the
+plane-parallel mode is not before `plane_z_re`: between z = 15 and the
+turn-on at z = 7, the window the floor exists for, the gas would have
+stayed on its adiabat. The RT physics floor `temp_floor` is as before; the
+`temp_min` of the outputs is unchanged. Above `z_floor` nothing changes:
+the keys are inert there and by default. The floor acts on the units of
+the start of each half step, so at the end of a long step the
+mean-density gas sits a little below it (the expansion over the second
+half: 0.90 of the floor with the onthefly problem's steps at z ≈ 25, the
 same on the AMReX hydro level); with the small steps of a production run
-it is at the floor. Stateless: a restart needs
-nothing. `make_production.py --preheat-floor K [--preheat-z Z]` writes
-the keys; `tools/hyak/c1_ladder.sh` takes `PREHEAT=K`.
+it is at the floor. Stateless: a restart needs nothing. The existing
+global `thermal_floor` (§4) is not the tool for this: imposed from the
+ICs it would hold the gas far above its adiabat through the whole
+pre-reionisation history and suppress the minihaloes and filaments that
+form before z = 15. `make_production.py --T-min K [--z-floor Z]` writes
+the keys (`z_floor = 15` unless given); `tools/hyak/c1_ladder.sh` takes
+`PREHEAT=K`.
 
 **Test `preheat_floor`** (`tests/preheat_check.py`, the 32³ onthefly
-problem without RT to z = 20, `preheat_floor = 1000, preheat_z = 30`):
-every step with z ≥ 30 byte-identical to the run without the keys; below,
-the median temperature of the mean-density cells between 1000 K cooled
-adiabatically over the one step and 1000 K (+1 %), while the run without
-the keys stays below 1.1 % of that; 1 against 2 threads byte-identical.
+problem without RT to z = 20, `T_min = 1000, z_floor = 30`): every step
+with z ≥ 30 byte-identical to the run without the keys; below, the median
+temperature of the mean-density cells between 1000 K cooled adiabatically
+over the one step and 1000 K (+1 %), while the run without the keys stays
+below 1.1 % of that; 1 against 2 threads byte-identical. The RT side of
+the floor is `cosmology_floor_cooling` (`docs/production_run.md` §10).

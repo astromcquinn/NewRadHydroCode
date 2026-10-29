@@ -64,8 +64,11 @@ def main():
         ap.add_argument("--" + k, type=float, default=None,
                         help=f"runtime cosmology {k} (default: the original's)")
     ap.add_argument("--T-min", type=float, default=0.0,
-                    help="preheating floor in K at z < --z-floor (default 0 = off)")
-    ap.add_argument("--z-floor", type=float, default=None)
+                    help="the preheating floor in K at z < --z-floor, a stand-in for X-ray pre-heating "
+                         "(T_min, docs/production_run.md section 10; C26: 100 or 1000 K; default 0 = off)")
+    ap.add_argument("--z-floor", type=float, default=15.0,
+                    help="the redshift the preheating floor switches on at (z_floor; default 15, "
+                         "user decision 2026-10-29)")
     ap.add_argument("--c-reduced", type=float, default=None,
                     help="constant reduced speed of light; given alone it turns the default "
                          "schedule off (written as c_reduced; default 0.01 with --c-schedule none)")
@@ -226,11 +229,6 @@ def main():
                     help="Gamma_HI in the source cells in 1e-12 s^-1 (default 0.3, C26)")
     ap.add_argument("--plane-z-re", type=float, default=7.0, help="the turn-on redshift (default 7)")
     ap.add_argument("--plane-alpha", type=float, default=1.5, help="J_nu ~ nu^-alpha (default 1.5)")
-    ap.add_argument("--preheat-floor", type=float, default=0.0,
-                    help="a temperature floor in K from --preheat-z on, a stand-in for X-ray pre-heating "
-                         "(preheat_floor, docs/thermal_history.md; C26: 100 or 1000 K; default off)")
-    ap.add_argument("--preheat-z", type=float, default=15.0,
-                    help="the redshift the pre-heating floor switches on at (preheat_z, default 15)")
     ap.add_argument("--dt-max-myr", type=float, default=0.0,
                     help="cap on the hydro step in Myr from the turn-on (0: off; the T4 test)")
     ap.add_argument("--rt-substeps-max", type=int, default=0,
@@ -308,9 +306,8 @@ def main():
         if getattr(a, k) is not None:
             lines.append(f"{k} = {getattr(a, k)!r}")
     if a.T_min > 0:
-        if a.z_floor is None:
-            sys.exit("--T-min needs --z-floor (the floor applies at z < z_floor)")
-        lines += [f"T_min = {a.T_min:g}", f"z_floor = {a.z_floor:g}"]
+        lines += ["# the preheating floor (docs/production_run.md section 10): a plain switch-on",
+                  f"T_min = {a.T_min:g}", f"z_floor = {a.z_floor:g}"]
     if a.pm_refine > 1:
         lines.append(f"pm_refine = {a.pm_refine}")
     if a.fof_dt_myr > 0:
@@ -392,10 +389,6 @@ def main():
             lines.append(f"plane_alpha = {a.plane_alpha:g}")
     if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
         lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
-    if a.preheat_floor > 0:
-        lines += ["# the pre-heating floor (docs/thermal_history.md section 5): a plain switch-on",
-                  f"preheat_floor = {a.preheat_floor:g}",
-                  f"preheat_z = {a.preheat_z:g}"]
     if a.dt_max_myr > 0:
         lines.append(f"dt_max_myr = {a.dt_max_myr:g}")
     if a.rt_substeps_max > 0:

@@ -55,7 +55,7 @@ make_problem() {
     --plane-parallel --plane-ndom "$NDOM" --plane-z-re "$ZRE" --plane-gamma12 "$GAMMA12" \
     --zdata1 "$ZDATA" --fields fHI,temp,rhog,u_gas --data-files gas --movie-dz 0 \
     --restart-every 20 --restart-keep 1 --nray-max-factor 8 --backend $backend \
-    --preheat-floor "$PREHEAT"
+    --T-min "$PREHEAT" --z-floor 15
 }
 
 case "$phase" in

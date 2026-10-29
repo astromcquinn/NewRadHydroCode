@@ -965,13 +965,14 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
                      ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
     set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
-    # preheat_floor from preheat_z (docs/thermal_history.md section 5): inert
-    # above preheat_z, the mean-density gas on the floor below it, threads
+    # the preheating floor T_min / z_floor in the hydro (docs/thermal_history.md
+    # section 5): inert above z_floor, the mean-density gas on the floor
+    # below it with no RT running, threads
     add_test(NAME preheat_floor
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/preheat_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
                      ${CMAKE_CURRENT_BINARY_DIR}/preheat_floor)
-    set_tests_properties(preheat_floor PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    set_tests_properties(preheat_floor PROPERTIES TIMEOUT 600 LABELS "physics;threads;cosmology")
     # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7): no cell of the
     # cold unheated IGM over-cooled, the mean-density gas on its adiabat,
     # thread independence, the key inert at 0; the default shows the defect

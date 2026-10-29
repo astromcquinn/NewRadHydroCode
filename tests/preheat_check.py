@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""preheat_floor / preheat_z in apps/radhydro (docs/thermal_history.md section 5).
+"""The preheating floor T_min / z_floor in the hydro (docs/thermal_history.md section 5).
 
 usage: preheat_check.py RADHYDRO PROBLEM WORKDIR [--set key=value ...]
 
 Two runs of PROBLEM without RT (one zdata1, 20), hydro_scheme = unsplit,
 u_gas and e_gas every step:
-  A  preheat_floor = 1000, preheat_z = 30;
-  B  no preheat_* key.
+  A  T_min = 1000, z_floor = 30;
+  B  no T_min / z_floor key.
 Checks: every step with z >= 30 byte-identical between A and B (the keys
-are inert above preheat_z); at every step with z < 30 the median
+are inert above z_floor); at every step with z < 30 the median
 temperature of the mean-density cells (0.9 < Delta < 1.1) in A is between
 1000 K cooled adiabatically over that one step (the floor acts at the
 step's start, the expansion then cools the gas by ((1+z)/(1+z_prev))^2)
-and 1000 K + 1 % (lifted to the floor in the first step after preheat_z
+and 1000 K + 1 % (lifted to the floor in the first step after z_floor
 and held there), while in B it stays below a tenth of that (the code's
 floor curve). Also two threads byte-identical to one in A. Exit 0 on
 success.
@@ -88,7 +88,7 @@ def main():
     T_pre, z_pre = 1000.0, 30.0
     base = ["--set", "zdata1=20", "--set", "hydro_scheme=unsplit", "--set", "fields_every=1",
             "--set", "fields=u_gas,e_gas"] + extra
-    pre = ["--set", f"preheat_floor={T_pre:g}", "--set", f"preheat_z={z_pre:g}"]
+    pre = ["--set", f"T_min={T_pre:g}", "--set", f"z_floor={z_pre:g}"]
     A, A2, B = (os.path.join(work, n) for n in ("A", "A2", "B"))
     run(exe, prob, A, base + pre, 1)
     run(exe, prob, A2, base + pre, 2)
@@ -97,7 +97,7 @@ def main():
     hB = th.run_history(B, N, box)
     check(len(hA) >= 10, f"only {len(hA)} steps")
     check(len(hA) == len(hB), f"{len(hA)} steps with the floor, {len(hB)} without")
-    # the keys are inert above preheat_z: the steps there byte-identical
+    # the keys are inert above z_floor: the steps there byte-identical
     sa = step_dirs(A)
     above = [i for i, (z, *_) in enumerate(hA) if z >= z_pre]
     below = [i for i, (z, *_) in enumerate(hA) if z < z_pre - 0.5]  # the step crossing z_pre starts above it
@@ -107,9 +107,9 @@ def main():
         d = os.path.relpath(sa[i], A)
         keys += [os.path.join(d, os.path.basename(p)) for p in glob.glob(os.path.join(sa[i], "*"))
                  if os.path.basename(p) not in SKIP]
-    same_files(A, B, keys, f"preheat_floor vs no key, the {len(above)} steps with z >= {z_pre:g}")
+    same_files(A, B, keys, f"T_min vs no key, the {len(above)} steps with z >= {z_pre:g}")
     fa = files_of(A)
-    same_files(A, A2, sorted(fa), "preheat_floor: threads 1 vs 2")
+    same_files(A, A2, sorted(fa), "T_min: threads 1 vs 2")
     # the floor acts on the units of the step's start; the output is after
     # the step's adiabatic expansion: T_pre ((1+z)/(1+z_prev))^2 <= T <= 1.01 T_pre
     lo = min(hA[i, 1] / (T_pre * ((1 + hA[i, 0]) / (1 + hA[i - 1, 0])) ** 2) for i in below)
@@ -118,8 +118,8 @@ def main():
     print(f"  with the floor: {len(hA)} steps, z = {hA[0, 0]:.1f} -> {hA[-1, 0]:.1f}; at z < {z_pre:g} "
           f"T / (floor cooled over the step) >= {lo:.4f}, T / floor <= {hi:.4f}")
     print(f"  without:        T / floor <= {ratioB:.4f} at z < {z_pre:g}")
-    check(lo > 0.99, f"preheat_floor: mean-density T below the floor cooled over the step ({lo:.4f})")
-    check(hi < 1.01, f"preheat_floor: mean-density T above the floor ({hi:.4f})")
+    check(lo > 0.99, f"T_min: mean-density T below the floor cooled over the step ({lo:.4f})")
+    check(hi < 1.01, f"T_min: mean-density T above the floor ({hi:.4f})")
     check(ratioB < 0.1, f"no key: mean-density T at {ratioB:.4f} of the floor (the keys leaked)")
     if bad:
         sys.exit(f"{len(bad)} failure(s)")

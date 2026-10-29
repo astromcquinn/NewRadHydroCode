@@ -70,7 +70,11 @@ struct Config {
   // Preheating floor (docs/production_run.md section 10; params.txt T_min,
   // z_floor): at redshifts z < z_floor the RT cell physics (photo_cell)
   // keeps the gas temperature at or above T_min kelvin, as the original
-  // keeps it above temp_min (C26: 100 K or 1000 K below z = 15). T_min = 0
+  // keeps it above temp_min, and the hydro floor (Thydro_min) and the PM
+  // step's clamp (Tgas_min) are raised to it too, so the floor holds in
+  // the hydro steps the RT does not run in (the plane-parallel mode before
+  // plane_z_re; docs/thermal_history.md section 5). C26: 100 K or 1000 K
+  // below z = 15, a plain switch-on (user decision 2026-10-29). T_min = 0
   // (default) is off and bit-identical to the original; T_min > 0 needs
   // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
   double T_min = 0;
@@ -201,14 +205,6 @@ struct Config {
   // temp_min (at least 1 K with legacy_physics = 1, the rate table's lower
   // edge). Default 1 K, or 0.1 K with thermal_init = recfast (radhydro).
   double thermal_floor = 1.0;
-  // params.txt preheat_floor (K, 0 = off) and preheat_z: from z < preheat_z
-  // on, the hydro floor and the RT physics floor temp_min are at least
-  // preheat_floor, a stand-in for X-ray pre-heating (C26: T_min = 100 or
-  // 1000 K for z < 15; docs/thermal_history.md section 5). A plain
-  // switch-on (user decision 2026-10-29): the cells below the floor are
-  // lifted to it in the first step after preheat_z. No Fortran mirror.
-  double preheat_floor = 0.0;
-  double preheat_z = 15.0;
 
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),

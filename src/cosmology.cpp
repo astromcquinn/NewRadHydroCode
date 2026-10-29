@@ -135,20 +135,20 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.temp_min = cfg.legacy_physics ? f::max(cfg.thermal_floor, 1.0) : cfg.thermal_floor;
   }
   u.Thydro_min = cfg.thermal_floor / u.temp1_unit;
-  // The pre-heating floor (Config::preheat_floor): the hydro floor and the
-  // RT physics floor are at least preheat_floor K below preheat_z
-  if (cfg.preheat_floor > 0 && z < cfg.preheat_z) {
-    u.temp_min = f::max(u.temp_min, cfg.preheat_floor);
-    u.Thydro_min = f::max(u.Thydro_min, cfg.preheat_floor / u.temp1_unit);
+
+  // The preheating floor (Config::T_min, z_floor; docs/production_run.md
+  // section 10, docs/thermal_history.md section 5), after thermal_init's
+  // temp_min: the RT cell physics clamps at temp_floor, and the hydro floor
+  // and the PM step's clamp are raised to it, so the floor also holds in
+  // the hydro steps the RT does not run in. temp_min itself (the outputs)
+  // is unchanged.
+  u.temp_floor = u.temp_min;
+  if (cfg.T_min > 0 && z < cfg.z_floor) {
+    u.temp_floor = f::max(u.temp_min, cfg.T_min);
+    u.Thydro_min = f::max(u.Thydro_min, cfg.T_min / u.temp1_unit);
   }
 
-  // The preheating floor of the RT cell physics (Config::T_min, z_floor),
-  // after thermal_init's temp_min; temp_min itself (the hydro and PM
-  // limits, the outputs) is unchanged.
-  u.temp_floor = u.temp_min;
-  if (cfg.T_min > 0 && z < cfg.z_floor) u.temp_floor = f::max(u.temp_min, cfg.T_min);
-
-  u.Tgas_min = u.temp_min / u.temp1_unit;
+  u.Tgas_min = u.temp_floor / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 
   // MF temperature limits in grid units

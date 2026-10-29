@@ -132,9 +132,6 @@ struct RunParams {
   // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
   int thermal_init = 0;
   double thermal_floor = -1;
-  // preheat_floor (K, 0 = off) from preheat_z (Config::preheat_*)
-  double preheat_floor = 0;
-  double preheat_z = 15;
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -259,11 +256,6 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   } else if (key == "thermal_floor") {
     P.thermal_floor = to_double(val);
     if (!(P.thermal_floor > 0)) throw std::runtime_error("thermal_floor must be > 0 (K)");
-  } else if (key == "preheat_floor") {
-    P.preheat_floor = to_double(val);
-    if (!(P.preheat_floor >= 0)) throw std::runtime_error("preheat_floor must be >= 0 (K; 0 = off)");
-  } else if (key == "preheat_z") {
-    P.preheat_z = to_double(val);
   } else if (key == "photon_conserve") {
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_conserve < -1 || P.photon_conserve > 1)
@@ -702,8 +694,6 @@ int main(int argc, char** argv) {
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
     s.cfg.thermal_floor = P.thermal_floor > 0 ? P.thermal_floor : (P.thermal_init == 1 ? 0.1 : 1.0);
-    s.cfg.preheat_floor = P.preheat_floor;  // docs/thermal_history.md section 5
-    s.cfg.preheat_z = P.preheat_z;
     copy_hydro_scheme(P.hydro, s.cfg);
     // dual_e_self defaults to 1 with thermal_init = recfast (docs/hydro_unsplit.md
     // section 7, U7; user decision 2026-10-27); an explicit key wins
@@ -924,10 +914,6 @@ int main(int argc, char** argv) {
            << (cfg.thermal_init == 1 || cfg.thermal_floor != 1.0
                    ? std::string(", thermal_init = ") + (cfg.thermal_init == 1 ? "recfast" : "floor") +
                          ", thermal_floor = " + std::to_string(cfg.thermal_floor) + " K"
-                   : std::string())
-           << (cfg.preheat_floor > 0
-                   ? ", preheat_floor = " + std::to_string(cfg.preheat_floor) + " K from z = " +
-                         std::to_string(cfg.preheat_z)
                    : std::string())
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
