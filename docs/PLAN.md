@@ -1729,11 +1729,12 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   cell equals Γ_HI exactly (checked to 5e-8); the face rays are never
   split, merged or redshifted and are deleted at the far face; the halo
   finder and the halo sources are off in the mode; the step before z_re
-  lands on it. **For the user to confirm:** `photon_consume_dense` (the
-  original lets cells denser than 50× the mean ionise without consuming
-  photons, `rho_source` in `docs/port_notes.md`; the plane-parallel
-  problems and `make_production.py --plane-parallel` set 1 so dense gas
-  self-shields; the code default stays 0, the original).
+  lands on it. **`photon_consume_dense = 1` in the plane-parallel problems
+  (user decision, 2026-10-29):** the original lets cells denser than 50×
+  the mean ionise without consuming photons (`rho_source` in
+  `docs/port_notes.md`); the plane-parallel problems and
+  `make_production.py --plane-parallel` set 1 so dense gas self-shields;
+  the code default stays 0, the original.
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
