@@ -429,7 +429,7 @@ struct PMLevel {
   bool level_solve = false;
   int max_level = 0;
   int bf = 8;  // the hierarchy's blocking factor (the multigrid depth)
-  int mlmg_iters = 20, mlmg_bottom_sweeps = 64, mlmg_verbose = 0;
+  int mlmg_iters = 20, mlmg_bottom_sweeps = 8, mlmg_verbose = 0;
   double mlmg_tol = 1e-10;
   std::vector<FineMesh> fm;
   LFab own0, tot0;
@@ -1683,7 +1683,10 @@ struct PMLevel {
     // the smoother bottom solve: this many red-black sweeps on the coarsest
     // grid, at least the square of its width (a 9^3 bottom grid stalled the
     // V-cycles at a factor 0.7 each with AMReX's 8 sweeps; 64 gave 20x per
-    // cycle; the sweeps one cycle needs grow as width^2), docs/stage_g.md 5.1
+    // cycle; the sweeps one cycle needs grow as width^2), and otherwise
+    // pm_mlmg_bottom_sweeps (8, AMReX's default: a bottom grid of width 2
+    // needs no more, and every extra sweep is a boundary exchange; the 64 of
+    // before cost more than it saved on 24 ranks), docs/stage_g.md 5.1
     mlmg.setFinalSmooth(std::max(mlmg_bottom_sweeps, M.bottom * M.bottom));
     mlmg.solve({&sol}, {&rhs}, mlmg_tol, 0.0);
     M.iters = mlmg.getNumIters();

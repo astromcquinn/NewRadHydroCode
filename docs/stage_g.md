@@ -95,7 +95,7 @@ per dimension in the periodic box, dx = 2^-l level-0 mesh cells.
    V-cycles (default 20) or until the residual max-norm is below
    `pm_mlmg_tol` (default 1e-10) of the initial one, red-black
    Gauss–Seidel (2 + 2 sweeps), the smoother as the bottom solver with
-   at least `pm_mlmg_bottom_sweeps` sweeps (default 64) and, on a
+   at least `pm_mlmg_bottom_sweeps` sweeps (default 8, AMReX's) and, on a
    rectangular level, at least the square of its bottom grid's width
    (AMReX's 8 left a level whose width has an odd factor, 144 = 16 × 9
    cells, with a 9³ bottom grid that the V-cycles could not converge,
@@ -388,10 +388,36 @@ cumulative timers):
   are small patches whose bottom grids stay small. If a zoom level ever
   warns, padding its PM mesh to a box that coarsens to 2–4 cells is the
   next step.
-- **The klone re-run with this version:** to do
-  (`tools/hyak/pm_level_solve_profile.slurm` on main once this branch is
-  merged); the expected level solve is about 0.05 s per step against the
-  0.124 s of the table above.
+- **The klone re-run** (2026-10-28, job 42496915, commit a28d87c: the
+  width² rule with the 64-sweep floor of PR #7; the build job's 9
+  `level_solve` tests pass; the same problem, nodes and layout as above):
+
+  | configuration | step [s] | PM [s] | hydro [s] | level solve per step [s] |
+  |---|---|---|---|---|
+  | uniform 128³ | 1.83 (before: 0.23) | 0.013 | 0.03 | |
+  | two levels, `pm_level_solve = 1` | 3.26 (1.52) | 0.191 (0.169) | 1.16 | 0.146 (0.124) |
+  | two levels, `pm_gas_levels = 1` | 3.22 (1.58) | 0.269 (0.267) | 1.13 | |
+
+  Level 1 now converges: 8 cycles to 1.5e-11 (bottom grid 9, 81 sweeps),
+  against 20 cycles stalled at 4.0e-7; level 2 as before (7 cycles,
+  5.3e-11, bottom grid 2); no capped solve, no warning. But the level
+  solve got **slower**, 0.146 s against 0.124 s per step, where on the
+  4-core VM it was 2.2× faster. The sweeps cost nothing to compute on a
+  9³ or 2³ grid, so the time is in what each sweep does besides the
+  arithmetic on 24 ranks (its boundary fill), and the 64-sweep floor made
+  level 2 pay 8× AMReX's sweeps for a bottom grid of width 2 that needs
+  none of them. Hence the floor is now AMReX's 8 (`pm_mlmg_bottom_sweeps`
+  default), and only a wide bottom grid gets more (width²). To measure
+  rather than infer, the profile job takes `EXTRA="--set
+  pm_mlmg_verbose=1"`, which prints MLMG's own Solve / Iter / Bottom
+  timers per level solve; that re-run is to do.
+- **The whole step is 1.6 s slower in all three configurations**,
+  including the unrefined one (0.23 → 1.83 s), with the PM and the hydro
+  unchanged: the extra time is outside the gravity and the hydro, and
+  none of main's changes since the first profile run in these steps (the
+  X-ray background and the RECFAST thermal history are off; the problem
+  has no sources, so no RT). The per-step columns of `timing.txt`
+  (halos, summaries, I/O) will say where it goes; to do.
 
 ## 6. How to run
 
@@ -401,7 +427,7 @@ cumulative timers):
 mpirun -np 4 build-amrex/radhydro RUN out --set rt_backend=amrex --set hydro_backend=amrex \
   --set pm_backend=amrex --set amrex_state=1 --set hydro_scheme=unsplit \
   --set amrex_max_level=2 --set amrex_refine_box=8,8,8,23,23,23 --set amrex_n_error_buf=0 \
-  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_bottom_sweeps=64 --set pm_mlmg_verbose=1] \
+  --set pm_level_solve=1 [--set pm_mlmg_iters=20 --set pm_mlmg_tol=1e-10 --set pm_mlmg_bottom_sweeps=8 --set pm_mlmg_verbose=1] \
   --set step_timers=1      # the MLMG iterations and residual per level in the timers line
 ctest --test-dir build-amrex -L level_solve
 RADRAY_PM_LEVEL_DEBUG=1 ...   # the mass of every level's deposits after each PM deposit

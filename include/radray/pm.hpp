@@ -79,7 +79,7 @@ struct PMConfig {
   int blocking_factor = 8;
   int mlmg_iters = 20;
   double mlmg_tol = 1e-10;
-  int mlmg_bottom_sweeps = 64;
+  int mlmg_bottom_sweeps = 8;
   int mlmg_verbose = 0;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);

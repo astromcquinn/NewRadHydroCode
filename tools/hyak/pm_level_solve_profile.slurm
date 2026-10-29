@@ -30,7 +30,10 @@
 #   STEPS     hydro steps (default 10)
 #   CONFIGS   "level_solve gas_levels uniform" (default all three)
 #   MLMG_ITERS, MLMG_TOL, MLMG_BOTTOM   pm_mlmg_iters (20), pm_mlmg_tol (1e-10),
-#             pm_mlmg_bottom_sweeps (64)
+#             pm_mlmg_bottom_sweeps (8; a rectangular level gets at least its bottom width squared)
+#   EXTRA     extra radhydro arguments for every configuration, e.g.
+#             EXTRA="--set pm_mlmg_verbose=1" (MLMG's residuals and its own
+#             Solve / Iter / Bottom timers per level solve, in <config>.log)
 #   RANKS, THREADS  (default the job's --ntasks, 8)
 #   EXE       build with the backends (default build-amrex/radhydro, built
 #             against the amrex-26.10-mlmg install of build_amrex.sh)
@@ -62,7 +65,7 @@ STEPS="${STEPS:-10}"
 CONFIGS="${CONFIGS:-level_solve gas_levels uniform}"
 MLMG_ITERS="${MLMG_ITERS:-20}"
 MLMG_TOL="${MLMG_TOL:-1e-10}"
-MLMG_BOTTOM="${MLMG_BOTTOM:-64}"
+MLMG_BOTTOM="${MLMG_BOTTOM:-8}"
 RANKS="${RANKS:-${SLURM_NTASKS:-24}}"
 THREADS="${THREADS:-8}"
 EXE="${EXE:-$PWD/build-amrex/radhydro}"
@@ -110,7 +113,8 @@ for cfg in $CONFIGS; do
   rm -rf "$run"
   echo "== $cfg: $(date)"
   export OMP_NUM_THREADS="$THREADS"
-  srun --mpi=pmix --ntasks="$RANKS" --cpus-per-task="$THREADS" "$EXE" "$prob" "$run" "${common[@]}" "${extra[@]}" > "$run.log" 2>&1
+  # shellcheck disable=SC2086
+  srun --mpi=pmix --ntasks="$RANKS" --cpus-per-task="$THREADS" "$EXE" "$prob" "$run" "${common[@]}" "${extra[@]}" ${EXTRA:-} > "$run.log" 2>&1
   echo "exit $?"
   grep "step .* timers" "$run.log" | tail -1
 done

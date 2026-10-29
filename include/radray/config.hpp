@@ -363,12 +363,12 @@ struct Config {
   //                residual is below pm_mlmg_tol times the initial one);
   //   pm_mlmg_tol:   that relative residual target (0 = always the full count);
   //   pm_mlmg_bottom_sweeps: the minimum Gauss-Seidel sweeps of the bottom
-  //                solve (the coarsest multigrid level; a level whose width
-  //                has an odd factor, e.g. 144 = 16 x 9 cells, coarsens only
-  //                a few times and its bottom grid is large); a rectangular
-  //                level gets at least the square of its bottom grid's width
-  //                (81 for 9^3); a solve ending at pm_mlmg_iters above 1e-6
-  //                is reported;
+  //                solve (the coarsest multigrid level; default 8, AMReX's);
+  //                a rectangular level gets at least the square of its
+  //                bottom grid's width (a level whose width has an odd
+  //                factor, e.g. 144 = 16 x 9 cells, coarsens only to 9^3: 81
+  //                sweeps); a solve ending at pm_mlmg_iters above 1e-6 is
+  //                reported;
   //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
@@ -377,7 +377,7 @@ struct Config {
   int pm_level_solve = 0;
   int pm_mlmg_iters = 20;
   double pm_mlmg_tol = 1e-10;
-  int pm_mlmg_bottom_sweeps = 64;
+  int pm_mlmg_bottom_sweeps = 8;
   int pm_mlmg_verbose = 0;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit

@@ -685,8 +685,14 @@ the `LSOLVERS` CMake component; klone: `tools/hyak/build_amrex.sh` →
   the klone profile, confirmed cycle by cycle with `pm_mlmg_verbose`);
   a warning when a level ends at `pm_mlmg_iters` above 1e-6;
   `pm_level_solve_table.py` ends the levels block at the hydro timers.
-  The klone re-run of the profile with it is to do (`docs/stage_g.md`
-  §5.1).
+  The klone re-run (2026-10-28) confirms the convergence (level 1: 8
+  cycles to 1.5e-11) but the level solve took 0.146 s per step against
+  0.124: the 64-sweep floor of PR #7 made level 2 (bottom width 2) pay
+  for sweeps it does not need, so the floor is now AMReX's 8 and only
+  wide bottom grids get width² sweeps; the profile job takes `EXTRA` for
+  `pm_mlmg_verbose = 1` to time the bottom solve itself. Also open: every
+  configuration's step is 1.6 s slower than in the first run, outside the
+  PM and the hydro (`docs/stage_g.md` §5.1).
 * **Open:** the zoom itself needs WP1/WP2
   (multi-mass particles tag the levels). The composite solve is not
   planned (user decision 2026-10-23, `docs/PLAN.md`): the level solve of
