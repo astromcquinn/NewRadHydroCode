@@ -73,3 +73,48 @@ written as zeros without being stored.
 - The serial path changes only in structure. The full suite, including the
   stored Fortran references, must stay byte-identical.
 - Rank 0's peak memory measured before and after, at 256³ on klone.
+
+## 5. Status (2026-10-29): steps 1–10 done
+
+- Primitives (`amrex_state.hpp`):
+  - `amrex_state_stream_rt` (a component range or any list of the
+    `rrk::CellData` floats) and `amrex_state_stream_gas` bring the level to
+    rank 0 slab by slab as a `StreamSlab`;
+  - `amrex_state_fill_gas` / `amrex_state_fill_rt` are the reverse;
+  - `amrex_gamma_avg_stream` streams `gammaHI_avg`.
+- Consumers (`apps/radhydro.cpp`, `src/checkpoint.cpp`):
+  - `GridSums` (write_stats and the ĉ schedule);
+  - `GasSummer` (summarize_gas, split into begin / `add_planes` / finish;
+    the serial path calls it over the host arrays);
+  - `write_fields_streamed`, `write_frame_streamed` (one pass over the
+    components a frame needs, so a default frame moves 4 floats per cell,
+    against 6 for the old gather);
+  - `write_data_files_streamed`;
+  - the power spectrum's gas density;
+  - the checkpoint's grid blocks (`stream_grids_a` / `_b`).
+- Restarts and initial conditions:
+  - `read_checkpoint` skips the grid blocks on every rank, and
+    `read_checkpoint_grids` reads them on rank 0 slab by slab onto the
+    levels;
+  - `u_gas.init` goes onto the gas state the same way, with the per-cell
+    `pm::ics_gas_cell` and `unsplit_init_e` shared with the serial path.
+- Rank 0 allocates neither the RT nor the gas grid. The zero blocks
+  (`htoc`, `v_gas`) are written as zeros, never stored.
+- Tests on klone:
+  - `amrex_state` 26/26 byte-identical: the pairs against the host state
+    (fields, stats, movie frames, snapshots, checkpoints), the restarts, and
+    the moment RT against the serial RT;
+  - the `amrex` label 321/321 (not nightly);
+  - the serial fast suite 163/163 (without `platform_ref`).
+- Peak memory: 256³, OTVET cone, 4 ranks × 8 threads, 12 steps with a
+  snapshot and checkpoints. The old executable is the 1024³ cone run's.
+
+  | Peak RSS | before | after |
+  |---|---|---|
+  | rank 0 | 11.45 GB | 7.79 GB |
+  | ranks 1–3 | 5.10–5.33 GB | 4.54–4.71 GB |
+
+  Rank 0 saves 3.7 GB, the 228 B per cell of §1 (3.8 GB at 256³); at 1024³
+  that is about 245 GB. Rank 0's remaining excess over the other ranks
+  (about 3 GB here) is the particle copy of the halo finder and the host
+  PM arrays of the power spectrum (step 11).
