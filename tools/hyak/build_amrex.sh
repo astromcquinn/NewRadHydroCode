@@ -8,8 +8,8 @@
 #   tools/hyak/build_amrex.sh [build_dir]
 #
 # or as a batch job from the repository root (sbatch tools/hyak/build_amrex.sh).
-# AMReX 26.10 is cloned and built once into $RADRAY_SW/amrex-26.10-fft (3D, MPI,
-# OpenMP, particles in single precision) unless AMREX_DIR points at an
+# AMReX 26.10 is cloned and built once into $RADRAY_SW/amrex-26.10-mlmg (3D, MPI,
+# OpenMP, particles in single precision, FFT, linear solvers) unless AMREX_DIR points at an
 # install. The MPI comes from the klone ompi module (HYAK_MODULES).
 #
 # Environment overrides:
@@ -50,16 +50,17 @@ ulimit -s unlimited
 echo "host $(hostname), $ncpu cpus, $(date)"
 g++ --version | head -1; mpicxx --version | head -1; cmake --version | head -1
 
-# (amrex-26.10-fft: the FFT module of the PM backend, docs/stage_e_pm.md;
-# an older install without it does not satisfy find_package)
-AMREX_DIR="${AMREX_DIR:-$RADRAY_SW/amrex-26.10-fft}"
+# (amrex-26.10-mlmg: with the linear solvers of the level Poisson solve of
+# pm_level_solve, docs/stage_g.md; the older amrex-26.10-fft install lacks them)
+AMREX_DIR="${AMREX_DIR:-$RADRAY_SW/amrex-26.10-mlmg}"
 # The FFTW libraries of AMReX's FFT module (pkg-config fftw3 and fftw3f),
 # for the AMReX build and for the project's configure, whose
 # find_package(AMReX) looks them up again
 FFTW_DOUBLE="${FFTW_DOUBLE:-$RADRAY_SW/fftw-3.3.10-double}"
 export PKG_CONFIG_PATH="$RADRAY_FFTW/lib/pkgconfig:$FFTW_DOUBLE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 if [ ! -f "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" ] || \
-   ! grep -q "AMReX_FFT_FOUND *ON" "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake"; then
+   ! grep -q "AMReX_FFT_FOUND *ON" "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" || \
+   ! grep -q "AMReX_LSOLVERS_FOUND *ON" "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake"; then
   echo "building AMReX 26.10 into $AMREX_DIR"
   mkdir -p "$RADRAY_SW/src"
   # AMReX's FFT module links FFTW in both precisions (pkg-config fftw3 and
@@ -78,13 +79,13 @@ if [ ! -f "$AMREX_DIR/lib/cmake/AMReX/AMReXConfig.cmake" ] || \
   # (the PM's pencil FFT runs single-threaded plans line by line; the
   # amrex::FFT solver is the amrex_pm_fft = amrex option); a fresh build
   # directory, since build-amrex holds the configuration without FFT.
-  cmake -S "$RADRAY_SW/src/amrex" -B "$RADRAY_SW/src/build-amrex-fft" -DCMAKE_BUILD_TYPE=Release \
+  cmake -S "$RADRAY_SW/src/amrex" -B "$RADRAY_SW/src/build-amrex-mlmg" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$AMREX_DIR" -DAMReX_SPACEDIM=3 -DAMReX_MPI=ON -DAMReX_OMP=ON \
     -DAMReX_PARTICLES=ON -DAMReX_PARTICLES_PRECISION=SINGLE -DAMReX_FORTRAN=OFF -DAMReX_FASTMATH=OFF \
-    -DAMReX_LINEAR_SOLVERS=OFF -DAMReX_PROBINIT=OFF -DAMReX_AMRLEVEL=OFF -DAMReX_FFT=ON \
+    -DAMReX_LINEAR_SOLVERS=ON -DAMReX_PROBINIT=OFF -DAMReX_AMRLEVEL=OFF -DAMReX_FFT=ON \
     -DAMReX_FFTW_IGNORE_OMP=ON
-  cmake --build "$RADRAY_SW/src/build-amrex-fft" -j "$ncpu"
-  cmake --install "$RADRAY_SW/src/build-amrex-fft"
+  cmake --build "$RADRAY_SW/src/build-amrex-mlmg" -j "$ncpu"
+  cmake --install "$RADRAY_SW/src/build-amrex-mlmg"
 fi
 
 launcher="${RADRAY_MPIEXEC:-mpirun}"

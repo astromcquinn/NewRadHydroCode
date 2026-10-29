@@ -17,6 +17,7 @@ set -eu
 repo="${1:?usage: scrub_fortran_history.sh <fresh mirror clone>}"
 cd "$repo"
 git filter-repo --force --invert-paths \
+  --path Radhydro --path harness --path harness_common --path harness_full --path harness_hydro --path harness_pm \
   --path reference/Radhydro \
   --path reference/harness/src \
   --path reference/harness/tests \
@@ -31,9 +32,11 @@ git filter-repo --force --invert-paths \
   --path tests/halo_catalog_ref.f90 \
   --path tests/fortran_consts/dump_consts.f90
 # the Makefiles, run scripts and HEALPix (GPL) stayed in the history: ours or
-# redistributable; the PATCHES.md files quote his lines and go.
+# redistributable; the PATCHES.md files quote his lines and go. The root-level
+# Radhydro/ is where the original sat in the first commits, before reference/
+# (found by the verification below on 2026-10-26: the first pass missed it).
 echo "== verification: commits on any ref that still touch the removed paths (must be none)"
-n=$(git log --all --format=%h -- reference/Radhydro 'reference/harness*/src' reference/harness_common \
+n=$(git log --all --format=%h -- Radhydro reference/Radhydro 'reference/harness*/src' reference/harness_common \
       'reference/harness*/PATCHES.md' tests/halo_catalog_ref.f90 tests/fortran_consts/dump_consts.f90 | wc -l)
 echo "commits: $n"
 [ "$n" = 0 ] || { echo "SCRUB INCOMPLETE"; exit 1; }

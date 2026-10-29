@@ -62,6 +62,8 @@
 #include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
+#include "radray/thermal_history.hpp"
+#include "radray/xray_background.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/rt_tensor_diag.hpp"
 #include "radray/simulation.hpp"
@@ -106,7 +108,15 @@ struct RunParams {
   // x = x_HII,V of the box at the end of the previous step (c0 below x1,
   // and before the RT has run: x = 0 while the RT grid is unwritten).
   // Overrides c_reduced. Stateless, so a restart reproduces it.
+  // c_reduced_schedule_interp = 1 (default 0, the steps above): c is
+  // continuous in x, linear between the midpoints of the plateaus
+  // ((x_k + x_{k+1})/2 with x_0 = 0 and x_{n+1} = 1, value c_k there) and
+  // constant below the first and above the last midpoint, so the mean of
+  // the step schedule is kept but the photon reservoir n_gamma ~ ndot
+  // lambda / c is never emptied in one step (the Gamma spikes of
+  // docs/rt_suite_512.md section 4).
   std::vector<double> c_sched_c, c_sched_x;
+  int c_sched_interp = 0;
   int deterministic_parallel = 0;  // parallel ray tracing (docs/parallel.md)
   int threads = 0;          // OpenMP threads (0: OpenMP default)
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
@@ -119,6 +129,10 @@ struct RunParams {
   int photon_consume_dense = -1;  // Config::photon_consume_dense (P11 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
+  // thermal_init = floor | recfast (Config::thermal_init, docs/thermal_history.md)
+  // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
+  int thermal_init = 0;
+  double thermal_floor = -1;
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -151,6 +165,8 @@ struct RunParams {
   std::string data_files = "all";
   // Sources
   HaloSourceParams halo;
+  // X-ray background heating (xray_*; docs/xray_heating.md); off by default
+  XrayParams xray;
   std::string ics;          // directory of xv_dm.init/u_gas.init
   // Output and control
   int fields_every = 0;     // write fields every n steps (0: never)
@@ -230,7 +246,17 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.cool_suppress_overdensity = std::stod(val);
     if (!(P.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
   }
-  else if (key == "photon_conserve") {
+  else if (key == "thermal_init") {
+    if (val == "floor")
+      P.thermal_init = 0;
+    else if (val == "recfast")
+      P.thermal_init = 1;
+    else
+      throw std::runtime_error("thermal_init must be floor or recfast");
+  } else if (key == "thermal_floor") {
+    P.thermal_floor = to_double(val);
+    if (!(P.thermal_floor > 0)) throw std::runtime_error("thermal_floor must be > 0 (K)");
+  } else if (key == "photon_conserve") {
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_conserve < -1 || P.photon_conserve > 1)
       throw std::runtime_error("photon_conserve must be 0 or 1");
@@ -311,7 +337,9 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
         if (!(P.c_sched_x[i] > 0 && P.c_sched_x[i] <= 1) || (i > 0 && !(P.c_sched_x[i] > P.c_sched_x[i - 1])))
           throw std::runtime_error("c_reduced_schedule: thresholds must increase within (0, 1]");
     }
-  } else if (key == "ics")
+  } else if (key == "c_reduced_schedule_interp")
+    P.c_sched_interp = std::stoi(val);
+  else if (key == "ics")
     P.ics = val;
   else if (key == "fields_every")
     P.fields_every = std::stoi(val);
@@ -361,7 +389,7 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ray_quant.structural = std::stoi(val) != 0;
   else if (key == "ray_quant_offbits")
     P.ray_quant.offbits = std::stoi(val);
-  else if (!set_halo_param(P.halo, key, val))
+  else if (!set_xray_param(P.xray, key, val) && !set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
       (key == "legacy_physics" && P.legacy_physics != 0 && P.legacy_physics != 1))
@@ -667,7 +695,12 @@ int main(int argc, char** argv) {
         Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
+    s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
+    s.cfg.thermal_floor = P.thermal_floor > 0 ? P.thermal_floor : (P.thermal_init == 1 ? 0.1 : 1.0);
     copy_hydro_scheme(P.hydro, s.cfg);
+    // dual_e_self defaults to 1 with thermal_init = recfast (docs/hydro_unsplit.md
+    // section 7, U7; user decision 2026-10-27); an explicit key wins
+    if (!s.cfg.dual_e_self_set && s.cfg.thermal_init == 1) s.cfg.dual_e_self = true;
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
@@ -700,14 +733,60 @@ int main(int argc, char** argv) {
     s.out = out;
     const Config& cfg = s.cfg;
     // gammaHI_avg in fields or movie_fields: the substep-averaged Gamma_HI
-    // (Simulation::gamma_avg, rt.hpp; docs/igm_diagnostics.md). Serial RT
-    // only: the backend's cells live on the level between the host syncs.
-    if (("," + P.fields + ",").find(",gammaHI_avg,") != std::string::npos ||
-        ("," + P.movie_fields + ",").find(",gammaHI_avg,") != std::string::npos) {
-      if (use_amrex(cfg))
+    // (Simulation::gamma_avg, rt.hpp; docs/igm_diagnostics.md). The serial
+    // RT, or the moment RT on rt_backend = amrex, whose level holds the sums
+    // (amrex_gamma_avg_field gathers them; not the ray levels).
+    const bool gavg_fields = ("," + P.fields + ",").find(",gammaHI_avg,") != std::string::npos;
+    const bool gavg_movie = ("," + P.movie_fields + ",").find(",gammaHI_avg,") != std::string::npos;
+    if (gavg_fields || gavg_movie) {
+      if (use_amrex(cfg) && !use_moments(cfg))
         throw std::runtime_error(
-            "gammaHI_avg (the substep-averaged Gamma_HI) is implemented for rt_backend = serial only");
+            "gammaHI_avg (the substep-averaged Gamma_HI) is implemented for rt_backend = serial and for "
+            "rt_method = m1 | otvet on rt_backend = amrex");
       s.gamma_avg.on = true;
+    }
+    // xray_heating = 1 (docs/xray_heating.md): a uniform X-ray background
+    // from the SFR of the abundance-matched source model. Its rates are
+    // computed once per hydro step with RT, at the middle of the step, with
+    // the box's mass-weighted absorber fractions; Log/xray.txt lists them.
+    // the residual-electron Compton step acts on the host gas grid only: not
+    // on the levels of amrex_state = 1, nor on refined hydro levels
+    if (cfg.thermal_init == 1 && (cfg.amrex_state || (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0)))
+      throw std::runtime_error(
+          "thermal_init = recfast is implemented for the host gas grid only (amrex_state = 0, no refined "
+          "hydro levels)");
+    std::unique_ptr<XrayBackground> xbg;
+    std::ofstream xraylog;
+    if (P.xray.on) {
+      if (use_amrex(cfg) || cfg.amrex_state)
+        throw std::runtime_error("xray_heating is implemented for rt_backend = serial only");
+      xbg = std::make_unique<XrayBackground>(P.xray, P.halo.model);
+      if (io) {
+        xraylog.open(odir + "/Log/xray.txt", logmode);
+        if (restart_from.empty())
+          xraylog << "# step z sfrd[Msun/yr/Mpc^3] eps_X[erg/s/Mpc^3] xHI xHeI xHeII"
+                     " gamma_HI gamma_HeI gamma_HeII[1/s] phi_HI phi_HeI phi_HeII[erg/s]\n";
+      }
+      s.xray.on = true;
+      s.xray_hook = [&xbg, &xraylog](Simulation& sim) {
+        // radiative_transfer has reset the clock to the start of the step
+        const double a = sim.clk.scalefactor + sim.clk.da_sim / 2;
+        double xf[3];
+        box_ion_fractions(sim, xf);
+        const XrayRates r = xbg->rates(1 / a - 1, xf);
+        for (int j = 0; j < 3; ++j) {
+          sim.xray.gamma[j] = r.gamma[j];
+          sim.xray.phi[j] = r.phi[j];
+        }
+        if (xraylog.is_open()) {
+          xraylog << sim.clk.istep << std::setprecision(8) << " " << r.z << " " << r.sfrd << " "
+                  << r.eps;
+          for (int j = 0; j < 3; ++j) xraylog << " " << r.xfrac[j];
+          for (int j = 0; j < 3; ++j) xraylog << " " << r.gamma[j];
+          for (int j = 0; j < 3; ++j) xraylog << " " << r.phi[j];
+          xraylog << "\n" << std::flush;
+        }
+      };
     }
 
     Domains gdom;
@@ -798,7 +877,10 @@ int main(int argc, char** argv) {
     if (P.tensor_dump && use_amrex(cfg))
       throw std::runtime_error("tensor_dump is implemented for the serial RT backend only");
 
-    if (restart_from.empty()) pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units);
+    // thermal_init = recfast: the ICs at the RECFAST temperature of z_init
+    if (restart_from.empty())
+      pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units,
+                               cfg.thermal_init == 1 ? recfast_T(s.clk.redshift) : -1.0);
 
     if (out)
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm
@@ -827,6 +909,10 @@ int main(int argc, char** argv) {
                    ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
                    : std::string())
            << (plane_summary(cfg).empty() ? std::string() : "\n " + plane_summary(cfg))
+           << (cfg.thermal_init == 1 || cfg.thermal_floor != 1.0
+                   ? std::string(", thermal_init = ") + (cfg.thermal_init == 1 ? "recfast" : "floor") +
+                         ", thermal_floor = " + std::to_string(cfg.thermal_floor) + " K"
+                   : std::string())
            << "\n " << hydro_scheme_summary(cfg) << ", " << rt_method_summary(cfg)
            << ", " << rt_backend_summary(cfg) << ", " << hydro_backend_summary(cfg)
            << ", " << pm_backend_summary(cfg) << (on_level ? ", " + amrex_state_summary(cfg) : std::string())
@@ -971,8 +1057,29 @@ int main(int argc, char** argv) {
     auto apply_sched = [&]() {
       if (P.c_sched_c.empty()) return;
       double c = P.c_sched_c[0];
-      for (std::size_t i = 0; i < P.c_sched_x.size(); ++i)
-        if (sched_x >= P.c_sched_x[i]) c = P.c_sched_c[i + 1];
+      if (P.c_sched_interp && !P.c_sched_x.empty()) {
+        // linear between the plateau midpoints, constant outside them
+        const std::size_t n = P.c_sched_c.size();
+        std::vector<double> xm(n);
+        for (std::size_t k = 0; k < n; ++k) {
+          const double lo = k == 0 ? 0.0 : P.c_sched_x[k - 1];
+          const double hi = k + 1 == n ? 1.0 : P.c_sched_x[k];
+          xm[k] = 0.5 * (lo + hi);
+        }
+        if (sched_x >= xm[n - 1]) {
+          c = P.c_sched_c[n - 1];
+        } else {
+          for (std::size_t k = 0; k + 1 < n; ++k)
+            if (sched_x >= xm[k] && sched_x < xm[k + 1]) {
+              c = P.c_sched_c[k] +
+                  (P.c_sched_c[k + 1] - P.c_sched_c[k]) * (sched_x - xm[k]) / (xm[k + 1] - xm[k]);
+              break;
+            }
+        }
+      } else {
+        for (std::size_t i = 0; i < P.c_sched_x.size(); ++i)
+          if (sched_x >= P.c_sched_x[i]) c = P.c_sched_c[i + 1];
+      }
       if (c != s.cfg.c_reduced || !sched_announced) {
         if (io) {
           std::printf(" c_reduced_schedule: c_reduced = %g from step %d (z = %.5f, x_HII,V = %.6f)\n", c,
@@ -985,6 +1092,9 @@ int main(int argc, char** argv) {
     };
 
     auto write_fields = [&](const std::string& d) {
+      // gammaHI_avg on rt_backend = amrex: the level's sums onto rank 0 (collective)
+      std::vector<float> ga;
+      if (gavg_fields && use_amrex(cfg)) amrex_gamma_avg_field(s, ga);
       if (!io) return;
       const RTGrid& G = s.rt;
       auto W = [&](const char* name, const std::vector<float>& v) {
@@ -1012,8 +1122,7 @@ int main(int argc, char** argv) {
       // gammaHI_avg: the substep-averaged HI rate of the last hydro step with
       // RT (written only when listed in fields)
       if (("," + P.fields + ",").find(",gammaHI_avg,") != std::string::npos) {
-        std::vector<float> ga;
-        gamma_avg_field(s, ga);
+        if (!use_amrex(cfg)) gamma_avg_field(s, ga);
         W("gammaHI_avg", ga);
       }
       // Luv: the source luminosity per RT cell (written only when listed)
@@ -1138,12 +1247,15 @@ int main(int argc, char** argv) {
         bool few = true;
         for (const std::string& fld : mfields)
           few = few && (fld == "fHI" || fld == "fHeI" || fld == "fHeII" || fld == "temp" || fld == "rhog" ||
-                        fld == "gammaHI");
+                        fld == "gammaHI" || fld == "gammaHI_avg");
         if (few)
           amrex_state_gather_rt_movie(s);
         else
           amrex_state_gather_rt(s, false);
       }
+      // gammaHI_avg on rt_backend = amrex: the level's running sums onto
+      // rank 0 (collective)
+      if (gavg_movie && use_amrex(cfg)) amrex_gamma_avg_field(s, gavg_buf);
       if (!io) {
         dst.movie_frame += 1;
         dst.movie_next -= P.movie_dz;
@@ -1162,7 +1274,7 @@ int main(int argc, char** argv) {
         else if (fld == "gamma") v = &G.gamma;
         else if (fld == "gammaHI") v = &gamma_hi(G);
         else if (fld == "gammaHI_avg") {  // the running substep average of this hydro step
-          gamma_avg_field(ss, gavg_buf);
+          if (!use_amrex(cfg)) gamma_avg_field(ss, gavg_buf);
           v = &gavg_buf;
         } else throw std::runtime_error("movie_fields: unknown field " + fld);
         if (P.movie_slab > 0) {
@@ -1366,11 +1478,27 @@ int main(int argc, char** argv) {
       s.clk.redshift = 1 / s.clk.scalefactor - 1;
       calc_sim_var(cfg, s.clk, s.units);
 
+      // thermal_init = recfast (docs/thermal_history.md): the CMB coupling
+      // of the residual electrons over the step, at its middle
+      if (cfg.thermal_init == 1) {
+        th = Clock::now();
+        Units um;
+        SimClock cm = s.clk;
+        cm.scalefactor = s.clk.scalefactor - s.clk.da_sim / 2;
+        cm.redshift = 1 / cm.scalefactor - 1;
+        calc_sim_var(cfg, cm, um);
+        compton_residual_step(um, cm.scalefactor, s.clk.dt_sec, s.rates.coef_cool(14, 1), s.gas);
+        T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
+      }
+
       // Ray tracing radiative transfer (after the first zdata1 output);
       // plane_parallel = 1 (plane_parallel.hpp): from plane_z_re instead,
       // the faces of the RT domains as the only sources (no halo finder)
       if (cfg.plane_parallel) {
-        if (plane_rt_active(cfg, s.clk.scalefactor - s.clk.da_sim)) {
+        // before the turn-on the RT runs only for the X-ray background
+        // (xray_heating), with no face sources
+        s.plane.active = plane_rt_active(cfg, s.clk.scalefactor - s.clk.da_sim);
+        if (s.plane.active || s.xray.on) {
           th = Clock::now();
           if (on_level && cfg.amrex_balance) {
             double e0 = 0, e1 = 0;

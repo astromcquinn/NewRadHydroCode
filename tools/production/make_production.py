@@ -20,7 +20,7 @@ B17, photon_conserve, and P11, photon_consume_dense: dense gas consumes photons)
 deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), the source-ray frame rotated every RT substep
 and source (ray_rotate = 3, the B16 fix; --ray-rotate), the unsplit hydro with dual energy
-(hydro_scheme = unsplit, docs/hydro_unsplit.md; --hydro-scheme), radiation redshifted per distance
+(hydro_scheme = unsplit, docs/hydro_unsplit.md; --hydro-scheme) with dual_e_self = 1 (U7; --dual-e-self), radiation redshifted per distance
 travelled (redshift_per_distance = 1; --redshift-per-distance), on-the-fly FoF sources, RT from z = 15 (the
 first zdata1 output), outputs every unit in z to z = 5 (Lyman-alpha forest comparison), movie frames of
 x_HI, T and the gas density every movie_dz (tools/movies/make_movie.py,
@@ -66,6 +66,9 @@ def main():
                          "0.2c to x = 0.5, 0.3c to 0.75, 0.5c after; docs/production_run.md "
                          "section 1); "
                          "'none' for the constant --c-reduced")
+    ap.add_argument("--c-schedule-interp", type=int, default=0, choices=(0, 1),
+                    help="1: c_reduced_schedule_interp = 1, the schedule continuous in x_HII,V "
+                         "(linear between the plateau midpoints; docs/production_run.md section 1)")
     ap.add_argument("--nray-max-factor", type=int, default=16)
     ap.add_argument("--movie-dz", type=float, default=0.05)
     ap.add_argument("--movie-fields", default="fHI,temp,rhog",
@@ -135,6 +138,11 @@ def main():
                     help="hydro_scheme (docs/hydro_unsplit.md): unsplit for production (it fixes "
                          "the cold-gas overheating of the legacy scheme; user decision "
                          "2026-10-11); legacy: the original, the code default")
+    ap.add_argument("--dual-e-self", type=int, default=1, choices=(0, 1),
+                    help="dual_e_self with the unsplit hydro (docs/hydro_unsplit.md section 7, "
+                         "U7): 1 for production (rho e evolved as itself where the pressure comes "
+                         "from E - KE, no over-cooled or numerically heated IGM; user decision "
+                         "2026-10-27); 0: the scheme before the key")
     ap.add_argument("--redshift-per-distance", type=int, default=1, choices=(0, 1),
                     help="1: redshift the radiation per distance travelled instead of per time "
                          "(fscale^s, docs/production_run.md; production, user decision "
@@ -280,7 +288,8 @@ def main():
         f"deterministic_parallel = {0 if a.backend == 'amrex' else 1}",
         f"c_reduced = {a.c_reduced:g}",
         *([] if a.c_schedule in ("", "none") else
-          [f"c_reduced_schedule = {' '.join(x.strip() for x in a.c_schedule.split(','))}"]),
+          [f"c_reduced_schedule = {' '.join(x.strip() for x in a.c_schedule.split(','))}"]
+          + ([] if not a.c_schedule_interp else ["c_reduced_schedule_interp = 1"])),
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]
@@ -289,6 +298,8 @@ def main():
     if a.fof_dt_myr > 0:
         lines.append(f"fof_dt_myr = {a.fof_dt_myr:g}")
     lines.append(f"hydro_scheme = {a.hydro_scheme}")
+    if a.hydro_scheme == "unsplit":
+        lines.append(f"dual_e_self = {a.dual_e_self}")
     if a.backend == "amrex":
         lines += [
             "# The AMReX backends, the state on the levels, load balancing "

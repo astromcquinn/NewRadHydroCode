@@ -113,6 +113,17 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   u.vgas_min = 0;
   u.vgas_max = static_cast<double>(3e8f) / u.vel_unit;
 
+  // thermal_init = recfast (docs/thermal_history.md): the CMB coupling of
+  // the residual electrons sets the cold gas's temperature, so the floor is
+  // only thermal_floor (with legacy_physics = 1 at least 1 K, the lower edge
+  // of the nearest-node rate table, as the original's max(..., 1)), and no
+  // ceiling at T_CMB above z = 216
+  if (cfg.thermal_init == 1) {
+    u.temp_max = folded::ten_lgT_max;
+    u.temp_min = cfg.legacy_physics ? f::max(cfg.thermal_floor, 1.0) : cfg.thermal_floor;
+  }
+  u.Thydro_min = cfg.thermal_floor / u.temp1_unit;
+
   u.Tgas_min = u.temp_min / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 

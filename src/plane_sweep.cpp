@@ -39,7 +39,7 @@ inline bool all_zero(const float* v) {
 
 void plane_sweep_cast(Simulation& s) {
   PlaneState& ps = s.plane;
-  if (!ps.on || ps.transport != 1) return;
+  if (!ps.on || !ps.active || ps.transport != 1) return;
   RTGrid& G = s.rt;
   const rrk::RTP P = rt_params(s);
   const int N = s.cfg.Nrt, L = ps.L, k = P.cells;
@@ -86,7 +86,7 @@ void plane_sweep_cast(Simulation& s) {
 
 void plane_sweep_advance(Simulation& s) {
   PlaneState& ps = s.plane;
-  if (!ps.on || ps.transport != 1) return;
+  if (!ps.on || !ps.active || ps.transport != 1) return;
   RTGrid& G = s.rt;
   const rrk::RTP P = rt_params(s);
   const int N = s.cfg.Nrt, L = ps.L, k = P.cells;

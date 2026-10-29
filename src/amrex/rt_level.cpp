@@ -1162,7 +1162,7 @@ struct Level : LevelBase {
       ray_substeps += S.nout;
     }
     // ---- plane_transport = sweep: the packets in flight cast as the rays they stand for ----
-    if (plane_sweep) {
+    if (plane_sweep && P.plane.L > 0) {  // (L = 0 before the turn-on: no face sources)
       const int L = P.plane.L, kc = P.cells;
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
         const int f = pfaces[fi], d = f / 2, sgn = rrk::plane_face_sign(f);
@@ -1349,7 +1349,7 @@ struct Level : LevelBase {
     (void)myproc; (void)hist_p; (void)cstat_p; (void)err_p; (void)NN; (void)ngh; (void)sfr_min;
     const rrk::RTP P = params_of(s);
     // ---- plane_transport = sweep: the packets move k cells on (cast_3) ----
-    if (plane_sweep) {
+    if (plane_sweep && P.plane.L > 0) {
       const int L = P.plane.L, kc = P.cells;
       i128 inf = 0, esc = 0;
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
@@ -2661,6 +2661,13 @@ void backend_bcast_bytes(void* p, std::size_t n) {
 }
 void amrex_state_gather_rt(Simulation& s, bool stats_only) { level_of(s).gather_fields(s, stats_only); }
 void amrex_state_gather_rt_movie(Simulation& s) { level_of(s).gather_movie(s); }
+void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out) {
+  if (!s.amrex) {  // no RT step yet: zeros, as the serial code
+    out.assign(io_rank() ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
+    return;
+  }
+  s.amrex->level->gamma_avg_gather(s, out);
+}
 void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<float>& out, int& nf, int& finest,
                           int& plane) {
   level_of(s).level_slice(axis, base_index, out, nf, finest, plane);

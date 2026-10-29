@@ -27,7 +27,7 @@ the original behaviour:
 | `movie_slab`, `movie_slab_axes` | 0, `xyz` | t > 0: write only the slabs of t cells through the box centre normal to each axis listed, instead of the full cube (`docs/movies.md`, "Slab frames"); 0: the full cube |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes; `make_production.py` writes 10 (user decision 2026-10-18) |
 | `restart_keep` | 0 | n > 0: numbered checkpoints `checkpoint_NNNN.bin`, of which only the newest n are kept (deleted after each successful write; `reion_production.slurm` resumes from the newest); 0: as `restart_keep_latest` |
-| `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list; `gammaHI_avg` the same rate averaged over the hydro step's RT substeps, serial RT only, `docs/igm_diagnostics.md`) and the snapshot files: `all`, `norays`, `nodm` (`norays` without `DM/xv_dm`: the particles only in the checkpoints; the `make_production.py` default, user decision 2026-10-18), `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
+| `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list; `gammaHI_avg` the same rate averaged over the hydro step's RT substeps: the serial RT, and the moment RT on `rt_backend = amrex`, `docs/igm_diagnostics.md`) and the snapshot files: `all`, `norays`, `nodm` (`norays` without `DM/xv_dm`: the particles only in the checkpoints; the `make_production.py` default, user decision 2026-10-18), `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
 params.txt of the production configuration. **Its recombination case is
@@ -266,6 +266,21 @@ printed (`c_reduced_schedule: c_reduced = …`, also with `--quiet`), and
 `stats.txt` carries the step's `c_reduced` while a schedule is set. The
 default (no schedule) is the original; a one-speed schedule `C x C` is
 `c_reduced = C` byte for byte apart from that line (test `c_schedule`).
+
+**Continuous in x (`c_reduced_schedule_interp = 1`, 2026-10-21; default
+0, the steps above).** Each step switch empties the photon reservoir
+n_γ ≈ ṅ λ_mfp/ĉ at once: Γ_HI jumps by ĉ_new/ĉ_old (2×, 1.5×, 1.67× for the
+production schedule, in the rays and the moment methods alike) and relaxes
+over λ/ĉ, a few hydro steps (`docs/rt_suite_512.md`). With the flag ĉ is
+piecewise linear in x through the midpoints of the plateaus, (x_k +
+x_{k+1})/2 with x_0 = 0 and x_{n+1} = 1, at the value c_k, and constant
+below the first and above the last midpoint; for the production schedule
+the knots are (0.125, 0.1c), (0.375, 0.2c), (0.625, 0.3c), (0.875, 0.5c),
+so ĉ rises by ≈ 0.01c per hydro step around x = 0.5 and the mean of the
+step schedule is kept. Still stateless (x of the previous step), so
+restarts are exact; each change is printed and `stats.txt` carries the
+step's `c_reduced`. `make_production.py --c-schedule-interp 1`. Test:
+`c_schedule` (the rule against the previous step's `xHII_V`).
 
 `make_production.py` writes this schedule by default (`--c-schedule`;
 `--c-schedule none --c-reduced C`, or `--c-reduced C` alone, for a constant

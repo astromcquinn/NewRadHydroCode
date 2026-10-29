@@ -47,6 +47,11 @@ class MassFunction {
   } st;
   // dn/dlnM in (Mpc/h)^-3 at mass M (Msun/h) and redshift z.
   double dndlnM(double M_msun_h, double z, Kind k) const;
+  // The same from sigma(M, z) = sigma0(M) growth(z) and dln(1/sigma)/dlnM
+  // (dndlnM: central difference of sigma0 over +-0.02 in ln M), for callers
+  // that tabulate sigma0 (xray_background.cpp).
+  double dndlnM_sigma(double M_msun_h, double sigma, double dlnsinv_dlnM, double z,
+                      Kind k) const;
   // Number of halos per (Mpc/h)^3 with M1 <= M < M2 (Msun/h).
   double n_between(double M1, double M2, double z, Kind k) const;
 

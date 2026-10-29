@@ -56,6 +56,10 @@ struct PlaneState {
   int L = 0;      // domain length in RT cells
   int faces = 0;  // Config::plane_faces
   int transport = 0;  // Config::plane_transport: 0 rays, 1 sweep
+  // apps/radhydro: whether the faces emit in this hydro step (from
+  // plane_z_re on, plane_rt_active); before it the RT may still run for
+  // the X-ray background (xray_heating) with no face sources
+  bool active = true;
   PlaneSpectrum spec;
   double emitted = 0;
   __int128 absorbed_fx = 0, escaped_fx = 0;  // 2^kPlaneFxBits fixed point
