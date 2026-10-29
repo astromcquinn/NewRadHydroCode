@@ -104,9 +104,13 @@ cmake -DRADRAY_NIGHTLY_TESTS=ON build && ctest --test-dir build -L nightly   # ~
   and every pull request (Ubuntu 24.04, gcc 13); `nightly.yml` runs the
   nightly label once a day and on demand. A PR is mergeable only when CI is
   green.
-- Needs `g++`, `gfortran` (for the live Fortran comparison tests), `libfftw3-dev`
-  (FFTW3 single precision; MKL is replaced by FFTW in both codes) and python3
-  with numpy (and matplotlib for figures).
+- Needs `g++`, `libfftw3-dev` (FFTW3 single precision; MKL is replaced by
+  FFTW in both codes) and python3 with numpy (and matplotlib for figures).
+- `gfortran` is needed only when the private submodule `reference/fortran`
+  is checked out: it builds the live Fortran comparison tests, which CMake
+  skips without the submodule (CI populates it from the `FORTRAN_TOKEN`
+  secret). Sessions without access to `RadHydro-fortran` should not
+  install it; the stored-reference tests still run.
 - Each harness has a `Makefile`/`run_all.sh`; see its README.
 - The RT harness needs `ulimit -s unlimited`, which its run scripts set.
 - Runtime parameters: `params.txt` plus `--set key=value` on every driver.

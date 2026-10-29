@@ -21,6 +21,8 @@ usage: run_suite.py <test> [--tier quick|full] [--scheme legacy|unsplit]
   --reuse   do not re-run cases whose output already exists
   --clean   remove the problem and run directories of each test once it is
             analysed (the full tier writes ~7 GB per scheme; CTest nightly)
+  --set K=V an extra driver key for every run (repeatable; e.g.
+            dual_e_self=1). The results keep their names: use --results
 Results go to <results>/<test>_<tier>[_unsplit].json (default
 tests/hydro_suite/results for the full tier, <rundir>/results for quick);
 runs to <rundir>/<case>. Figures: analyze.py figures [... scheme].
@@ -60,7 +62,7 @@ class Ctx:
         if self.args.amr > 0:
             out += ["hydro_backend=amrex", f"amrex_max_level={self.args.amr}",
                     f"amrex_refine_mass={self.args.refine_mass:g}"]
-        return out
+        return out + list(self.args.set)
 
     def case(self, name, genfun, **kw):
         """generate (always, cheap) and return (problem dir, run dir)"""
@@ -224,6 +226,7 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--reuse", action="store_true")
     ap.add_argument("--clean", action="store_true")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     args = ap.parse_args()
     suffix = "" if args.scheme == "legacy" else "_" + args.scheme
     if args.amr > 0:
