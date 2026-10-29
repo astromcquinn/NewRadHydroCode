@@ -235,26 +235,68 @@ FFTW 3.3.10).
   movie frame and checkpoint); `amrex_pm_level_solve_restart_smoke_r{1,2}`:
   bit-identical restarts from step 9;
   `amrex_pm_level_solve_identity_smoke`: without refinement
-  `pm_level_solve = 1` is byte-identical to 0.
+  `pm_level_solve = 1` is byte-identical to 0. Nightly, through the RT
+  steps 13–15 (`pm_refine = 1`): `amrex_pm_level_solve_rt_ranks` (1 and 3
+  ranks) and `amrex_pm_level_solve_rt_restart` (from step 13), after the
+  fixes below.
 
-**Found on the way (not the gravity's):** with the RT on and a refined
-region that does not cover the whole box, the hydro hierarchy's fine-level
-boxes are chopped by the rank count, and (a) the checkpoints of 1 and 3
-ranks differ in their ray section from the first RT step on (the backend
-gathers the rays box by box in the level's box order, sorted within a box;
-`rank_check.py` on the smoke problem with the levels over half the box,
-steps 13–15: `restart/checkpoint_00{13,14,15}.bin` differ on 3 ranks,
-every field, frame and statistic identical) and (b) a restart from the
-first RT step's checkpoint is not bit-identical (the rays re-enter the
-tiles in another order). Both reproduce with `pm_gas_levels = 1`
-(the same `rank_check.py` run: checkpoints 13 and 14 differ on 3 ranks; `restart_check.py` from step 13: every field of steps 14–15 differs); the existing rank and restart tests use a
-region covering the whole box, whose layout no rank count chops. The Stage
-G rank and restart tests therefore stop before the smoke problem's sources
-appear (z = 28, 12 steps; the restart from step 9); the RT's checkpoint
-order on a chopped layout is an item for the RT (`docs/stage_f.md` §3).
-(An earlier version of the rank test ran into the RT with the level
-solve and found exactly the same files differing, the checkpoints of
-steps 13–15, and nothing else.)
+**Found on the way, and fixed (2026-10-29; the RT's, not the
+gravity's):** with the RT on and a refined region that does not cover the
+whole box (the rank and restart tests above used to stop before the smoke
+problem's sources appear, z = 28), three things broke the bitwise rank
+independence of the checkpoints and the exactness of a restart through an
+RT step. None changes the results of an uninterrupted run except where
+the run read undefined memory (3).
+
+1. *The checkpoint's ray order.* AMReX chops a refined level's grids by
+   the rank count, and the checkpoint gathered a refined level's rays box
+   by box in the level's box order: the checkpoints of 1 and 3 ranks
+   listed the same rays in different orders (`rank_check.py`, steps
+   13–15: `restart/checkpoint_00{13,14,15}.bin` differed, every field,
+   frame and statistic identical). The refined levels' rays are now
+   gathered by order boxes independent of the layout (the base boxes
+   refined to the level, chopped to 32 cells, where they meet the level;
+   `gather_rays_ordered`), each box's rays sorted by home cell and bytes.
+2. *A ray's `dr` through the checkpoint.* The kernel advances `dr` by the
+   path length, so it drifts from `rmax(nside) − r` by round-off. The
+   checkpoint holds every ray in base units; `rescaled` recomputed `dr` on
+   the way up and again when the restart moved the rays down, which
+   shifted a split by a substep (one photon cell fewer in the first
+   substep after the restart). The refined levels' rays now keep their
+   `dr` (checkpoint version 9), and `amrex_rt_restore_levels`, called right
+   after the hydro levels are read, builds the RT levels of the checkpoint
+   and moves the rays down with it, so they are those of the uninterrupted
+   run; the first prep then regrids, if the hydro did, as the
+   uninterrupted run does. Checkpoints of version ≤ 8 restore with `dr`
+   recomputed, as before.
+3. *`TF` read before it was set.* `exchange_deposits` weighs the deposits
+   a refined level's rays make beyond its grids by the parent's `fgam` of
+   the previous substep (`amrex_ghost_rule = 3`, the `TF` components 5–9).
+   `TF` was never initialised, so the first substep after a level was
+   built (the first RT step, a regrid, a `remap`, and every level after a
+   restart) read undefined memory there; after a restart, where the
+   uninterrupted run had the previous step's values, level 1 drifted
+   while level 2's rays stayed identical. `TF` is now 0 when defined (the
+   thick-gas weight, what freshly mapped memory held) and follows its
+   cells through a `remap`; the checkpoint's level directory holds every
+   level's `fgam` (`RT_fgam_<l>`, `amrex_rt_write_levels`), read back with
+   the ghosts filled as at the end of a substep.
+
+Also saved, though no test here needs it: the hydro hierarchy's push-down
+reference (`Level_0_prev`, level 0 as the fine levels last saw it), so
+that a change to level 0 between the RT's post and the checkpoint would
+still be pushed down after a restart (a restart from step 13 is
+bit-identical with and without it here).
+
+Checked: `rank_check.py` with 1 and 3 ranks through steps 13–15, every
+file byte-identical (checkpoints included); `restart_check.py` from step
+13 (the first RT step) bit-identical with `pm_level_solve = 1` and with
+`pm_gas_levels = 1`; the nightly tests `amrex_pm_level_solve_rt_ranks`
+and `amrex_pm_level_solve_rt_restart` run these (~10 min each). Before
+the fixes, on this branch, the `pm_gas_levels` restart from step 13 came
+out identical (the `dr` and `fgam` differences happened not to change an
+output bit; an earlier version of the branch saw it differ), and with the
+level solve every RT field of step 14 differed.
 
 Also run here: the `amrex_pm` label (the Stage E tests, `pm_level_solve`
 off: 76 tests, all passing, the stored references bitwise) after the
