@@ -38,7 +38,12 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // substeps of that many cells; a restart with another value converts it.
 // Version 7 (fof_dt_myr, docs/pm_refine.md): the on-the-fly FoF cache
 // before the trailer (empty when off). Versions <= 6 are read as "no cache".
-constexpr std::int32_t kVersion = 8;
+// Version 9 (docs/stage_g.md section 3): the same layout; the rays of the
+// AMReX backend's refined levels (amrex_max_level > 0) keep the dr they had
+// on their level (in base units otherwise), so a restart puts them back
+// as they were (amrex_rt_restore_levels); earlier checkpoints restore them
+// with dr recomputed from r, as before.
+constexpr std::int32_t kVersion = 9;
 
 // The ray layout of versions <= 4
 struct RayV4 {
@@ -259,7 +264,7 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     throw std::runtime_error("cannot rename " + tmp + " to " + path);
 }
 
-void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::PMState& pm,
+int read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::PMState& pm,
                      DriverState& d) {
   In in;
   in.path = path;
@@ -584,6 +589,7 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)
     throw std::runtime_error("checkpoint trailer missing: " + path);
+  return ver;
 }
 
 }  // namespace radray

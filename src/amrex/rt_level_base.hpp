@@ -121,6 +121,9 @@ struct LevelBase {
   virtual void gather_rays(std::vector<RayP>& out) const = 0;
   virtual void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const = 0;
   virtual void scatter_rays(const std::vector<RayP>& in, bool first) = 0;
+  // a restart of a refined hierarchy: its levels and their rays at once
+  // (amrex_rt_restore_levels, rt_backend.hpp); nothing on a single level
+  virtual void restore_levels(bool /*keep_dr*/) {}
   virtual std::string timers() const = 0;
   // fields_levels = 1: amrex_rt_level_slice (amrex_state.hpp). Collective.
   virtual void level_slice(int axis, int base_index, std::vector<float>& out, int& nf, int& finest,

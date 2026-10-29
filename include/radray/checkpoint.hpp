@@ -31,8 +31,8 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
                       const pm::PMState& pm, const DriverState& d);
 
 // Reads a checkpoint into an initialised Simulation/HydroState/PMState of the
-// same sizes (N, Ndm, Nray_max are checked).
-void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::PMState& pm,
+// same sizes (N, Ndm, Nray_max are checked). Returns its version.
+int read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::PMState& pm,
                      DriverState& d);
 
 }  // namespace radray

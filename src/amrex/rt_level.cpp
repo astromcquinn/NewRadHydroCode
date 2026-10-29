@@ -381,11 +381,15 @@ struct Level : LevelBase {
   // scale with the cell size, dr = rmax(nside) - r (ray_kernels.hpp)
   // follows, and the photons, which the kernels keep per <nH> and RT cell
   // volume (ray_source: ngam / vol_rt / nH_avg), scale with the cell volume
-  // (f^3: 8 going down, 1/8 going up)
-  static RayP rescaled(RayP r, double f) {
+  // (f^3: 8 going down, 1/8 going up). keep_dr: dr as it is, for the
+  // checkpoint's round trip of a refined level's rays (Hierarchy::
+  // gather_rays_chunks, restore_levels): the kernel advances dr by the path
+  // length, so it drifts from rmax - r by round-off, and recomputing it on
+  // the way up and down changed the rays of a restart
+  static RayP rescaled(RayP r, double f, bool keep_dr = false) {
     for (int d = 0; d < 3; ++d) r.x[d] = static_cast<float>(r.x[d] * f);
     r.r = static_cast<float>(r.r * f);
-    r.dr = static_cast<float>(rrk::rmax_from_nside(r.nside) - static_cast<double>(r.r));
+    if (!keep_dr) r.dr = static_cast<float>(rrk::rmax_from_nside(r.nside) - static_cast<double>(r.r));
     const double f3 = f * f * f;
     for (int m = 0; m < rrk::NF; ++m) r.ngam[m] = static_cast<float>(r.ngam[m] * f3);
     return r;
@@ -401,8 +405,8 @@ struct Level : LevelBase {
   }
   // Rays whose home cell is covered by the finer level, taken out of the
   // tiles (invalidated; the next Redistribute drops them) and returned in
-  // the finer level's units
-  void collect_down(std::vector<RayP>& out) {
+  // the finer level's units (keep_dr: see rescaled)
+  void collect_down(std::vector<RayP>& out, bool keep_dr = false) {
     if (!covered) return;
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -414,7 +418,7 @@ struct Level : LevelBase {
         const int i = static_cast<int>(p.m_rdata[0][n]), j = static_cast<int>(p.m_rdata[1][n]),
                   k = static_cast<int>(p.m_rdata[2][n]);
         if (!cov(i, j, k)) continue;
-        out.push_back(rescaled(Enc::load(p, n, ectx), 2.0));
+        out.push_back(rescaled(Enc::load(p, n, ectx), 2.0, keep_dr));
         ax::ParticleIDWrapper(p.m_idcpu[n]).make_invalid();
       }
     }
@@ -2122,8 +2126,9 @@ struct Hierarchy : LevelBase {
 
   // The levels follow the gas state's: a refined level whose grids changed
   // (a regrid) is rebuilt, its rays parked on the parent meanwhile; then
-  // the coverage masks and a full migration. Collective.
-  void sync() {
+  // the coverage masks and a full migration (keep_dr: restore_levels).
+  // Collective.
+  void sync(bool keep_dr = false) {
     const int nf = state->finest;
     for (int l = 1; l <= nf; ++l) {
       const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
@@ -2150,8 +2155,18 @@ struct Hierarchy : LevelBase {
     finest = nf;
     for (int l = 0; l <= finest; ++l)
       levels[static_cast<std::size_t>(l)]->set_covered(l < finest ? &levels[static_cast<std::size_t>(l) + 1]->ba : nullptr);
-    migrate();
+    migrate(keep_dr);
   }
+
+  // A restart: the levels of the checkpoint (the gas state's, just read)
+  // built at once, and the rays of the checkpoint, scattered onto the base
+  // level, moved down to them with the dr they had there (keep_dr, a
+  // checkpoint of version >= 9; rescaled). Every ray under a refined level
+  // here was on that level when the checkpoint was written (each substep
+  // ends with a migration), so the rays are those of the uninterrupted
+  // run; the first prep then regrids, if the hydro step did, as the
+  // uninterrupted run does. Collective.
+  void restore_levels(bool keep_dr) override { sync(keep_dr); }
 
   // Rays (in level-l units) onto level l, or, where level l has no grid
   // there, onto the next coarser level that has one (level 0 covers the
@@ -2218,8 +2233,9 @@ struct Hierarchy : LevelBase {
   }
 
   // Rays that left a refined level go up, rays under a finer level go down
-  // (collective: every level's add_rays is a Redistribute)
-  void migrate() {
+  // (collective: every level's add_rays is a Redistribute; keep_dr:
+  // restore_levels)
+  void migrate(bool keep_dr = false) {
     for (int l = finest; l >= 1; --l) {
       L& Ll = *levels[static_cast<std::size_t>(l)];
       std::vector<RayP> up;
@@ -2228,7 +2244,7 @@ struct Hierarchy : LevelBase {
     }
     for (int l = 0; l < finest; ++l) {
       std::vector<RayP> down;
-      levels[static_cast<std::size_t>(l)]->collect_down(down);
+      levels[static_cast<std::size_t>(l)]->collect_down(down, keep_dr);
       levels[static_cast<std::size_t>(l)]->pc->Redistribute();  // drops the invalidated rays
       if (cfg.amrex_split_on_entry) {
         split_on_entry(*levels[static_cast<std::size_t>(l) + 1], down);
@@ -2638,7 +2654,7 @@ struct Hierarchy : LevelBase {
       const double f = std::ldexp(1.0, -l);
       Ll.gather_rays_ordered(order, [&](const std::vector<RayP>& chunk) {
         std::vector<RayP> c2(chunk.size());
-        for (std::size_t n = 0; n < chunk.size(); ++n) c2[n] = L::rescaled(chunk[n], f);
+        for (std::size_t n = 0; n < chunk.size(); ++n) c2[n] = L::rescaled(chunk[n], f, true);
         sink(c2);
       });
     }
@@ -2779,6 +2795,7 @@ void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<f
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
+void amrex_rt_restore_levels(Simulation& s, bool keep_dr) { level_of(s).restore_levels(keep_dr); }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }
 void amrex_rt_substep(Simulation& s) { level_of(s).substep(s); }

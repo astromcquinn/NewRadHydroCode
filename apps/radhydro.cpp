@@ -1370,7 +1370,7 @@ int main(int argc, char** argv) {
 
     // Restart: the complete state of the end of a step (checkpoint.hpp)
     if (!restart_from.empty()) {
-      read_checkpoint(restart_from, s, hs, pm, dst);
+      const int ckpt_version = read_checkpoint(restart_from, s, hs, pm, dst);
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
@@ -1382,8 +1382,12 @@ int main(int argc, char** argv) {
       }
       // Stage F: the refined hydro levels of the checkpoint (a checkpoint
       // without them starts with level 0 only and regrids at the first step)
-      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr"))
+      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr")) {
         amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
+        // the RT's levels and their rays as they were (version 9 keeps the
+        // refined levels' dr, checkpoint.cpp)
+        if (use_amrex(cfg)) amrex_rt_restore_levels(s, ckpt_version >= 9);
+      }
       update_sched_x();  // the checkpoint's RT grid: the last step's x_HII,V
     } else {
       // Summarize the initial state
