@@ -82,7 +82,9 @@ class XrayBackground {
  public:
   // The source model must be sfr_model = abundance (its L_UV(M, z),
   // l_per_sfr, tvir_min and m_min). Tabulates sigma(M) and rho_SFR(z).
-  XrayBackground(const XrayParams& p, const SourceModelParams& src);
+  // co: the simulation's cosmology (Config::cosmo): the expansion, the
+  // mean densities and the mass function; the original's by default
+  XrayBackground(const XrayParams& p, const SourceModelParams& src, const Cosmology& co = {});
 
   const XrayParams& params() const { return p_; }
 
@@ -113,6 +115,7 @@ class XrayBackground {
 
  private:
   XrayParams p_;
+  Cosmology co_;
   LuvModel am_;
   double l_per_sfr_ = 8e27, tvir_min_ = 1e4, m_min_ = 0;
   MassFunction mf_;

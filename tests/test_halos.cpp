@@ -166,7 +166,7 @@ HaloUnits test_units(int Ndm, double z) {
   // Ngas = 2*Ndm, as in radhydro_global.f90
   const Config cfg = Config::make(2 * Ndm);
   SimClock clk;
-  init_variables(z, clk);
+  init_variables(Cosmology{}, z, clk);
   Units u;
   calc_sim_var(cfg, clk, u);
   return make_halo_units(cfg, clk, u);
@@ -378,17 +378,17 @@ void test_source_models() {
   }
   for (std::size_t i = c.Nsource; i < c.halo.size(); ++i) CHECK(c.halo[i].L == 0);
   const double vbox = std::pow(cp::box_default / cp::hubble0, 3);
-  CHECK_CLOSE(sfr, global_sfr_density(8, p, nullptr) * vbox, 1e-5);
+  CHECK_CLOSE(sfr, global_sfr_density(8, p, nullptr, Cosmology{}) * vbox, 1e-5);
   // Hernquist & Springel fit: 0.013 at z=0 by construction, peak at z~5
-  CHECK_CLOSE(global_sfr_density(0, p, nullptr), 0.013, 1e-3);  // omegar: chi(0)!=1
+  CHECK_CLOSE(global_sfr_density(0, p, nullptr, Cosmology{}), 0.013, 1e-3);  // omegar: chi(0)!=1
   double zpk = 0, best = 0;
   for (double zz = 0; zz < 15; zz += 0.05)
-    if (global_sfr_density(zz, p, nullptr) > best) {
-      best = global_sfr_density(zz, p, nullptr);
+    if (global_sfr_density(zz, p, nullptr, Cosmology{}) > best) {
+      best = global_sfr_density(zz, p, nullptr, Cosmology{});
       zpk = zz;
     }
   std::printf("  HS03 fit: peak %.3f Msun/yr/Mpc^3 at z=%.2f; rho_sfr(z=8)=%.3e\n", best, zpk,
-              global_sfr_density(8, p, nullptr));
+              global_sfr_density(8, p, nullptr, Cosmology{}));
   CHECK(zpk > 4 && zpk < 7);
   // Table: linear interpolation
   std::vector<SfrHistoryRow> t(3);
@@ -398,8 +398,8 @@ void test_source_models() {
   t[1].sfr = 0.03;
   t[2].z = 6;
   t[2].sfr = 0.05;
-  CHECK_CLOSE(global_sfr_density(9, p, &t), 0.02, 1e-12);
-  CHECK(global_sfr_density(11, p, &t) == 0);
+  CHECK_CLOSE(global_sfr_density(9, p, &t, Cosmology{}), 0.02, 1e-12);
+  CHECK(global_sfr_density(11, p, &t, Cosmology{}) == 0);
   // Dynamical model
   SourceModelParams pd;
   pd.model = SfrModel::Dynamical;

@@ -68,7 +68,8 @@ int main(int argc, char** argv) {
     std::fprintf(stderr,
                  "usage: %s <xv_dm|--synthetic Ndm> <redshift> <out> [--b x] [--nmin n] [--so]\n"
                  "       [--potmin] [--model global|dynamical] [--sfr file] [--tvir T] [--seq]\n"
-                 "       [--box Mpc/h (default 5)] [--ngas Ngas (default 2*Ndm)]\n",
+                 "       [--box Mpc/h (default 5)] [--ngas Ngas (default 2*Ndm)]\n"
+                 "       [--cosmo omegam=..|omegab=..|hubble0=..|sigma8=..|ns=.. (repeatable)]\n",
                  argv[0]);
     return 2;
   }
@@ -100,6 +101,7 @@ int main(int argc, char** argv) {
     std::vector<SfrHistoryRow> table;
     double box = cp::box_default;
     int ngas = 0;
+    Cosmology cosmo;  // --cosmo key=value (the original's by default)
     for (; a < argc; ++a) {
       const std::string s = argv[a];
       if (s == "--b") fp.b = std::atof(argv[++a]);
@@ -112,11 +114,18 @@ int main(int argc, char** argv) {
       else if (s == "--seq") fmt = CatalogFormat::Sequential;
       else if (s == "--box") box = std::atof(argv[++a]);
       else if (s == "--ngas") ngas = std::atoi(argv[++a]);
-      else throw std::runtime_error("unknown option " + s);
+      else if (s == "--cosmo") {
+        const std::string kv = argv[++a];
+        const auto eq = kv.find('=');
+        if (eq == std::string::npos || !set_cosmology_key(cosmo, kv.substr(0, eq), kv.substr(eq + 1)))
+          throw std::runtime_error("--cosmo omegam|omegab|hubble0|sigma8|ns=value");
+      } else throw std::runtime_error("unknown option " + s);
     }
-    const Config cfg = Config::make(ngas > 0 ? ngas : 2 * Ndm, 64, Ndm, box);
+    Config cfg = Config::make(ngas > 0 ? ngas : 2 * Ndm, 64, Ndm, box);
+    cosmo.derive();
+    cfg.cosmo = cosmo;
     SimClock clk;
-    init_variables(z, clk);
+    init_variables(cfg.cosmo, z, clk);
     Units u;
     calc_sim_var(cfg, clk, u);
     const HaloUnits hu = make_halo_units(cfg, clk, u);

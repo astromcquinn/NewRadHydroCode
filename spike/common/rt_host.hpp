@@ -64,7 +64,7 @@ class RTRun {
     cfg = radray::Config::make(P.N, P.nray_max_factor);
     cfg.legacy_rt = false;
     cfg.legacy_physics = (P.legacy_physics == 1);
-    radray::init_variables(P.z_init, clk);
+    radray::init_variables(cfg.cosmo, P.z_init, clk);  // the original cosmology
     radray::calc_atomic_rates(rates, cfg.legacy_physics);
     radray::calc_sim_var(cfg, clk, units);
     const std::vector<radray::Source> src = radray::read_sources(pdir + "/sources.txt");

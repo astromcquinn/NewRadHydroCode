@@ -70,6 +70,10 @@ struct PMConfig {
   // pm_gas_levels with amrex_state = 1 (config.hpp): the refined levels of
   // the gas state enter the deposit and are kicked on their own cells
   bool gas_levels = false;
+  // The runtime cosmology (Config::cosmo): the dark-matter mass per
+  // particle (1 - omegab/omegam) and the power spectra's gas fraction.
+  // make(Ngas, Ndm, ...) gives the original's.
+  Cosmology cosmo;
   // pm_level_solve with amrex_state = 1 and refinement (config.hpp,
   // docs/stage_g.md): the particles on their levels, a Poisson solve per
   // refined level (MLMG, mlmg_iters V-cycles to mlmg_tol); the hierarchy's
@@ -85,6 +89,7 @@ struct PMConfig {
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
     PMConfig c = make(cfg.Ngas, cfg.Ndm, mf, cfg.pm_refine);
+    c.cosmo = cfg.cosmo;
     c.backend = cfg.pm_backend;
     c.amrex_max_grid_size = cfg.amrex_pm_max_grid_size > 0 ? cfg.amrex_pm_max_grid_size
                                                            : cfg.amrex_max_grid_size;
