@@ -1737,3 +1737,12 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+
+## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
+
+* **`dual_e_self = 1` for production and for `thermal_init = recfast`**
+  (user, 2026-10-27). `make_production.py` writes `dual_e_self = 1` with
+  the unsplit hydro (`--dual-e-self 0` for the scheme before the key).
+  In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
+  explicit key wins. Without `recfast` the code default stays 0, so
+  every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).

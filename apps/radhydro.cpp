@@ -690,6 +690,9 @@ int main(int argc, char** argv) {
     s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
     s.cfg.thermal_floor = P.thermal_floor > 0 ? P.thermal_floor : (P.thermal_init == 1 ? 0.1 : 1.0);
     copy_hydro_scheme(P.hydro, s.cfg);
+    // dual_e_self defaults to 1 with thermal_init = recfast (docs/hydro_unsplit.md
+    // section 7, U7; user decision 2026-10-27); an explicit key wins
+    if (!s.cfg.dual_e_self_set && s.cfg.thermal_init == 1) s.cfg.dual_e_self = true;
     copy_rt_method(P.rtm, s.cfg);
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
