@@ -838,6 +838,8 @@ class HydroLevel {
       auto q = L.Q.const_array(mfi);
       auto u = L.U.array(mfi);
       auto uc = L.U.const_array(mfi);
+      auto esf = L.Es.const_array(mfi);
+      const bool e_self = de.e_self;
       for (int d = 0; d < 3; ++d) {
         const ax::Box fbx = ax::surroundingNodes(bx, d);
         auto f = L.flux[d].array(mfi);
@@ -847,7 +849,10 @@ class HydroLevel {
           auto Ua = [&](int ii, int jj, int kk, int m) { return uc(ii, jj, kk, m); };
           auto Sa = [&](int ii, int jj, int kk, int s) { return uc(ii, jj, kk, NV + s); };
           rrh::FaceData fd;
-          rrh::face_all(Qa, Ua, Sa, i - ei, j - ej, k - ek, d, dtdx, fd);
+          // e_self: the cells whose internal energy is evolved from its own value
+          const bool own_a = e_self && rrh::e_own(uc(i - ei, j - ej, k - ek, NV), esf(i - ei, j - ej, k - ek));
+          const bool own_b = e_self && rrh::e_own(uc(i, j, k, NV), esf(i, j, k));
+          rrh::face_all(Qa, Ua, Sa, i - ei, j - ej, k - ek, d, dtdx, fd, own_a, own_b);
           put_face(f, i, j, k, fd);
         });
       }
@@ -869,8 +874,10 @@ class HydroLevel {
         for (int m = 0; m < NV; ++m) Uc[m] = u(i, j, k, m);
         for (int s = 0; s < NS; ++s) S[s] = u(i, j, k, NV + s);
         // the cell pressure of the work term: time-centred (Hancock) or at
-        // the old time (Bryan et al. 2014 eq. 43)
-        const double p_half = p_old ? (rrh::kGamma - 1) * rrf::max(es(i, j, k), 0.0) : q(i, j, k).v[4];
+        // the old time (Bryan et al. 2014 eq. 43); with e_self that of the
+        // cell's own internal energy
+        const double p_half = (p_old ? (rrh::kGamma - 1) * rrf::max(es(i, j, k), 0.0) : q(i, j, k).v[4]) *
+                              (e_self ? rrh::e_ratio(S[0], es(i, j, k)) : 1.0);
         rrh::update_from_faces(Uc, S, x0, x1, y0, y1, z0, z1, p_half, dtdx, Un, Sn);
         for (int m = 0; m < NV; ++m) u(i, j, k, m) = Un[m];
         for (int s = 0; s < NS; ++s) u(i, j, k, NV + s) = Sn[s];
@@ -989,7 +996,8 @@ class HydroLevel {
       if (T.calls % regrid_every == 0 || finest == 0) regrid();
     }
     const rrh::DualEnergy de{cfg.dual_energy ? cfg.dual_eta1 : 0.0, cfg.dual_eta2, cfg.dual_eta1_local,
-                             cfg.dual_nb_radius, cfg.dual_reset_rule, cfg.dual_eta2_local};
+                             cfg.dual_nb_radius, cfg.dual_reset_rule, cfg.dual_eta2_local,
+                             cfg.dual_e_self && cfg.dual_energy};
     const double rho_min = un.Dgas_min;
     const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
     UnsplitCounters& C = hs.ucounters;

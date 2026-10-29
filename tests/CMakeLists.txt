@@ -911,6 +911,14 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
                      ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
     set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7): no cell of the
+    # cold unheated IGM over-cooled, the mean-density gas on its adiabat,
+    # thread independence, the key inert at 0; the default shows the defect
+    add_test(NAME unsplit_dual_e_self
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/dual_e_self_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/dual_e_self)
+    set_tests_properties(unsplit_dual_e_self PROPERTIES TIMEOUT 600 LABELS "physics;threads")
     # restart: the Compton step and the floors are stateless
     add_test(NAME restart_smoke_thermal
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
@@ -1637,6 +1645,19 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --set hydro_scheme=unsplit --set movie_dz=0.5 --set movie_z0=25 --set restart_every=1
                      --set restart_keep_latest=0)
     set_tests_properties(amrex_hydro_full_vs_serial_hydro PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
+                         ENVIRONMENT OMP_NUM_THREADS=2)
+    # dual_e_self = 1 (docs/hydro_unsplit.md section 7, U7) on the cold
+    # unheated IGM, where many cells evolve e from its own value: the AMReX
+    # level byte-identical to the serial step (8^3 boxes, so the stencils
+    # cross box boundaries)
+    add_test(NAME amrex_hydro_dual_e_self_vs_serial
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                     ${amrex_runs}/hydro_dual_e_self_pair $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     "hydro_backend=serial" "hydro_backend=amrex,amrex_hydro_max_grid_size=8"
+                     --quiet --set zdata1=20 --set hydro_scheme=unsplit --set dual_e_self=1
+                     --set thermal_floor=0.01 --set fields_every=1 --set fields=u_gas,e_gas)
+    set_tests_properties(amrex_hydro_dual_e_self_vs_serial PROPERTIES TIMEOUT 1800 LABELS "amrex;amrex_hydro;full"
                          ENVIRONMENT OMP_NUM_THREADS=2)
     # amrex_state = 1 (docs/stage_e_state.md): the gas on the levels, byte-
     # identical to the three backends with the host state on every rank

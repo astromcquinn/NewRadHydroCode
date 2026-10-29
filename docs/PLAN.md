@@ -1759,3 +1759,12 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
   default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
   64³, one extra hydro step).
+
+## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
+
+* **`dual_e_self = 1` for production and for `thermal_init = recfast`**
+  (user, 2026-10-27). `make_production.py` writes `dual_e_self = 1` with
+  the unsplit hydro (`--dual-e-self 0` for the scheme before the key).
+  In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
+  explicit key wins. Without `recfast` the code default stays 0, so
+  every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).
