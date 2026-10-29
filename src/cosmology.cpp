@@ -123,6 +123,12 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.temp_min = cfg.legacy_physics ? f::max(cfg.thermal_floor, 1.0) : cfg.thermal_floor;
   }
   u.Thydro_min = cfg.thermal_floor / u.temp1_unit;
+  // The pre-heating floor (Config::preheat_floor): the hydro floor and the
+  // RT physics floor are at least preheat_floor K below preheat_z
+  if (cfg.preheat_floor > 0 && z < cfg.preheat_z) {
+    u.temp_min = f::max(u.temp_min, cfg.preheat_floor);
+    u.Thydro_min = f::max(u.Thydro_min, cfg.preheat_floor / u.temp1_unit);
+  }
 
   u.Tgas_min = u.temp_min / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;

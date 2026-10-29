@@ -183,6 +183,14 @@ struct Config {
   // temp_min (at least 1 K with legacy_physics = 1, the rate table's lower
   // edge). Default 1 K, or 0.1 K with thermal_init = recfast (radhydro).
   double thermal_floor = 1.0;
+  // params.txt preheat_floor (K, 0 = off) and preheat_z: from z < preheat_z
+  // on, the hydro floor and the RT physics floor temp_min are at least
+  // preheat_floor, a stand-in for X-ray pre-heating (C26: T_min = 100 or
+  // 1000 K for z < 15; docs/thermal_history.md section 5). A plain
+  // switch-on (user decision 2026-10-29): the cells below the floor are
+  // lifted to it in the first step after preheat_z. No Fortran mirror.
+  double preheat_floor = 0.0;
+  double preheat_z = 15.0;
 
   // How a ray deposits its photons along the segments of its path
   // (rrk::cast_1/cast_3, docs/rt_multicell.md): 0 = share (the original),

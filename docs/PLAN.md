@@ -1735,6 +1735,16 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   `docs/port_notes.md`); the plane-parallel problems and
   `make_production.py --plane-parallel` set 1 so dense gas self-shields;
   the code default stays 0, the original.
+* **The pre-heating floor (user decision, 2026-10-29):** the C26 / DM20
+  stand-in for X-ray heating is a temperature floor with a plain switch-on
+  at z = 15, no ramp: `preheat_floor` (K, default off) from `preheat_z`
+  (default 15), `docs/thermal_history.md` §5. The existing `thermal_floor`
+  is global from the ICs, so a 1000 K floor from z = 100 would hold the
+  gas far above its adiabat through the whole pre-reionisation history
+  and suppress the minihaloes and filaments that form before z = 15; the
+  switch-on reproduces what C26 did, an impulsive injection the gas then
+  smooths on its sound-crossing time. `xray_heating` is the physical
+  alternative (serial only).
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.

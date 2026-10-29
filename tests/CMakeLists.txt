@@ -911,6 +911,13 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
                      ${CMAKE_CURRENT_BINARY_DIR}/thermal_init)
     set_tests_properties(thermal_init_recfast PROPERTIES TIMEOUT 600 LABELS "physics;threads")
+    # preheat_floor from preheat_z (docs/thermal_history.md section 5): inert
+    # above preheat_z, the mean-density gas on the floor below it, threads
+    add_test(NAME preheat_floor
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/preheat_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/onthefly
+                     ${CMAKE_CURRENT_BINARY_DIR}/preheat_floor)
+    set_tests_properties(preheat_floor PROPERTIES TIMEOUT 600 LABELS "physics;threads")
     # restart: the Compton step and the floors are stateless
     add_test(NAME restart_smoke_thermal
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py

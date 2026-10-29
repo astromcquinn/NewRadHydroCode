@@ -161,12 +161,14 @@ face (`plane_faces = +x`).
 | `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 (user decision, 2026-10-29) |
 | `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
 | `land_outputs` | 0 | 1: the hydro step before a `zdata1` output ends exactly on it (so runs with different step caps are compared at the same times); the plane-parallel problems use 1 |
+| `preheat_floor`, `preheat_z` | 0 (off), 15 | the pre-heating option of §1: a temperature floor in K from z < `preheat_z` on, a plain switch-on (user decision 2026-10-29; `docs/thermal_history.md` §5). C26: 100 or 1000 K for z < 15 |
 
 `tools/production/make_production.py --plane-parallel` writes a production
 `params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
-`--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`):
-DM20's schedule `c_reduced_schedule = 0.1 0.99 0.01` unless given, cooling
-on, `photon_consume_dense = 1`, no abundance matching.
+`--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`,
+`--preheat-floor`, `--preheat-z`): DM20's schedule `c_reduced_schedule =
+0.1 0.99 0.01` unless given, cooling on, `photon_consume_dense = 1`, no
+abundance matching.
 
 ### Geometry and rays
 

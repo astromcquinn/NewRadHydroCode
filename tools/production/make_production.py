@@ -211,6 +211,11 @@ def main():
                     help="Gamma_HI in the source cells in 1e-12 s^-1 (default 0.3, C26)")
     ap.add_argument("--plane-z-re", type=float, default=7.0, help="the turn-on redshift (default 7)")
     ap.add_argument("--plane-alpha", type=float, default=1.5, help="J_nu ~ nu^-alpha (default 1.5)")
+    ap.add_argument("--preheat-floor", type=float, default=0.0,
+                    help="a temperature floor in K from --preheat-z on, a stand-in for X-ray pre-heating "
+                         "(preheat_floor, docs/thermal_history.md; C26: 100 or 1000 K; default off)")
+    ap.add_argument("--preheat-z", type=float, default=15.0,
+                    help="the redshift the pre-heating floor switches on at (preheat_z, default 15)")
     ap.add_argument("--dt-max-myr", type=float, default=0.0,
                     help="cap on the hydro step in Myr from the turn-on (0: off; the T4 test)")
     ap.add_argument("--rt-substeps-max", type=int, default=0,
@@ -360,6 +365,10 @@ def main():
             lines.append(f"plane_alpha = {a.plane_alpha:g}")
     if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
         lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
+    if a.preheat_floor > 0:
+        lines += ["# the pre-heating floor (docs/thermal_history.md section 5): a plain switch-on",
+                  f"preheat_floor = {a.preheat_floor:g}",
+                  f"preheat_z = {a.preheat_z:g}"]
     if a.dt_max_myr > 0:
         lines.append(f"dt_max_myr = {a.dt_max_myr:g}")
     if a.rt_substeps_max > 0:
