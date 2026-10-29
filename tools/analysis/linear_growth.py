@@ -140,7 +140,7 @@ def camb_pk(cos, zs, kmax):
     out = {}
     for var, tag in (("delta_cdm", "c"), ("delta_baryon", "b")):
         f = r.get_matter_power_interpolator(nonlinear=False, var1=var, var2=var, hubble_units=True,
-                                            k_hunit=True, kmax=kmax * 1.1)
+                                            k_hunit=True)
         out[tag] = lambda z, k, f=f: norm * f.P(z, k)
     return out, camb.__version__
 

@@ -297,5 +297,55 @@ runs it, `tools/analysis/linear_growth.py` compares:
   box's cosmic variance cancels; R_bc = (P_b/P_c)_sim/(P_b/P_c)_CAMB tests
   the baryons' catch-up and their pressure suppression, independently of
   the ICs' normalisation. Linear theory holds where CAMB's Δ²_cdm ≪ 1.
-* **Results:** pending.
+* **Runs** (klone, 2026-10-29; `/gscratch/astro/mcquinn/radhydro/runs/linear_growth`;
+  tables in `docs/data/linear_growth/`): `N128` (σ8 = 0.82), `N128_s8x0.1`
+  (σ8 = 0.082, the same modes: every scale linear to z = 30, Δ²_cdm < 6e-4)
+  and `N128_s8x0.1_ra0.01` (that with `ra_max = 0.01`: 228 steps instead of
+  the default 24). 16 s each on 16 threads.
+* **Results, the linear box** (`N128_s8x0.1`, `docs/figures/linear_growth_N128_s8x0.1.png`).
+  CAMB's growth from z = 300 is ×7.3 (CDM) and ×27.6 (baryons, catching
+  up) to z = 100, ×70.7 and ×427 to z = 30:
+
+  | k [h/Mpc] | cells/λ | G_c z=100 | G_b z=100 | G_c z=30 | G_b z=30 | R_bc z=30 |
+  |---|---|---|---|---|---|---|
+  | 32 | 100 | 1.002 | 1.004 | 1.003 | 1.005 | 1.001 |
+  | 56 | 56 | 1.008 | 1.018 | 1.025 | 1.042 | 1.017 |
+  | 102 | 31 | 0.996 | 1.002 | 0.985 | 0.994 | 1.009 |
+  | 202 | 16 | 0.994 | 1.021 | 0.987 | 1.023 | 1.035 |
+  | 402 | 8 | 0.983 | 1.064 | 0.975 | 1.082 | 1.100 |
+  | 805 | 4 | 0.867 | 0.896 | 0.724 | 0.675 | 0.901 |
+  | 1608 | 2 | 0.514 | 0.181 | 0.205 | 0.080 | 0.370 |
+
+  * **Linear growth, DM and gas, holds** to 1–3 % at ≥ 16 cells per
+    wavelength (k ≤ 200 h/Mpc) at every output, including the baryons'
+    catch-up from the MUSIC/CAMB baryon density and velocity ICs (a factor
+    6 more growth than the CDM's to z = 30).
+  * **The baryons grow 6–8 % (in power) more than CAMB's at 8 cells per
+    wavelength** (k ≈ 400, near the baryon Jeans scale): R_bc = 1.06–1.10.
+    Not the timestep (`ra_max = 0.01`: 1.063 for 1.082). Open: weaker
+    pressure support than CAMB's baryons at that scale (the temperature
+    perturbations under Compton coupling, or the hydro at 8 cells).
+  * **At ≤ 4 cells per wavelength the grid damps the growth:** the DM
+    by the PM force (CIC assignment and interpolation and the
+    finite-difference gradient: G_c 0.72 at k_N/2 by z = 30), the gas more
+    (G_b 0.68 at k_N/2, 0.08 at k_N). Not the timestep (the same to 1 % with
+    10× smaller steps). The usual resolution limit of a PM + grid-hydro
+    code; the gas's P(k) is converged only at ≳ 8 cells per wavelength.
+* **The full-amplitude box** (`N128`, `docs/figures/linear_growth_N128.png`):
+  as the linear one at z = 100 to ~5 % (Δ²_cdm ≈ 0.005 per ln k, but
+  ∫Δ² dln k ≈ 0.02 over the box's nearly flat n_eff ≈ −3 spectrum), and
+  20–40 % (CDM) and 25–75 % (gas) above linear at 200 < k < 900 h/Mpc by
+  z = 30: the mode coupling of a box in which every scale goes nonlinear
+  at once (the minihalo era), absent in the linear box with the same
+  modes. A linear-growth check of this box therefore needs z ≳ 100 or a
+  reduced amplitude, as here.
+* **The ICs' amplitude:** P_sim/P_CAMB at z = 300 is 1.02–1.05 at the
+  well-sampled k (MUSIC normalises σ8 today and the converter scales back
+  with the code's all-matter growth, `tools/ics/music/README.md`, which
+  exceeds the CDM's own growth while the baryons lag; a 1–2 % amplitude
+  convention). The lowest bin (n = 1, 18 modes) is 2.1× CAMB in this seed
+  in both species and grows linearly, i.e. the realisation.
+* **The estimator against the code's `Pk/` output:** the same to 1 % for
+  the gas; the DM agrees to a few per cent at k ≤ k_N/4 and departs toward
+  k_N (the code's deconvolution and binning differ there).
 

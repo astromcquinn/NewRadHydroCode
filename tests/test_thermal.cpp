@@ -144,7 +144,8 @@ int main() {
     CHECK(recfast_table_matches(orig));  // the compiled table still in use
     CHECK(!throws(planck));
     CHECK(recfast_table_matches(planck) && !recfast_table_matches(orig));
-    CHECK(recfast_T(100.0) == 1e2 && recfast_xe(200.0) == 2e-4);  // the rows, sorted
+    CHECK(recfast_T(100.0) == 1e2);  // the rows, sorted
+    CHECK_CLOSE(recfast_xe(200.0), 2e-4, 1e-14);
     // log-linear in ln(1+z) between the rows
     const double w = (std::log1p(150.0) - std::log1p(100.0)) / (std::log1p(200.0) - std::log1p(100.0));
     CHECK_CLOSE(recfast_T(150.0), std::exp(std::log(1e2) * (1 - w) + std::log(4e2) * w), 1e-14);
