@@ -264,7 +264,7 @@ void test_sim_hmf() {
 HaloUnits units_at(double z) {
   const Config cfg = Config::make(64);
   SimClock clk;
-  init_variables(z, clk);
+  init_variables(Cosmology{}, z, clk);
   Units u;
   calc_sim_var(cfg, clk, u);
   return make_halo_units(cfg, clk, u);

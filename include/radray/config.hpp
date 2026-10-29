@@ -4,6 +4,8 @@
 
 #include <cstdint>
 
+#include "radray/cosmo_params.hpp"
+
 namespace radray {
 
 // Hydro solver (docs/hydro_unsplit.md): Legacy = the original's split
@@ -57,6 +59,22 @@ struct Config {
   // with -DBOX).
   double box = 5;
   std::int64_t Ncell = 0;  // Ngas^3
+
+  // The runtime cosmology (cosmo_params.hpp; params.txt omegam, omegab,
+  // hubble0, sigma8, ns): the original's real(4) literals by default, which
+  // keep every run bit-identical to the original. Read by calc_sim_var, the
+  // clock (init_variables, calc_dt_from_da, calc_da_from_dt), the RT step
+  // count, the PM masses, summarize_gas, the halo units and the sources.
+  Cosmology cosmo;
+
+  // Preheating floor (docs/production_run.md section 10; params.txt T_min,
+  // z_floor): at redshifts z < z_floor the RT cell physics (photo_cell)
+  // keeps the gas temperature at or above T_min kelvin, as the original
+  // keeps it above temp_min (C26: 100 K or 1000 K below z = 15). T_min = 0
+  // (default) is off and bit-identical to the original; T_min > 0 needs
+  // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
+  double T_min = 0;
+  double z_floor = -1;
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
 

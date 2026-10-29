@@ -33,7 +33,7 @@ namespace {
 // pm_tools.f90: cic_mass_assignment, local parameter
 //   mass = (1-omegab/omegam)*N_dm_gas_c
 // (N_dm_gas_c = (Nm/Ndm)^3: the PM mesh is the gas grid in the original)
-inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.dm_mass_ratio; }
+inline double dm_mass(const PMConfig& pc) { return (1 - pc.cosmo.omegab / pc.cosmo.omegam) * pc.dm_mass_ratio; }
 
 // CIC weights shared by cic_mass_assignment and accelerate_dm
 // (rpk::cic_weights, kernels/pm_kernels.hpp: the same arithmetic as the
@@ -674,7 +674,7 @@ void calc_power_spectrum(PMState& s, const float* u_gas, double box,
                          std::vector<double>& pk_dm, std::vector<double>& pk_gas) {
   const int N = s.pc.Ngas;
   const int Nm = s.pc.Nm;
-  const double fb = omegab / omegam;
+  const double fb = s.pc.cosmo.omegab / s.pc.cosmo.omegam;
   const double fd = 1 - fb;
   const int fft_threads = pm_fft_threads(s.pc);
   s.fmesh_valid = false;

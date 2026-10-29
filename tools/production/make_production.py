@@ -5,6 +5,8 @@
                        [--c-schedule 0.1,0.25,0.2,0.5,0.3,0.75,0.5 | --c-schedule none --c-reduced 0.2]
                        [--nray-max-factor 16] [--threads 4]
                        [--hydro-scheme unsplit] [--redshift-per-distance 1]
+                       [--omegam X --omegab X --hubble0 X --sigma8 X --ns X]
+                       [--T-min K --z-floor Z]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
 Ngas = N, Ndm = pm_refine*N or --ndm) in OUTDIR/ics. Run with
@@ -56,6 +58,14 @@ def main():
     ap.add_argument("--box", type=float, default=10.0)
     ap.add_argument("--z-init", type=float, default=100.0)
     ap.add_argument("--seed", type=int, default=7)
+    # the runtime cosmology (docs/production_run.md section 10): passed to
+    # make_ics.py and written to params.txt; default the original's
+    for k in ("omegam", "omegab", "hubble0", "sigma8", "ns"):
+        ap.add_argument("--" + k, type=float, default=None,
+                        help=f"runtime cosmology {k} (default: the original's)")
+    ap.add_argument("--T-min", type=float, default=0.0,
+                    help="preheating floor in K at z < --z-floor (default 0 = off)")
+    ap.add_argument("--z-floor", type=float, default=None)
     ap.add_argument("--c-reduced", type=float, default=None,
                     help="constant reduced speed of light; given alone it turns the default "
                          "schedule off (written as c_reduced; default 0.01 with --c-schedule none)")
@@ -267,6 +277,9 @@ def main():
                "--z-init", str(a.z_init), "--box", str(a.box), "--seed", str(a.seed)]
         if ndm > a.N:
             cmd += ["--phases-from-ndm", str(a.N)]
+        for k in ("omegam", "omegab", "hubble0", "sigma8", "ns"):
+            if getattr(a, k) is not None:
+                cmd += ["--" + k, repr(getattr(a, k))]
         subprocess.run(cmd, check=True)
     lines = [
         "# Production reionization run (tools/production/make_production.py)",
@@ -291,6 +304,13 @@ def main():
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]
+    for k in ("omegam", "omegab", "hubble0", "sigma8", "ns"):
+        if getattr(a, k) is not None:
+            lines.append(f"{k} = {getattr(a, k)!r}")
+    if a.T_min > 0:
+        if a.z_floor is None:
+            sys.exit("--T-min needs --z-floor (the floor applies at z < z_floor)")
+        lines += [f"T_min = {a.T_min:g}", f"z_floor = {a.z_floor:g}"]
     if a.pm_refine > 1:
         lines.append(f"pm_refine = {a.pm_refine}")
     if a.fof_dt_myr > 0:

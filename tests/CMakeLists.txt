@@ -31,6 +31,17 @@ add_executable(test_redshift_distance test_redshift_distance.cpp)
 target_link_libraries(test_redshift_distance PRIVATE radray)
 add_test(NAME redshift_distance COMMAND test_redshift_distance)
 
+# The runtime cosmology and the preheating floor (Config::cosmo, T_min,
+# z_floor; docs/production_run.md section 10)
+add_executable(test_cosmology_runtime test_cosmology_runtime.cpp)
+target_link_libraries(test_cosmology_runtime PRIVATE radray_halos)
+if(TARGET radray_pm)
+  target_link_libraries(test_cosmology_runtime PRIVATE radray_pm)
+  target_compile_definitions(test_cosmology_runtime PRIVATE RADRAY_TEST_PM=1)
+endif()
+add_test(NAME cosmology_runtime COMMAND test_cosmology_runtime)
+set_tests_properties(cosmology_runtime PROPERTIES LABELS "physics;cosmology")
+
 # Halo finder and sources (docs/halos_and_sources.md)
 add_executable(test_halos test_halos.cpp)
 target_link_libraries(test_halos PRIVATE radray_halos)
@@ -83,6 +94,22 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/healpix_vs_healpy.py
                    $<TARGET_FILE:healpix_tool> 1000000)
   set_tests_properties(healpix_vs_healpy PROPERTIES SKIP_RETURN_CODE 77)
+
+  # The runtime cosmology's IC tool, a Planck RT run and the preheating
+  # floor on a cooling test (tests/cosmology_check.py; docs/production_run.md
+  # section 10)
+  add_test(NAME cosmology_ics
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py ics
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_ics ${PROJECT_SOURCE_DIR}/tools/ics/make_ics.py)
+  add_test(NAME cosmology_planck_rt
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py rt
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_rt $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/uniform_1src)
+  add_test(NAME cosmology_floor_cooling
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py floor
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_floor $<TARGET_FILE:rt_driver>)
+  set_tests_properties(cosmology_ics cosmology_planck_rt cosmology_floor_cooling
+                       PROPERTIES TIMEOUT 900 LABELS "physics;cosmology")
 
   # End-to-end: run all problems (N=32) and sanity-check the outputs
   add_test(NAME end_to_end
@@ -316,6 +343,33 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/cool_suppress_off --quiet --set legacy_rt=0
                    --set legacy_physics=0 --set hydro_scheme=unsplit --set cool_suppress_overdensity=0)
   set_tests_properties(cool_suppress_off_smoke PROPERTIES TIMEOUT 900 LABELS physics)
+
+  # The runtime cosmology and the preheating floor (docs/production_run.md
+  # section 10): the original's values written explicitly, T_min = 0 and a
+  # floor at redshifts the run never reaches are bit-identical to the
+  # default (both flag settings); a Planck run differs only where it should
+  # (the ICs, the clock, the RT substeps, the units); the floor on a cooling
+  # test (tests/cosmology_check.py)
+  add_test(NAME cosmology_default_identity
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_pair $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                   ""
+                   "omegam=0.27,omegab=0.045,hubble0=0.70,sigma8=0.80,ns=0.96,T_min=0,z_floor=1000"
+                   --quiet --set fields_every=1)
+  add_test(NAME cosmology_default_identity_fixes
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/backend_pair_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_pair_fixes $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                   "legacy_rt=0,legacy_physics=0"
+                   "legacy_rt=0,legacy_physics=0,omegam=0.27,omegab=0.045,hubble0=0.7,T_min=1000,z_floor=5"
+                   --quiet --set fields_every=1 --set hydro_scheme=unsplit)
+  add_test(NAME cosmology_planck_full
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py full
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_full $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke ${PROJECT_SOURCE_DIR}/tools/ics/make_ics.py)
+  set_tests_properties(cosmology_default_identity cosmology_default_identity_fixes cosmology_planck_full
+                       PROPERTIES TIMEOUT 900 LABELS "physics;cosmology")
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed.
@@ -1103,6 +1157,21 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       "launcher flags (OpenMPI defaults; empty for srun)")
   set(RADRAY_MPIEXEC_NP "-np" CACHE STRING "launcher flag for the rank count")
   set(amrex_runs ${CMAKE_CURRENT_BINARY_DIR}/amrex_runs)
+  # The preheating floor on the RT backend (bitwise against the serial RT
+  # on the source-free cooling test) and a Planck full loop on the three
+  # backends (docs/production_run.md section 10)
+  add_test(NAME cosmology_floor_amrex
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py floor
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_floor_amrex $<TARGET_FILE:rt_driver>
+                   --amrex ${RADRAY_MPIEXEC} "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+  add_test(NAME cosmology_planck_full_amrex
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cosmology_check.py full
+                   ${CMAKE_CURRENT_BINARY_DIR}/cosmology_full_amrex $<TARGET_FILE:radhydro>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke ${PROJECT_SOURCE_DIR}/tools/ics/make_ics.py
+                   --set legacy_rt=0 --set legacy_physics=0 --set hydro_scheme=unsplit
+                   --set rt_backend=amrex --set hydro_backend=amrex --set pm_backend=amrex)
+  set_tests_properties(cosmology_floor_amrex cosmology_planck_full_amrex PROPERTIES
+                       LABELS "amrex;cosmology" ENVIRONMENT OMP_NUM_THREADS=1 TIMEOUT 1800 PROCESSORS 2)
   # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
   # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
   # (ln16p0: the spike's rt_serial keeps the original photon limiter, so

@@ -45,6 +45,7 @@ struct PMParams {
   double da_sim = 0;
   int nsteps = 10;
   int pk_every = 0;
+  int ics_check = 1;  // 1: z_init and the cosmology must match ics_info.txt
   radray::Config backend;  // pm_backend, amrex_pm_max_grid_size, amrex_pm_fft, amrex_max_grid_size
 };
 
@@ -57,11 +58,13 @@ void set_pm_param(PMParams& p, const std::string& k, std::istringstream& vs) {
   else if (k == "da_sim") vs >> p.da_sim;
   else if (k == "nsteps") vs >> p.nsteps;
   else if (k == "pk_every") vs >> p.pk_every;
+  else if (k == "ics_check") vs >> p.ics_check;
   else {
     std::string v;
     vs >> v;
     if (radray::set_pm_backend_param(p.backend, k, v)) return;
     if (radray::set_rt_backend_param(p.backend, k, v)) return;  // amrex_max_grid_size
+    if (radray::set_cosmology_param(p.backend, k, v)) return;  // omegam, ... (cosmology.hpp)
     std::cerr << "pm_driver: ignoring parameter " << k << "\n";
   }
 }
@@ -128,6 +131,7 @@ int main(int argc, char** argv) {
     Config cfg = Config::make(P.Ngas, 64, P.Ndm);
     cfg.pm_refine = P.pm_refine;
     copy_pm_backend_param(P.backend, cfg);
+    copy_cosmology_param(P.backend, cfg);
     cfg.amrex_max_grid_size = P.backend.amrex_max_grid_size;
     check_pm_backend_param(cfg);
     if (out) *out << " pm_driver: " << pm_backend_summary(cfg) << ", ranks = " << backend_nranks() << "\n";
@@ -139,7 +143,7 @@ int main(int argc, char** argv) {
     HydroState hs;
 
     // Initialize (order as in radhydro.f90)
-    init_variables(P.z_init, clk);
+    init_variables(cfg.cosmo, P.z_init, clk);
     init_domain_gas(cfg, dom);
     init_hydro(cfg, gas, hs);
     pm::init_pm(pm, pm::PMConfig::make(cfg, P.mf != 0), dom);
@@ -147,6 +151,7 @@ int main(int argc, char** argv) {
     fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     calc_sim_var(cfg, clk, units);
 
+    if (P.ics_check) check_ics_info(pdir, P.z_init, cfg.cosmo);  // the ICs' z_init and cosmology
     pm::read_init_conditions(pdir, pm, gas.u, gas.w, units);
 
     calc_sim_var(cfg, clk, units);

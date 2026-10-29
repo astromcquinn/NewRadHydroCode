@@ -170,6 +170,7 @@ struct RunParams {
   // X-ray background heating (xray_*; docs/xray_heating.md); off by default
   XrayParams xray;
   std::string ics;          // directory of xv_dm.init/u_gas.init
+  int ics_check = 1;        // 1: z_init and the cosmology must match <ics>/ics_info.txt
   // Output and control
   int fields_every = 0;     // write fields every n steps (0: never)
   // fields_levels = 1: with every field output, one plane at the finest
@@ -391,7 +392,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ray_quant.structural = std::stoi(val) != 0;
   else if (key == "ray_quant_offbits")
     P.ray_quant.offbits = std::stoi(val);
-  else if (!set_xray_param(P.xray, key, val) && !set_halo_param(P.halo, key, val))
+  else if (key == "ics_check")
+    P.ics_check = std::stoi(val);
+  else if (set_cosmology_param(P.rtm, key, val)) {
+    // omegam, omegab, hubble0, sigma8, ns, T_min, z_floor (cosmology.hpp)
+  } else if (!set_xray_param(P.xray, key, val) && !set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
       (key == "legacy_physics" && P.legacy_physics != 0 && P.legacy_physics != 1))
@@ -704,6 +709,7 @@ int main(int argc, char** argv) {
     // section 7, U7; user decision 2026-10-27); an explicit key wins
     if (!s.cfg.dual_e_self_set && s.cfg.thermal_init == 1) s.cfg.dual_e_self = true;
     copy_rt_method(P.rtm, s.cfg);
+    copy_cosmology_param(P.rtm, s.cfg);  // omegam, ..., T_min, z_floor (cosmology.hpp)
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
     copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
@@ -757,12 +763,18 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "thermal_init = recfast is implemented for the host gas grid only (amrex_state = 0, no refined "
           "hydro levels)");
+    // The RECFAST table (recfast_table.inc) was computed for the original
+    // cosmology; another cosmology needs its own table
+    if (cfg.thermal_init == 1 && !cfg.cosmo.is_original())
+      throw std::runtime_error(
+          "thermal_init = recfast: the RECFAST table is for the original cosmology (omegam 0.27, omegab "
+          "0.045, hubble0 0.70), not " + cfg.cosmo.summary());
     std::unique_ptr<XrayBackground> xbg;
     std::ofstream xraylog;
     if (P.xray.on) {
       if (use_amrex(cfg) || cfg.amrex_state)
         throw std::runtime_error("xray_heating is implemented for rt_backend = serial only");
-      xbg = std::make_unique<XrayBackground>(P.xray, P.halo.model);
+      xbg = std::make_unique<XrayBackground>(P.xray, P.halo.model, cfg.cosmo);
       if (io) {
         xraylog.open(odir + "/Log/xray.txt", logmode);
         if (restart_from.empty())
@@ -795,7 +807,7 @@ int main(int argc, char** argv) {
     HydroState hs;
     pm::PMState pm;
 
-    init_variables(P.z_init, s.clk);                  // init_variables
+    init_variables(cfg.cosmo, P.z_init, s.clk);       // init_variables
     init_domain_gas(cfg, gdom);                        // init_domain_gas
     init_domain_rt(cfg, s.dom);                        // init_domain_rt
     // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
@@ -880,9 +892,11 @@ int main(int argc, char** argv) {
       throw std::runtime_error("tensor_dump is implemented for the serial RT backend only");
 
     // thermal_init = recfast: the ICs at the RECFAST temperature of z_init
-    if (restart_from.empty())
+    if (restart_from.empty()) {
+      if (P.ics_check) check_ics_info(ics_dir, P.z_init, cfg.cosmo);  // z_init, cosmology
       pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units,
                                cfg.thermal_init == 1 ? recfast_T(s.clk.redshift) : -1.0);
+    }
 
     if (out)
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm
@@ -924,7 +938,8 @@ int main(int argc, char** argv) {
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
            << (P.halo.fof_dt_myr > 0 ? ", fof_dt_myr = " + std::to_string(P.halo.fof_dt_myr)
                                      : std::string())
-           << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
+           << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n"
+           << (cosmology_summary(cfg).empty() ? std::string() : " " + cosmology_summary(cfg) + "\n");
 
     if (io) plane_write_spectrum(odir, s);  // plane_parallel = 1: the bins and fluxes
     Timers T;
