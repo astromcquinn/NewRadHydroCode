@@ -345,7 +345,8 @@ runs it, `tools/analysis/linear_growth.py` compares:
   exceeds the CDM's own growth while the baryons lag; a 1–2 % amplitude
   convention). The lowest bin (n = 1, 18 modes) is 2.1× CAMB in this seed
   in both species and grows linearly, i.e. the realisation.
-* **The estimator against the code's `Pk/` output:** the same to 1 % for
-  the gas; the DM agrees to a few per cent at k ≤ k_N/4 and departs toward
-  k_N (the code's deconvolution and binning differ there).
+* **The estimator against the code's `Pk/` output:** the gas the same to
+  1 % from k ≈ 100 h/Mpc (the two lowest bins differ by 5–11 %: the
+  binning); the DM within a few per cent to k_N/4, departing toward k_N
+  (the deconvolution differs there).
 
