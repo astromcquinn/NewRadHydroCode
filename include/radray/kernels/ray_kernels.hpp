@@ -86,6 +86,16 @@ struct RTP {
   int ray_rotate = 0;
   std::uint64_t rot_seed = 0, rot_abits = 0;
   int rot_istep = 0;
+  // Plane-parallel RT-domain mode (plane_parallel.hpp, docs/plane_parallel.md):
+  // L = the domain length in RT cells (0 = off), faces = bit 2*axis (+)
+  // or 2*axis+1 (-) per emitting face, nu / ngam = the spectrum of every
+  // ray emitted this substep. With L > 0 no ray is split or merged
+  // (classify) and a ray is deleted once it has crossed L cells
+  // (plane_done, checked by the host after cast_3).
+  struct Plane {
+    int L = 0, faces = 0;
+    float nu[NF] = {0, 0, 0, 0, 0}, ngam[NF] = {0, 0, 0, 0, 0};
+  } plane;
 };
 constexpr int kNconeMax = 192;  // 12 * 4^2: nside_merge <= 4
 
@@ -698,6 +708,9 @@ RR_HD RayP source_ray(int ipix, int i, int j, int k, float Luv, const RTP& P) {
 enum RayCase : int { kMerge = 0, kCast = 1, kSplit = 2, kRemove = 3 };
 RR_HD int classify(const RayP& ry, const RTP& P) {
   const double ntot = sum_ngam(ry);
+  // plane_parallel = 1: every ray is cast as it is (no split, no merge)
+  // until it is faint or has crossed its domain (plane_done)
+  if (P.plane.L > 0) return ntot < P.ngam_min ? kRemove : kCast;
   int c = kMerge;
   if (ntot > P.ngam_ray16) c = kCast;
   if (ry.r == 0) c = kCast;
@@ -706,6 +719,78 @@ RR_HD int classify(const RayP& ry, const RTP& P) {
   if (ry.nside == radray::rayp::nside_max) c = kRemove;
   return c;
 }
+// ---------------------------------------------------------------------------
+// Plane-parallel RT-domain mode (P.plane, plane_parallel.hpp): the rays
+// of cell (i,j,k) this substep, one per emitting face whose source plane
+// is the cell's lower face along that axis (index = 0 mod L, so the
+// domains tile the periodic box): r = 0, dr = L (the distance to the far
+// face), nside = 1 and ipix = the face (markers only: never split or
+// merged), at the centre of that lower face, directed along +axis into the
+// domain or along -axis into the domain below (whose high face it is).
+// Returns the number of rays written to out (room for 6).
+// ---------------------------------------------------------------------------
+RR_HD int plane_rays(int i, int j, int k, const RTP& P, RayP* out) {
+  int n = 0;
+  if (P.plane.L <= 0) return 0;
+  const int idx[3] = {i, j, k};
+  for (int f = 0; f < 6; ++f) {
+    if (!((P.plane.faces >> f) & 1)) continue;
+    const int d = f / 2;
+    if (idx[d] % P.plane.L != 0) continue;
+    RayP& r = out[n++];
+    r.nside = 1;
+    r.ipix = f;
+    r.r = 0;
+    r.dr = static_cast<float>(P.plane.L);
+    for (int e = 0; e < 3; ++e) {
+      r.x[e] = static_cast<float>(idx[e]) + 0.5f;
+      r.dx[e] = 0;
+    }
+    r.x[d] = static_cast<float>(idx[d]);
+    r.dx[d] = (f % 2) ? -1.0f : 1.0f;
+    for (int q = 0; q < NF; ++q) {
+      r.nu[q] = P.plane.nu[q];
+      r.ngam[q] = P.plane.ngam[q];
+    }
+  }
+  return n;
+}
+// A plane ray that has crossed its domain (after cast_3: r grows by the
+// path length, L in steps of the cells per substep, which divide L)
+RR_HD bool plane_done(const RayP& ry, const RTP& P) {
+  return P.plane.L > 0 && ry.r >= static_cast<float>(P.plane.L) - 0.5f;
+}
+// plane_transport = sweep (src/plane_sweep.cpp, the backend's PF fields):
+// the packet about to enter cell index e along the axis of face f has
+// travelled plane_packet_m cells from its source face (e mod L for a +
+// face, L - 1 - e mod L for a - face), and stands for the ray
+// plane_packet_ray at the face it is crossing (the lower face of the cell
+// for +, the upper one for -), at the face's centre, with r = m.
+RR_HD int plane_face_sign(int f) { return (f % 2) ? -1 : 1; }
+RR_HD int plane_packet_m(int e, int L, int sign) {
+  const int r = e % L;
+  return sign > 0 ? r : L - 1 - r;
+}
+RR_HD RayP plane_packet_ray(const int idx[3], int f, int m, const RTP& P, const float* ngam) {
+  RayP r;
+  const int d = f / 2, sgn = plane_face_sign(f);
+  r.nside = 1;
+  r.ipix = f;
+  r.r = static_cast<float>(m);
+  r.dr = static_cast<float>(P.plane.L - m);
+  for (int e = 0; e < 3; ++e) {
+    r.x[e] = static_cast<float>(idx[e]) + 0.5f;
+    r.dx[e] = 0;
+  }
+  r.x[d] = static_cast<float>(idx[d] + (sgn < 0 ? 1 : 0));
+  r.dx[d] = static_cast<float>(sgn);
+  for (int q = 0; q < NF; ++q) {
+    r.nu[q] = P.plane.nu[q];
+    r.ngam[q] = ngam[q];
+  }
+  return r;
+}
+
 // Merge cone of a ray: HEALPix pixel of its direction at nside_merge
 // (2 in the original: 48 cones; recomb_prepare may lower it to 1)
 RR_HD int merge_cone(const RayP& ry, int nside_merge) {
@@ -756,8 +841,19 @@ struct CellStats {
 
 // Count pass. `in` holds the n rays whose home is cell (i,j,k). `src`
 // (optional) is a stellar emission that is not thick (nullptr: none).
-RR_HD int step1_count(const RayP* in, int n, const SourceSpec* src, const RTP& P, CellStats& st) {
+// add / nadd (optional): rays emitted in this cell this substep as given
+// (the plane-parallel face rays, plane_rays), ahead of the chain.
+RR_HD int step1_count(const RayP* in, int n, const SourceSpec* src, const RTP& P, CellStats& st,
+                      const RayP* add = nullptr, int nadd = 0) {
   int nout = 0;
+  for (int m = 0; m < nadd; ++m) {
+    if (classify(add[m], P) == kRemove) {
+      st.ndel += 1;
+    } else {
+      nout += 1;
+      st.ncst += 1;
+    }
+  }
   if (src) {
     const RayP s0 = source_ray(*src, 0);  // all rays of an emission have equal ngam
     const int nr = nray_from_nside(src->nside);
@@ -828,8 +924,11 @@ RR_HD void heap_sort(int* idx, int m, const RayP* in, const MergeKey* key) {
 // Write pass. idx/key: scratch of length n. out: room for the count of
 // step1_count. Returns the number of rays written.
 RR_HD int step1_write(const RayP* in, int n, const SourceSpec* src, int i, int j, int k,
-                      const RTP& P, int* idx, MergeKey* key, RayP* out) {
+                      const RTP& P, int* idx, MergeKey* key, RayP* out, const RayP* add = nullptr,
+                      int nadd = 0) {
   int w = 0;
+  for (int m = 0; m < nadd; ++m)
+    if (classify(add[m], P) != kRemove) out[w++] = add[m];
   if (src) {
     const RayP s0 = source_ray(*src, 0);
     if (classify(s0, P) != kRemove) {

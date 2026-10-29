@@ -198,7 +198,40 @@ def main():
                     help="run the on-the-fly FoF only every this many Myr, reusing its halos "
                          "in between (docs/pm_refine.md, FoF cadence); 0: every hydro step "
                          "(the original, no line written)")
+    ap.add_argument("--plane-parallel", action="store_true",
+                    help="the plane-parallel RT-domain mode (docs/plane_parallel.md): the faces of "
+                         "cubic RT domains as the only sources from --plane-z-re (no halo finder, "
+                         "no abundance matching); implies cooling on everywhere unless "
+                         "--cool-suppress-overdensity is given")
+    ap.add_argument("--plane-transport", choices=("rays", "sweep"), default="sweep",
+                    help="the packets in flight as rays of the ray pool, or as a field per lit face "
+                         "shifted along its axis (default sweep: no ray pool, a fifth of the memory; the "
+                         "same photons to round-off)")
+    ap.add_argument("--plane-ndom", type=int, default=8, help="RT domains per dimension (default 8)")
+    ap.add_argument("--plane-faces", default="+x +y",
+                    help='the emitting faces of every domain (default "+x +y": two orthogonal '
+                         'directions, one face each, as DM20 and C26); "+x" with --plane-ndom 1 is one '
+                         'front across the whole box')
+    ap.add_argument("--plane-gamma12", type=float, default=0.3,
+                    help="Gamma_HI in the source cells in 1e-12 s^-1 (default 0.3, C26)")
+    ap.add_argument("--plane-z-re", type=float, default=7.0, help="the turn-on redshift (default 7)")
+    ap.add_argument("--plane-alpha", type=float, default=1.5, help="J_nu ~ nu^-alpha (default 1.5)")
+    ap.add_argument("--dt-max-myr", type=float, default=0.0,
+                    help="cap on the hydro step in Myr from the turn-on (0: off; the T4 test)")
+    ap.add_argument("--rt-substeps-max", type=int, default=0,
+                    help="cap on the RT substeps per hydro step from the turn-on (0: off; the T4 test)")
     a = ap.parse_args()
+    if a.plane_parallel:
+        # DM20's adaptive speed of light unless given: 0.1 c until x_HI,V < 1 per cent, then 0.01 c
+        if a.c_schedule is None and a.c_reduced is None:
+            a.c_schedule = "0.1,0.99,0.01"
+        if a.N % a.plane_ndom:
+            sys.exit(f"--plane-ndom {a.plane_ndom} must divide N = {a.N}")
+        if not any(x.startswith("--cool-suppress-overdensity") for x in sys.argv):
+            a.cool_suppress_overdensity = 0.0  # cooling on everywhere (user decision 2026-10-26)
+        if a.am_params:
+            sys.exit("--plane-parallel uses no halo sources: drop --am-params")
+        a.zdata1 = a.zdata1  # the outputs; the RT starts at --plane-z-re, not at the first zdata1
     # the speed of light: the default schedule, unless a constant --c-reduced
     # is given alone (then that constant)
     if a.c_schedule is None:
@@ -218,7 +251,7 @@ def main():
     if a.nray_max_factor * a.N ** 3 >= 2 ** 31:
         sys.exit(f"--nray-max-factor {a.nray_max_factor} at N = {a.N}: Nray_max >= 2^31 overflows the "
                  f"int32 ray links (rays.hpp); use at most {(2 ** 31 - 1) // a.N ** 3}")
-    if float(a.zdata1.split()[0]) < 15:
+    if float(a.zdata1.split()[0]) < 15 and not a.plane_parallel:
         print(f"warning: --zdata1 starts at {a.zdata1.split()[0]}: the RT starts at the first "
               f"zdata1 redshift, so sources before it do not shine; start the list at >= 15")
     os.makedirs(a.outdir, exist_ok=True)
@@ -316,6 +349,28 @@ def main():
             lines.append(f"sf_efficiency = {a.sf_efficiency:g}")
     if a.rt_cells_per_substep != 1:
         lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
+    if a.plane_parallel:
+        lines += ["# Plane-parallel RT-domain mode (docs/plane_parallel.md): the domain faces are the",
+                  "# only sources from plane_z_re; the halo finder and the sources are not used",
+                  "plane_parallel = 1",
+                  f"plane_transport = {a.plane_transport}",
+                  f"plane_ndom = {a.plane_ndom}",
+                  f"plane_faces = {a.plane_faces}",
+                  f"plane_gamma12 = {a.plane_gamma12:g}",
+                  f"plane_z_re = {a.plane_z_re:g}",
+                  "# every photoionisation consumes its photon (self-shielding of dense cells;",
+                  "# the original's rho_source factor is off)",
+                  "photon_consume_dense = 1",
+                  "# the hydro steps end exactly on the zdata1 outputs (the same times for every step cap)",
+                  "land_outputs = 1"]
+        if a.plane_alpha != 1.5:
+            lines.append(f"plane_alpha = {a.plane_alpha:g}")
+    if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
+        lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
+    if a.dt_max_myr > 0:
+        lines.append(f"dt_max_myr = {a.dt_max_myr:g}")
+    if a.rt_substeps_max > 0:
+        lines.append(f"rt_substeps_max = {a.rt_substeps_max}")
     if a.am_params:
         if not a.f_esc > 0:
             sys.exit("--am-params needs --f-esc")

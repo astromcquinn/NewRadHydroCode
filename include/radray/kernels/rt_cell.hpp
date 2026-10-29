@@ -295,6 +295,9 @@ struct PhysCtx {
   // kPhotonIterMax iterations), not only until ne converges (at most 5, the
   // original). false is the original.
   bool photon_conserve = false;
+  // Config::photon_consume_dense: true = every photoionisation consumes its
+  // photon; false (the original) = the rho_source factor below
+  bool photon_consume_dense = false;
   // Config::cool_suppress_overdensity: the overdensity above which the
   // cooling and SN heating are suppressed ((x0/x)^2, (x0/x)^1.5); 200 is
   // the original, 0 switches the suppression off.
@@ -545,7 +548,7 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   double nion[3] = {0, 0, 0};
   for (int inu = 0; inu < 5; ++inu) {
     const double d = rhog / u.rhob_avg;
-    const double x = rrf::min(std::exp(-(d - rho_source) / rho_source), 1.0);
+    const double x = X.photon_consume_dense ? 1.0 : rrf::min(std::exp(-(d - rho_source) / rho_source), 1.0);
     const double num3[3] = {gamma_pht[0][inu] * nHI * dtsec_rt, gamma_pht[1][inu] * nHeI * dtsec_rt,
                             gamma_pht[2][inu] * nHeII * dtsec_rt};
     for (int sp = 0; sp < 3; ++sp) nion[sp] = nion[sp] + num3[sp];

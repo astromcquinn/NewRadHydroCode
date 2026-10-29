@@ -16,6 +16,7 @@
 #include "radray/healpix.hpp"
 #include "radray/kernels/ray_kernels.hpp"
 #include "radray/parallel.hpp"
+#include "radray/plane_parallel.hpp"
 #include "radray/recomb_rad.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
@@ -211,7 +212,73 @@ rrk::RTP rt_params(const Simulation& s) {
   static_assert(sizeof(p.rot_abits) == sizeof(s.clk.scalefactor), "double");
   std::memcpy(&p.rot_abits, &s.clk.scalefactor, sizeof(p.rot_abits));
   p.rot_istep = s.clk.istep_rt;
+  plane_fill_rtp(s, p);  // plane_parallel = 1 (plane_parallel.hpp): the face rays' spectrum
   return p;
+}
+
+// ---------------------------------------------------------------------------
+// plane_emit: the face sources of the plane-parallel RT-domain mode
+// ---------------------------------------------------------------------------
+
+// plane_parallel = 1 (plane_parallel.hpp, docs/plane_parallel.md): before
+// the sweep of rt_step_1, one ray per emitting face and face cell
+// (rrk::plane_rays) at the head of the cell's chain, with the snapshot
+// head/tail updated as ray_source does, so that the sweep casts them. The
+// source planes are visited axis by axis; a cell on the planes of two axes
+// is emitted once, with the rays of both. deterministic_parallel = 1: the
+// cells of a plane in parallel (distinct cells, per-thread free lists).
+void plane_emit(Simulation& s) {
+  if (!s.plane.on) return;
+  RTGrid& G = s.rt;
+  RayState& R = s.rays;
+  const rrk::RTP P = rt_params(s);
+  const int N = s.cfg.Nrt, L = s.plane.L, faces = s.plane.faces;
+  const bool det = s.cfg.det_parallel;
+  auto emit_cell = [&](int i, int j, int k) {
+    rrk::RayP rays[6];
+    const int n = rrk::plane_rays(i, j, k, P, rays);
+    if (n == 0) return;
+    std::int64_t indx[6];
+    ray_create(s, n, indx);
+    const std::int64_t c = G.cell(i + 1, j + 1, k + 1);
+    for (int m = 0; m < n; ++m) {
+      const std::int64_t ir = indx[m];
+      Ray& ry = R.at(ir);
+      static_cast<rrk::RayP&>(ry) = rays[m];
+      if (R.track_prov) {
+        RayProv& pv = R.prov[ir];
+        pv = RayProv{};
+        pv.src = static_cast<std::int32_t>(c);
+        pv.birth = static_cast<std::int32_t>(R.prov_substep);
+      }
+      ray_insert_head(s, ir, i + 1, j + 1, k + 1);
+    }
+    // the sweep's snapshot: the new head, and the tail if the chain was empty
+    G.htoc_ray(1, c) = indx[n - 1];
+    if (G.htoc_ray(2, c) == 0) G.htoc_ray(2, c) = indx[0];
+  };
+  auto axis_active = [&](int d) { return ((faces >> (2 * d)) & 3) != 0; };
+  for (int d = 0; d < 3; ++d) {
+    if (!axis_active(d)) continue;
+    // the planes idx_d = 0, L, 2L, ...; the two other axes span the plane
+    const int e1 = (d + 1) % 3, e2 = (d + 2) % 3;
+    for (int p = 0; p < N; p += L) {
+      const std::int64_t nn = static_cast<std::int64_t>(N) * N;
+#pragma omp parallel for schedule(static) if (det && par::worth(nn))
+      for (std::int64_t q = 0; q < nn; ++q) {
+        int idx[3];
+        idx[d] = p;
+        idx[e1] = static_cast<int>(q % N);
+        idx[e2] = static_cast<int>(q / N);
+        // already emitted with an earlier axis' plane?
+        bool done = false;
+        for (int d0 = 0; d0 < d; ++d0)
+          if (axis_active(d0) && idx[d0] % L == 0) done = true;
+        if (done) continue;
+        emit_cell(idx[0], idx[1], idx[2]);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +677,16 @@ void ray_cast_3(Simulation& s, std::int64_t& ir, int irt, int jrt, int krt) {
   if (!rrk::cast_3(ry, P, tf)) {
     ray_remove(s, ir, irt, jrt, krt, true);
     ir = 0;
+  } else if (rrk::plane_done(ry, P)) {
+    // plane_parallel = 1: the ray has crossed its domain; its photons leave
+    // (counted for the conservation diagnostic, plane_parallel.hpp)
+    const __int128 fx = plane_to_fx(rrk::sum_ngam(ry));
+    if (s.cfg.det_parallel)
+      s.rays.tl[par::thread_id()].plane_escaped_fx += fx;
+    else
+      s.plane.escaped_fx += fx;
+    ray_remove(s, ir, irt, jrt, krt, true);
+    ir = 0;
   } else {
     int i, j, k;
     home_cell(ry, Nrt, i, j, k);
@@ -786,6 +863,9 @@ RedshiftTable make_redshift_table() { return rrk::build_redshift_table(); }
 void ray_redshifting(Simulation& s) {
   RayState& R = s.rays;
   if (R.Nray <= 0) return;
+  // plane_parallel = 1: the face rays keep their spectrum (they live one
+  // domain crossing; the redshift tables assume the Pop II bands)
+  if (s.plane.on) return;
   const double ngam_min = s.units.ngam_min;
   // (a - da)/a, or per distance with redshift_per_distance (cosmology.hpp)
   const double fscale = redshift_fscale(s.cfg, s.clk);

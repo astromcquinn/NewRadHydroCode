@@ -1239,6 +1239,7 @@ struct MomentLevel : CellLevel {
     X.dtsec_rt = s.clk.dtsec_rt;
     X.cells = s.cfg.rt_cells_per_substep;
     X.photon_conserve = s.cfg.photon_conserve;
+    X.photon_consume_dense = s.cfg.photon_consume_dense;
     X.ia = s.cfg.recomb_case_A ? 0 : 3;
     X.want_nrab = recomb;
     const RecombState* Rc = recomb ? s.recomb.get() : nullptr;
