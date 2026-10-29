@@ -2,11 +2,13 @@
 // AMReX levels the owners of the gas state between steps. The gas (u, w, e)
 // lives in one MultiFab on a decomposition shared by the RT, hydro and PM
 // levels, which read and write it locally instead of copying the full host
-// grid in and gathering it back onto every rank; the host arrays of the
-// gas grid and the RT grid exist only on rank 0, as a mirror refreshed
-// from the levels for the statistics, the file outputs and the checkpoint
-// (the file formats are unchanged), and nothing of the grid is allocated
-// on the other ranks beyond their boxes.
+// grid in and gathering it back onto every rank. No rank allocates the host
+// gas or RT grids: the statistics, the file outputs and the checkpoint
+// stream the levels to rank 0 slab by slab (amrex_state_stream_*), and a
+// restart or the initial conditions fill them from rank 0 slab by slab
+// (amrex_state_fill_*), with the file formats unchanged
+// (docs/rank0_streaming.md). Rank 0 keeps the particles (the halo finder)
+// and, for now, the host PM mesh of the power spectrum.
 //
 // This header is AMReX-free; with RADRAY_AMREX off the amrex_state_*
 // functions are stubs that throw (src/amrex/gas_state_stub.cpp). The

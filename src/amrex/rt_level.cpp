@@ -677,7 +677,7 @@ struct Level : LevelBase {
   // a 1.5 TB node at 24 ranks).
   static constexpr int kSyncPlanes = 8;
   void sync_fields(Simulation& s) override {
-    if (state) {  // amrex_state = 1: rank 0's mirror only
+    if (state) {  // amrex_state = 1: not used (no host copy; the outputs stream the level)
       gather_fields(s, false);
       return;
     }
@@ -1746,7 +1746,7 @@ struct Level : LevelBase {
     T.sync += now() - t0;
   }
 
-  // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
+  // ---- the cells to and from the host grids (amrex_state = 1 streams instead) ---
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
   // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)

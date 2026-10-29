@@ -106,8 +106,9 @@ struct LevelBase {
   virtual void substep(Simulation& s) = 0;
   virtual void post(Simulation& s) = 0;
   virtual void sync_fields(Simulation& s) = 0;
-  // amrex_state = 1: the cells into rank 0's mirror (all fields, or the
-  // five of write_stats), and rank 0's RT grid onto the cells (a restart)
+  // the cells into rank 0's host RT grid (all fields, or the first five),
+  // and rank 0's RT grid onto the cells; not used with amrex_state = 1,
+  // which streams instead (docs/rank0_streaming.md)
   virtual void gather_fields(Simulation& s, bool stats_only) = 0;
   // a movie frame: rhog, fHI, fHeI, fHeII, temp and gamma(1) only (the
   // moment level; the ray levels gather every field)
@@ -370,7 +371,7 @@ struct CellLevel : LevelBase {
   // a 1.5 TB node at 24 ranks).
   static constexpr int kSyncPlanes = 8;
   void sync_fields(Simulation& s) override {
-    if (state) {  // amrex_state = 1: rank 0's mirror only
+    if (state) {  // amrex_state = 1: not used (no host copy; the outputs stream the level)
       gather_fields(s, false);
       return;
     }
@@ -434,7 +435,7 @@ struct CellLevel : LevelBase {
     T.sync += now() - t0;
   }
 
-  // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
+  // ---- the cells to and from the host grids (amrex_state = 1 streams instead) ---
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
   // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)

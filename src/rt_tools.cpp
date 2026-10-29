@@ -300,7 +300,7 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
     s.rt_stat.Luv = s.rt_stat.Luv + Luv;
     s.rt_stat.sfr = s.rt_stat.sfr + sfr;
   }
-  // the dense fields (all ranks of the serial backends; rank 0's mirror
+  // the dense fields (all ranks of the serial backends; no rank holds them
   // with amrex_state = 1)
   if (!G.Luv.empty()) {
     std::fill(G.Luv.begin(), G.Luv.end(), 0.0f);

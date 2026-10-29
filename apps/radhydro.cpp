@@ -846,8 +846,9 @@ int main(int argc, char** argv) {
     init_domain_gas(cfg, gdom);                        // init_domain_gas
     init_domain_rt(cfg, s.dom);                        // init_domain_rt
     // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
-    // before any level; the host grids stay as rank 0's mirror only, and
-    // the other ranks never allocate the host PM arrays (at pm_refine = 2
+    // before any level; no rank keeps the host grids (the outputs stream
+    // the levels to rank 0, docs/rank0_streaming.md), and the other ranks
+    // never allocate the host PM arrays (at pm_refine = 2
     // with 1024^3 particles they are 45 GB per rank)
     const bool on_level = use_amrex_state(cfg);
     init_hydro(cfg, s.gas, hs);                        // init_hydro
@@ -1899,7 +1900,7 @@ int main(int argc, char** argv) {
       if (data1_out) {
         const auto tp = Clock::now();
         sync_mirror();
-        // (amrex_state = 1: the host P(k) on rank 0's mirror; its FFT and
+        // (amrex_state = 1: the host P(k) on rank 0's PM mesh; its FFT and
         // the DM linking are the host's, redundant until Stage E's P(k) on
         // the level)
         if (on_level) {
