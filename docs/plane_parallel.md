@@ -166,9 +166,12 @@ face (`plane_faces = +x`).
 `tools/production/make_production.py --plane-parallel` writes a production
 `params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
 `--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`,
-`--T-min`, `--z-floor`): DM20's schedule `c_reduced_schedule =
-0.1 0.99 0.01` unless given, cooling on, `photon_consume_dense = 1`, no
-abundance matching.
+`--T-min`, `--z-floor`, `--thermal-floor`): DM20's schedule
+`c_reduced_schedule = 0.1 0.99 0.01` unless given, cooling on,
+`photon_consume_dense = 1`, `thermal_floor = 0.1` (the hydro floor and the
+clamp of the RT physics floor, instead of the original's 1 K: the
+mean-density adiabat is below 1 K at z < 8; user decision 2026-10-29,
+`docs/thermal_history.md` §4), no abundance matching.
 
 ### Geometry and rays
 

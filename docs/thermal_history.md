@@ -135,7 +135,7 @@ and a lower thermal floor.
 | key | default | meaning |
 |---|---|---|
 | `thermal_init` | `floor` | `floor`: the original. `recfast`: RECFAST start + residual-electron Compton coupling |
-| `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K |
+| `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K. With `thermal_init = floor` and `legacy_physics = 0`, a value below 1 K also lowers the 1 K clamp of the RT physics floor `temp_min` (the adiabat of instantaneous decoupling, which the original clamps at its rate table's edge), so the RT floor is the adiabat down to `thermal_floor`; the plane-parallel problems use 0.1 K (user decision 2026-10-29: the mean-density adiabat crosses 1 K at z ≈ 8, so the unheated gas ahead of the fronts in the C26 boxes sat on the clamp). Default byte-identical; `legacy_physics = 1` keeps the clamp (its nearest-node table starts at 1 K). `make_production.py --thermal-floor` |
 | `dual_e_self` | 0 (`floor`), 1 (`recfast`) | the unsplit hydro's internal energy evolved as itself (`docs/hydro_unsplit.md` §7, U7; user decision 2026-10-27) |
 
 **What `recfast` does:**

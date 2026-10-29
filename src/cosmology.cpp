@@ -113,7 +113,13 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.temp_min = u.Tcmb;
   } else {
     u.temp_max = folded::ten_lgT_max;
-    u.temp_min = f::max(Tcmb0 / x / f::pow2(a), 1.0);
+    // the original clamps the adiabat at 1 K (the lower edge of its
+    // nearest-node rate table); with legacy_physics = 0 a thermal_floor
+    // below 1 K lowers that clamp too (docs/thermal_history.md section 4:
+    // the plane-parallel problems use 0.1 K), so the RT physics floor is
+    // the adiabat down to thermal_floor. Byte-identical by default.
+    const double clamp = cfg.legacy_physics ? 1.0 : f::min(cfg.thermal_floor, 1.0);
+    u.temp_min = f::max(Tcmb0 / x / f::pow2(a), clamp);
   }
   // Density limits in grid units
   u.Dgas_avg = ob / om;
