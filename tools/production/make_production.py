@@ -64,8 +64,11 @@ def main():
         ap.add_argument("--" + k, type=float, default=None,
                         help=f"runtime cosmology {k} (default: the original's)")
     ap.add_argument("--T-min", type=float, default=0.0,
-                    help="preheating floor in K at z < --z-floor (default 0 = off)")
-    ap.add_argument("--z-floor", type=float, default=None)
+                    help="the preheating floor in K at z < --z-floor, a stand-in for X-ray pre-heating "
+                         "(T_min, docs/production_run.md section 10; C26: 100 or 1000 K; default 0 = off)")
+    ap.add_argument("--z-floor", type=float, default=15.0,
+                    help="the redshift the preheating floor switches on at (z_floor; default 15, "
+                         "user decision 2026-10-29)")
     ap.add_argument("--c-reduced", type=float, default=None,
                     help="constant reduced speed of light; given alone it turns the default "
                          "schedule off (written as c_reduced; default 0.01 with --c-schedule none)")
@@ -303,9 +306,8 @@ def main():
         if getattr(a, k) is not None:
             lines.append(f"{k} = {getattr(a, k)!r}")
     if a.T_min > 0:
-        if a.z_floor is None:
-            sys.exit("--T-min needs --z-floor (the floor applies at z < z_floor)")
-        lines += [f"T_min = {a.T_min:g}", f"z_floor = {a.z_floor:g}"]
+        lines += ["# the preheating floor (docs/production_run.md section 10): a plain switch-on",
+                  f"T_min = {a.T_min:g}", f"z_floor = {a.z_floor:g}"]
     if a.pm_refine > 1:
         lines.append(f"pm_refine = {a.pm_refine}")
     if a.fof_dt_myr > 0:

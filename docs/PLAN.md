@@ -1743,11 +1743,28 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   cell equals Γ_HI exactly (checked to 5e-8); the face rays are never
   split, merged or redshifted and are deleted at the far face; the halo
   finder and the halo sources are off in the mode; the step before z_re
-  lands on it. **For the user to confirm:** `photon_consume_dense` (the
-  original lets cells denser than 50× the mean ionise without consuming
-  photons, `rho_source` in `docs/port_notes.md`; the plane-parallel
-  problems and `make_production.py --plane-parallel` set 1 so dense gas
-  self-shields; the code default stays 0, the original).
+  lands on it. **`photon_consume_dense = 1` in the plane-parallel problems
+  (user decision, 2026-10-29):** the original lets cells denser than 50×
+  the mean ionise without consuming photons (`rho_source` in
+  `docs/port_notes.md`); the plane-parallel problems and
+  `make_production.py --plane-parallel` set 1 so dense gas self-shields;
+  the code default stays 0, the original.
+* **The pre-heating floor (user decision, 2026-10-29):** the C26 / DM20
+  stand-in for X-ray heating is a temperature floor with a plain switch-on
+  at z = 15, no ramp. The keys are PR #8's `T_min` (K, default off) and
+  `z_floor` (`docs/production_run.md` §10), whose floor acted in the RT
+  cell physics only; it now also raises the hydro floor and the PM clamp
+  (`docs/thermal_history.md` §5), so it holds in the plane-parallel mode
+  before `plane_z_re`, where the RT does not run. `make_production.py
+  --T-min` writes `z_floor = 15` unless given. The existing `thermal_floor`
+  is global from the ICs, so a 1000 K floor from z = 100 would hold the
+  gas far above its adiabat through the whole pre-reionisation history
+  and suppress the minihaloes and filaments that form before z = 15; the
+  switch-on reproduces what C26 did, an impulsive injection the gas then
+  smooths on its sound-crossing time. `xray_heating` is the physical
+  alternative (serial only). (This thread's `preheat_floor`/`preheat_z`
+  of PR #12's first commit were folded into `T_min`/`z_floor` when PR #8
+  reached `main` first.)
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
