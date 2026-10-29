@@ -283,9 +283,9 @@ def main():
     check(len(sw) == 1, f"exactly one switch (steps {sw})")
     if sw:
         # per Myr: the step before the switch is the short turn-on step (plane_turnon_courant 0.05)
-        a, b = st[sw[0] - 1], st[sw[0]]
-        r0 = a["nstep_rt"][0] / (a["dt_yr"][0] / 1e6)
-        r1 = b["nstep_rt"][0] / (b["dt_yr"][0] / 1e6)
+        s_before, s_after = st[sw[0] - 1], st[sw[0]]
+        r0 = s_before["nstep_rt"][0] / (s_before["dt_yr"][0] / 1e6)
+        r1 = s_after["nstep_rt"][0] / (s_after["dt_yr"][0] / 1e6)
         check(r0 / max(r1, 1e-30) > 5, f"the RT substeps per Myr drop {r0:.2f} -> {r1:.2f} at the switch (> 5x)")
     x_end, T_end = st[-1]["xHII_V"][0], st[-1]["T_M"][0]
     check(x_end > 0.99, f"x_HII,V = {x_end:.4f} > 0.99 at the end")
