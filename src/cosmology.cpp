@@ -113,7 +113,13 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.temp_min = u.Tcmb;
   } else {
     u.temp_max = folded::ten_lgT_max;
-    u.temp_min = f::max(Tcmb0 / x / f::pow2(a), 1.0);
+    // the original clamps the adiabat at 1 K (the lower edge of its
+    // nearest-node rate table); with legacy_physics = 0 a thermal_floor
+    // below 1 K lowers that clamp too (docs/thermal_history.md section 4:
+    // the plane-parallel problems use 0.1 K), so the RT physics floor is
+    // the adiabat down to thermal_floor. Byte-identical by default.
+    const double clamp = cfg.legacy_physics ? 1.0 : f::min(cfg.thermal_floor, 1.0);
+    u.temp_min = f::max(Tcmb0 / x / f::pow2(a), clamp);
   }
   // Density limits in grid units
   u.Dgas_avg = ob / om;
@@ -136,13 +142,19 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   }
   u.Thydro_min = cfg.thermal_floor / u.temp1_unit;
 
-  // The preheating floor of the RT cell physics (Config::T_min, z_floor),
-  // after thermal_init's temp_min; temp_min itself (the hydro and PM
-  // limits, the outputs) is unchanged.
+  // The preheating floor (Config::T_min, z_floor; docs/production_run.md
+  // section 10, docs/thermal_history.md section 5), after thermal_init's
+  // temp_min: the RT cell physics clamps at temp_floor, and the hydro floor
+  // and the PM step's clamp are raised to it, so the floor also holds in
+  // the hydro steps the RT does not run in. temp_min itself (the outputs)
+  // is unchanged.
   u.temp_floor = u.temp_min;
-  if (cfg.T_min > 0 && z < cfg.z_floor) u.temp_floor = f::max(u.temp_min, cfg.T_min);
+  if (cfg.T_min > 0 && z < cfg.z_floor) {
+    u.temp_floor = f::max(u.temp_min, cfg.T_min);
+    u.Thydro_min = f::max(u.Thydro_min, cfg.T_min / u.temp1_unit);
+  }
 
-  u.Tgas_min = u.temp_min / u.temp1_unit;
+  u.Tgas_min = u.temp_floor / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 
   // MF temperature limits in grid units

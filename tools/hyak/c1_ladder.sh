@@ -4,7 +4,8 @@
 # mode (docs/plane_parallel.md), 0.25 Mpc/h at 64^3, 128^3, 256^3 and 512^3,
 # z_re = 7, Gamma_-12 = 0.3, 8^3 RT domains lit from +x and +y, DM20's speed
 # of light schedule (0.1 c until x_HI,V < 1 per cent, then 0.01 c), cooling on
-# everywhere, no preheating; Zel'dovich initial conditions of the existing
+# everywhere, no preheating unless PREHEAT is set (the pre-heating floor in K
+# from z = 15, C26's 100 or 1000); Zel'dovich initial conditions of the existing
 # generator from z = 100 (until the MUSIC/CAMB ICs of WP1 land), Ndm = Ngas.
 # Also the T4 coupling-interval test at 128^3 (tools/analysis/t4_coupling.py).
 #
@@ -15,7 +16,7 @@
 #   tools/hyak/c1_ladder.sh post [N ...]    # E(k), the front profiles, the figures
 #   tools/hyak/c1_ladder.sh t4 [make|run|post]   # the T4 variants at $T4_N (128)
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs/c1), SEED (7),
-# GAMMA12 (0.3), ZRE (7), NDOM (8), EXE (build/radhydro), EXE_AMREX
+# GAMMA12 (0.3), ZRE (7), NDOM (8), PREHEAT (0), EXE (build/radhydro), EXE_AMREX
 # (build-amrex/radhydro), THREADS (192), RANKS_512 (12: MPI ranks of the
 # 512^3 job, 16 threads each), SBATCH_ARGS, DRYRUN=1 (print the commands).
 #
@@ -31,6 +32,7 @@ SEED=${SEED:-7}
 GAMMA12=${GAMMA12:-0.3}
 ZRE=${ZRE:-7}
 NDOM=${NDOM:-8}
+PREHEAT=${PREHEAT:-0}      # the pre-heating floor in K from z = 15 (C26: 100 or 1000; 0 = none)
 EXE=${EXE:-$here/build/radhydro}
 EXE_AMREX=${EXE_AMREX:-$here/build-amrex/radhydro}
 THREADS=${THREADS:-192}
@@ -52,7 +54,8 @@ make_problem() {
     --N "$N" --ndm "$N" --box 0.25 --z-init 100 --seed "$SEED" \
     --plane-parallel --plane-ndom "$NDOM" --plane-z-re "$ZRE" --plane-gamma12 "$GAMMA12" \
     --zdata1 "$ZDATA" --fields fHI,temp,rhog,u_gas --data-files gas --movie-dz 0 \
-    --restart-every 20 --restart-keep 1 --nray-max-factor 8 --backend $backend
+    --restart-every 20 --restart-keep 1 --nray-max-factor 8 --backend $backend \
+    --T-min "$PREHEAT" --z-floor 15
 }
 
 case "$phase" in

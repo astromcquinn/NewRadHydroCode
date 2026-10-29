@@ -70,7 +70,11 @@ struct Config {
   // Preheating floor (docs/production_run.md section 10; params.txt T_min,
   // z_floor): at redshifts z < z_floor the RT cell physics (photo_cell)
   // keeps the gas temperature at or above T_min kelvin, as the original
-  // keeps it above temp_min (C26: 100 K or 1000 K below z = 15). T_min = 0
+  // keeps it above temp_min, and the hydro floor (Thydro_min) and the PM
+  // step's clamp (Tgas_min) are raised to it too, so the floor holds in
+  // the hydro steps the RT does not run in (the plane-parallel mode before
+  // plane_z_re; docs/thermal_history.md section 5). C26: 100 K or 1000 K
+  // below z = 15, a plain switch-on (user decision 2026-10-29). T_min = 0
   // (default) is off and bit-identical to the original; T_min > 0 needs
   // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
   double T_min = 0;

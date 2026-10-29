@@ -158,15 +158,20 @@ face (`plane_faces = +x`).
 | `plane_gamma12` | 0.3 | Γ_HI in the source cells, 10⁻¹² s⁻¹ (C26: 0.3) |
 | `plane_z_re` | −1 | the turn-on redshift (required by `radhydro`; `rt_driver` runs the RT every step) |
 | `plane_alpha`, `plane_nu_max_ry` | 1.5, 4 | J_ν ∝ ν^−α between 1 Ry and ν_max |
-| `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 |
+| `photon_consume_dense` | 0 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); the plane-parallel problems use 1 (user decision, 2026-10-29) |
 | `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
 | `land_outputs` | 0 | 1: the hydro step before a `zdata1` output ends exactly on it (so runs with different step caps are compared at the same times); the plane-parallel problems use 1 |
+| `T_min`, `z_floor` | 0 (off), unset | the pre-heating option of §1: a temperature floor in K from z < `z_floor` on, in the RT cell physics and the hydro, a plain switch-on (user decision 2026-10-29; `docs/production_run.md` §10, `docs/thermal_history.md` §5). C26: 100 or 1000 K for z < 15; `make_production.py --T-min K` writes `z_floor = 15` |
 
 `tools/production/make_production.py --plane-parallel` writes a production
 `params.txt` of the mode (`--plane-ndom`, `--plane-faces`,
-`--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`):
-DM20's schedule `c_reduced_schedule = 0.1 0.99 0.01` unless given, cooling
-on, `photon_consume_dense = 1`, no abundance matching.
+`--plane-gamma12`, `--plane-z-re`, `--dt-max-myr`, `--rt-substeps-max`,
+`--T-min`, `--z-floor`, `--thermal-floor`): DM20's schedule
+`c_reduced_schedule = 0.1 0.99 0.01` unless given, cooling on,
+`photon_consume_dense = 1`, `thermal_floor = 0.1` (the hydro floor and the
+clamp of the RT physics floor, instead of the original's 1 K: the
+mean-density adiabat is below 1 K at z < 8; user decision 2026-10-29,
+`docs/thermal_history.md` §4), no abundance matching.
 
 ### Geometry and rays
 
