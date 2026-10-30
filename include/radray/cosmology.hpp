@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <string>
 
 #include "radray/config.hpp"
 
@@ -59,6 +60,10 @@ struct Units {
   double Tgas_min = 0, Tgas_max = 0;
   double Tmf_min = 0, Tmf_max = 0;  // MF temperature limits (hydro smooth)
   double temp_min = 0, temp_max = 0;
+  // The lower temperature limit of the RT cell physics (photo_cell):
+  // temp_min, or max(temp_min, cfg.T_min) at z < cfg.z_floor (the
+  // preheating floor, docs/production_run.md section 10). Not an output.
+  double temp_floor = 0;
   // The hydro's temperature floor in the units of Tgas_min:
   // Config::thermal_floor / temp1_unit (1/temp1_unit, i.e. 1 K, by default)
   double Thydro_min = 0;
@@ -70,15 +75,36 @@ struct Units {
 // cosmo_tools.f90: calc_sim_var
 void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u);
 
-// cosmo_tools.f90: calc_dt_from_da(a,da,dt,dy)
-void calc_dt_from_da(double a, double da, double& dt, double& dy);
+// cosmo_tools.f90: calc_dt_from_da(a,da,dt,dy), in the cosmology c
+// (cfg.cosmo)
+void calc_dt_from_da(const Cosmology& c, double a, double da, double& dt, double& dy);
 
-// cosmo_tools.f90: calc_da_from_dt(a,da,dt,dy)
-void calc_da_from_dt(double a, double& da, double dt, double& dy);
+// cosmo_tools.f90: calc_da_from_dt(a,da,dt,dy), in the cosmology c
+void calc_da_from_dt(const Cosmology& c, double a, double& da, double dt, double& dy);
 
-// radhydro.f90: init_variables (redshift, scalefactor, year at z_init).
-// The reference starts at zinit=300; the validation spec starts at z_init.
-void init_variables(double z_init, SimClock& clk);
+// radhydro.f90: init_variables (redshift, scalefactor, year at z_init) in
+// the cosmology c. The original starts at zinit = 300 (cosmo_parameters.f90);
+// here z_init is a params.txt key of every driver.
+void init_variables(const Cosmology& c, double z_init, SimClock& clk);
+
+// The params.txt keys of the runtime cosmology (omegam, omegab, hubble0,
+// sigma8, ns; cosmo_params.hpp) and of the preheating floor (T_min,
+// z_floor), parsed into cfg (a driver's parse-only Config). Returns false
+// for any other key.
+bool set_cosmology_param(Config& cfg, const std::string& key, const std::string& val);
+// Copies them from the parse-only Config `from` into the run's `to`, derives
+// the cosmology and checks the floor (T_min >= 0; T_min > 0 needs z_floor).
+void copy_cosmology_param(const Config& from, Config& to);
+// One line for the run summary, empty when the cosmology is the original
+// and the floor is off.
+std::string cosmology_summary(const Config& cfg);
+
+// The ICs of tools/ics/make_ics.py record their z_init and cosmology in
+// <dir>/ics_info.txt. Throws std::runtime_error if that file exists and its
+// z_init or cosmology (omegam, omegab, hubble0, sigma8, ns; the original's
+// when absent, as in ICs made before the runtime cosmology) differ from the
+// run's. Nothing without the file.
+void check_ics_info(const std::string& dir, double z_init, const Cosmology& c);
 
 // radhydro.f90: calc_timestep. One implementation for every driver.
 //   Original : the original: istep == 0 -> da = a*ra_max/(1-ra_max);
@@ -96,6 +122,10 @@ struct TimestepInfo {
   int ns_rt = 0;
   double dt_vg = 0, dt_ap = 0;  // years (0 in the istep == 0 / fixed branch)
   double z1 = 0, z2 = 0, a1 = 0, a2 = 0, y1 = 0, y2 = 0;
+  // plane_turnon_cfl (the step that starts at plane_z_re): c_hot in code
+  // units (0 when the rule did not apply) and whether it shortened the step
+  double c_hot = 0;
+  bool turnon_capped = false;
 };
 TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode, double da_fixed,
                            SimClock& clk, std::ostream* out = nullptr);

@@ -27,6 +27,9 @@ the original behaviour:
 | `movie_slab`, `movie_slab_axes` | 0, `xyz` | t > 0: write only the slabs of t cells through the box centre normal to each axis listed, instead of the full cube (`docs/movies.md`, "Slab frames"); 0: the full cube |
 | `restart_every`, `restart_keep_latest` | 0, 1 | complete checkpoint every n hydro steps (section 4); `--restart <file>` resumes; `make_production.py` writes 10 (user decision 2026-10-18) |
 | `restart_keep` | 0 | n > 0: numbered checkpoints `checkpoint_NNNN.bin`, of which only the newest n are kept (deleted after each successful write; `reion_production.slurm` resumes from the newest); 0: as `restart_keep_latest` |
+| `omegam`, `omegab`, `hubble0`, `sigma8`, `ns` | the original's 0.27, 0.045, 0.70, 0.80, 0.96 (real(4)) | the runtime cosmology (section 10); rounded to real(4), so the original's values written explicitly are the default; checked against the ICs' `ics_info.txt`; also `rt_driver`, `hydro_driver`, `pm_driver`, `make_ics.py`, `make_production.py`, `find_halos`/`am_fit`/`hmf_table --cosmo` |
+| `z_init` | 300 (`radhydro`, `pm_driver`), 10 (`rt_driver`, `hydro_driver`) | starting redshift; must match the ICs' `ics_info.txt` (section 10; `ics_check = 0` skips the check); `make_production.py` writes 100 |
+| `T_min`, `z_floor` | 0 (off), unset | the preheating floor: at z < `z_floor` the RT cell physics keeps every cell at ≥ `T_min` K, and the hydro floor and the PM clamp are raised to it (section 10, `docs/thermal_history.md` §5); `T_min > 0` needs `z_floor`; also `rt_driver`; `make_production.py --T-min [--z-floor, default 15]` |
 | `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list; `gammaHI_avg` the same rate averaged over the hydro step's RT substeps: the serial RT, and the moment RT on `rt_backend = amrex`, `docs/igm_diagnostics.md`) and the snapshot files: `all`, `norays`, `nodm` (`norays` without `DM/xv_dm`: the particles only in the checkpoints; the `make_production.py` default, user decision 2026-10-18), `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
@@ -850,3 +853,124 @@ Three 128³ runs with the sources of the 0.1c calibration at f_esc = 0.28
 * Cost scales with the substep count: 3.0× from 0.1c to 0.3c and 9.8×
   to full c, so full c at 256³ would take about 15 h on a whole node, as
   `docs/cluster.md` §8 projected.
+
+## 10. Runtime cosmology, z_init and the preheating floor (2026-10-22)
+
+The zoom programme (`docs/zoom_turbulence.md` §4.1 item 5 and §4.5; user
+decisions of 2026-10-22: Planck cosmology, z_init a parameter, a
+preheating floor later) needs the cosmology at run time and a temperature
+floor. Both are new parameters whose defaults keep the original bit for
+bit; neither has a Fortran mirror (new flags, user decision 2026-10-08),
+and neither is tied to `legacy_physics`.
+
+### The cosmology as params.txt keys
+
+`omegam`, `omegab`, `hubble0`, `sigma8`, `ns` (`Config::cosmo`,
+`include/radray/cosmo_params.hpp`). The defaults are the original's
+real(4) literals of `cosmo_parameters.f90` (`0.27` stored as
+`float(0.27)`). **Every value given is rounded to real(4)** (strtof, as
+gfortran rounds the original's literals), so `omegam = 0.27` written
+explicitly is the default, bit for bit, and float precision (10⁻⁷) is far
+below any cosmological uncertainty. The derived parameters follow the
+original's definitions: `omegal = 1 − omegam` (flat, `omegar` not
+subtracted), `omegar = 4.48E-7·(1+0.69)·Tcmb0⁴/hubble0²` and the
+decoupling factor `x = 1E3·(omegab·hubble0²)^0.4` of `calc_sim_var`; for the
+original's inputs the code keeps gfortran's folded constants, and the unit
+test shows that the runtime formulas reproduce them exactly on glibc.
+`wde = −1`, `Tcmb0`, `XHy`, `YHe` and the atomic rate tables (functions of
+T only) stay the original's constants.
+
+Where the cosmology enters, all through `cfg.cosmo`:
+
+| what | where |
+|---|---|
+| H(a), the grid units (x, ρ, t, v, energy, temperature), ⟨n_H⟩, ⟨n_He⟩, Ω_b/Ω_m, the particle mass, the matter-temperature floor `temp_min` | `calc_sim_var` (`src/cosmology.cpp`); the RT rates see the cosmology only through these units |
+| the clock: `init_variables`, `calc_dt_from_da`, `calc_da_from_dt` | `src/cosmology.cpp` (they now take the cosmology) |
+| the RT substep count `nstep_rt` (dl_c/dl_rt), `rt_path_fraction` | `calc_timestep`, `redshift_fscale` |
+| the dark-matter particle mass (1 − Ω_b/Ω_m), the gas fraction of the power spectra | `PMConfig::cosmo` (`src/pm.cpp`, `src/amrex/pm_level.cpp`) |
+| `summarize_gas`'s Ω_b/Ω_m, the sources' comoving volume | `src/hydro.cpp`, `src/rt_tools.cpp` |
+| the halo units (h, particle mass, virial radii), the source model's H(z), cosmic time and baryon fraction | `HaloUnits::cosmo`, `make_halo_units`, `particle_mass_msun`, `global_sfr_density`, `cosmic_time_yr` |
+| the analytic mass functions (σ8, n_s) | `MassFunctionCosmology::from(cosmo)`; `am_fit`, `hmf_table` and `find_halos` take `--cosmo key=value` |
+| the ICs | `tools/ics/make_ics.py --omegam … --ns` (`pmcosmo.set_cosmology`); `make_production.py` passes them on and writes them to params.txt |
+
+**z_init** was already a key of every driver (`radhydro` and `pm_driver`
+default to the original's 300, `rt_driver` and `hydro_driver` to 10,
+`make_production.py` writes 100). New: `make_ics.py` records its cosmology
+next to its `z_init` in `ics_info.txt`, and `radhydro` and `pm_driver`
+refuse to start when that file's `z_init` or cosmology differ from the
+run's (ICs without the cosmology lines count as the original's);
+`ics_check = 0` skips the check. The checkpoint does not record the
+cosmology: restart with the same params.txt.
+
+A Planck set, **written from memory** (Planck 2018 VI, Table 2, last
+column, TT,TE,EE+lowE+lensing+BAO; Ω_b from Ω_b h² = 0.02242): check it
+against the paper before a production run.
+
+```
+omegam  = 0.3111
+omegab  = 0.04897
+hubble0 = 0.6766
+sigma8  = 0.8102
+ns      = 0.9665
+```
+
+```
+python3 tools/production/make_production.py $R/planck256 --N 256 --box 20 \
+    --omegam 0.3111 --omegab 0.04897 --hubble0 0.6766 --sigma8 0.8102 --ns 0.9665
+```
+
+What a Planck run must redo, because it was fitted in the original
+cosmology: the abundance-matched L_UV(M, z) (`data/uv_lf/am_params_*`;
+`am_fit --cosmo …`), the FoF mass-function fits (`data/hmf`) and the
+f_esc calibration to τ_es (section 8). The ICs' P(k) is still the
+Eisenstein & Hu no-wiggle shape for all matter with the gas following the
+dark matter; separate baryon and dark-matter transfer functions come with
+the MUSIC converter (`docs/zoom_turbulence.md` §4.1).
+
+### The preheating floor
+
+`T_min` (K, default 0 = off) and `z_floor`: at redshifts z < `z_floor` the
+RT cell physics keeps the gas at T ≥ `T_min` (C26 used 100 K and 1000 K
+below z = 15; `docs/plane_parallel.md`). `calc_sim_var` sets
+`Units::temp_floor = max(temp_min, T_min)` when the floor is active, else
+`temp_min`, and the floor acts in two places of the RT cell kernel
+(`include/radray/kernels/rt_cell.hpp`), so the serial rays, the moment
+RT and the AMReX backends all have it:
+
+* `photo_gas_cell` clamps at `temp_floor` where the original clamps at
+  `temp_min`, before and after the heating and cooling;
+* the cells the original skips (neutral, fHI ≥ 0.99, and without photons:
+  no heating or cooling at all) get `floor_gas_cell`, which only raises
+  their thermal energy (u(5) and the dual-energy field) to `temp_floor`.
+  This is the case that matters for preheating, which acts before the
+  I-fronts arrive.
+
+The hydro floor `Thydro_min` and the PM step's clamp `Tgas_min` are
+raised to the floor too (since 2026-10-29, `docs/thermal_history.md` §5:
+the floor then also holds in the hydro steps the RT does not run in, as in
+the plane-parallel mode before `plane_z_re`, where it is the stand-in for
+X-ray pre-heating between z = 15 and the turn-on); the `temp_min` of the
+outputs is unchanged. In the RT the floor is applied once per substep, and
+the grid-unit energy cools adiabatically (T ∝ a⁻²) over the substep's
+clock update, so the temperature written after a substep can sit below
+`T_min` by at most 2 da/(a nstep_rt) (0.035 % in the cooling test below);
+in the hydro it is applied at the start of each half step. `T_min > 0`
+without `z_floor` is an error; `make_production.py --T-min` writes
+`z_floor = 15` unless given (a plain switch-on at z = 15, user decision
+2026-10-29). User decision 2026-10-22: the first zoom runs are unheated.
+
+### Tests (`docs/production_run.md` §10; label `cosmology`)
+
+| test | what |
+|---|---|
+| `cosmology_runtime` (`tests/test_cosmology_runtime.cpp`) | the defaults are the original's literals and folded constants; explicit original values parse to the defaults; a Planck cosmology changes exactly the cosmology-dependent units of `calc_sim_var` (each against an independent closed form) and leaves the rest bit-identical; the clock, `nstep_rt`, the halo units, the particle mass and the cosmic time against independent integrals; `temp_floor`, `floor_gas_cell` and `photo_gas_cell`'s clamp |
+| `cosmology_default_identity`, `_fixes` | `radhydro` on `problems_full/smoke`: the original's values written explicitly with `T_min = 0` (legacy flags), and with a floor at z < 5 that the run never reaches (`legacy_rt = legacy_physics = 0`, unsplit), are byte-identical to the default |
+| `cosmology_ics` | `make_ics.py` with the original's values written explicitly gives byte-identical ICs; Planck ICs differ, are recorded in `ics_info.txt` and keep the seed's phases |
+| `cosmology_planck_rt` | `rt_driver` on `uniform_1src`, default against Planck: the redshift schedule is the same to round-off (the clock is advanced per RT substep, whose count depends on the cosmology), and `nstep_rt`, the year, ⟨n_H⟩, the RT cell volume and `temp_min` of every step match independent closed forms of each cosmology |
+| `cosmology_planck_full` | `radhydro` with Planck ICs is refused without the keys and with another z_init, runs with them; the first step's redshifts are the original's (da = a·ra_max/(1−ra_max)) and the year at z_init is Planck's |
+| `cosmology_floor_cooling` | a cooling test with `rt_driver`: 16³ cells of overdensity 0.3–100, T = 100 K–30 000 K and 40 % neutral, no sources, z = 10 → 7.1. `T_min = 0` and a floor below the run's redshifts are byte-identical to the default; with `T_min = 1000` every cell stays at ≥ 1000 K (to the adiabatic factor), the 402 cells that cool through 1000 K without the floor stop there, the 673 cold neutral cells (which without the floor only expand adiabatically) sit at 1000 K, and the 1 824 cells that stay warmer are byte-identical; the same with `rt_method = m1` |
+| `cosmology_floor_amrex`, `cosmology_planck_full_amrex` (AMReX builds) | the floored cooling test on `rt_backend = amrex` (2 ranks) byte-identical to the serial RT (`legacy_rt = 0`); the Planck full loop of `cosmology_planck_full` on the three AMReX backends |
+
+All stored references and live Fortran comparisons pass unchanged with
+the defaults.
+

@@ -32,6 +32,7 @@
 // write_data_files and docs/full_run.md F1); timing.txt.
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -59,6 +60,7 @@
 #include "radray/ray_tracing.hpp"
 #include "radray/rt.hpp"
 #include "radray/amrex_state.hpp"
+#include "radray/kernels/rt_cell.hpp"
 #include "radray/hydro_backend.hpp"
 #include "radray/rt_backend.hpp"
 #include "radray/recomb_rad.hpp"
@@ -168,6 +170,7 @@ struct RunParams {
   // X-ray background heating (xray_*; docs/xray_heating.md); off by default
   XrayParams xray;
   std::string ics;          // directory of xv_dm.init/u_gas.init
+  int ics_check = 1;        // 1: z_init and the cosmology must match <ics>/ics_info.txt
   // Output and control
   int fields_every = 0;     // write fields every n steps (0: never)
   // fields_levels = 1: with every field output, one plane at the finest
@@ -389,7 +392,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.ray_quant.structural = std::stoi(val) != 0;
   else if (key == "ray_quant_offbits")
     P.ray_quant.offbits = std::stoi(val);
-  else if (!set_xray_param(P.xray, key, val) && !set_halo_param(P.halo, key, val))
+  else if (key == "ics_check")
+    P.ics_check = std::stoi(val);
+  else if (set_cosmology_param(P.rtm, key, val)) {
+    // omegam, omegab, hubble0, sigma8, ns, T_min, z_floor (cosmology.hpp)
+  } else if (!set_xray_param(P.xray, key, val) && !set_halo_param(P.halo, key, val))
     std::cerr << "radhydro: ignoring parameter " << key << "\n";
   if ((key == "legacy_rt" && P.legacy_rt != 0 && P.legacy_rt != 1) ||
       (key == "legacy_physics" && P.legacy_physics != 0 && P.legacy_physics != 1))
@@ -431,6 +438,36 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
   out.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n * sizeof(float)));
 }
 
+// A raw float32 file written in pieces, e.g. from the slabs streamed to
+// rank 0 (docs/rank0_streaming.md): the same bytes as write_f32 of the
+// whole array. Only the rank that opens it writes; the others pass through.
+struct F32Out {
+  std::ofstream out;
+  std::string path;
+  F32Out(const std::string& p, bool open) : path(p) {
+    if (!open) return;
+    out.open(p, std::ios::binary);
+    if (!out) throw std::runtime_error("cannot write " + p);
+  }
+  void write(const float* p, std::size_t n) {
+    if (out.is_open()) out.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n * sizeof(float)));
+  }
+  void zeros(std::size_t n) {
+    if (!out.is_open()) return;
+    const std::vector<float> z(std::min<std::size_t>(n, std::size_t(1) << 24), 0.0f);
+    for (std::size_t done = 0; done < n;) {
+      const std::size_t m = std::min(z.size(), n - done);
+      write(z.data(), m);
+      done += m;
+    }
+  }
+  void close() {
+    if (!out.is_open()) return;
+    out.close();
+    if (!out) throw std::runtime_error("error writing " + path);
+  }
+};
+
 // io_tools.f90 write_data_1 / write_data_2 with the F1 fix: all the files
 // the original writes when Ncpu >= 9 (with Ncpu = 1 it writes only xv_dm,
 // docs/full_run.md F1), in the original formats (stream, Fortran layout):
@@ -467,6 +504,79 @@ void write_sink_summary(const std::string& path, const pm::PMState& pm) {
   std::ofstream f(path);
   f << "nstar = " << pm.stars.size() << "\nnstar_ever = " << pm.nstar << "\nmass = " << std::setprecision(17) << mass
     << "\n";
+}
+
+// The Ray files of write_data_1 (part of write_data_files; the host rays)
+void write_ray_files(const std::string& odir, const std::string& tag, const Simulation& s) {
+  const RTGrid& G = s.rt;
+  // the original opens (creates) the Ray files and writes them if Nray > 0
+  std::filesystem::create_directories(odir + "/Ray");
+  {
+    struct FRay {  // radhydro_global.f90 ray_type
+      std::int32_t nside, ipix;
+      std::int64_t next, prev;
+      float r, dr, x[3], dx[3], nu[kNfreq], ngam[kNfreq];
+    };
+    static_assert(sizeof(FRay) == 96, "Fortran ray_type layout");
+    std::ofstream out(odir + "/Ray/ray." + tag, std::ios::binary);
+    std::ofstream oix(odir + "/Ray/ray_index." + tag, std::ios::binary);
+    if (!out || !oix) throw std::runtime_error("cannot write Ray/ files");
+    // deterministic_parallel: storage slots depend on thread timing, so the
+    // rays are written renumbered in the canonical order (cells k,j,i, each
+    // chain head to tail): new index n for the n-th ray, ray_index = identity
+    std::vector<std::int64_t> order, newidx;
+    if (s.cfg.det_parallel && s.rays.Nray > 0 && !G.htoc.empty()) {
+      newidx.assign(static_cast<std::size_t>(s.rays.hwm()) + 1, 0);
+      for (std::int64_t c = 0; c < G.ncell; ++c)
+        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = s.rays.at(ir).next) {
+          order.push_back(ir);
+          newidx[ir] = static_cast<std::int64_t>(order.size());
+        }
+    }
+    auto remap = [&](std::int64_t ir) { return newidx.empty() || ir <= 0 ? ir : newidx[ir]; };
+    const std::int64_t top =
+        s.rays.Nray > 0 ? (newidx.empty() ? s.rays.hwm() : static_cast<std::int64_t>(order.size()))
+                        : 0;
+    for (std::int64_t n = 1; n <= top; ++n) {
+      const std::int64_t ir = newidx.empty() ? n : order[n - 1];
+      const Ray& r = s.rays.at(ir);
+      FRay f{};
+      f.nside = r.nside;
+      f.ipix = r.ipix;
+      f.next = remap(r.next);
+      f.prev = remap(r.prev);
+      f.r = r.r;
+      f.dr = r.dr;
+      for (int m = 0; m < 3; ++m) {
+        f.x[m] = r.x[m];
+        f.dx[m] = r.dx[m];
+      }
+      for (int m = 0; m < kNfreq; ++m) {
+        f.nu[m] = r.nu[m];
+        f.ngam[m] = r.ngam[m];
+      }
+      out.write(reinterpret_cast<const char*>(&f), sizeof f);
+      const std::int64_t idx =
+          !newidx.empty() ? n
+                          : (ir < static_cast<std::int64_t>(s.rays.ray_index_.size())
+                                 ? static_cast<std::int64_t>(s.rays.ray_index_[ir])
+                                 : ir);
+      oix.write(reinterpret_cast<const char*>(&idx), sizeof idx);
+    }
+    std::ofstream oh(odir + "/Ray/htoc_ray." + tag, std::ios::binary);
+    if (s.rays.Nray > 0 && G.htoc.empty()) {
+      // amrex_state = 1: no host grid; the host chains are empty (the rays
+      // live on the level), so htoc is zero (docs/rank0_streaming.md)
+      const std::vector<std::int64_t> z(static_cast<std::size_t>(4 * G.N) * G.N, 0);
+      for (int k = 0; k < G.N; ++k)
+        oh.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(z.size() * sizeof(std::int64_t)));
+    } else if (s.rays.Nray > 0) {
+      std::vector<std::int64_t> h(G.htoc.size());
+      for (std::size_t m = 0; m < h.size(); ++m) h[m] = remap(G.htoc[m]);
+      oh.write(reinterpret_cast<const char*>(h.data()),
+               static_cast<std::streamsize>(h.size() * sizeof(std::int64_t)));
+    }
+  }
 }
 
 void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
@@ -514,68 +624,8 @@ void write_data_files(const std::string& odir, const std::string& tag, const Sim
     write_f32(odir + "/RT/rt_grid." + tag, buf.data(), buf.size());
   }
   if (which == "norays" || which == "nodm") return;
-  // the original opens (creates) the Ray files and writes them if Nray > 0
-  std::filesystem::create_directories(odir + "/Ray");
-  {
-    struct FRay {  // radhydro_global.f90 ray_type
-      std::int32_t nside, ipix;
-      std::int64_t next, prev;
-      float r, dr, x[3], dx[3], nu[kNfreq], ngam[kNfreq];
-    };
-    static_assert(sizeof(FRay) == 96, "Fortran ray_type layout");
-    std::ofstream out(odir + "/Ray/ray." + tag, std::ios::binary);
-    std::ofstream oix(odir + "/Ray/ray_index." + tag, std::ios::binary);
-    if (!out || !oix) throw std::runtime_error("cannot write Ray/ files");
-    // deterministic_parallel: storage slots depend on thread timing, so the
-    // rays are written renumbered in the canonical order (cells k,j,i, each
-    // chain head to tail): new index n for the n-th ray, ray_index = identity
-    std::vector<std::int64_t> order, newidx;
-    if (s.cfg.det_parallel && s.rays.Nray > 0) {
-      newidx.assign(static_cast<std::size_t>(s.rays.hwm()) + 1, 0);
-      for (std::int64_t c = 0; c < G.ncell; ++c)
-        for (std::int64_t ir = G.htoc_ray(3, c); ir > 0; ir = s.rays.at(ir).next) {
-          order.push_back(ir);
-          newidx[ir] = static_cast<std::int64_t>(order.size());
-        }
-    }
-    auto remap = [&](std::int64_t ir) { return newidx.empty() || ir <= 0 ? ir : newidx[ir]; };
-    const std::int64_t top =
-        s.rays.Nray > 0 ? (newidx.empty() ? s.rays.hwm() : static_cast<std::int64_t>(order.size()))
-                        : 0;
-    for (std::int64_t n = 1; n <= top; ++n) {
-      const std::int64_t ir = newidx.empty() ? n : order[n - 1];
-      const Ray& r = s.rays.at(ir);
-      FRay f{};
-      f.nside = r.nside;
-      f.ipix = r.ipix;
-      f.next = remap(r.next);
-      f.prev = remap(r.prev);
-      f.r = r.r;
-      f.dr = r.dr;
-      for (int m = 0; m < 3; ++m) {
-        f.x[m] = r.x[m];
-        f.dx[m] = r.dx[m];
-      }
-      for (int m = 0; m < kNfreq; ++m) {
-        f.nu[m] = r.nu[m];
-        f.ngam[m] = r.ngam[m];
-      }
-      out.write(reinterpret_cast<const char*>(&f), sizeof f);
-      const std::int64_t idx =
-          !newidx.empty() ? n
-                          : (ir < static_cast<std::int64_t>(s.rays.ray_index_.size())
-                                 ? static_cast<std::int64_t>(s.rays.ray_index_[ir])
-                                 : ir);
-      oix.write(reinterpret_cast<const char*>(&idx), sizeof idx);
-    }
-    std::ofstream oh(odir + "/Ray/htoc_ray." + tag, std::ios::binary);
-    if (s.rays.Nray > 0) {
-      std::vector<std::int64_t> h(G.htoc.size());
-      for (std::size_t m = 0; m < h.size(); ++m) h[m] = remap(G.htoc[m]);
-      oh.write(reinterpret_cast<const char*>(h.data()),
-               static_cast<std::streamsize>(h.size() * sizeof(std::int64_t)));
-    }
-  }
+  write_ray_files(odir, tag, s);
+
 }
 
 // Peak resident set size (VmHWM of /proc/self/status) in MB, -1 if unknown
@@ -702,6 +752,7 @@ int main(int argc, char** argv) {
     // section 7, U7; user decision 2026-10-27); an explicit key wins
     if (!s.cfg.dual_e_self_set && s.cfg.thermal_init == 1) s.cfg.dual_e_self = true;
     copy_rt_method(P.rtm, s.cfg);
+    copy_cosmology_param(P.rtm, s.cfg);  // omegam, ..., T_min, z_floor (cosmology.hpp)
     copy_rt_backend_param(P.rtm, s.cfg);  // rt_backend = serial | amrex
     copy_pm_backend_param(P.rtm, s.cfg);  // pm_backend = serial | amrex
     copy_hydro_backend_param(P.hydro, s.cfg);  // hydro_backend = serial | amrex
@@ -755,12 +806,18 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "thermal_init = recfast is implemented for the host gas grid only (amrex_state = 0, no refined "
           "hydro levels)");
+    // The RECFAST table (recfast_table.inc) was computed for the original
+    // cosmology; another cosmology needs its own table
+    if (cfg.thermal_init == 1 && !cfg.cosmo.is_original())
+      throw std::runtime_error(
+          "thermal_init = recfast: the RECFAST table is for the original cosmology (omegam 0.27, omegab "
+          "0.045, hubble0 0.70), not " + cfg.cosmo.summary());
     std::unique_ptr<XrayBackground> xbg;
     std::ofstream xraylog;
     if (P.xray.on) {
       if (use_amrex(cfg) || cfg.amrex_state)
         throw std::runtime_error("xray_heating is implemented for rt_backend = serial only");
-      xbg = std::make_unique<XrayBackground>(P.xray, P.halo.model);
+      xbg = std::make_unique<XrayBackground>(P.xray, P.halo.model, cfg.cosmo);
       if (io) {
         xraylog.open(odir + "/Log/xray.txt", logmode);
         if (restart_from.empty())
@@ -793,12 +850,13 @@ int main(int argc, char** argv) {
     HydroState hs;
     pm::PMState pm;
 
-    init_variables(P.z_init, s.clk);                  // init_variables
+    init_variables(cfg.cosmo, P.z_init, s.clk);       // init_variables
     init_domain_gas(cfg, gdom);                        // init_domain_gas
     init_domain_rt(cfg, s.dom);                        // init_domain_rt
     // amrex_state = 1 (amrex_state.hpp): the gas state on the levels, built
-    // before any level; the host grids stay as rank 0's mirror only, and
-    // the other ranks never allocate the host PM arrays (at pm_refine = 2
+    // before any level; no rank keeps the host grids (the outputs stream
+    // the levels to rank 0, docs/rank0_streaming.md), and the other ranks
+    // never allocate the host PM arrays (at pm_refine = 2
     // with 1024^3 particles they are 45 GB per rank)
     const bool on_level = use_amrex_state(cfg);
     init_hydro(cfg, s.gas, hs);                        // init_hydro
@@ -810,11 +868,11 @@ int main(int argc, char** argv) {
       throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs amrex_state = 1 in radhydro");
     if (on_level) {
       amrex_state_init(s);
-      if (!io) {
-        for (auto* v : {&s.gas.u, &s.gas.w, &hs.v}) {
-          v->clear();
-          v->shrink_to_fit();
-        }
+      // the gas grid lives on the level; no rank keeps a host copy (rank 0
+      // streams it for the outputs, docs/rank0_streaming.md)
+      for (auto* v : {&s.gas.u, &s.gas.w, &hs.v}) {
+        v->clear();
+        v->shrink_to_fit();
       }
     }
     // the particles' mirror on rank 0 (pm.xv): current after the load and
@@ -825,13 +883,12 @@ int main(int argc, char** argv) {
       amrex_pm_gather_particles(pm);
       xv_fresh = true;
     };
-    // the level's gas into rank 0's host arrays, all RT fields into rank 0's
-    // RT grid and the particles into rank 0's xv (collective), before an
-    // output or a checkpoint
+    // the particles into rank 0's xv and the sink's stars into rank 0's
+    // list (collective), before an output or a checkpoint. The grids are
+    // not copied: every output streams them from the levels
+    // (docs/rank0_streaming.md).
     auto sync_mirror = [&]() {
       if (!on_level) return;
-      amrex_state_gather_rt(s, false);
-      amrex_state_gather_gas(s);
       sync_xv();
       if (cfg.sf_overdensity > 0) amrex_pm_gather_stars(pm);
     };
@@ -878,9 +935,48 @@ int main(int argc, char** argv) {
       throw std::runtime_error("tensor_dump is implemented for the serial RT backend only");
 
     // thermal_init = recfast: the ICs at the RECFAST temperature of z_init
-    if (restart_from.empty())
-      pm::read_init_conditions(ics_dir, pm, s.gas.u, s.gas.w, s.units,
-                               cfg.thermal_init == 1 ? recfast_T(s.clk.redshift) : -1.0);
+    // amrex_state = 1: the thermal energy of the initial conditions, for
+    // the streamed copy of u_gas.init onto the level (ics_to_level)
+    double ics_Tinit = 0;
+    std::vector<float> empty_grid;  // read_init_conditions: no host gas grid
+    if (restart_from.empty()) {
+      if (P.ics_check) check_ics_info(ics_dir, P.z_init, cfg.cosmo);  // z_init, cosmology
+      const double T_init_K = cfg.thermal_init == 1 ? recfast_T(s.clk.redshift) : -1.0;
+      ics_Tinit = pm::ics_tinit(s.units, T_init_K);
+      pm::read_init_conditions(ics_dir, pm, on_level ? empty_grid : s.gas.u, s.gas.w, s.units, T_init_K);
+    }
+    // amrex_state = 1 (docs/rank0_streaming.md): u_gas.init onto the gas
+    // state, rank 0 reading it slab by slab; per cell the thermal energy, w
+    // (read_init_conditions) and e (init_unsplit_state). Collective.
+    auto ics_to_level = [&]() {
+      const std::string path = ics_dir + "/u_gas.init";
+      std::ifstream f;
+      if (io) {
+        f.open(path, std::ios::binary | std::ios::ate);
+        if (!f) throw std::runtime_error("cannot open " + path);
+        const std::int64_t want = 5 * cfg.Ncell * static_cast<std::int64_t>(sizeof(float));
+        if (static_cast<std::int64_t>(f.tellg()) < want)
+          throw std::runtime_error(path + " is shorter than 5 N^3 floats");
+      }
+      std::vector<float> ug;
+      amrex_state_fill_gas(s, 0, 10, [&](const StreamSlab& sl, float* d) {
+        const std::int64_t n = sl.ncell();
+        ug.resize(static_cast<std::size_t>(5 * n));
+        f.seekg(static_cast<std::streamoff>(5 * sl.c0() * static_cast<std::int64_t>(sizeof(float))));
+        f.read(reinterpret_cast<char*>(ug.data()), static_cast<std::streamsize>(5 * n * sizeof(float)));
+        if (!f) throw std::runtime_error("cannot read " + path);
+#pragma omp parallel for schedule(static)
+        for (std::int64_t c = 0; c < n; ++c) {
+          float* u = &ug[static_cast<std::size_t>(5 * c)];
+          float w[4];
+          pm::ics_gas_cell(u, w, ics_Tinit);
+          float* o = d + 10 * c;
+          for (int m = 0; m < 5; ++m) o[kStreamGasU + m] = u[m];
+          o[kStreamGasE] = unsplit_init_e(u, s.units);
+          for (int m = 0; m < 4; ++m) o[kStreamGasW + m] = w[m];
+        }
+      });
+    };
 
     if (out)
       *out << " radhydro: N = " << cfg.Ngas << ", Ndm = " << cfg.Ndm
@@ -922,7 +1018,8 @@ int main(int argc, char** argv) {
            << (P.halo.mode == HaloSourceParams::Mode::Legacy ? "legacy" : "onthefly")
            << (P.halo.fof_dt_myr > 0 ? ", fof_dt_myr = " + std::to_string(P.halo.fof_dt_myr)
                                      : std::string())
-           << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n";
+           << ", zdata1: " << Ndata1 << " redshifts down to " << zdata1.back() << "\n"
+           << (cosmology_summary(cfg).empty() ? std::string() : " " + cosmology_summary(cfg) + "\n");
 
     if (io) plane_write_spectrum(odir, s);  // plane_parallel = 1: the bins and fluxes
     Timers T;
@@ -945,13 +1042,30 @@ int main(int argc, char** argv) {
         pm::summarize_dm(pm, s.units, out);
       }
       if (on_level) {
-        // the clamps on the level, the sums on rank 0's mirror in the serial
-        // order; the maxima of the timestep onto every rank
+        // the clamps on the level, the sums on rank 0 over the gas streamed
+        // slab by slab in the serial order (docs/rank0_streaming.md; the
+        // grid velocity is zero with the unsplit hydro); the maxima of the
+        // timestep onto every rank
         amrex_state_clamp_gas(s);
-        amrex_state_gather_gas(s);
+        GasSummer gsr(cfg, s.units);
+        std::vector<float> su, sw, se;
+        amrex_state_stream_gas(s, 0, 10, [&](const StreamSlab& sl) {
+          const std::int64_t n = sl.ncell();
+          su.resize(static_cast<std::size_t>(5 * n));
+          sw.resize(static_cast<std::size_t>(4 * n));
+          se.resize(static_cast<std::size_t>(n));
+          const float* a = sl.data;
+#pragma omp parallel for schedule(static)
+          for (std::int64_t c = 0; c < n; ++c) {
+            for (int m = 0; m < 5; ++m) su[5 * c + m] = a[10 * c + kStreamGasU + m];
+            se[c] = a[10 * c + kStreamGasE];
+            for (int m = 0; m < 4; ++m) sw[4 * c + m] = a[10 * c + kStreamGasW + m];
+          }
+          gsr.add_planes(sl.nk, su.data(), sw.data(), se.data(), nullptr);
+        });
         double v[3] = {0, 0, 0};
         if (io) {
-          const GasSummary gsum = summarize_gas(cfg, s.units, s.clk, s.gas, hs, out);
+          const GasSummary gsum = gsr.finish(s.clk, out);
           hydrolog << format_gas_record(gsum.record) << "\n";
           v[0] = s.clk.cmax_gas;
           v[1] = s.clk.vmax_gas;
@@ -969,21 +1083,52 @@ int main(int argc, char** argv) {
       T.summaries += std::chrono::duration<double>(Clock::now() - ts).count();
     };
 
-    auto write_stats = [&](const std::string& d) {
-      if (on_level) amrex_state_gather_rt(s, true);  // rhog, fHI, fHeI, fHeII, temp onto rank 0
-      if (!io) return;
-      // global diagnostics over the RT grid, k,j,i order, real(8) sums
+    // The sums of write_stats over the RT grid (k,j,i order, real(8)), also
+    // those of update_sched_x: from rank 0's host grid, or (amrex_state = 1)
+    // streamed from the level slab by slab in the same order
+    // (docs/rank0_streaming.md). Collective with amrex_state = 1; the sums
+    // are rank 0's.
+    struct GridSums {
       double xv = 0, xm = 0, mass = 0, tv = 0, tm = 0, xhe3 = 0;
-      const RTGrid& G = s.rt;
-      for (std::int64_t c = 0; c < G.ncell; ++c) {
-        const double fHI = G.fHI[c], rho = G.rhog[c], T_ = G.temp[c];
+      bool filled = false;  // the RT has written the grid (allocate zero-fills it)
+      void add(double fHI, double rho, double T_, float fHeI, float fHeII) {
         xv = xv + (1 - fHI);
         xm = xm + rho * (1 - fHI);
         mass = mass + rho;
         tv = tv + T_;
         tm = tm + rho * T_;
-        xhe3 = xhe3 + (1 - static_cast<double>(G.fHeI[c]) - static_cast<double>(G.fHeII[c]));
+        xhe3 = xhe3 + (1 - static_cast<double>(fHeI) - static_cast<double>(fHeII));
+        filled = filled || fHI != 0;
       }
+    };
+    auto grid_sums = [&]() {
+      GridSums g;
+      if (on_level) {
+        // rhog, fHI, fHeI, fHeII, temp (the first 5 components of a cell)
+        amrex_state_stream_rt(s, 0, 5, [&](const StreamSlab& sl) {
+          const std::int64_t n = sl.ncell();
+          for (std::int64_t c = 0; c < n; ++c) {
+            const float* a = sl.data + 5 * c;
+            g.add(a[1], a[0], a[4], a[2], a[3]);
+          }
+        });
+      } else if (io) {
+        const RTGrid& G = s.rt;
+        for (std::int64_t c = 0; c < G.ncell; ++c) g.add(G.fHI[c], G.rhog[c], G.temp[c], G.fHeI[c], G.fHeII[c]);
+      }
+      return g;
+    };
+    // write_stats' sums, kept for update_sched_x right after it
+    GridSums stats_sums;
+    bool stats_fresh = false;
+
+    auto write_stats = [&](const std::string& d) {
+      stats_sums = grid_sums();
+      stats_fresh = true;
+      if (!io) return;
+      // global diagnostics over the RT grid, k,j,i order, real(8) sums
+      const double xv = stats_sums.xv, xm = stats_sums.xm, mass = stats_sums.mass, tv = stats_sums.tv,
+                   tm = stats_sums.tm, xhe3 = stats_sums.xhe3;
       const double nc = cfg.nrtcr;
       std::FILE* fp = std::fopen((d + "/stats.txt").c_str(), "w");
       if (!fp) throw std::runtime_error("cannot write stats.txt in " + d);
@@ -1033,23 +1178,17 @@ int main(int argc, char** argv) {
     };
 
     // c_reduced_schedule: x_HII,V of the box at the end of the last step
-    // (rank 0's RT grid, summed as in write_stats; called after write_stats,
-    // which brings the cells onto rank 0 for amrex_state = 1, or after
-    // reading a checkpoint) and the speed it selects for the next step
+    // (the RT grid, summed as in write_stats: write_stats' sums when it has
+    // just run, else a pass of its own, e.g. after reading a checkpoint) and
+    // the speed it selects for the next step
     double sched_x = 0;
     auto update_sched_x = [&]() {
+      const bool fresh = stats_fresh;
+      stats_fresh = false;
       if (P.c_sched_c.empty()) return;
+      const GridSums g = fresh ? stats_sums : grid_sums();
       double v = 0;
-      if (io) {
-        const RTGrid& G = s.rt;
-        bool filled = false;  // the RT has written the grid (allocate zero-fills it)
-        for (std::int64_t c = 0; c < G.ncell; ++c) {
-          const double fHI = G.fHI[c];
-          v = v + (1 - fHI);
-          filled = filled || fHI != 0;
-        }
-        v = filled ? v / cfg.nrtcr : 0;  // before the first RT step: c0
-      }
+      if (io) v = g.filled ? g.xv / cfg.nrtcr : 0;  // before the first RT step: c0
       if (on_level) backend_bcast(&v, 1);
       sched_x = v;
     };
@@ -1091,16 +1230,117 @@ int main(int argc, char** argv) {
       }
     };
 
+    // The fields of fields_every / fields_at_data1 (fields: the list; empty:
+    // all but the optional ones)
+    auto field_listed = [&](const char* name) {
+      return P.fields.empty() || ("," + P.fields + ",").find(std::string(",") + name + ",") != std::string::npos;
+    };
+    auto field_opted = [&](const char* name) {  // only when listed explicitly
+      return ("," + P.fields + ",").find(std::string(",") + name + ",") != std::string::npos;
+    };
+    // amrex_state = 1: every file streamed from the levels slab by slab
+    // (docs/rank0_streaming.md), the same files in the same order as the
+    // host path below. Collective.
+    auto write_fields_streamed = [&](const std::string& d) {
+      auto SR = [&](const char* name, int c0, int nc) {  // RT cell components
+        if (!field_listed(name)) return;
+        F32Out f(d + "/" + name + ".bin", io);
+        amrex_state_stream_rt(s, c0, nc, [&](const StreamSlab& sl) { f.write(sl.data, sl.ncell() * nc); });
+        f.close();
+      };
+      auto SG = [&](const char* name, int c0, int nc) {  // gas state components
+        if (!field_listed(name)) return;
+        F32Out f(d + "/" + name + ".bin", io);
+        amrex_state_stream_gas(s, c0, nc, [&](const StreamSlab& sl) { f.write(sl.data, sl.ncell() * nc); });
+        f.close();
+      };
+      using CD = rrk::CellData;
+      constexpr int fl = sizeof(float);
+      SR("fHI", offsetof(CD, fHI) / fl, 1);
+      SR("fHeI", offsetof(CD, fHeI) / fl, 1);
+      SR("fHeII", offsetof(CD, fHeII) / fl, 1);
+      SR("temp", offsetof(CD, temp) / fl, 1);
+      SR("rhog", offsetof(CD, rhog) / fl, 1);
+      SR("ngam", offsetof(CD, ngam) / fl, kNfreq);
+      SR("nu", offsetof(CD, nu) / fl, kNfreq);
+      SR("fgam", offsetof(CD, fgam) / fl, kNfreq);
+      SR("tau", offsetof(CD, tau) / fl, kNfreq);
+      SR("gamma", offsetof(CD, gamma) / fl, 3);
+      if (field_opted("gammaHI")) SR("gammaHI", offsetof(CD, gamma) / fl, 1);
+      if (field_opted("gammaHI_avg")) {
+        F32Out f(d + "/gammaHI_avg.bin", io);
+        amrex_gamma_avg_stream(s, [&](const StreamSlab& sl) { f.write(sl.data, sl.ncell()); });
+        f.close();
+      }
+      if (field_opted("Luv")) SR("Luv", offsetof(CD, Luv) / fl, 1);
+      SR("lambda", offsetof(CD, lambda) / fl, 3);
+      SR("dx", offsetof(CD, dx) / fl, 3);
+      SG("u_gas", kStreamGasU, 5);
+      SG("w_gas", kStreamGasW, 4);
+      if (field_listed("v_gas")) {  // the grid velocity: zero with the unsplit hydro
+        F32Out f(d + "/v_gas.bin", io);
+        f.zeros(static_cast<std::size_t>(3 * cfg.Ncell));
+        f.close();
+      }
+      SG("e_gas", kStreamGasE, 1);
+      if (field_listed("xv_dm")) {
+        sync_xv();
+        if (io) write_f32(d + "/xv_dm.bin", pm.xv.data(), pm.xv.size());
+      }
+    };
+
+    // write_data_files for amrex_state = 1: the grids streamed from the
+    // levels slab by slab (docs/rank0_streaming.md), the particles from
+    // rank 0's copy, the Ray files from the host rays; the same files in
+    // the same order. Collective.
+    auto write_data_files_streamed = [&](const std::string& tag, bool data1, const std::string& which) {
+      auto SG = [&](const std::string& path, int c0, int nc) {
+        F32Out f(path, io);
+        amrex_state_stream_gas(s, c0, nc, [&](const StreamSlab& sl) { f.write(sl.data, sl.ncell() * nc); });
+        f.close();
+      };
+      if (which == "gas") {
+        if (io) std::filesystem::create_directories(odir + "/Gas");
+        SG(odir + "/Gas/u_gas." + tag, kStreamGasU, 5);
+        return;
+      }
+      if (which != "nodm") {
+        sync_xv();
+        if (io) write_f32(odir + "/DM/xv_dm." + tag, pm.xv.data(), pm.xv.size());
+      }
+      if (which == "dm") return;
+      if (io) std::filesystem::create_directories(odir + "/Gas");
+      SG(odir + "/Gas/u_gas." + tag, kStreamGasU, 5);
+      {  // the grid velocity: zero with the unsplit hydro
+        F32Out f(odir + "/Gas/v_gas." + tag, io);
+        f.zeros(static_cast<std::size_t>(3 * cfg.Ncell));
+        f.close();
+      }
+      SG(odir + "/Gas/w_gas." + tag, kStreamGasW, 4);
+      SG(odir + "/Gas/e_gas." + tag, kStreamGasE, 1);  // hydro_scheme = unsplit
+      if (!data1) return;
+      if (io) std::filesystem::create_directories(odir + "/RT");
+      {  // the rt_grid record: the first 36 floats of a cell (rrk::CellData)
+        F32Out f(odir + "/RT/rt_grid." + tag, io);
+        amrex_state_stream_rt(s, 0, 36, [&](const StreamSlab& sl) { f.write(sl.data, sl.ncell() * 36); });
+        f.close();
+      }
+      if (which == "norays" || which == "nodm") return;
+      if (io) write_ray_files(odir, tag, s);
+    };
+
     auto write_fields = [&](const std::string& d) {
+      if (on_level) {
+        write_fields_streamed(d);
+        return;
+      }
       // gammaHI_avg on rt_backend = amrex: the level's sums onto rank 0 (collective)
       std::vector<float> ga;
       if (gavg_fields && use_amrex(cfg)) amrex_gamma_avg_field(s, ga);
       if (!io) return;
       const RTGrid& G = s.rt;
       auto W = [&](const char* name, const std::vector<float>& v) {
-        if (!P.fields.empty() && ("," + P.fields + ",").find(std::string(",") + name + ",") ==
-                                     std::string::npos)
-          return;
+        if (!field_listed(name)) return;
         write_f32(d + "/" + name + ".bin", v.data(), v.size());
       };
       W("fHI", G.fHI);
@@ -1239,19 +1479,162 @@ int main(int argc, char** argv) {
       for (std::int64_t c = 0; c < G.ncell; ++c) gammahi_buf[c] = G.gamma[c * 3];
       return gammahi_buf;
     };
-    auto write_frame = [&](const Simulation& ss) {
-      // amrex_state = 1: the cells onto rank 0's mirror (collective); the
-      // other ranks only advance the frame counters
-      if (on_level) {
-        // only a frame's fields when they are all it writes
-        bool few = true;
-        for (const std::string& fld : mfields)
-          few = few && (fld == "fHI" || fld == "fHeI" || fld == "fHeII" || fld == "temp" || fld == "rhog" ||
-                        fld == "gammaHI" || fld == "gammaHI_avg");
-        if (few)
-          amrex_state_gather_rt_movie(s);
+    // A frame's line of movie/frames.txt (rank 0): the whole-box x_HII sums
+    // and the Gamma_HI statistics (gamma(1) of the last RT substep, s^-1):
+    // volume mean, median and mean over the ionised cells (x_HII > 0.5),
+    // volume fraction with Gamma_HI > 1e-14 (serial sums: thread-independent)
+    struct FrameSums {
+      double xv = 0, xm = 0, mass = 0, gsum = 0, gisum = 0;
+      std::int64_t nhi = 0;
+      void add(float fHI_, float rho_) {
+        xv = xv + (1 - static_cast<double>(fHI_));
+        xm = xm + static_cast<double>(rho_) * (1 - static_cast<double>(fHI_));
+        mass = mass + static_cast<double>(rho_);
+      }
+    };
+    auto frame_line = [&](const Simulation& ss, const FrameSums& fs) {
+      const std::int64_t nion = static_cast<std::int64_t>(gion.size());
+      double gmed = 0;
+      if (nion > 0) {
+        auto mid = gion.begin() + nion / 2;
+        std::nth_element(gion.begin(), mid, gion.end());
+        gmed = *mid;
+        if (nion % 2 == 0) gmed = 0.5 * (gmed + *std::max_element(gion.begin(), mid));
+      }
+      char line[384];
+      std::snprintf(line, sizeof line, "%6d %6d %6d %.8f %.8e %.8e %.6e %.6e %.6e %.8e\n",
+                    dst.movie_frame, ss.clk.istep, ss.clk.istep_rt, ss.clk.redshift,
+                    fs.xv / cfg.nrtcr, fs.xm / fs.mass, fs.gsum / cfg.nrtcr, gmed,
+                    nion > 0 ? fs.gisum / static_cast<double>(nion) : 0.0,
+                    static_cast<double>(fs.nhi) / cfg.nrtcr);
+      movielog << line << std::flush;
+    };
+    // the Gamma_HI part of a cell's statistics (gion: the ionised cells' values)
+    auto frame_gamma = [&](FrameSums& fs, float fHI_, float g) {
+      fs.gsum = fs.gsum + static_cast<double>(g);
+      if (g > 1e-14) fs.nhi += 1;
+      if (1 - static_cast<double>(fHI_) > 0.5) {
+        fs.gisum = fs.gisum + static_cast<double>(g);
+        gion.push_back(g);
+      }
+    };
+    // movie_slab > 0: the cells of a streamed slab (ncomp floats per cell)
+    // that fall in each axis block, appended in the order of write_slabs
+    auto slab_add = [&](std::vector<std::vector<float>>& blocks, const float* v, int k0, int nk, int ncomp) {
+      blocks.resize(P.movie_slab_axes.size());
+      for (std::size_t ai = 0; ai < P.movie_slab_axes.size(); ++ai) {
+        int lo[3] = {0, 0, 0}, hi[3] = {mN, mN, mN};
+        const int d = P.movie_slab_axes[ai] - 'x';
+        lo[d] = ms0;
+        hi[d] = ms0 + mt;
+        std::vector<float>& out = blocks[ai];
+        for (int k = std::max(lo[2], k0); k < std::min(hi[2], k0 + nk); ++k)
+          for (int j = lo[1]; j < hi[1]; ++j) {
+            const std::int64_t c0 =
+                lo[0] + static_cast<std::int64_t>(mN) * (j + static_cast<std::int64_t>(mN) * (k - k0));
+            const float* p = v + c0 * ncomp;
+            out.insert(out.end(), p, p + static_cast<std::int64_t>(hi[0] - lo[0]) * ncomp);
+          }
+      }
+    };
+
+    // amrex_state = 1: the frame streamed from the level slab by slab
+    // (docs/rank0_streaming.md): one pass over the components the frame
+    // needs (rhog, fHI and gamma(1) for the statistics, and the movie
+    // fields'), and one for gammaHI_avg. The same files and line as the
+    // host path. Collective.
+    auto write_frame_streamed = [&](const Simulation& ss) {
+      using CD = rrk::CellData;
+      constexpr int fl = sizeof(float);
+      const int cRho = offsetof(CD, rhog) / fl, cHI = offsetof(CD, fHI) / fl, cG = offsetof(CD, gamma) / fl;
+      std::vector<int> comps = {cRho, cHI, cG};
+      auto pos_of = [&](int c) {
+        for (std::size_t m = 0; m < comps.size(); ++m)
+          if (comps[m] == c) return static_cast<int>(m);
+        comps.push_back(c);
+        return static_cast<int>(comps.size()) - 1;
+      };
+      struct MF {
+        std::string name;
+        std::vector<int> pos;  // the field's components in the streamed slab
+        bool avg = false;      // gammaHI_avg (a stream of its own)
+        std::vector<std::vector<float>> blocks;
+        std::unique_ptr<F32Out> cube;
+      };
+      std::vector<MF> mf(mfields.size());
+      for (std::size_t q = 0; q < mfields.size(); ++q) {
+        const std::string& fld = mfields[q];
+        MF& m = mf[q];
+        m.name = fld;
+        int c0 = -1, nc = 1;
+        if (fld == "fHI") c0 = cHI;
+        else if (fld == "fHeI") c0 = offsetof(CD, fHeI) / fl;
+        else if (fld == "fHeII") c0 = offsetof(CD, fHeII) / fl;
+        else if (fld == "temp") c0 = offsetof(CD, temp) / fl;
+        else if (fld == "rhog") c0 = cRho;
+        else if (fld == "ngam") c0 = offsetof(CD, ngam) / fl, nc = kNfreq;
+        else if (fld == "gamma") c0 = cG, nc = 3;
+        else if (fld == "gammaHI") c0 = cG;
+        else if (fld == "gammaHI_avg") m.avg = true;
+        else throw std::runtime_error("movie_fields: unknown field " + fld);
+        for (int c = 0; c < nc && c0 >= 0; ++c) m.pos.push_back(pos_of(c0 + c));
+        char name[64];
+        if (P.movie_slab <= 0) {
+          std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.bin", dst.movie_frame, fld.c_str());
+          m.cube = std::make_unique<F32Out>(odir + name, io);
+        }
+      }
+      auto feed = [&](MF& m, const float* v, const StreamSlab& sl, int ncomp) {
+        if (P.movie_slab > 0)
+          slab_add(m.blocks, v, sl.k0, sl.nk, ncomp);
         else
-          amrex_state_gather_rt(s, false);
+          m.cube->write(v, static_cast<std::size_t>(sl.ncell() * ncomp));
+      };
+      FrameSums fs;
+      gion.clear();
+      std::vector<float> tmp;
+      const int nc = static_cast<int>(comps.size());
+      amrex_state_stream_rt(s, comps, [&](const StreamSlab& sl) {
+        const std::int64_t n = sl.ncell();
+        const float* a = sl.data;
+        for (std::int64_t c = 0; c < n; ++c) {
+          const float* p = a + c * nc;
+          fs.add(p[1], p[0]);
+          frame_gamma(fs, p[1], p[2]);
+        }
+        for (MF& m : mf) {
+          if (m.avg) continue;
+          const int fc = static_cast<int>(m.pos.size());
+          tmp.resize(static_cast<std::size_t>(n * fc));
+          for (std::int64_t c = 0; c < n; ++c)
+            for (int q = 0; q < fc; ++q) tmp[static_cast<std::size_t>(c * fc + q)] = a[c * nc + m.pos[q]];
+          feed(m, tmp.data(), sl, fc);
+        }
+      });
+      for (MF& m : mf)
+        if (m.avg) amrex_gamma_avg_stream(s, [&](const StreamSlab& sl) { feed(m, sl.data, sl, 1); });
+      if (io) {
+        for (MF& m : mf) {
+          if (P.movie_slab > 0) {
+            char name[64];
+            std::snprintf(name, sizeof name, "/movie/frame_%05d_%s.slab", dst.movie_frame, m.name.c_str());
+            F32Out f(odir + name, true);
+            for (const std::vector<float>& b : m.blocks) f.write(b.data(), b.size());
+            f.close();
+          } else {
+            m.cube->close();
+          }
+        }
+        frame_line(ss, fs);
+      }
+      dst.movie_frame += 1;
+      dst.movie_next -= P.movie_dz;
+    };
+
+    auto write_frame = [&](const Simulation& ss) {
+      if (on_level) {
+        write_frame_streamed(ss);
+        return;
       }
       // gammaHI_avg on rt_backend = amrex: the level's running sums onto
       // rank 0 (collective)
@@ -1285,42 +1668,11 @@ int main(int argc, char** argv) {
           if (io) write_f32(odir + name, v->data(), v->size());
         }
       }
-      double xv = 0, xm = 0, mass = 0;
-      for (std::int64_t c = 0; c < G.ncell; ++c) {
-        xv = xv + (1 - static_cast<double>(G.fHI[c]));
-        xm = xm + static_cast<double>(G.rhog[c]) * (1 - static_cast<double>(G.fHI[c]));
-        mass = mass + static_cast<double>(G.rhog[c]);
-      }
-      // Whole-box Gamma_HI statistics (gamma(1) of the last RT substep, s^-1):
-      // volume mean, median and mean over the ionised cells (x_HII > 0.5),
-      // volume fraction with Gamma_HI > 1e-14 (serial sums: thread-independent)
-      double gsum = 0, gisum = 0;
-      std::int64_t nhi = 0;
+      FrameSums fs;
       gion.clear();
-      for (std::int64_t c = 0; c < G.ncell; ++c) {
-        const float g = G.gamma[c * 3];
-        gsum = gsum + static_cast<double>(g);
-        if (g > 1e-14) nhi += 1;
-        if (1 - static_cast<double>(G.fHI[c]) > 0.5) {
-          gisum = gisum + static_cast<double>(g);
-          gion.push_back(g);
-        }
-      }
-      const std::int64_t nion = static_cast<std::int64_t>(gion.size());
-      double gmed = 0;
-      if (nion > 0) {
-        auto mid = gion.begin() + nion / 2;
-        std::nth_element(gion.begin(), mid, gion.end());
-        gmed = *mid;
-        if (nion % 2 == 0) gmed = 0.5 * (gmed + *std::max_element(gion.begin(), mid));
-      }
-      char line[384];
-      std::snprintf(line, sizeof line, "%6d %6d %6d %.8f %.8e %.8e %.6e %.6e %.6e %.8e\n",
-                    dst.movie_frame, ss.clk.istep, ss.clk.istep_rt, ss.clk.redshift,
-                    xv / cfg.nrtcr, xm / mass, gsum / cfg.nrtcr, gmed,
-                    nion > 0 ? gisum / static_cast<double>(nion) : 0.0,
-                    static_cast<double>(nhi) / cfg.nrtcr);
-      movielog << line << std::flush;
+      for (std::int64_t c = 0; c < G.ncell; ++c) fs.add(G.fHI[c], G.rhog[c]);
+      for (std::int64_t c = 0; c < G.ncell; ++c) frame_gamma(fs, G.fHI[c], G.gamma[c * 3]);
+      frame_line(ss, fs);
       dst.movie_frame += 1;
       dst.movie_next -= P.movie_dz;
     };
@@ -1386,9 +1738,8 @@ int main(int argc, char** argv) {
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
-      if (on_level) {  // rank 0's grids and particles onto the levels
-        amrex_state_scatter_gas(s);
-        amrex_state_scatter_rt(s);
+      if (on_level) {  // the grids from the file and rank 0's particles onto the levels
+        read_checkpoint_grids(restart_from, s);
         amrex_pm_load_particles(pm);
         if (cfg.sf_overdensity > 0) amrex_pm_load_stars(pm);  // the sink's stars (version 8)
       }
@@ -1402,7 +1753,7 @@ int main(int argc, char** argv) {
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // hydro_scheme = unsplit: gas.e
       if (on_level) {  // the initial conditions onto the levels
-        amrex_state_scatter_gas(s);
+        ics_to_level();
         amrex_pm_load_particles(pm);
       }
       summaries();
@@ -1547,7 +1898,10 @@ int main(int argc, char** argv) {
       bool fields = (P.fields_every > 0 && s.clk.istep % P.fields_every == 0);
       if (data2_out) {  // write_data_2 (F1 fix: all files)
         sync_mirror();
-        if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
+        if (on_level)
+          write_data_files_streamed(pm::ztag(s.clk.redshift), false, P.data_files);
+        else if (io)
+          write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
         if (cfg.sf_overdensity > 0 && io) {
           write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
           write_sink_summary(odir + "/sink.txt", pm);
@@ -1558,16 +1912,31 @@ int main(int argc, char** argv) {
       if (data1_out) {
         const auto tp = Clock::now();
         sync_mirror();
-        // (amrex_state = 1: the host P(k) on rank 0's mirror; its FFT and
+        // (amrex_state = 1: the host P(k) on rank 0's PM mesh; its FFT and
         // the DM linking are the host's, redundant until Stage E's P(k) on
         // the level)
-        if (!on_level || io) pm::calc_power_spectrum(pm, s.gas.u.data(), cfg.box, pk_dm, pk_gas);
+        if (on_level) {
+          // the gas density streamed onto rank 0 (its only grid array here;
+          // the DM part still uses rank 0's host PM mesh,
+          // docs/rank0_streaming.md step 11)
+          sync_xv();
+          std::vector<float> rho(io ? static_cast<std::size_t>(cfg.Ncell) : 0);
+          amrex_state_stream_gas(s, kStreamGasU, 1, [&](const StreamSlab& sl) {
+            std::copy(sl.data, sl.data + sl.ncell(), rho.begin() + sl.c0());
+          });
+          if (io) pm::calc_power_spectrum(pm, rho.data(), cfg.box, pk_dm, pk_gas, 1);
+        } else {
+          pm::calc_power_spectrum(pm, s.gas.u.data(), cfg.box, pk_dm, pk_gas);
+        }
         if (io)
           pm::write_power_spectrum(odir + "/Pk/pk." + pm::ztag(s.clk.redshift), pm, pk_dm,
                                    pk_gas);
         T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
         // write_data_1 (F1 fix: all files)
-        if (io) write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
+        if (on_level)
+          write_data_files_streamed(pm::ztag(s.clk.redshift), true, P.data_files);
+        else if (io)
+          write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
         if (cfg.sf_overdensity > 0 && io) {
           write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
           write_sink_summary(odir + "/sink.txt", pm);

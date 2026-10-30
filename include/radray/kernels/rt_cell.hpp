@@ -376,6 +376,42 @@ RR_HD bool cell_radiation_prep(const CellRef& c, const radray::Units& u, double&
   return ngam_tot > u.ngam_min || *c.fHI < 0.99f;
 }
 
+// The preheating floor (Config::T_min, z_floor; docs/production_run.md
+// section 10) is active: Units::temp_floor is above the original's temp_min.
+RR_HD bool temp_floor_active(const radray::Units& u) { return u.temp_floor > u.temp_min; }
+
+// The preheating floor for a gas cell uu(5), ww(4) (and the dual-energy
+// field *ee if ee != nullptr) of an RT cell that cell_radiation_prep skips
+// (neutral and without photons: the original does no heating or cooling
+// there). Only with temp_floor_active: raises the thermal energy to
+// temp_floor with photo_gas_cell's arithmetic and leaves everything else
+// as it is; the RT grid sees the change at post_rt (calc_rt_f).
+RR_HD void floor_gas_cell(float* uu, const float* ww, float* ee, const radray::Units& u) {
+  using namespace radray;
+  using namespace radray::pc;
+  using namespace radray::cp;
+  const double g = gamma_ideal;
+  const double rhog = rrf::max(static_cast<double>(uu[0]), u.Dgas_min) * u.rho_unit;
+  const double nH = rhog * XHy / mH_cgs;
+  const double nHe = rhog * YHe / mHe_cgs;
+  const double nHI = rrf::min(static_cast<double>(ww[0]) * u.H_unit, nH);
+  const double nHeI = rrf::min(static_cast<double>(ww[1]) * u.He_unit, nHe);
+  const double nHeII = rrf::min(static_cast<double>(ww[2]) * u.He_unit, nHe - nHeI);
+  const double nHII = nH - nHI;
+  const double nHeIII = nHe - nHeI - nHeII;
+  const double ne = nHII + nHeII + 2 * nHeIII;
+  const double neff = nH + nHe + ne;
+  const float kin_f = (((0.0f + uu[1] * uu[1]) + uu[2] * uu[2]) + uu[3] * uu[3]) / uu[0] / 2.0f;
+  const double kin = static_cast<double>(kin_f);
+  double eth = (static_cast<double>(uu[4]) - kin) * u.eden_unit;
+  if (ee) eth = static_cast<double>(*ee) * u.eden_unit;
+  const double tmp = (g - 1) * eth / k_cgs / neff;
+  if (!(tmp < u.temp_floor)) return;
+  eth = neff * k_cgs * u.temp_floor / (g - 1);
+  uu[4] = static_cast<float>(kin + eth / u.eden_unit);
+  if (ee) *ee = static_cast<float>(eth / u.eden_unit);
+}
+
 // photo_source of a stellar source cell: the rt_stat ngam addends per
 // species and frequency group (before /nrtcr), 0 where the group is below
 // the species' threshold. The host adds them group by group, in group
@@ -435,8 +471,10 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   // u(5). Null with the legacy scheme: no-op.
   if (ee) eth = static_cast<double>(*ee) * u.eden_unit;
   double tmp = (g - 1) * eth / k_cgs / neff;
-  if (tmp < u.temp_min) {
-    tmp = u.temp_min;
+  // temp_floor: temp_min (the original), or the preheating floor T_min at
+  // z < z_floor (Config::T_min; docs/production_run.md section 10)
+  if (tmp < u.temp_floor) {
+    tmp = u.temp_floor;
     eth = neff * k_cgs * tmp / (g - 1);
   }
   st.T_in = tmp;
@@ -634,8 +672,8 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
     eth = eth / (1 + std::log(1 - net_rate * dtsec_rt / eth));
   }
   tmp = (g - 1) * eth / k_cgs / neff;
-  if (tmp < u.temp_min) {
-    tmp = u.temp_min;
+  if (tmp < u.temp_floor) {  // temp_min, or the preheating floor (above)
+    tmp = u.temp_floor;
     eth = neff * k_cgs * tmp / (g - 1);
   }
 
@@ -695,7 +733,11 @@ RR_HD int physics_cell(CellData& c, const PhysCtx& X, PhotoStats* st = nullptr,
   const bool proc = cell_radiation_prep(r, X.u, ngam_tot);
   if (processed) *processed = proc;
   if (ngam_tot_out) *ngam_tot_out = ngam_tot;
-  if (!proc) return kPhotoOK;
+  if (!proc) {
+    // the preheating floor also holds where the original does no physics
+    if (temp_floor_active(X.u)) floor_gas_cell(c.u, c.w, has_e ? &c.e : nullptr, X.u);
+    return kPhotoOK;
+  }
   double us[5] = {0, 0, 0, 0, 0}, ws[4] = {0, 0, 0, 0};
   double nu[5], nrad[5];
   for (int n = 0; n < 5; ++n) {

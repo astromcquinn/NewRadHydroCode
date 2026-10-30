@@ -66,10 +66,16 @@ namespace cp {  // cosmo_parameters.f90
 // (Config::box), this is only the default.
 constexpr double box_default = 5;
 
+// The original's cosmology. These are the DEFAULTS of the runtime
+// cosmology (Cosmology in cosmo_params.hpp, params.txt keys omegam, omegab,
+// hubble0, sigma8, ns; docs/production_run.md section 10): the code reads
+// cfg.cosmo, never these, except where a default is wanted.
 constexpr double omegam = static_cast<double>(0.27f);
 constexpr double omegal = 1 - omegam;
 constexpr double omegab = static_cast<double>(0.045f);
 constexpr double hubble0 = static_cast<double>(0.70f);
+constexpr double nsinit = static_cast<double>(0.96f);
+constexpr double sigma8 = static_cast<double>(0.80f);
 constexpr double wde = static_cast<double>(-1.0f);
 
 constexpr double XHy = static_cast<double>(0.76f);
@@ -82,6 +88,11 @@ constexpr double Tcmb0 = static_cast<double>(2.725f);
 // (4.48E-7*(1+0.69) is a real(4) product; Tcmb0**4 is folded by MPFR,
 // correctly rounded.) gfortran value:
 constexpr double omegar = 0x1.6559c34a8bc79p-14;
+// The pieces of omegar for another hubble0 (cosmo_params.cpp): the real(4)
+// product 4.48E-7*(1+0.69) and Tcmb0**4 (MPFR, correctly rounded);
+// (omegar_c1*Tcmb0_pow4)/hubble0**2 reproduces omegar above bit for bit.
+constexpr double omegar_c1 = static_cast<double>(4.48e-7f * (1.0f + 0.69f));
+constexpr double Tcmb0_pow4 = 0x1.b91e835369e54p+5;
 
 // RT parameters
 constexpr std::array<double, kNfreq> freq_init = {

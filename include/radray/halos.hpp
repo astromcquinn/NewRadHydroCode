@@ -71,7 +71,8 @@ struct HaloUnits {
   double vel_to_kms = 0;  // particle velocity unit -> peculiar km/s
   double mpart_msun = 0;  // particle mass in Msun (Msun_unit)
   double redshift = 0;
-  double hubble0 = 0;     // little h
+  double hubble0 = 0;     // little h (= cosmo.hubble0)
+  Cosmology cosmo;        // the runtime cosmology (Config::cosmo)
   double omegam_z = 0;    // Omega_m(z)
   double rho_crit = 0;    // proper critical density at z, g/cm^3
   double rhom_mean = 0;   // proper mean matter density at z, g/cm^3
@@ -83,9 +84,9 @@ struct HaloUnits {
 // Npart = Ndm^3 (it carries ALL the matter, Omega_m, not Omega_m-Omega_b).
 HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u);
 
-// Particle mass in Msun for Npart particles in a box of `box` Mpc/h
-// (cosmo_tools.f90 calc_sim_var: Msun_unit = mp_unit/Msun_cgs).
-double particle_mass_msun(std::int64_t npart_total, double box);
+// Particle mass in Msun for Npart particles in a box of `box` Mpc/h in the
+// cosmology c (cosmo_tools.f90 calc_sim_var: Msun_unit = mp_unit/Msun_cgs).
+double particle_mass_msun(std::int64_t npart_total, double box, const Cosmology& c);
 
 // Bryan & Norman (1998) virial overdensity relative to the CRITICAL
 // density, flat universe: x = Omega_m(z)-1, Delta_c = 18pi^2 + 82x - 39x^2.

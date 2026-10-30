@@ -972,15 +972,7 @@ inline double alpha_B(double x) {
 }
 }  // namespace
 
-GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
-                         GasGrid& gas, HydroState& hs, std::ostream* out) {
-  const double ob = omegab, om = omegam;
-  const double fb = ob / om;
-  const double Zsolar = static_cast<double>(0.02f);
-  const int N = cfg.Ngas;
-  const double Ncell = static_cast<double>(cfg.Ncell);
-
-  double x1[11], x2[11], x3[11], x4[11];
+GasSummer::GasSummer(const Config& cfg, const Units& un) : cfg_(cfg), un_(un) {
   for (int m = 0; m < 11; ++m) {
     x1[m] = 0;
     x2[m] = 0;
@@ -988,40 +980,31 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
     x4[m] = 0;
   }
   x3[1] = x3[2] = x3[3] = 0;
-  double cmax = 0, vrms = 0;
-  double clump[21];  // 1-based
   for (double& c : clump) c = 0;
+}
 
-  auto acc = [&](int m, double val, double rho) {
-    x1[m] = x1[m] + val;
-    x2[m] = x2[m] + val * rho;
-    x3[m] = gmin(x3[m], val);
-    x4[m] = gmax(x4[m], val);
-  };
-
-  // Per-cell values are computed in parallel (one k-plane batch at a time,
-  // cells independent; the clamps of u_gas/w_gas are per cell) and summed
-  // serially in the original k,j,i order with the original expressions, so
-  // every sum is bit-identical for any thread count. cmax is a maximum.
-  struct Rec {
-    double rho, vel[3], cs, tmp, fHI, fHeI, fHeII, fe, Z, nH, nHII, ne, alpha, x, cmax;
-  };
+// Per-cell values are computed in parallel (cells independent; the clamps
+// of u_gas/w_gas are per cell) and summed serially in the original k,j,i
+// order with the original expressions, so every sum is bit-identical for
+// any thread count and any split of the grid into runs of planes. cmax is
+// a maximum.
+void GasSummer::add_planes(int nk, float* ug, float* wg, const float* e, const float* vg) {
+  const Units& un = un_;
+  const double fb = cfg_.cosmo.omegab / cfg_.cosmo.omegam;
+  const int N = cfg_.Ngas;
   const std::int64_t plane = static_cast<std::int64_t>(N) * N;
-  const int nth = par::worth(cfg.Ncell) ? par::max_threads() : 1;
-  const int batch = nth > 1 ? std::min(N, 4 * nth) : 1;
-  std::vector<Rec> recs(static_cast<std::size_t>(batch * plane));
-  for (int k0 = 1; k0 <= N; k0 += batch) {
-    const int nb = std::min(batch, N - k0 + 1);
-#pragma omp parallel for schedule(static) if (nth > 1)
-    for (int b = 0; b < nb; ++b) {
-      const int k = k0 + b;
-      for (int j = 1; j <= N; ++j)
-        for (int i = 1; i <= N; ++i) {
-          const std::int64_t c = gas.cell(i, j, k);
-          float* u = gas.u_p(c);
-          float* w = gas.w_p(c);
-          const float* v = hs.v_p(c);
-          Rec& R = recs[b * plane + (i - 1) + static_cast<std::int64_t>(N) * (j - 1)];
+  static const float zero3[3] = {0, 0, 0};
+  const int nth = par::worth(cfg_.Ncell) ? par::max_threads() : 1;
+  recs.resize(static_cast<std::size_t>(nk * plane));
+#pragma omp parallel for schedule(static) collapse(2) if (nth > 1)
+  for (int b = 0; b < nk; ++b)
+    for (int j = 0; j < N; ++j)
+      for (int i = 0; i < N; ++i) {
+          const std::int64_t c = i + static_cast<std::int64_t>(N) * j + plane * b;
+          float* u = ug + 5 * c;
+          float* w = wg + 4 * c;
+          const float* v = vg ? vg + 3 * c : zero3;
+          Rec& R = recs[c];
 
           // Hydro u_gas variables
           u[0] = static_cast<float>(gmax(static_cast<double>(u[0]), un.Dgas_min));
@@ -1030,7 +1013,7 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
           for (int m = 0; m < 3; ++m) vel[m] = u[1 + m] / rho + v[m];
           double eth = u[4] - static_cast<double>(sumsq3(u + 1)) / rho / 2;
           // hydro_scheme = unsplit: the dual-energy field (empty otherwise)
-          if (!gas.e.empty()) eth = gas.e[c];
+          if (e) eth = e[c];
           eth = gmax(eth, 0.0);
           const double cs = std::sqrt(g * (g - 1) * eth / rho);
 
@@ -1070,9 +1053,8 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
           const double ne = fe * (nH + 2 * nHe);
           R = Rec{rho, {vel[0], vel[1], vel[2]}, cs, tmp, fHI, fHeI, fHeII, fe, Z, nH, nHII, ne,
                   alpha, gmin(std::exp(-(rho / fb - rho_source) / rho_source), 1.0), cm};
-        }
-    }
-    for (std::int64_t n = 0; n < nb * plane; ++n) {
+      }
+  for (std::int64_t n = 0; n < nk * plane; ++n) {
       const Rec& R = recs[n];
       const double rho = R.rho;
       const double* vel = R.vel;
@@ -1120,9 +1102,14 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
       clump[18] += x * (nH * nH);
       clump[19] += x * (nHII * nHII);
       clump[20] += x * nHII * ne * alpha;
-    }
   }
+}
 
+GasSummary GasSummer::finish(SimClock& clk, std::ostream* out) {
+  const Units& un = un_;
+  const double fb = cfg_.cosmo.omegab / cfg_.cosmo.omegam;
+  const double Zsolar = static_cast<double>(0.02f);
+  const double Ncell = static_cast<double>(cfg_.Ncell);
   // Update global variables
   clk.cmax_gas = cmax;
   clk.vmax_gas = gmax(gmax(x4[1], x4[2]) /* maxval(x4(2:3)): vz omitted */,
@@ -1190,6 +1177,23 @@ GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
     }
   }
   return S;
+}
+
+
+GasSummary summarize_gas(const Config& cfg, const Units& un, SimClock& clk,
+                         GasGrid& gas, HydroState& hs, std::ostream* out) {
+  GasSummer sum(cfg, un);
+  const int N = cfg.Ngas;
+  const std::int64_t plane = static_cast<std::int64_t>(N) * N;
+  const int nth = par::worth(cfg.Ncell) ? par::max_threads() : 1;
+  const int batch = nth > 1 ? std::min(N, 4 * nth) : 1;
+  for (int k0 = 1; k0 <= N; k0 += batch) {
+    const int nb = std::min(batch, N - k0 + 1);
+    const std::int64_t off = plane * (k0 - 1);
+    sum.add_planes(nb, gas.u.data() + 5 * off, gas.w.data() + 4 * off,
+                   gas.e.empty() ? nullptr : gas.e.data() + off, hs.v.data() + 3 * off);
+  }
+  return sum.finish(clk, out);
 }
 
 // --------------------------------------------------------------------------

@@ -4,6 +4,8 @@
 
 #include <cstdint>
 
+#include "radray/cosmo_params.hpp"
+
 namespace radray {
 
 // Hydro solver (docs/hydro_unsplit.md): Legacy = the original's split
@@ -57,6 +59,26 @@ struct Config {
   // with -DBOX).
   double box = 5;
   std::int64_t Ncell = 0;  // Ngas^3
+
+  // The runtime cosmology (cosmo_params.hpp; params.txt omegam, omegab,
+  // hubble0, sigma8, ns): the original's real(4) literals by default, which
+  // keep every run bit-identical to the original. Read by calc_sim_var, the
+  // clock (init_variables, calc_dt_from_da, calc_da_from_dt), the RT step
+  // count, the PM masses, summarize_gas, the halo units and the sources.
+  Cosmology cosmo;
+
+  // Preheating floor (docs/production_run.md section 10; params.txt T_min,
+  // z_floor): at redshifts z < z_floor the RT cell physics (photo_cell)
+  // keeps the gas temperature at or above T_min kelvin, as the original
+  // keeps it above temp_min, and the hydro floor (Thydro_min) and the PM
+  // step's clamp (Tgas_min) are raised to it too, so the floor holds in
+  // the hydro steps the RT does not run in (the plane-parallel mode before
+  // plane_z_re; docs/thermal_history.md section 5). C26: 100 K or 1000 K
+  // below z = 15, a plain switch-on (user decision 2026-10-29). T_min = 0
+  // (default) is off and bit-identical to the original; T_min > 0 needs
+  // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
+  double T_min = 0;
+  double z_floor = -1;
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
 
@@ -556,6 +578,24 @@ struct Config {
   // time. 0 (default) = the original: the first step past the redshift.
   bool land_outputs = false;
   double land_a = 0;  // the next landing scale factor (0 = none); set per step by the driver
+  // params.txt plane_turnon_cfl, plane_turnon_temp (set_plane_param;
+  // docs/plane_parallel.md "Turn-on and the step caps"; user request
+  // 2026-10-28). Plane-parallel mode only (plane_parallel = 1 with
+  // plane_z_re >= 0; nothing changes otherwise). The hydro step runs before
+  // the RT of the same interval, so the RT heating reaches the hydro only
+  // at the next step, and the step starting at the turn-on is sized by the
+  // cold gas's signal speed. plane_turnon_cfl = 1 (default): the step that
+  // starts at plane_z_re (the first with the RT on) is at most the CFL step
+  // 2 dt_gas_factor / (cmax_gas + c_hot), c_hot the sound speed of fully
+  // ionised gas at plane_turnon_temp (K, default 2e4), times
+  // plane_turnon_courant (default 0.05, user decision 2026-10-28: the T4
+  // test at 64^3 needs a turn-on step of ~1 Myr to remove the lag, which 1,
+  // the CFL step with c_hot alone, does not: docs/plane_parallel.md);
+  // plane_turnon_cfl = 0 = the uncapped step (the behaviour before
+  // 2026-10-28).
+  int plane_turnon_cfl = 1;
+  double plane_turnon_temp = 2e4;
+  double plane_turnon_courant = 0.05;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
