@@ -99,6 +99,13 @@ make_problem() {
     run_cmd python3 "$here/tools/production/make_production.py" "$dir" "${common[@]}"
     return
   fi
+  # a rung made earlier with other ICs (the Zel'dovich ladder in the same
+  # RUNS) is not reused: every step below skips what exists
+  if [ -f "$dir/params.txt" ] && { ! grep -qx "z_init = $(python3 -c "print(f'{float($ZINIT):g}')")" "$dir/params.txt" ||
+                                   ! grep -qx "omegam = $OMEGAM" "$dir/params.txt"; }; then
+    echo "$dir holds a problem with other ICs (z_init or cosmology differ): use another RUNS or remove it" >&2
+    exit 2
+  fi
   # MUSIC + CAMB (as tools/hyak/linear_growth.slurm): the transfer functions
   # at z_init, c2_uniform.conf at level log2(N), the code's ICs from MUSIC's
   # output, the RECFAST table of the cosmology
