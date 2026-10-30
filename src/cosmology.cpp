@@ -330,7 +330,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
         const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
         t.c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
         double da_hot = 0, dty = 0;
-        calc_da_from_dt(a, da_hot, cfg.plane_turnon_courant * (2 * dt_gas_factor / (clk.cmax_gas + t.c_hot)), dty);
+        calc_da_from_dt(cfg.cosmo, a, da_hot, cfg.plane_turnon_courant * (2 * dt_gas_factor / (clk.cmax_gas + t.c_hot)), dty);
         if (da_hot < da_cap) {
           da_cap = da_hot;
           t.turnon_capped = true;
