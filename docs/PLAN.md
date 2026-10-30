@@ -1802,6 +1802,23 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
   default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
   64³, one extra hydro step).
+* **No `dt_max_myr` cap in the production plane-parallel problems (user,
+  2026-10-30):** the short turn-on step is the solution to the coupling
+  lag; `make_production.py --plane-parallel` writes no `dt_max_myr`, so
+  the steps after the turn-on stay the CFL steps (the T4 runs at 64³ leave
+  12–14 % in E(k) at 200–400 Myr from them, against 2 % with a 1-Myr cap;
+  `--dt-max-myr` remains for tests).
+* **The C1 ladder's initial conditions (2026-10-30, after PR #15):**
+  `tools/hyak/c1_ladder.sh` makes C26's set-up by default: MUSIC in uniform
+  mode from z = 300 with CAMB's separate CDM and baryon transfer functions
+  (`c2_uniform.conf` at level log2 N, the seed at level 10, so the rungs
+  and the linear-growth box share their modes), the C26 cosmology, and
+  `thermal_init = recfast` with that cosmology's `recfast_table`.
+  `ICS=zeldovich` keeps the ladder of before (z = 100, original
+  cosmology, floor history). Because recfast is refused with
+  `amrex_state = 1`, every rung with recfast runs the serial build on a
+  whole node (512³ included, ~100 GB with the sweep transport);
+  `THERMAL=floor` gives the 512³ rung the backend as before.
 
 ## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
 

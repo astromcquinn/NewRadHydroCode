@@ -313,6 +313,10 @@ The bitwise suite is untouched: every new flag defaults to the original.
   the gas velocity (C26 Fig. 3), with `--ref` for digitised points.
 * `tools/analysis/t4_coupling.py`: the T4 test (make / run / analyse).
 * `tools/hyak/c1_ladder.sh`: the C1 ladder and the T4 variants on klone.
+  Since 2026-10-30 the ladder starts from C26's ICs (MUSIC + CAMB from
+  z = 300, the C26 cosmology, `thermal_init = recfast` with its
+  `recfast_table`; `ICS=zeldovich` for the earlier Zel'dovich ICs from
+  z = 100; `docs/PLAN.md`, "Plane-parallel RT-domain mode").
 
 ### Results (2026-10-27)
 
