@@ -33,7 +33,7 @@ namespace {
 // pm_tools.f90: cic_mass_assignment, local parameter
 //   mass = (1-omegab/omegam)*N_dm_gas_c
 // (N_dm_gas_c = (Nm/Ndm)^3: the PM mesh is the gas grid in the original)
-inline double dm_mass(const PMConfig& pc) { return (1 - omegab / omegam) * pc.dm_mass_ratio; }
+inline double dm_mass(const PMConfig& pc) { return (1 - pc.cosmo.omegab / pc.cosmo.omegam) * pc.dm_mass_ratio; }
 
 // CIC weights shared by cic_mass_assignment and accelerate_dm
 // (rpk::cic_weights, kernels/pm_kernels.hpp: the same arithmetic as the
@@ -671,10 +671,10 @@ void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconv
 // power on the gas grid in a separate buffer; density then holds the DM
 // transform.
 void calc_power_spectrum(PMState& s, const float* u_gas, double box,
-                         std::vector<double>& pk_dm, std::vector<double>& pk_gas) {
+                         std::vector<double>& pk_dm, std::vector<double>& pk_gas, int stride) {
   const int N = s.pc.Ngas;
   const int Nm = s.pc.Nm;
-  const double fb = omegab / omegam;
+  const double fb = s.pc.cosmo.omegab / s.pc.cosmo.omegam;
   const double fd = 1 - fb;
   const int fft_threads = pm_fft_threads(s.pc);
   s.fmesh_valid = false;
@@ -704,7 +704,7 @@ void calc_power_spectrum(PMState& s, const float* u_gas, double box,
     for (int j = 1; j <= N; ++j) {
       float* row = g + ld * ((j - 1) + static_cast<std::int64_t>(N) * (k - 1));
       for (int i = 1; i <= N; ++i)
-        row[i - 1] = static_cast<float>(static_cast<double>(u_gas[s.gcell(i, j, k) * 5]) / fb - 1);
+        row[i - 1] = static_cast<float>(static_cast<double>(u_gas[s.gcell(i, j, k) * stride]) / fb - 1);
       for (int i = N + 1; i <= N + 2; ++i) row[i - 1] = 0;
     }
   fft::fft_3d('f', N, N, N, g, fft_threads);
@@ -827,19 +827,22 @@ void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>
   if (u_gas.empty()) return;  // amrex_state = 1 on a rank other than 0: no host gas grid
   read_f32(dir + "/u_gas.init", u_gas.data(), u_gas.size());
   const std::int64_t ncell = s.pc.Ncell;
-  // thermal_init = recfast: the RECFAST temperature (neutral mu, temp1_unit)
-  const double Tinit = T_init_K > 0 ? T_init_K / u.temp1_unit : u.Tgas_min;
-  for (std::int64_t c = 0; c < ncell; ++c) {
-    float* ug = &u_gas[c * 5];
-    ug[4] = static_cast<float>(static_cast<double>(ug[4]) + static_cast<double>(ug[0]) * Tinit);
-  }
-  for (std::int64_t c = 0; c < ncell; ++c) {
-    const double rho = u_gas[c * 5];
-    w_gas[c * 4 + 0] = static_cast<float>(XHy * rho);
-    w_gas[c * 4 + 1] = static_cast<float>(YHe * rho);
-    w_gas[c * 4 + 2] = 0;
-    w_gas[c * 4 + 3] = 0;
-  }
+  const double Tinit = ics_tinit(u, T_init_K);
+  for (std::int64_t c = 0; c < ncell; ++c) ics_gas_cell(&u_gas[c * 5], &w_gas[c * 4], Tinit);
+}
+
+// thermal_init = recfast: the RECFAST temperature (neutral mu, temp1_unit)
+double ics_tinit(const Units& u, double T_init_K) { return T_init_K > 0 ? T_init_K / u.temp1_unit : u.Tgas_min; }
+
+// u(5) += rho Tinit; w neutral (each cell its own: the same values as the
+// original's two loops over the grid)
+void ics_gas_cell(float* ug, float* wg, double Tinit) {
+  ug[4] = static_cast<float>(static_cast<double>(ug[4]) + static_cast<double>(ug[0]) * Tinit);
+  const double rho = ug[0];
+  wg[0] = static_cast<float>(XHy * rho);
+  wg[1] = static_cast<float>(YHe * rho);
+  wg[2] = 0;
+  wg[3] = 0;
 }
 
 // cosmo_tools.f90: calc_sim_var, redshift file tag

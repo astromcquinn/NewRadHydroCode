@@ -232,12 +232,11 @@ FofGroups fof_partition_bruteforce(const float* pos, i64 npart, int stride, doub
 // Units and virial quantities
 // ---------------------------------------------------------------------------
 
-double particle_mass_msun(i64 npart_total, double box) {
+double particle_mass_msun(i64 npart_total, double box, const Cosmology& c) {
   using namespace pc;
-  using namespace cp;
   // cosmo_tools.f90: mp_unit = rhoc_cgs*om*(box*Mpc2cm)**3/h0/Npart
   // (same expression as Units::mp_unit in calc_sim_var)
-  const double mp_unit = rhoc_cgs * omegam * f::pow3(box * Mpc2cm) / hubble0 /
+  const double mp_unit = rhoc_cgs * c.omegam * f::pow3(box * Mpc2cm) / c.hubble0 /
                          static_cast<double>(npart_total);
   return mp_unit / Msun_cgs;
 }
@@ -254,7 +253,8 @@ HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u
   h.mpart_msun = u.Msun_unit;                         // calc_sim_var
   (void)Npart;
   h.redshift = clk.redshift;
-  h.hubble0 = cp::hubble0;
+  h.cosmo = cfg.cosmo;
+  h.hubble0 = cfg.cosmo.hubble0;
   h.rho_crit = u.rho_crit;
   h.rhom_mean = u.rho_unit;                           // rhoc*om*h0^2/a^3
   h.omegam_z = h.rhom_mean / h.rho_crit;

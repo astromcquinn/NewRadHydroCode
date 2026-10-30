@@ -158,17 +158,17 @@ struct SourceModelParams {
 };
 
 // Global comoving SFR density (Msun/yr/Mpc^3) at redshift z: table if
-// given, else the Hernquist & Springel fit.
+// given, else the Hernquist & Springel fit (with H(z) of the cosmology c).
 double global_sfr_density(double z, const SourceModelParams& p,
-                          const std::vector<SfrHistoryRow>* table);
+                          const std::vector<SfrHistoryRow>* table, const Cosmology& c);
 
 // Comoving stellar mass density formed by redshift z (Msun/Mpc^3):
 // integral of global_sfr_density over cosmic time from z_max.
 double global_stellar_density(double z, const SourceModelParams& p,
-                              const std::vector<SfrHistoryRow>* table);
+                              const std::vector<SfrHistoryRow>* table, const Cosmology& c);
 
-// Cosmic time between z and z_max in years (flat LCDM of cosmo_parameters).
-double cosmic_time_yr(double z, double z_max);
+// Cosmic time between z and z_max in years (flat LCDM, the cosmology c).
+double cosmic_time_yr(double z, double z_max, const Cosmology& c);
 
 // Escape fraction at redshift z: f_esc, or the f_esc_beta power law.
 double f_esc_at(const SourceModelParams& p, double z);

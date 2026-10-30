@@ -241,15 +241,16 @@ SourceCatalog read_halo(const std::string& dir_halo, double redshift, std::ostre
 
 namespace {
 
-// H(z)/H0 for the cosmology of cosmo_parameters.f90 (flat, w=-1)
-double E_of_z(double z) {
+// H(z)/H0 for the runtime cosmology (cosmo_parameters.f90 by default;
+// flat, w=-1)
+double E_of_z(const Cosmology& c, double z) {
   const double a = 1 / (1 + z);
-  return std::sqrt(omegam / (a * a * a) + omegal + omegar / (a * a * a * a));
+  return std::sqrt(c.omegam / (a * a * a) + c.omegal + c.omegar / (a * a * a * a));
 }
 
 // dt/dz in years (absolute value): 1/((1+z) H(z))
-double dtdz_yr(double z) {
-  const double H = H0_cgs * hubble0 * E_of_z(z);
+double dtdz_yr(const Cosmology& c, double z) {
+  const double H = H0_cgs * c.hubble0 * E_of_z(c, z);
   return sec2yr / ((1 + z) * H);
 }
 
@@ -270,15 +271,15 @@ double table_sfr(double z, const std::vector<SfrHistoryRow>& t) {
 }  // namespace
 
 double global_sfr_density(double z, const SourceModelParams& p,
-                          const std::vector<SfrHistoryRow>* table) {
+                          const std::vector<SfrHistoryRow>* table, const Cosmology& c) {
   if (table) return table_sfr(z, *table);
-  const double chi = std::pow(E_of_z(z), 2.0 / 3.0);
+  const double chi = std::pow(E_of_z(c, z), 2.0 / 3.0);
   return p.hs_rho_m * chi * chi /
          (1 + p.hs_alpha * std::pow(chi - 1, 3) * std::exp(p.hs_beta * std::pow(chi, 1.75)));
 }
 
 double global_stellar_density(double z, const SourceModelParams& p,
-                              const std::vector<SfrHistoryRow>* table) {
+                              const std::vector<SfrHistoryRow>* table, const Cosmology& c) {
   if (z >= p.z_max) return 0;
   // Trapezoid in ln(1+z), 2000 steps
   const int n = 2000;
@@ -287,13 +288,13 @@ double global_stellar_density(double z, const SourceModelParams& p,
   double s = 0;
   for (int i = 0; i <= n; ++i) {
     const double zz = std::exp(u0 + i * du) - 1;
-    const double f = global_sfr_density(zz, p, table) * dtdz_yr(zz) * (1 + zz);
+    const double f = global_sfr_density(zz, p, table, c) * dtdz_yr(c, zz) * (1 + zz);
     s += (i == 0 || i == n) ? 0.5 * f : f;
   }
   return s * du;
 }
 
-double cosmic_time_yr(double z, double z_max) {
+double cosmic_time_yr(double z, double z_max, const Cosmology& c) {
   if (z >= z_max) return 0;
   const int n = 2000;
   const double u0 = std::log(1 + z), u1 = std::log(1 + z_max);
@@ -301,7 +302,7 @@ double cosmic_time_yr(double z, double z_max) {
   double s = 0;
   for (int i = 0; i <= n; ++i) {
     const double zz = std::exp(u0 + i * du) - 1;
-    const double f = dtdz_yr(zz) * (1 + zz);
+    const double f = dtdz_yr(c, zz) * (1 + zz);
     s += (i == 0 || i == n) ? 0.5 * f : f;
   }
   return s * du;
@@ -315,7 +316,8 @@ double f_esc_at(const SourceModelParams& p, double z) {
 SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu,
                              const SourceModelParams& p,
                              const std::vector<SfrHistoryRow>* table) {
-  const double fb = omegab / omegam;
+  const Cosmology& co = hu.cosmo;
+  const double fb = co.omegab / co.omegam;
   const double z = hu.redshift;
   const std::size_t n = halos.size();
   std::vector<double> sfr(n, 0), mstar(n, 0), Lrt(n, 0);
@@ -327,9 +329,9 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
     double Msum = 0;
     for (std::size_t i = 0; i < n; ++i)
       if (active[i]) Msum += halos[i].M;
-    const double vbox = std::pow(hu.box / hubble0, 3);  // comoving Mpc^3
-    const double sfr_tot = global_sfr_density(z, p, table) * vbox;
-    const double mstar_tot = global_stellar_density(z, p, table) * vbox;
+    const double vbox = std::pow(hu.box / co.hubble0, 3);  // comoving Mpc^3
+    const double sfr_tot = global_sfr_density(z, p, table, co) * vbox;
+    const double mstar_tot = global_stellar_density(z, p, table, co) * vbox;
     for (std::size_t i = 0; i < n; ++i) {
       if (!active[i] || Msum <= 0) continue;
       const double w = halos[i].M / Msum;
@@ -340,7 +342,7 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
     double xi_pop2 = 0;
     for (double v : pop2_init) xi_pop2 += v;
     const double rt_scale = std::pow(10.0, p.log_xi_ion) / xi_pop2 * (f_esc_at(p, z) / fResc);
-    const double tage = cosmic_time_yr(z, p.z_max);
+    const double tage = cosmic_time_yr(z, p.z_max, co);
     for (std::size_t i = 0; i < n; ++i) {
       if (!active[i]) continue;
       const double Luv = p.am.luv(halos[i].M, z);
@@ -352,7 +354,7 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
     const double dvir = delta_vir_bryan_norman(hu.omegam_z);
     const double rho_vir = dvir * hu.rho_crit;
     const double tdyn_yr = std::sqrt(3 * pi / (32 * G_cgs * rho_vir)) * sec2yr;
-    const double tage = cosmic_time_yr(z, p.z_max);
+    const double tage = cosmic_time_yr(z, p.z_max, co);
     for (std::size_t i = 0; i < n; ++i) {
       if (!active[i]) continue;
       sfr[i] = p.eSF * fb * halos[i].M / tdyn_yr;

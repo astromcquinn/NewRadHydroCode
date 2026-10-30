@@ -87,6 +87,7 @@ HydroParams read_hydro_params(const std::string& path) {
       p.nsteps = std::stoi(val);
     else if (set_hydro_scheme_param(p.hydro, key, val)) {
     } else if (set_hydro_backend_param(p.hydro, key, val)) {
+    } else if (set_cosmology_param(p.hydro, key, val)) {  // omegam, ... (cosmology.hpp)
     } else
       std::cerr << "hydro_driver: ignoring parameter " << key << "\n";
   }
@@ -252,7 +253,8 @@ int main(int argc, char** argv) {
     for (const auto& [key, val] : sets) {
       if (key == "nsteps")
         P.nsteps = std::stoi(val);
-      else if (!set_hydro_scheme_param(P.hydro, key, val) && !set_hydro_backend_param(P.hydro, key, val))
+      else if (!set_hydro_scheme_param(P.hydro, key, val) && !set_hydro_backend_param(P.hydro, key, val) &&
+               !set_cosmology_param(P.hydro, key, val))
         throw std::runtime_error("--set: unknown key " + key);
     }
     if (nsteps_override >= 0) P.nsteps = nsteps_override;
@@ -261,6 +263,7 @@ int main(int argc, char** argv) {
     Config cfg = Config::make(P.N);
     copy_hydro_scheme(P.hydro, cfg);
     copy_hydro_backend_param(P.hydro, cfg);
+    copy_cosmology_param(P.hydro, cfg);
     check_hydro_backend_param(cfg);
     SimClock clk;
     Units un;
@@ -268,7 +271,7 @@ int main(int argc, char** argv) {
     HydroState hs;
     Domains dom;
 
-    init_variables(P.z_init, clk);
+    init_variables(cfg.cosmo, P.z_init, clk);
     init_domain_gas(cfg, dom, out);
     init_hydro(cfg, gas, hs);
     if (io) write_domain_gas_test(odir + "/domain_gas.txt", dom);
