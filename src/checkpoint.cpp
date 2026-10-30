@@ -95,6 +95,54 @@ struct In {
   }
 };
 
+// amrex_state = 1 (docs/rank0_streaming.md): the grid blocks of the
+// checkpoint streamed from the levels slab by slab in Out::vec's layout
+// (the count, then the data), so rank 0 holds no copy of the grid. o is
+// null on the other ranks, which take part in the streams. The blocks
+// that are zero under amrex_state = 1 (htoc: no host rays; hs.v: the
+// unsplit hydro has no grid velocity) are written as zeros.
+template <class T>
+void zero_vec(Out* o, std::int64_t n) {
+  if (!o) return;
+  o->pod(n);
+  const std::vector<T> z(static_cast<std::size_t>(std::min<std::int64_t>(n, std::int64_t(1) << 22)), T(0));
+  for (std::int64_t done = 0; done < n;) {
+    const std::int64_t m = std::min(static_cast<std::int64_t>(z.size()), n - done);
+    o->f.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(m * sizeof(T)));
+    done += m;
+  }
+}
+void stream_vec_rt(Simulation& s, Out* o, int c0, int nc) {
+  if (o) o->pod(static_cast<std::int64_t>(s.cfg.Nrtc) * nc);
+  amrex_state_stream_rt(s, c0, nc, [&](const StreamSlab& sl) {
+    if (o) o->f.write(reinterpret_cast<const char*>(sl.data), static_cast<std::streamsize>(sl.ncell() * nc * 4));
+  });
+}
+void stream_vec_gas(Simulation& s, Out* o, int c0, int nc) {
+  if (o) o->pod(static_cast<std::int64_t>(s.cfg.Ncell) * nc);
+  amrex_state_stream_gas(s, c0, nc, [&](const StreamSlab& sl) {
+    if (o) o->f.write(reinterpret_cast<const char*>(sl.data), static_cast<std::streamsize>(sl.ncell() * nc * 4));
+  });
+}
+// The RT grid, htoc, u, w and the grid velocity (the blocks before the
+// hydro scalars)
+void stream_grids_a(Simulation& s, Out* o) {
+  // rhog fHI fHeI fHeII temp Luv sfr dx(3) gamma(3) lambda(3) nu ngam fgam tau(5 each): the
+  // first 36 floats of rrk::CellData, one block per field as in the host layout
+  static const int nc[14] = {1, 1, 1, 1, 1, 1, 1, 3, 3, 3, kNfreq, kNfreq, kNfreq, kNfreq};
+  int c0 = 0;
+  for (int q = 0; q < 14; ++q) {
+    stream_vec_rt(s, o, c0, nc[q]);
+    c0 += nc[q];
+  }
+  zero_vec<std::int64_t>(o, 4 * static_cast<std::int64_t>(s.cfg.Nrtc));  // htoc
+  stream_vec_gas(s, o, kStreamGasU, 5);
+  stream_vec_gas(s, o, kStreamGasW, 4);
+  zero_vec<float>(o, 3 * static_cast<std::int64_t>(s.cfg.Ncell));  // hs.v
+}
+// gas.e (after the hydro scalars)
+void stream_grids_b(Simulation& s, Out* o) { stream_vec_gas(s, o, kStreamGasE, 1); }
+
 template <class IO, class RS>
 void ray_stat_io(IO& io, RS& r) {
   io.pod(r.ncst1);
@@ -119,7 +167,15 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
   // same way (amrex_moment_ckpt_write).
   const bool level_moments = use_amrex(s.cfg) && use_moments(s.cfg);
   const std::int64_t nbrays = use_amrex(s.cfg) ? amrex_rt_nrays(s) : 0;
+  // amrex_state = 1: the grids streamed from the levels (collective; the
+  // streams make the RT level if it does not exist yet, as the gathers did)
+  const bool streamed = use_amrex_state(s.cfg);
+  Simulation& sm = const_cast<Simulation&>(s);
   if (!io_rank()) {
+    if (streamed) {
+      stream_grids_a(sm, nullptr);
+      stream_grids_b(sm, nullptr);
+    }
     if (level_moments) amrex_moment_ckpt_write(s, [](const void*, std::size_t) {});
     if (use_amrex(s.cfg)) amrex_rt_gather_rays_chunks(s, [](const std::vector<rrk::RayP>&) {});
     return;
@@ -135,21 +191,29 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     o.pod(s.cfg.Ndm);
     o.pod(s.cfg.Nray_max);
     o.pod(s.clk);
-    // RT grid
-    const RTGrid& G = s.rt;
-    for (const auto* v : {&G.rhog, &G.fHI, &G.fHeI, &G.fHeII, &G.temp, &G.Luv, &G.sfr, &G.dx,
-                          &G.gamma, &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau})
-      o.vec(*v);
-    o.vec(G.htoc);
-    // gas, grid velocity, hydro scalars
-    o.vec(s.gas.u);
-    o.vec(s.gas.w);
-    o.vec(hs.v);
+    if (streamed) {
+      stream_grids_a(sm, &o);
+    } else {
+      // RT grid
+      const RTGrid& G = s.rt;
+      for (const auto* v : {&G.rhog, &G.fHI, &G.fHeI, &G.fHeII, &G.temp, &G.Luv, &G.sfr, &G.dx,
+                            &G.gamma, &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau})
+        o.vec(*v);
+      o.vec(G.htoc);
+      // gas, grid velocity
+      o.vec(s.gas.u);
+      o.vec(s.gas.w);
+      o.vec(hs.v);
+    }
+    // hydro scalars
     o.pod(hs.c_limit);
     o.pod(hs.dt_hy);
     o.pod(hs.vmax_last);
     o.pod(hs.counters);
-    o.vec(s.gas.e);
+    if (streamed)
+      stream_grids_b(sm, &o);
+    else
+      o.vec(s.gas.e);
     o.pod(hs.ucounters);
     // rays: storage up to the high-water mark, pool and thresholds
     const RayState& R = s.rays;
@@ -281,10 +345,12 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
                              std::to_string(Ndm) + ", Nray_max = " + std::to_string(nrmax) +
                              "; this run has different sizes");
   in.pod(s.clk);
-  // amrex_state = 1: the grids are rank 0's mirror (scattered onto the
-  // levels by the driver afterwards); the other ranks skip their blocks,
-  // Luv and sfr too (their sources come from the next calc_halo)
-  const bool skip_grids = use_amrex_state(s.cfg) && !io_rank();
+  // amrex_state = 1: every rank skips the grid blocks; read_checkpoint_grids
+  // copies them onto the levels afterwards (docs/rank0_streaming.md). Luv
+  // and sfr are only stored (the sources come from the next calc_halo).
+  const bool skip_grids = use_amrex_state(s.cfg);
+  // the particles stay rank 0's (the halo finder's copy); the other ranks skip them
+  const bool skip_parts = use_amrex_state(s.cfg) && !io_rank();
   RTGrid& G = s.rt;
   for (auto* v : {&G.rhog, &G.fHI, &G.fHeI, &G.fHeII, &G.temp, &G.Luv, &G.sfr, &G.dx, &G.gamma,
                   &G.lambda, &G.nu, &G.ngam, &G.fgam, &G.tau}) {
@@ -373,8 +439,8 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.pod(s.rt_stat);
   in.pod(s.rt_save);
   in.pod(s.Nsource);
-  if (skip_grids)
-    in.skip_vec<float>();  // the particles are rank 0's mirror too
+  if (skip_parts)
+    in.skip_vec<float>();  // the particles are rank 0's
   else
     in.vec(pm.xv, static_cast<std::int64_t>(pm.xv.size()));
   in.pod(pm.dm_cpu);
@@ -584,6 +650,99 @@ void read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm:
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)
     throw std::runtime_error("checkpoint trailer missing: " + path);
+}
+
+}  // namespace radray
+
+namespace radray {
+
+// amrex_state = 1 (docs/rank0_streaming.md): the grid blocks of a
+// checkpoint from the file onto the levels. Rank 0 finds where each block
+// starts (the layout of write_checkpoint) and reads it slab by slab as the
+// slabs are copied onto the levels; the other ranks take part in the
+// copies only.
+void read_checkpoint_grids(const std::string& path, Simulation& s) {
+  if (!use_amrex_state(s.cfg)) return;
+  constexpr int kNfld = 14;
+  static const int nc_rt[kNfld] = {1, 1, 1, 1, 1, 1, 1, 3, 3, 3, kNfreq, kNfreq, kNfreq, kNfreq};
+  std::int64_t pos_rt[kNfld] = {}, pos_u = 0, pos_w = 0, pos_e = 0;
+  In in;
+  const bool io = io_rank();
+  if (io) {
+    in.path = path;
+    in.f.open(path, std::ios::binary);
+    if (!in.f) throw std::runtime_error("cannot open checkpoint " + path);
+    char m[8];
+    in.f.read(m, 8);
+    std::int32_t ver = 0, Ngas = 0, Ndm = 0;
+    std::int64_t nrmax = 0;
+    in.pod(ver);
+    in.pod(Ngas);
+    in.pod(Ndm);
+    in.pod(nrmax);
+    if (ver < 2) throw std::runtime_error("amrex_state = 1: a checkpoint of version >= 2 is needed: " + path);
+    SimClock clk;
+    in.pod(clk);
+    // a block's data position, its size checked
+    auto block = [&](std::int64_t expect, std::size_t elem) {
+      std::int64_t n = 0;
+      in.pod(n);
+      if (n != expect)
+        throw std::runtime_error("checkpoint does not match this run (array size " + std::to_string(n) + " != " +
+                                 std::to_string(expect) + "): " + path);
+      const std::int64_t p = static_cast<std::int64_t>(in.f.tellg());
+      in.f.seekg(static_cast<std::streamoff>(n * static_cast<std::int64_t>(elem)), std::ios::cur);
+      if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+      return p;
+    };
+    const std::int64_t nrt = s.cfg.Nrtc, ng = s.cfg.Ncell;
+    for (int q = 0; q < kNfld; ++q) pos_rt[q] = block(nrt * nc_rt[q], sizeof(float));
+    block(4 * nrt, sizeof(std::int64_t));  // htoc
+    pos_u = block(5 * ng, sizeof(float));
+    pos_w = block(4 * ng, sizeof(float));
+    block(3 * ng, sizeof(float));  // hs.v
+    HydroState hs;
+    in.pod(hs.c_limit);
+    in.pod(hs.dt_hy);
+    in.pod(hs.vmax_last);
+    in.pod(hs.counters);
+    pos_e = block(ng, sizeof(float));
+  }
+  // rank 0: n floats at byte position p + 4 * first
+  auto read_at = [&](std::int64_t p, std::int64_t first, std::int64_t n, float* out) {
+    in.f.seekg(static_cast<std::streamoff>(p + first * static_cast<std::int64_t>(sizeof(float))));
+    in.f.read(reinterpret_cast<char*>(out), static_cast<std::streamsize>(n * sizeof(float)));
+    if (!in.f) throw std::runtime_error("checkpoint truncated: " + path);
+  };
+  std::vector<float> t;
+  // the gas: u(5), e, w(4) (gas_state.hpp)
+  amrex_state_fill_gas(s, 0, 10, [&](const StreamSlab& sl, float* d) {
+    const std::int64_t n = sl.ncell(), c0 = sl.c0();
+    t.resize(static_cast<std::size_t>(5 * n));
+    read_at(pos_u, 5 * c0, 5 * n, t.data());
+    for (std::int64_t c = 0; c < n; ++c)
+      for (int m = 0; m < 5; ++m) d[10 * c + kStreamGasU + m] = t[static_cast<std::size_t>(5 * c + m)];
+    read_at(pos_e, c0, n, t.data());
+    for (std::int64_t c = 0; c < n; ++c) d[10 * c + kStreamGasE] = t[static_cast<std::size_t>(c)];
+    read_at(pos_w, 4 * c0, 4 * n, t.data());
+    for (std::int64_t c = 0; c < n; ++c)
+      for (int m = 0; m < 4; ++m) d[10 * c + kStreamGasW + m] = t[static_cast<std::size_t>(4 * c + m)];
+  });
+  // the RT grid: the first 36 floats of the cells (rrk::CellData), one block per field
+  std::vector<int> comps(36);
+  for (int m = 0; m < 36; ++m) comps[static_cast<std::size_t>(m)] = m;
+  amrex_state_fill_rt(s, comps, [&](const StreamSlab& sl, float* d) {
+    const std::int64_t n = sl.ncell(), c0 = sl.c0();
+    int off = 0;
+    for (int q = 0; q < kNfld; ++q) {
+      const int nc = nc_rt[q];
+      t.resize(static_cast<std::size_t>(nc * n));
+      read_at(pos_rt[q], nc * c0, nc * n, t.data());
+      for (std::int64_t c = 0; c < n; ++c)
+        for (int m = 0; m < nc; ++m) d[36 * c + off + m] = t[static_cast<std::size_t>(nc * c + m)];
+      off += nc;
+    }
+  });
 }
 
 }  // namespace radray

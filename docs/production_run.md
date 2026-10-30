@@ -29,7 +29,7 @@ the original behaviour:
 | `restart_keep` | 0 | n > 0: numbered checkpoints `checkpoint_NNNN.bin`, of which only the newest n are kept (deleted after each successful write; `reion_production.slurm` resumes from the newest); 0: as `restart_keep_latest` |
 | `omegam`, `omegab`, `hubble0`, `sigma8`, `ns` | the original's 0.27, 0.045, 0.70, 0.80, 0.96 (real(4)) | the runtime cosmology (section 10); rounded to real(4), so the original's values written explicitly are the default; checked against the ICs' `ics_info.txt`; also `rt_driver`, `hydro_driver`, `pm_driver`, `make_ics.py`, `make_production.py`, `find_halos`/`am_fit`/`hmf_table --cosmo` |
 | `z_init` | 300 (`radhydro`, `pm_driver`), 10 (`rt_driver`, `hydro_driver`) | starting redshift; must match the ICs' `ics_info.txt` (section 10; `ics_check = 0` skips the check); `make_production.py` writes 100 |
-| `T_min`, `z_floor` | 0 (off), unset | the preheating floor: at z < `z_floor` the RT cell physics keeps every cell at ≥ `T_min` K (section 10); `T_min > 0` needs `z_floor`; also `rt_driver`; `make_production.py --T-min --z-floor` |
+| `T_min`, `z_floor` | 0 (off), unset | the preheating floor: at z < `z_floor` the RT cell physics keeps every cell at ≥ `T_min` K, and the hydro floor and the PM clamp are raised to it (section 10, `docs/thermal_history.md` §5); `T_min > 0` needs `z_floor`; also `rt_driver`; `make_production.py --T-min [--z-floor, default 15]` |
 | `fields`, `data_files` | all 16, `all` | the `step_NNNN` field files (comma list; `gammaHI` writes only the HI photoionization rate, 1 float per cell, never part of the default list; `gammaHI_avg` the same rate averaged over the hydro step's RT substeps: the serial RT, and the moment RT on `rt_backend = amrex`, `docs/igm_diagnostics.md`) and the snapshot files: `all`, `norays`, `nodm` (`norays` without `DM/xv_dm`: the particles only in the checkpoints; the `make_production.py` default, user decision 2026-10-18), `dm`, or `gas` (only `Gas/u_gas`, enough for `igm_stats.py` without the source-start mean free path) |
 
 `tools/production/make_production.py OUTDIR --N 128` writes the ICs and the
@@ -599,6 +599,12 @@ runs are `docs/cluster.md`.*
 therefore biased high, as the bias list below already anticipated, and
 **must be redone at 0.1c** (and at 256³) before the production run.
 
+**Also (2026-10-28):** `legacy_physics = 0` now includes P11
+(`photon_consume_dense`, `docs/port_notes.md` §5b): photoionisations in
+cells denser than 50× the mean, i.e. the source cells, consume their
+photons. Every calibration here was made without it; P11 lowers the
+effective escape fraction, so the recalibration must use it.
+
 The configuration of the calibration runs:
 
 | Setting | Value |
@@ -939,13 +945,19 @@ RT and the AMReX backends all have it:
   This is the case that matters for preheating, which acts before the
   I-fronts arrive.
 
-The hydro and PM limits (`Tgas_min`) and the `temp_min` of the outputs
-are unchanged. The floor is applied once per RT substep, and the grid-unit
-energy cools adiabatically (T ∝ a⁻²) over the substep's clock update, so
-the temperature written after a substep can sit below `T_min` by at most
-2 da/(a nstep_rt) (0.035 % in the cooling test below). `T_min > 0` without
-`z_floor` is an error. User decision 2026-10-22: the first zoom runs are
-unheated.
+The hydro floor `Thydro_min` and the PM step's clamp `Tgas_min` are
+raised to the floor too (since 2026-10-29, `docs/thermal_history.md` §5:
+the floor then also holds in the hydro steps the RT does not run in, as in
+the plane-parallel mode before `plane_z_re`, where it is the stand-in for
+X-ray pre-heating between z = 15 and the turn-on); the `temp_min` of the
+outputs is unchanged. In the RT the floor is applied once per substep, and
+the grid-unit energy cools adiabatically (T ∝ a⁻²) over the substep's
+clock update, so the temperature written after a substep can sit below
+`T_min` by at most 2 da/(a nstep_rt) (0.035 % in the cooling test below);
+in the hydro it is applied at the start of each half step. `T_min > 0`
+without `z_floor` is an error; `make_production.py --T-min` writes
+`z_floor = 15` unless given (a plain switch-on at z = 15, user decision
+2026-10-29). User decision 2026-10-22: the first zoom runs are unheated.
 
 ### Tests (`docs/production_run.md` §10; label `cosmology`)
 

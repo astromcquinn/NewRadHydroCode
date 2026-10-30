@@ -108,7 +108,9 @@ original code; both default to 1, the original behaviour:
   recombination, the HeIII case B rate and collisional-ionisation cooling
   (§5b, with the cooling function in
   [docs/figures/cooling_rates.png](docs/figures/cooling_rates.png)), and
-  the converged photon limit of `photo_cell` (B17, `photon_conserve`).
+  the converged photon limit of `photo_cell` (B17, `photon_conserve`), and
+  photon consumption by gas denser than 50 times the mean (P11,
+  `photon_consume_dense`).
 
 The recommended configuration is `--set legacy_rt=0 --set legacy_physics=0`.
 

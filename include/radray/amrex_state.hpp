@@ -2,11 +2,13 @@
 // AMReX levels the owners of the gas state between steps. The gas (u, w, e)
 // lives in one MultiFab on a decomposition shared by the RT, hydro and PM
 // levels, which read and write it locally instead of copying the full host
-// grid in and gathering it back onto every rank; the host arrays of the
-// gas grid and the RT grid exist only on rank 0, as a mirror refreshed
-// from the levels for the statistics, the file outputs and the checkpoint
-// (the file formats are unchanged), and nothing of the grid is allocated
-// on the other ranks beyond their boxes.
+// grid in and gathering it back onto every rank. No rank allocates the host
+// gas or RT grids: the statistics, the file outputs and the checkpoint
+// stream the levels to rank 0 slab by slab (amrex_state_stream_*), and a
+// restart or the initial conditions fill them from rank 0 slab by slab
+// (amrex_state_fill_*), with the file formats unchanged
+// (docs/rank0_streaming.md). Rank 0 keeps the particles (the halo finder)
+// and, for now, the host PM mesh of the power spectrum.
 //
 // This header is AMReX-free; with RADRAY_AMREX off the amrex_state_*
 // functions are stubs that throw (src/amrex/gas_state_stub.cpp). The
@@ -16,12 +18,53 @@
 // (check_amrex_state_param).
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "radray/config.hpp"
 
 namespace radray {
+
+struct Simulation;
+
+// ---- streaming the level to rank 0 (docs/rank0_streaming.md) ---------------
+// A run of consecutive k-planes of the level on rank 0: planes k0 .. k0 + nk
+// - 1 (0-based), every i and j, in the serial cell order (i fastest, then j,
+// then k), ncomp floats per cell with the components fastest:
+// data[(i + N j + N^2 (k - k0)) * ncomp + m]. The cells of the slab are the
+// cells c0() .. c0() + ncell() - 1 of the serial grid.
+struct StreamSlab {
+  int k0 = 0, nk = 0, N = 0, ncomp = 0;
+  const float* data = nullptr;
+  std::int64_t ncell() const { return static_cast<std::int64_t>(nk) * N * N; }
+  std::int64_t c0() const { return static_cast<std::int64_t>(k0) * N * N; }
+};
+using StreamFn = std::function<void(const StreamSlab&)>;
+
+// The components c0 .. c0 + ncomp - 1 of the RT level's cells (the float
+// layout of rrk::CellData: rhog, fHI, fHeI, fHeII, temp, Luv, sfr, dx(3),
+// gamma(3), lambda(3), nu(5), ngam(5), fgam(5), tau(5), u(5), w(4), e; the
+// first 36 are the rt_grid record) onto rank 0, slab by slab in k order:
+// fn(slab) on rank 0 only. Collective. Rank 0's transient is one slab
+// (gs::kSlabPlanes planes). Makes the level if it does not exist yet.
+void amrex_state_stream_rt(Simulation& s, int c0, int ncomp, const StreamFn& fn);
+// The same for any list of components, streamed in the order listed
+void amrex_state_stream_rt(Simulation& s, const std::vector<int>& comps, const StreamFn& fn);
+// The same for the gas state's components (gas_state.hpp: u(5) at 0, e at
+// 5, w(4) at 6)
+void amrex_state_stream_gas(Simulation& s, int c0, int ncomp, const StreamFn& fn);
+constexpr int kStreamGasU = 0, kStreamGasE = 5, kStreamGasW = 6;
+// The reverse (a restart, the initial conditions): rank 0 fills each slab
+// in k order, fill(slab, data) writing slab.ncell() * slab.ncomp floats in
+// the StreamSlab layout, and the values are copied onto the level's
+// components. Collective; fill runs on rank 0 only. Rank 0's transient is
+// one slab.
+using FillFn = std::function<void(const StreamSlab& slab, float* data)>;
+void amrex_state_fill_gas(Simulation& s, int c0, int ncomp, const FillFn& fill);
+// The RT cells' components comps (rrk::CellData floats); the level is made
+// if it does not exist yet
+void amrex_state_fill_rt(Simulation& s, const std::vector<int>& comps, const FillFn& fill);
 
 struct Simulation;
 namespace pm {
@@ -71,6 +114,8 @@ void amrex_state_gather_rt_movie(Simulation& s);
 // substep-averaged Gamma_HI of every cell (gamma_avg_field, rt.hpp) into
 // rank 0's out, N^3 floats; out is empty on the other ranks (collective)
 void amrex_gamma_avg_field(Simulation& s, std::vector<float>& out);
+// The same streamed onto rank 0 slab by slab (one component; collective)
+void amrex_gamma_avg_stream(Simulation& s, const StreamFn& fn);
 void amrex_state_scatter_rt(Simulation& s);
 // fields_levels = 1 (radhydro): one plane of the RT cells at the finest
 // resolution, normal to axis (0, 1, 2 = x, y, z) through base cell

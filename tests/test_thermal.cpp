@@ -57,6 +57,30 @@ int main() {
     cfg.legacy_physics = false;
     calc_sim_var(cfg, clk, u1);
     CHECK(u1.temp_min == 0.01);
+    // thermal_init = floor at z = 7 (the adiabat 0.0126 (1+z)^2 ~ 0.8 K is
+    // below the original's 1 K clamp): the clamp follows thermal_floor
+    // below 1 K only with legacy_physics = 0
+    cfg.thermal_init = 0;
+    clk.redshift = 7;
+    clk.scalefactor = 1 / 8.0;
+    Units u2, u3;
+    cfg.legacy_physics = true;
+    cfg.thermal_floor = 0.1;
+    calc_sim_var(cfg, clk, u2);
+    CHECK(u2.temp_min == 1.0);  // legacy_physics = 1: the original's clamp
+    CHECK_CLOSE(u2.Thydro_min * u2.temp1_unit, 0.1, 1e-12);
+    cfg.legacy_physics = false;
+    calc_sim_var(cfg, clk, u3);
+    const double adiabat = Tcmb0 / cfg.cosmo.temp_x * 64.0;
+    CHECK(adiabat > 0.1 && adiabat < 1.0);
+    CHECK(u3.temp_min == adiabat);  // the adiabat, above the 0.1 K floor
+    CHECK(u3.temp_max == 1e10);
+    cfg.thermal_floor = 1.0;
+    calc_sim_var(cfg, clk, u3);
+    CHECK(u3.temp_min == 1.0);  // the default floor: the original's clamp
+    cfg.thermal_floor = 2.0;
+    calc_sim_var(cfg, clk, u3);
+    CHECK(u3.temp_min == 1.0);  // a floor above 1 K does not raise the clamp
   }
 
   // --- the Compton step on one cell ---

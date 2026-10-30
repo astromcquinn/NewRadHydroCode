@@ -1743,14 +1743,91 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   cell equals Γ_HI exactly (checked to 5e-8); the face rays are never
   split, merged or redshifted and are deleted at the far face; the halo
   finder and the halo sources are off in the mode; the step before z_re
-  lands on it. **For the user to confirm:** `photon_consume_dense` (the
-  original lets cells denser than 50× the mean ionise without consuming
-  photons, `rho_source` in `docs/port_notes.md`; the plane-parallel
-  problems and `make_production.py --plane-parallel` set 1 so dense gas
-  self-shields; the code default stays 0, the original).
+  lands on it. **`photon_consume_dense = 1` in the plane-parallel problems
+  (user decision, 2026-10-29):** the original lets cells denser than 50×
+  the mean ionise without consuming photons (`rho_source` in
+  `docs/port_notes.md`); the plane-parallel problems and
+  `make_production.py --plane-parallel` set 1 so dense gas self-shields.
+  **With P11 (user decision 2026-10-28, below)** `photon_consume_dense`
+  follows `legacy_physics`, so `legacy_physics = 0` turns it on and
+  `make_production.py` no longer writes the explicit line; with
+  `legacy_physics = 1` the default stays the original.
+* **The default floor of the plane-parallel problems (user decision,
+  2026-10-29):** no preheating floor by default (`T_min = 0`), and the
+  original's 1 K floor lowered to 0.1 K in the plane-parallel problems
+  (`make_production.py --plane-parallel` writes `thermal_floor = 0.1`):
+  the mean-density adiabat crosses 1 K at z ≈ 8, so in the C26 boxes the
+  unheated gas ahead of the fronts sat on the clamp. With `legacy_physics
+  = 0` a `thermal_floor` below 1 K now also lowers the 1 K clamp of the
+  RT physics floor (`docs/thermal_history.md` §4); the code default and
+  every legacy combination stay byte-identical.
+* **The pre-heating floor (user decision, 2026-10-29):** the C26 / DM20
+  stand-in for X-ray heating is a temperature floor with a plain switch-on
+  at z = 15, no ramp. The keys are PR #8's `T_min` (K, default off) and
+  `z_floor` (`docs/production_run.md` §10), whose floor acted in the RT
+  cell physics only; it now also raises the hydro floor and the PM clamp
+  (`docs/thermal_history.md` §5), so it holds in the plane-parallel mode
+  before `plane_z_re`, where the RT does not run. `make_production.py
+  --T-min` writes `z_floor = 15` unless given. The existing `thermal_floor`
+  is global from the ICs, so a 1000 K floor from z = 100 would hold the
+  gas far above its adiabat through the whole pre-reionisation history
+  and suppress the minihaloes and filaments that form before z = 15; the
+  switch-on reproduces what C26 did, an impulsive injection the gas then
+  smooths on its sound-crossing time. `xray_heating` is the physical
+  alternative (serial only). (This thread's `preheat_floor`/`preheat_z`
+  of PR #12's first commit were folded into `T_min`/`z_floor` when PR #8
+  reached `main` first.)
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+* **The turn-on step (user request, 2026-10-28: "could we just make sure
+  the first step after turn on of RT is small in plane parallel
+  cases?"):** `plane_turnon_cfl` (default 1 in plane mode, 0 = the step
+  before 2026-10-28) and `plane_turnon_temp` (default 2e4 K). The hydro
+  step runs before the RT of the same interval, so the step that starts
+  at z_re is sized by the cold gas (25 Myr at 64³ in the T4 problem) and
+  the photoheated gas waits that long for its first hydro response. That
+  one step is now at most the CFL step 2 dt_gas_factor / (cmax_gas +
+  c_hot), c_hot the sound speed of fully ionised gas at 2e4 K; the steps
+  after it are unchanged (their cmax_gas already holds the hot gas).
+  Implementation choices (this thread; `docs/plane_parallel.md`, "Turn-on
+  and the step caps"): μ of H II + He III (2X + 3Y/4 particles per m_H,
+  the code's own X, Y, γ, k, m_H); the cap applied after the other caps
+  so that it changes nothing when it does not bind; a function of a only
+  (a = a_re to 1e-9), so a restart at z_re repeats it bit for bit.
+  `make_production.py --plane-parallel` needs nothing (the default is on).
+  Added in this thread: `plane_turnon_courant` (default 1), because the
+  T4 runs at 64³ show the requested CFL step with c_hot (20 Myr) does not
+  remove the lag while a ~1 Myr turn-on step (0.05) does.
+* **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
+  default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
+  64³, one extra hydro step).
+
+## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
+
+* **User decision:** dense gas must consume photons by default in
+  production. Following the ground rules (the original stays the
+  default; corrections go behind `legacy_physics`), the key
+  `photon_consume_dense` now works like `photon_conserve` (B17): −1 (the
+  default) follows `legacy_physics`, so it is on with `legacy_physics = 0`
+  and off (the original `rho_source` factor of `photo_cell`) with
+  `legacy_physics = 1`; an explicit 0 or 1 overrides in either mode. ID
+  **P11** (`docs/port_notes.md` §5b).
+* **Scope:** only the photon-consumption factor of `photo_cell`. The other
+  two uses of `rho_source` stay as they are in both modes: the SN heating
+  above 50× the mean (a subgrid feedback term, not photon bookkeeping)
+  and the `rho_source`-weighted clumping factor of the gas summary (an
+  output diagnostic compared with the Fortran full harness).
+* **No Fortran mirror** (user decision 2026-10-08: new flags need none),
+  so every comparison of a `legacy_physics = 0` run with the Fortran
+  harnesses or their stored outputs sets `photon_consume_dense = 0`.
+* **Production:** `make_production.py` (`legacy_physics = 0`) gets it
+  without a line; `--photon-consume-dense 0` restores the original. It
+  lowers the effective escape fraction, so the f_esc(z) calibration
+  (`docs/production_run.md` §8, already pending for the ĉ schedule) must
+  be redone with it. A run already in progress keeps the old behaviour
+  only if `photon_consume_dense = 0` is added to its `params.txt` before
+  it is restarted with a binary that has P11.
 
 ## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
 
@@ -1760,3 +1837,16 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
   explicit key wins. Without `recfast` the code default stays 0, so
   every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).
+
+## Rank 0 without the full grid copy (2026-10-29, branch `rank0-no-mirror`)
+
+User decisions (2026-10-29):
+
+- Remove rank 0's full copy of the grid under `amrex_state = 1`
+  (`docs/rank0_streaming.md`). At 1024³ it was about 270 GB of the
+  458 GB peak of rank 0, and at 2048³ it would be about 2 TB.
+- Leave the halo finder on rank 0's particle copy for now. A distributed
+  friends-of-friends is a separate, later project. Runs that need no halo
+  sources, such as the plane-parallel mode, can turn the halo finder off.
+- Recommendation adopted: do the grid part first, then the power spectrum
+  on the level, which frees the host PM mesh arrays on rank 0.
