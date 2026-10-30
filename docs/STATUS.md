@@ -24,7 +24,9 @@
     without conflict) and the `amrex_state`/`level_solve` restart tests
     are to be run on klone before #11 merges.
   * Fast suite on the top of the stack (#15 with #17, #13, #14; cloud
-    container, serial build): see below.
+    container, serial build, no `reference/fortran`): 166/166 pass (the
+    live Fortran comparisons are not built without the submodule; CI runs
+    them).
 * **`tools/hyak/c1_ladder.sh`, C26's set-up by default (`ICS=music`):**
   MUSIC in uniform mode (`c2_uniform.conf` at level log2 N, `seed[10] =
   MUSIC_SEED` = 2026, so the rungs share their modes with each other and
