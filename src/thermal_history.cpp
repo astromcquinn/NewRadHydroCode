@@ -1,7 +1,13 @@
 // thermal_init = recfast (thermal_history.hpp, docs/thermal_history.md).
 #include "radray/thermal_history.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <vector>
 
 #include "radray/constants.hpp"
 #include "radray/parallel.hpp"
@@ -11,20 +17,77 @@ namespace radray {
 namespace {
 #include "recfast_table.inc"
 
+// recfast_table = FILE (load_recfast_table): rows {z, x_e, T} in increasing
+// z and the file's cosmology; empty: the compiled table
+std::vector<std::array<double, 3>> g_rows;
+Cosmology g_cosmo;
+
 // log-linear interpolation of column col in ln(1+z)
 double table(double z, int col) {
+  const int n = g_rows.empty() ? kRecfastRows : static_cast<int>(g_rows.size());
+  auto R = [&](int i, int c) { return g_rows.empty() ? kRecfast[i][c] : g_rows[i][c]; };
   const double s = std::log1p(z);
-  if (z <= kRecfast[0][0]) return kRecfast[0][col];
-  for (int i = 1; i < kRecfastRows; ++i) {
-    if (z <= kRecfast[i][0]) {
-      const double s0 = std::log1p(kRecfast[i - 1][0]), s1 = std::log1p(kRecfast[i][0]);
+  if (z <= R(0, 0)) return R(0, col);
+  for (int i = 1; i < n; ++i) {
+    if (z <= R(i, 0)) {
+      const double s0 = std::log1p(R(i - 1, 0)), s1 = std::log1p(R(i, 0));
       const double w = (s - s0) / (s1 - s0);
-      return std::exp(std::log(kRecfast[i - 1][col]) * (1 - w) + std::log(kRecfast[i][col]) * w);
+      return std::exp(std::log(R(i - 1, col)) * (1 - w) + std::log(R(i, col)) * w);
     }
   }
   return -1;  // above the table
 }
+
+bool same(double a, double b) { return std::abs(a - b) <= 1e-6 * std::abs(b); }
 }  // namespace
+
+void load_recfast_table(const std::string& path, const Cosmology& c) {
+  std::ifstream in(path);
+  if (!in) throw std::runtime_error("recfast_table: cannot read " + path);
+  std::vector<std::array<double, 3>> rows;
+  double om = -1, ob = -1, h = -1;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.empty()) continue;
+    if (line[0] == '#') {
+      std::istringstream ss(line.substr(1));
+      std::string w;
+      ss >> w;
+      if (w != "cosmology") continue;
+      while (ss >> w) {
+        const auto eq = w.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string k = w.substr(0, eq);
+        const double v = std::stod(w.substr(eq + 1));
+        if (k == "omegam") om = v;
+        else if (k == "omegab") ob = v;
+        else if (k == "hubble0") h = v;
+      }
+      continue;
+    }
+    std::istringstream ss(line);
+    std::array<double, 3> r{};
+    if (!(ss >> r[0] >> r[1] >> r[2]) || !(r[1] > 0 && r[2] > 0))
+      throw std::runtime_error("recfast_table: bad row in " + path + ": " + line);
+    rows.push_back(r);
+  }
+  if (rows.size() < 2) throw std::runtime_error("recfast_table: no rows in " + path);
+  if (om < 0 || ob < 0 || h < 0)
+    throw std::runtime_error("recfast_table: " + path + " has no '# cosmology omegam=.. omegab=.. hubble0=..' line");
+  // the run's values are rounded to real(4) (cosmo_params.hpp); the file's
+  // are the decimal inputs
+  if (!same(c.omegam, static_cast<float>(om)) || !same(c.omegab, static_cast<float>(ob)) ||
+      !same(c.hubble0, static_cast<float>(h)))
+    throw std::runtime_error("recfast_table: " + path + " is for another cosmology than the run's (" + c.summary() + ")");
+  std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a[0] < b[0]; });
+  g_rows = std::move(rows);
+  g_cosmo = c;
+}
+
+bool recfast_table_matches(const Cosmology& c) {
+  const Cosmology& t = g_rows.empty() ? Cosmology{} : g_cosmo;
+  return t.omegam == c.omegam && t.omegab == c.omegab && t.hubble0 == c.hubble0;
+}
 
 double recfast_T(double z) {
   const double T = table(z, 2);
@@ -33,7 +96,8 @@ double recfast_T(double z) {
 
 double recfast_xe(double z) {
   const double x = table(z, 1);
-  return x > 0 ? x : kRecfast[kRecfastRows - 1][1];
+  if (x > 0) return x;
+  return g_rows.empty() ? kRecfast[kRecfastRows - 1][1] : g_rows.back()[1];
 }
 
 std::int64_t compton_residual_step(const Units& u, double a, double dt_sec, double C14,

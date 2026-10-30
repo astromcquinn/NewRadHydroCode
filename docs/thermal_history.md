@@ -135,8 +135,9 @@ and a lower thermal floor.
 | key | default | meaning |
 |---|---|---|
 | `thermal_init` | `floor` | `floor`: the original. `recfast`: RECFAST start + residual-electron Compton coupling |
-| `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K |
+| `thermal_floor` | 1 K (`floor`), 0.1 K (`recfast`) | the hydro's temperature floor, K. With `thermal_init = floor` and `legacy_physics = 0`, a value below 1 K also lowers the 1 K clamp of the RT physics floor `temp_min` (the adiabat of instantaneous decoupling, which the original clamps at its rate table's edge), so the RT floor is the adiabat down to `thermal_floor`; the plane-parallel problems use 0.1 K (user decision 2026-10-29: the mean-density adiabat crosses 1 K at z ≈ 8, so the unheated gas ahead of the fronts in the C26 boxes sat on the clamp). Default byte-identical; `legacy_physics = 1` keeps the clamp (its nearest-node table starts at 1 K). `make_production.py --thermal-floor` |
 | `dual_e_self` | 0 (`floor`), 1 (`recfast`) | the unsplit hydro's internal energy evolved as itself (`docs/hydro_unsplit.md` §7, U7; user decision 2026-10-27) |
+| `recfast_table` | unset (the compiled table) | the RECFAST table of a non-original cosmology, `tools/thermal/make_recfast_table.py --out FILE --omegam .. --omegab .. --hubble0 ..` (2026-10-29) |
 
 **What `recfast` does:**
 
@@ -166,8 +167,13 @@ and a lower thermal floor.
 **The table.** x_e(z) and T(z) are compiled in (`src/recfast_table.inc`,
 from `tools/thermal/make_recfast_table.py`: CAMB + RECFAST, no
 reionization, z = 0–2000, the cosmology of `cosmo_parameters.f90`). A run
-needs no data file, but the table must be regenerated if the cosmology
-becomes a runtime parameter (`docs/zoom_turbulence.md` §4.1).
+needs no data file. **Another cosmology** (the runtime cosmology,
+`docs/production_run.md` §10) needs its own table: `make_recfast_table.py
+--out FILE --omegam .. --omegab .. --hubble0 ..` writes it (Tcmb, YHe and
+N_eff stay the code's) with a `# cosmology omegam=.. omegab=.. hubble0=..`
+line, and `recfast_table = FILE` reads it. `radhydro` refuses
+`thermal_init = recfast` when the table's cosmology is not the run's (to
+1e-6 after real(4) rounding).
 
 **Not supported:** `amrex_state = 1` (the gas lives on the levels between
 steps) and refined hydro levels (`hydro_backend = amrex`, `amrex_max_level
@@ -257,7 +263,10 @@ decision 2026-10-27; an explicit `dual_e_self = 0` gives the earlier
   * `coef_cool(14)` = 4 a σ_T k/(m_e c);
   * the Compton step against the exact relaxation (to 10⁻⁴, with and
     without the dual-energy field);
-  * an ionised cell untouched.
+  * an ionised cell untouched;
+  * `recfast_table`: a file without its cosmology line or for another
+    cosmology refused, the rows sorted and interpolated as the compiled
+    table, the compiled table in use until a file is loaded.
 * **`thermal_init_recfast`** (`tests/thermal_check.py`, the 32³ onthefly
   problem without RT):
   * 1 against 2 threads byte-identical;
@@ -265,3 +274,120 @@ decision 2026-10-27; an explicit `dual_e_self = 0` gives the earlier
   * mean-density gas within 1% of RECFAST (0.3% measured) and the original
     within 2% of the floor curve, at z ≥ 30.
 * **`restart_smoke_thermal`**: a restart at step 13 is byte-identical.
+
+## 5. The preheating floor in the hydro: `T_min` from `z_floor` (2026-10-29)
+
+The stand-in for X-ray pre-heating of DM20 and C26 (`docs/plane_parallel.md`
+§1): a temperature floor imposed from a set redshift. DM20 used T_i =
+1000 K from z = 20, C26 T_min = 100 and 1000 K for z < 15. The keys are
+`T_min` (K, default 0 = off) and `z_floor` of `docs/production_run.md` §10
+(PR #8), whose floor acted in the RT cell physics only. User decision
+(2026-10-29): a plain switch-on at z = 15, no ramp (the gas below the
+floor is lifted to it in the first hydro step after `z_floor`, an
+impulsive injection that the gas then smooths on its sound-crossing time,
+as in C26). The physical alternative is `xray_heating`
+(`docs/xray_heating.md`), serial only for now.
+
+**What changed:** `calc_sim_var` now also raises the hydro floor
+`Thydro_min` (the legacy `check_temp`, the unsplit scheme, the AMReX hydro
+level) and the PM step's clamp `Tgas_min` to the floor below `z_floor`.
+Without that the floor holds only while the RT runs, which in the
+plane-parallel mode is not before `plane_z_re`: between z = 15 and the
+turn-on at z = 7, the window the floor exists for, the gas would have
+stayed on its adiabat. The RT physics floor `temp_floor` is as before; the
+`temp_min` of the outputs is unchanged. Above `z_floor` nothing changes:
+the keys are inert there and by default. The floor acts on the units of
+the start of each half step, so at the end of a long step the
+mean-density gas sits a little below it (the expansion over the second
+half: 0.90 of the floor with the onthefly problem's steps at z ≈ 25, the
+same on the AMReX hydro level); with the small steps of a production run
+it is at the floor. Stateless: a restart needs nothing. The existing
+global `thermal_floor` (§4) is not the tool for this: imposed from the
+ICs it would hold the gas far above its adiabat through the whole
+pre-reionisation history and suppress the minihaloes and filaments that
+form before z = 15. `make_production.py --T-min K [--z-floor Z]` writes
+the keys (`z_floor = 15` unless given); `tools/hyak/c1_ladder.sh` takes
+`PREHEAT=K`.
+
+**Test `preheat_floor`** (`tests/preheat_check.py`, the 32³ onthefly
+problem without RT to z = 20, `T_min = 1000, z_floor = 30`): every step
+with z ≥ 30 byte-identical to the run without the keys; below, the median
+temperature of the mean-density cells between 1000 K cooled adiabatically
+over the one step and 1000 K (+1 %), while the run without the keys stays
+below 1.1 % of that; 1 against 2 threads byte-identical. The RT side of
+the floor is `cosmology_floor_cooling` (`docs/production_run.md` §10).
+## 6. Linear growth from MUSIC ICs (2026-10-29)
+
+The check asked for with the MUSIC ICs (user, 2026-10-28: "Have we tested
+linear growth for DM and gas with MUSIC ICs?"; set up after the runtime
+cosmology, PR #8, reached `main`). `tools/hyak/linear_growth.slurm` makes and
+runs it, `tools/analysis/linear_growth.py` compares:
+
+* **Problem:** 0.25 Mpc/h, 128³ gas and dark matter, the C26 cosmology
+  (Ωm 0.305, Ωb 0.048, h 0.68, σ8 0.82, ns 0.9667: the `planck_c26` preset),
+  MUSIC from z = 300 with CAMB's separate CDM and baryon transfer functions
+  at z = 300 (`c2_uniform.conf` at level 7, seed[10] = 2026 as the C1
+  ladder), 1LPT; the production settings of `make_production.py
+  --plane-parallel` (unsplit hydro, `legacy_physics = 0`) with the RT after
+  the run (`plane_z_re = 6`); `thermal_init = recfast` with this
+  cosmology's table; outputs at z = 100, 50, 30.
+* **Measured:** P_cdm(k) and P_b(k) of the ICs and the outputs with one
+  estimator (DM CIC deconvolved, gas cells), against CAMB's linear P_cdm and
+  P_b at the same z (the run's cosmology, σ8 normalised at z = 0). G_c and
+  G_b, the growth since z = 300 over CAMB's, use the same modes, so the
+  box's cosmic variance cancels; R_bc = (P_b/P_c)_sim/(P_b/P_c)_CAMB tests
+  the baryons' catch-up and their pressure suppression, independently of
+  the ICs' normalisation. Linear theory holds where CAMB's Δ²_cdm ≪ 1.
+* **Runs** (klone, 2026-10-29; `/gscratch/astro/mcquinn/radhydro/runs/linear_growth`;
+  tables in `docs/data/linear_growth/`): `N128` (σ8 = 0.82), `N128_s8x0.1`
+  (σ8 = 0.082, the same modes: every scale linear to z = 30, Δ²_cdm < 6e-4)
+  and `N128_s8x0.1_ra0.01` (that with `ra_max = 0.01`: 228 steps instead of
+  the default 24). 16 s each on 16 threads.
+* **Results, the linear box** (`N128_s8x0.1`, `docs/figures/linear_growth_N128_s8x0.1.png`).
+  CAMB's growth from z = 300 is ×7.3 (CDM) and ×27.6 (baryons, catching
+  up) to z = 100, ×70.7 and ×427 to z = 30:
+
+  | k [h/Mpc] | cells/λ | G_c z=100 | G_b z=100 | G_c z=30 | G_b z=30 | R_bc z=30 |
+  |---|---|---|---|---|---|---|
+  | 32 | 100 | 1.002 | 1.004 | 1.003 | 1.005 | 1.001 |
+  | 56 | 56 | 1.008 | 1.018 | 1.025 | 1.042 | 1.017 |
+  | 102 | 31 | 0.996 | 1.002 | 0.985 | 0.994 | 1.009 |
+  | 202 | 16 | 0.994 | 1.021 | 0.987 | 1.023 | 1.035 |
+  | 402 | 8 | 0.983 | 1.064 | 0.975 | 1.082 | 1.100 |
+  | 805 | 4 | 0.867 | 0.896 | 0.724 | 0.675 | 0.901 |
+  | 1608 | 2 | 0.514 | 0.181 | 0.205 | 0.080 | 0.370 |
+
+  * **Linear growth, DM and gas, holds** to 1–3 % at ≥ 16 cells per
+    wavelength (k ≤ 200 h/Mpc) at every output, including the baryons'
+    catch-up from the MUSIC/CAMB baryon density and velocity ICs (a factor
+    6 more growth than the CDM's to z = 30).
+  * **The baryons grow 6–8 % (in power) more than CAMB's at 8 cells per
+    wavelength** (k ≈ 400, near the baryon Jeans scale): R_bc = 1.06–1.10.
+    Not the timestep (`ra_max = 0.01`: 1.063 for 1.082). Open: weaker
+    pressure support than CAMB's baryons at that scale (the temperature
+    perturbations under Compton coupling, or the hydro at 8 cells).
+  * **At ≤ 4 cells per wavelength the grid damps the growth:** the DM
+    by the PM force (CIC assignment and interpolation and the
+    finite-difference gradient: G_c 0.72 at k_N/2 by z = 30), the gas more
+    (G_b 0.68 at k_N/2, 0.08 at k_N). Not the timestep (the same to 1 % with
+    10× smaller steps). The usual resolution limit of a PM + grid-hydro
+    code; the gas's P(k) is converged only at ≳ 8 cells per wavelength.
+* **The full-amplitude box** (`N128`, `docs/figures/linear_growth_N128.png`):
+  as the linear one at z = 100 to ~5 % (Δ²_cdm ≈ 0.005 per ln k, but
+  ∫Δ² dln k ≈ 0.02 over the box's nearly flat n_eff ≈ −3 spectrum), and
+  20–40 % (CDM) and 25–75 % (gas) above linear at 200 < k < 900 h/Mpc by
+  z = 30: the mode coupling of a box in which every scale goes nonlinear
+  at once (the minihalo era), absent in the linear box with the same
+  modes. A linear-growth check of this box therefore needs z ≳ 100 or a
+  reduced amplitude, as here.
+* **The ICs' amplitude:** P_sim/P_CAMB at z = 300 is 1.02–1.05 at the
+  well-sampled k (MUSIC normalises σ8 today and the converter scales back
+  with the code's all-matter growth, `tools/ics/music/README.md`, which
+  exceeds the CDM's own growth while the baryons lag; a 1–2 % amplitude
+  convention). The lowest bin (n = 1, 18 modes) is 2.1× CAMB in this seed
+  in both species and grows linearly, i.e. the realisation.
+* **The estimator against the code's `Pk/` output:** the gas the same to
+  1 % from k ≈ 100 h/Mpc (the two lowest bins differ by 5–11 %: the
+  binning); the DM within a few per cent to k_N/4, departing toward k_N
+  (the deconvolution differs there).
+

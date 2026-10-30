@@ -37,12 +37,15 @@ struct ProblemParams {
   int rt_cells_per_substep = 1;    // Config::rt_cells_per_substep (1 = original)
   int rt_substep_carry = 0;        // Config::rt_substep_carry (0 = original; legacy_rt = 0)
   int photon_conserve = -1;        // Config::photon_conserve (B17): -1 = !legacy_physics, else 0 | 1
+  int photon_consume_dense = -1;   // Config::photon_consume_dense (P11): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;             // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
   double box = 5;                  // Config::box in Mpc/h (the original's 5; sets the cell size)
   // rt_method = rays | m1 | otvet and the moment-solver parameters
   // (set_rt_method_param, rt_moments.hpp; docs/rt_moments.md); also the
-  // plane-parallel mode's keys (set_plane_param, plane_parallel.hpp)
+  // runtime cosmology and the preheating floor (set_cosmology_param,
+  // cosmology.hpp) and the plane-parallel mode's keys (set_plane_param,
+  // plane_parallel.hpp)
   Config rtm;
 };
 

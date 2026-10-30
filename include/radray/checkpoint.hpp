@@ -32,7 +32,14 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
 
 // Reads a checkpoint into an initialised Simulation/HydroState/PMState of the
 // same sizes (N, Ndm, Nray_max are checked). Returns its version.
+// amrex_state = 1: the grid blocks are skipped on every rank (rank 0 holds
+// no copy of the grid, docs/rank0_streaming.md); read_checkpoint_grids then
+// copies them from the file onto the levels.
 int read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::PMState& pm,
                      DriverState& d);
+// amrex_state = 1: the checkpoint's grids (the RT grid, u, w, e) from the
+// file onto the levels, rank 0 reading slab by slab (collective). Call
+// after read_checkpoint.
+void read_checkpoint_grids(const std::string& path, Simulation& s);
 
 }  // namespace radray

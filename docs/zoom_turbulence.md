@@ -397,6 +397,9 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
 
 ### 4.5 WP5: physics knobs
 
+*Done 2026-10-22: the runtime cosmology, z_init and the floor
+(`docs/production_run.md` §10).*
+
 * **Preheating floor** T_min from z_floor (C26: 100 K and 1000 K for
   z < 15; `docs/plane_parallel.md`), applied in the RT cell physics; the
   default 0 keeps every reference. **User decision 2026-10-22: the first

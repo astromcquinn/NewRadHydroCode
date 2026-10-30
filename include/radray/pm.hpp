@@ -70,6 +70,10 @@ struct PMConfig {
   // pm_gas_levels with amrex_state = 1 (config.hpp): the refined levels of
   // the gas state enter the deposit and are kicked on their own cells
   bool gas_levels = false;
+  // The runtime cosmology (Config::cosmo): the dark-matter mass per
+  // particle (1 - omegab/omegam) and the power spectra's gas fraction.
+  // make(Ngas, Ndm, ...) gives the original's.
+  Cosmology cosmo;
   // pm_level_solve with amrex_state = 1 and refinement (config.hpp,
   // docs/stage_g.md): the particles on their levels, a Poisson solve per
   // refined level (MLMG, mlmg_iters V-cycles to mlmg_tol); the hierarchy's
@@ -86,6 +90,7 @@ struct PMConfig {
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
     PMConfig c = make(cfg.Ngas, cfg.Ndm, mf, cfg.pm_refine);
+    c.cosmo = cfg.cosmo;
     c.backend = cfg.pm_backend;
     c.amrex_max_grid_size = cfg.amrex_pm_max_grid_size > 0 ? cfg.amrex_pm_max_grid_size
                                                            : cfg.amrex_max_grid_size;
@@ -205,8 +210,10 @@ void force_at(const PMState& s, const float* xv, double F[3]);
 // (Fortran layout pk[(k-1)*5 + c]) and leaves density/linked lists as the
 // original does. write_power_spectrum writes the Fortran file format
 // "(7es14.6)" for k = 2..Hgas+1.
+// u_gas: the gas density at u_gas[gcell * stride] (stride 5: u_gas itself;
+// 1: a density array, amrex_state = 1, docs/rank0_streaming.md)
 void calc_power_spectrum(PMState& s, const float* u_gas, double box,
-                         std::vector<double>& pk_dm, std::vector<double>& pk_gas);
+                         std::vector<double>& pk_dm, std::vector<double>& pk_gas, int stride = 5);
 void write_power_spectrum(const std::string& path, const PMState& s,
                           const std::vector<double>& pk_dm,
                           const std::vector<double>& pk_gas);
@@ -234,6 +241,11 @@ DMSummary summarize_dm(const PMState& s, const Units& u, std::ostream* out);
 // energy of that temperature instead of the minimum (Tgas_min).
 void read_init_conditions(const std::string& dir, PMState& s, std::vector<float>& u_gas,
                           std::vector<float>& w_gas, const Units& u, double T_init_K = -1);
+// Its per-cell part, shared with the streamed reader of amrex_state = 1
+// (docs/rank0_streaming.md): the thermal energy per unit density added to
+// u(5) (ics_tinit), and one cell's u(5) and w (ics_gas_cell).
+double ics_tinit(const Units& u, double T_init_K);
+void ics_gas_cell(float* ug, float* wg, double Tinit);
 
 // cosmo_tools.f90: ztag (the redshift file tag set in calc_sim_var).
 std::string ztag(double z);

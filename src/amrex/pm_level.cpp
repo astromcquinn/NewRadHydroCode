@@ -2007,7 +2007,7 @@ struct PMLevel {
   // ---- the fields for the tests: potential and mesh force onto the host -------
 
   void fields(pm::PMState& s, const float* u_gas, double scalefactor) {
-    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;
+    const double mass = (1 - s.pc.cosmo.omegab / s.pc.cosmo.omegam) * s.pc.dm_mass_ratio;
     if (state) {
       sync_levels();
       pc->Redistribute();
@@ -2103,7 +2103,7 @@ struct PMLevel {
   // kind: 0 MF, 1 non-MF, 2 unsplit (e_gas may be null: dual_energy = 0)
   void step(pm::PMState& s, float* u_gas, float* v_gas, const float* e_gas, int kind, double eta1,
             SimClock& clk, const Units& u) {
-    const double mass = (1 - cp::omegab / cp::omegam) * s.pc.dm_mass_ratio;  // dm_mass of src/pm.cpp
+    const double mass = (1 - s.pc.cosmo.omegab / s.pc.cosmo.omegam) * s.pc.dm_mass_ratio;  // dm_mass of src/pm.cpp
     const bool pcheck = state && std::getenv("RADRAY_PM_MOMENTUM_CHECK") != nullptr;
     if (sync_levels()) pc->Redistribute();  // (a no-op after the drift's; the tests call the step without a drift)
     double P0[6];

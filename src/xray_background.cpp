@@ -30,11 +30,11 @@ constexpr double kDlnM = 0.02;
 constexpr double kDlzTab = 0.01;  // ln(1+z) step of the rho_SFR table
 
 // E(z)^2 = H^2/H0^2 of calc_sim_var (cosmology.cpp)
-double hubble_e2(double z) {
+double hubble_e2(const Cosmology& co, double z) {
   const double a = 1 / (1 + z);
-  return omegam / (a * a * a) + omegal + omegar / (a * a * a * a);
+  return co.omegam / (a * a * a) + co.omegal + co.omegar / (a * a * a * a);
 }
-double hubble_cgs(double z) { return H0_cgs * hubble0 * std::sqrt(hubble_e2(z)); }
+double hubble_cgs(const Cosmology& co, double z) { return H0_cgs * co.hubble0 * std::sqrt(hubble_e2(co, z)); }
 
 double num(const std::string& key, const std::string& v) {
   try {
@@ -113,8 +113,8 @@ bool set_xray_param(XrayParams& p, const std::string& key, const std::string& va
   return true;
 }
 
-XrayBackground::XrayBackground(const XrayParams& p, const SourceModelParams& src)
-    : p_(p), am_(src.am), l_per_sfr_(src.L_per_sfr) {
+XrayBackground::XrayBackground(const XrayParams& p, const SourceModelParams& src, const Cosmology& co)
+    : p_(p), co_(co), am_(src.am), l_per_sfr_(src.L_per_sfr), mf_(MassFunctionCosmology::from(co)) {
   if (src.model != SfrModel::AbundanceMatched)
     throw std::runtime_error(
         "xray_heating = 1 needs sfr_model = abundance (the X-ray emissivity follows its SFR)");
@@ -150,10 +150,10 @@ XrayBackground::XrayBackground(const XrayParams& p, const SourceModelParams& src
 
 double XrayBackground::m_min_msun(double z) const {
   // T = mu mH G M / (2 k R), M = 4 pi/3 Delta rho_crit(z) R^3 (halos.cpp)
-  const double e2 = hubble_e2(z);
-  const double H = H0_cgs * hubble0 * std::sqrt(e2);
+  const double e2 = hubble_e2(co_, z);
+  const double H = H0_cgs * co_.hubble0 * std::sqrt(e2);
   const double rho_crit = 3 * H * H / (8 * pi * G_cgs);
-  const double om_z = omegam * std::pow(1 + z, 3) / e2;
+  const double om_z = co_.omegam * std::pow(1 + z, 3) / e2;
   const double dvir = delta_vir_bryan_norman(om_z);
   const double Mg = std::pow(2 * k_cgs * tvir_min_ / (p_.mu * mH_cgs * G_cgs), 1.5) /
                     std::sqrt(4 * pi * dvir * rho_crit / 3);
@@ -161,7 +161,7 @@ double XrayBackground::m_min_msun(double z) const {
 }
 
 double XrayBackground::sfrd_direct(double z) const {
-  const double h = hubble0;
+  const double h = co_.hubble0;
   const double D = mf_.growth(z);
   const int nM = static_cast<int>(sig0_.size());
   auto f = [&](int i) {  // dn/dlnM SFR per Mpc^3 at node i
@@ -254,14 +254,14 @@ void XrayBackground::spectrum(double z0, const double xfrac[3], std::vector<doub
   // Per redshift node: the emission factor c/(4 pi) (1+z0)^3 eps_c(z)/H(z)
   // per keV and cm^3 (comoving), and the absorption factor of species j,
   // dtau/dln(1+z) = c/H n_j,0 (1+z)^3 x_j sigma_j (dl = c dln(1+z)/H)
-  const double nH0 = rhoc_cgs * omegab * hubble0 * hubble0 * XHy / mH_cgs;
-  const double nHe0 = rhoc_cgs * omegab * hubble0 * hubble0 * YHe / mHe_cgs;
+  const double nH0 = rhoc_cgs * co_.omegab * co_.hubble0 * co_.hubble0 * XHy / mH_cgs;
+  const double nHe0 = rhoc_cgs * co_.omegab * co_.hubble0 * co_.hubble0 * YHe / mHe_cgs;
   const double n0[3] = {nH0 * xfrac[0], nHe0 * xfrac[1], nHe0 * xfrac[2]};
   const double Mpc3 = Mpc2cm * Mpc2cm * Mpc2cm;
   std::vector<double> gfac(K + 1), afac(K + 1);
   for (int k = 0; k <= K; ++k) {
     const double z = std::exp(s0 + k * d) - 1;
-    const double H = hubble_cgs(z);
+    const double H = hubble_cgs(co_, z);
     gfac[k] = z > p_.z_max ? 0 : c_cgs / (4 * pi) * std::pow(1 + z0, 3) * emissivity(z) / Mpc3 / H;
     afac[k] = c_cgs * (1 + z) * (1 + z) * (1 + z) / H;
   }

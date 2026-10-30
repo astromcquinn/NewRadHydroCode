@@ -74,7 +74,7 @@ do
 | `z_init` | 300 | initial redshift (the original's `zinit`) |
 | `zdata1`, `zdata2` | files `zdata1.txt`, `zdata2.txt` of the problem | output redshifts (list); RT starts after the first zdata1 output, the run ends at the last |
 | `ics` | problem dir | directory of `xv_dm.init`, `u_gas.init` (`tools/ics/make_ics.py`, now with `--box`) |
-| `legacy_rt`, `legacy_physics` | 1, 1 | the RT-bookkeeping and atomic-physics fixes (0 = fixed; recommended); `legacy_physics = 0` includes B17 (`photon_conserve`, overridable) |
+| `legacy_rt`, `legacy_physics` | 1, 1 | the RT-bookkeeping and atomic-physics fixes (0 = fixed; recommended); `legacy_physics = 0` includes B17 (`photon_conserve`) and P11 (`photon_consume_dense`), both overridable |
 | `source_mode` | onthefly | `legacy` (read_halo: `dir_halo`/sfr.txt + halo.z=XX.XXXX) or `onthefly` |
 | `dir_halo` | `<problem>/Halo` | legacy catalogs |
 | `fof_b`, `fof_min_npart`, `fof_so` | 0.2, 20, 0 | finder (docs/halos_and_sources.md) |

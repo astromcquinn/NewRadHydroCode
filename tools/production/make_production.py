@@ -5,6 +5,8 @@
                        [--c-schedule 0.1,0.25,0.2,0.5,0.3,0.75,0.5 | --c-schedule none --c-reduced 0.2]
                        [--nray-max-factor 16] [--threads 4]
                        [--hydro-scheme unsplit] [--redshift-per-distance 1]
+                       [--omegam X --omegab X --hubble0 X --sigma8 X --ns X]
+                       [--T-min K --z-floor Z]
 
 Writes OUTDIR/params.txt and the Zel'dovich ICs (tools/ics/make_ics.py,
 Ngas = N, Ndm = pm_refine*N or --ndm) in OUTDIR/ics. Run with
@@ -15,7 +17,8 @@ and restart after an interruption with
 
     build/radhydro OUTDIR OUTDIR/run --quiet --restart OUTDIR/run/restart/checkpoint.bin
 
-The configuration: all fixes on (legacy_rt = legacy_physics = 0), the
+The configuration: all fixes on (legacy_rt = legacy_physics = 0, which includes
+B17, photon_conserve, and P11, photon_consume_dense: dense gas consumes photons), the
 deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), the source-ray frame rotated every RT substep
 and source (ray_rotate = 3, the B16 fix; --ray-rotate), the unsplit hydro with dual energy
@@ -56,6 +59,17 @@ def main():
     ap.add_argument("--box", type=float, default=10.0)
     ap.add_argument("--z-init", type=float, default=100.0)
     ap.add_argument("--seed", type=int, default=7)
+    # the runtime cosmology (docs/production_run.md section 10): passed to
+    # make_ics.py and written to params.txt; default the original's
+    for k in ("omegam", "omegab", "hubble0", "sigma8", "ns"):
+        ap.add_argument("--" + k, type=float, default=None,
+                        help=f"runtime cosmology {k} (default: the original's)")
+    ap.add_argument("--T-min", type=float, default=0.0,
+                    help="the preheating floor in K at z < --z-floor, a stand-in for X-ray pre-heating "
+                         "(T_min, docs/production_run.md section 10; C26: 100 or 1000 K; default 0 = off)")
+    ap.add_argument("--z-floor", type=float, default=15.0,
+                    help="the redshift the preheating floor switches on at (z_floor; default 15, "
+                         "user decision 2026-10-29)")
     ap.add_argument("--c-reduced", type=float, default=None,
                     help="constant reduced speed of light; given alone it turns the default "
                          "schedule off (written as c_reduced; default 0.01 with --c-schedule none)")
@@ -137,6 +151,11 @@ def main():
                     help="hydro_scheme (docs/hydro_unsplit.md): unsplit for production (it fixes "
                          "the cold-gas overheating of the legacy scheme; user decision "
                          "2026-10-11); legacy: the original, the code default")
+    ap.add_argument("--thermal-floor", type=float, default=None,
+                    help="thermal_floor in K (docs/thermal_history.md section 4): the hydro floor and, "
+                         "with legacy_physics = 0, the clamp of the RT physics floor below 1 K; "
+                         "unset: the code default (1 K), or 0.1 K with --plane-parallel (user "
+                         "decision 2026-10-29)")
     ap.add_argument("--dual-e-self", type=int, default=1, choices=(0, 1),
                     help="dual_e_self with the unsplit hydro (docs/hydro_unsplit.md section 7, "
                          "U7): 1 for production (rho e evolved as itself where the pressure comes "
@@ -156,6 +175,12 @@ def main():
                     help="iterate photo_cell's photon limit to convergence (photon_conserve, "
                          "the B17 fix, docs/rt_multicell.md); -1 (default, no line written): "
                          "follow legacy_physics, i.e. on in production (legacy_physics = 0)")
+    ap.add_argument("--photon-consume-dense", type=int, default=-1, choices=(-1, 0, 1),
+                    help="every photoionisation consumes its photon, also in cells denser than "
+                         "rho_source = 50 times the mean (photon_consume_dense, P11, docs/port_notes.md "
+                         "5b); -1 (default, no line written): follow legacy_physics, i.e. on in "
+                         "production (legacy_physics = 0, user decision 2026-10-28); 0: the original "
+                         "rho_source factor")
     ap.add_argument("--cool-suppress-overdensity", type=float, default=200.0,
                     help="overdensity above which cooling and SN heating are suppressed "
                          "(cool_suppress_overdensity, docs/stage_f.md); 200: the original (default, "
@@ -231,6 +256,8 @@ def main():
             a.cool_suppress_overdensity = 0.0  # cooling on everywhere (user decision 2026-10-26)
         if a.am_params:
             sys.exit("--plane-parallel uses no halo sources: drop --am-params")
+        if a.thermal_floor is None:
+            a.thermal_floor = 0.1  # the unheated gas ahead of the fronts is below 1 K at z < 8 (user decision 2026-10-29)
         a.zdata1 = a.zdata1  # the outputs; the RT starts at --plane-z-re, not at the first zdata1
     # the speed of light: the default schedule, unless a constant --c-reduced
     # is given alone (then that constant)
@@ -262,6 +289,9 @@ def main():
                "--z-init", str(a.z_init), "--box", str(a.box), "--seed", str(a.seed)]
         if ndm > a.N:
             cmd += ["--phases-from-ndm", str(a.N)]
+        for k in ("omegam", "omegab", "hubble0", "sigma8", "ns"):
+            if getattr(a, k) is not None:
+                cmd += ["--" + k, repr(getattr(a, k))]
         subprocess.run(cmd, check=True)
     lines = [
         "# Production reionization run (tools/production/make_production.py)",
@@ -286,6 +316,12 @@ def main():
         "rt_substep_carry = 1",
         f"ray_rotate = {a.ray_rotate}",
     ]
+    for k in ("omegam", "omegab", "hubble0", "sigma8", "ns"):
+        if getattr(a, k) is not None:
+            lines.append(f"{k} = {getattr(a, k)!r}")
+    if a.T_min > 0:
+        lines += ["# the preheating floor (docs/production_run.md section 10): a plain switch-on",
+                  f"T_min = {a.T_min:g}", f"z_floor = {a.z_floor:g}"]
     if a.pm_refine > 1:
         lines.append(f"pm_refine = {a.pm_refine}")
     if a.fof_dt_myr > 0:
@@ -330,6 +366,8 @@ def main():
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")
     if a.photon_conserve >= 0:
         lines.append(f"photon_conserve = {a.photon_conserve}")
+    if a.photon_consume_dense >= 0:
+        lines.append(f"photon_consume_dense = {a.photon_consume_dense}")
     if a.ray_deposit != "share":
         lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.cool_suppress_overdensity != 200.0:
@@ -349,6 +387,10 @@ def main():
             lines.append(f"sf_efficiency = {a.sf_efficiency:g}")
     if a.rt_cells_per_substep != 1:
         lines.append(f"rt_cells_per_substep = {a.rt_cells_per_substep}")
+    if a.thermal_floor is not None:
+        lines += ["# the temperature floor (docs/thermal_history.md section 4): the hydro floor and,",
+                  "# with legacy_physics = 0, the clamp of the RT physics floor below 1 K",
+                  f"thermal_floor = {a.thermal_floor:g}"]
     if a.plane_parallel:
         lines += ["# Plane-parallel RT-domain mode (docs/plane_parallel.md): the domain faces are the",
                   "# only sources from plane_z_re; the halo finder and the sources are not used",
@@ -358,9 +400,6 @@ def main():
                   f"plane_faces = {a.plane_faces}",
                   f"plane_gamma12 = {a.plane_gamma12:g}",
                   f"plane_z_re = {a.plane_z_re:g}",
-                  "# every photoionisation consumes its photon (self-shielding of dense cells;",
-                  "# the original's rho_source factor is off)",
-                  "photon_consume_dense = 1",
                   "# the hydro steps end exactly on the zdata1 outputs (the same times for every step cap)",
                   "land_outputs = 1"]
         if a.plane_alpha != 1.5:

@@ -7,6 +7,7 @@
 // amrex_state = 1). Internal to src/amrex.
 #pragma once
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstring>
@@ -105,13 +106,20 @@ struct LevelBase {
   virtual void substep(Simulation& s) = 0;
   virtual void post(Simulation& s) = 0;
   virtual void sync_fields(Simulation& s) = 0;
-  // amrex_state = 1: the cells into rank 0's mirror (all fields, or the
-  // five of write_stats), and rank 0's RT grid onto the cells (a restart)
+  // the cells into rank 0's host RT grid (all fields, or the first five),
+  // and rank 0's RT grid onto the cells; not used with amrex_state = 1,
+  // which streams instead (docs/rank0_streaming.md)
   virtual void gather_fields(Simulation& s, bool stats_only) = 0;
   // a movie frame: rhog, fHI, fHeI, fHeII, temp and gamma(1) only (the
   // moment level; the ray levels gather every field)
   virtual void gather_movie(Simulation& s) { gather_fields(s, false); }
   virtual void scatter_fields(Simulation& s) = 0;
+  // amrex_state_stream_rt (amrex_state.hpp): the float components comps
+  // (in that order) of every cell onto rank 0, slab by slab. Collective.
+  virtual void stream(const std::vector<int>& comps, const StreamFn& fn) = 0;
+  // amrex_state_fill_rt: rank 0's slabs onto the components comps of every
+  // cell. Collective.
+  virtual void fill(const std::vector<int>& comps, const FillFn& fn) = 0;
   // amrex_balance = 1 (gas_state.hpp): the live rays per box, and the cells
   // and rays moved onto a new mapping of the same BoxArray
   virtual void box_ray_counts(ax::Vector<ax::Real>& count) const = 0;
@@ -138,12 +146,79 @@ struct LevelBase {
     throw std::runtime_error("ckpt_read: not the moment level");
   }
   // gammaHI_avg (Simulation::gamma_avg): the substep-averaged Gamma_HI of
-  // every cell onto rank 0 (amrex_gamma_avg_field, amrex_state.hpp).
-  // Collective.
-  virtual void gamma_avg_gather(const Simulation&, std::vector<float>&) const {
+  // every cell onto rank 0 slab by slab (amrex_gamma_avg_stream,
+  // amrex_state.hpp). Collective.
+  virtual void gamma_avg_stream(const Simulation&, const StreamFn&) const {
     throw std::runtime_error("gammaHI_avg on rt_backend = amrex: implemented for the moment RT only");
   }
 };
+
+// Zero slabs of one component in the order of gs::stream_slabs, on rank 0
+// only (no communication)
+inline void stream_zeros(int N, const StreamFn& fn) {
+  if (!ax::ParallelDescriptor::IOProcessor()) return;
+  std::vector<float> buf;
+  for (int k0 = 0; k0 < N; k0 += gs::kSlabPlanes) {
+    StreamSlab sl;
+    sl.k0 = k0;
+    sl.nk = std::min(gs::kSlabPlanes, N - k0);
+    sl.N = N;
+    sl.ncomp = 1;
+    buf.assign(static_cast<std::size_t>(sl.ncell()), 0.0f);
+    sl.data = buf.data();
+    fn(sl);
+  }
+}
+
+// amrex_state_stream_rt for a level's cells C: the components comps
+// copied into a float FabArray of the same decomposition, then streamed to
+// rank 0 slab by slab (gs::stream_slabs)
+inline void stream_cells(const CFab& C, const ax::BoxArray& ba, const ax::DistributionMapping& dm, int N,
+                         const std::vector<int>& comps, const StreamFn& fn) {
+  const int nc = static_cast<int>(comps.size());
+  for (int m : comps)
+    if (m < 0 || m >= NC) throw std::runtime_error("amrex_state_stream_rt: component out of range");
+  if (nc < 1) throw std::runtime_error("amrex_state_stream_rt: no components");
+  FFab Cf(ba, dm, nc, 0);
+  std::array<int, NC> cm{};
+  for (int m = 0; m < nc && m < NC; ++m) cm[static_cast<std::size_t>(m)] = comps[static_cast<std::size_t>(m)];
+  if (nc > NC) throw std::runtime_error("amrex_state_stream_rt: too many components");
+  for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+    auto c = C.const_array(mfi);
+    auto f = Cf.array(mfi);
+    ax::ParallelForOMP(mfi.validbox(), nc, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+      f(i, j, k, m) = cf(c, i, j, k, cm[m]);
+    });
+  }
+  std::vector<float> buf;
+  gs::stream_slabs(Cf, N, 0, nc, buf, fn);
+}
+
+// amrex_state_fill_rt for a level's cells C: rank 0's slabs into a float
+// FabArray of the same decomposition (gs::fill_slabs), then into the
+// components comps of the cells
+inline void fill_cells(CFab& C, const ax::BoxArray& ba, const ax::DistributionMapping& dm, int N,
+                       const std::vector<int>& comps, const FillFn& fn) {
+  const int nc = static_cast<int>(comps.size());
+  if (nc < 1 || nc > NC) throw std::runtime_error("amrex_state_fill_rt: bad component count");
+  std::array<int, NC> cm{};
+  for (int m = 0; m < nc; ++m) {
+    if (comps[static_cast<std::size_t>(m)] < 0 || comps[static_cast<std::size_t>(m)] >= NC)
+      throw std::runtime_error("amrex_state_fill_rt: component out of range");
+    cm[static_cast<std::size_t>(m)] = comps[static_cast<std::size_t>(m)];
+  }
+  FFab Cf(ba, dm, nc, 0);
+  std::vector<float> buf;
+  gs::fill_slabs(Cf, N, 0, nc, buf, fn);
+  for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+    auto c = C.array(mfi);
+    auto f = Cf.const_array(mfi);
+    ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+      float* d = reinterpret_cast<float*>(&c(i, j, k));
+      for (int m = 0; m < nc; ++m) d[cm[m]] = f(i, j, k, m);
+    });
+  }
+}
 
 // The cells of a level and their transfers
 struct CellLevel : LevelBase {
@@ -301,7 +376,7 @@ struct CellLevel : LevelBase {
   // a 1.5 TB node at 24 ranks).
   static constexpr int kSyncPlanes = 8;
   void sync_fields(Simulation& s) override {
-    if (state) {  // amrex_state = 1: rank 0's mirror only
+    if (state) {  // amrex_state = 1: not used (no host copy; the outputs stream the level)
       gather_fields(s, false);
       return;
     }
@@ -365,7 +440,7 @@ struct CellLevel : LevelBase {
     T.sync += now() - t0;
   }
 
-  // ---- amrex_state = 1: the cells and rank 0's mirror -------------------------
+  // ---- the cells to and from the host grids (amrex_state = 1 streams instead) ---
 
   // The first nc components of every cell (the rt_grid fields, then u, w,
   // e) into rank 0's s.rt and s.gas, slab by slab (gas_state.hpp)
@@ -403,6 +478,17 @@ struct CellLevel : LevelBase {
     });
     T.sync += now() - t0;
     s.timers.sync += now() - t0;
+  }
+
+  void stream(const std::vector<int>& comps, const StreamFn& fn) override {
+    const double t0 = now();
+    stream_cells(C, ba, dm, N, comps, fn);
+    T.sync += now() - t0;
+  }
+  void fill(const std::vector<int>& comps, const FillFn& fn) override {
+    const double t0 = now();
+    fill_cells(C, ba, dm, N, comps, fn);
+    T.sync += now() - t0;
   }
 
   void gather_fields(Simulation& s, bool stats_only) override {

@@ -114,7 +114,7 @@ struct Simulation {
   std::shared_ptr<AmrexRT> amrex;
   double ngam_total_backend = 0;
   // amrex_state = 1 (amrex_state.hpp): the gas state on the levels; the
-  // rt and gas grids above are then rank 0's mirror only.
+  // rt and gas grids above are then not allocated (docs/rank0_streaming.md).
   std::shared_ptr<AmrexState> state;
   // Eddington-tensor diagnostic (rt_tensor_diag.hpp); null (off) by default.
   // Never read by the RT.

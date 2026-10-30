@@ -367,17 +367,18 @@ void init_unsplit_state(const Config& cfg, const Units& un, GasGrid& gas, HydroS
   }
   if (fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   if (gas.has_e()) return;
-  const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
   gas.e.assign(static_cast<std::size_t>(gas.ncell), 0.0f);
-  for (std::int64_t c = 0; c < gas.ncell; ++c) {
-    const float* u = gas.u_p(c);
-    double U[NV];
-    for (int m = 0; m < NV; ++m) U[m] = u[m];
-    const double rho = rrf::max(U[0], un.Dgas_min);
-    double e = U[4] - rrh::kinetic_energy(U);
-    if (!(e >= rho * Tmin)) e = rho * Tmin;
-    gas.e[c] = static_cast<float>(e);
-  }
+  for (std::int64_t c = 0; c < gas.ncell; ++c) gas.e[c] = unsplit_init_e(gas.u_p(c), un);
+}
+
+float unsplit_init_e(const float* u, const Units& un) {
+  const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
+  double U[NV];
+  for (int m = 0; m < NV; ++m) U[m] = u[m];
+  const double rho = rrf::max(U[0], un.Dgas_min);
+  double e = U[4] - rrh::kinetic_energy(U);
+  if (!(e >= rho * Tmin)) e = rho * Tmin;
+  return static_cast<float>(e);
 }
 
 void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& gas,

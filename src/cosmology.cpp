@@ -3,7 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <map>
 #include <ostream>
+#include <stdexcept>
+#include <string>
 
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
@@ -11,7 +16,13 @@
 namespace radray {
 
 using namespace pc;
-using namespace cp;
+// The cosmology comes from cfg.cosmo (cosmo_params.hpp); only the
+// cosmology-independent parameters of cosmo_parameters.f90 are named here.
+using cp::gamma_ideal;
+using cp::Tcmb0;
+using cp::wde;
+using cp::XHy;
+using cp::YHe;
 
 Config Config::make(int N, int nray_max_factor, int Ndm, double box_mpch) {
   Config c;
@@ -43,8 +54,9 @@ Config Config::make(int N, int nray_max_factor, int Ndm, double box_mpch) {
 
 // cosmo_tools.f90: calc_sim_var
 void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
-  const double om = omegam, ol = omegal, ob = omegab, orr = omegar;
-  const double h0 = hubble0, gam = gamma_ideal;
+  const Cosmology& co = cfg.cosmo;
+  const double om = co.omegam, ol = co.omegal, ob = co.omegab, orr = co.omegar;
+  const double h0 = co.hubble0, gam = gamma_ideal;
 
   const double z = clk.redshift;
   const double a = clk.scalefactor;
@@ -93,16 +105,22 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   u.temp3_unit = u.eden_unit / u.rho_unit * (gam - 1) / k_cgs * mH_cgs /
                  (2 * XHy + 3 * YHe / 4.0);
 
-  // Matter temperature in cgs; x = 1E3*(ob*h0**2)**0.4 (compile-time folded)
-  const double x = folded::temp_x;
+  // Matter temperature in cgs; x = 1E3*(ob*h0**2)**0.4 (compile-time folded
+  // in the original; Cosmology::derive)
+  const double x = co.temp_x;
   if (1 + z > x) {
     u.temp_max = u.Tcmb;
     u.temp_min = u.Tcmb;
   } else {
     u.temp_max = folded::ten_lgT_max;
-    u.temp_min = f::max(Tcmb0 / x / f::pow2(a), 1.0);
+    // the original clamps the adiabat at 1 K (the lower edge of its
+    // nearest-node rate table); with legacy_physics = 0 a thermal_floor
+    // below 1 K lowers that clamp too (docs/thermal_history.md section 4:
+    // the plane-parallel problems use 0.1 K), so the RT physics floor is
+    // the adiabat down to thermal_floor. Byte-identical by default.
+    const double clamp = cfg.legacy_physics ? 1.0 : f::min(cfg.thermal_floor, 1.0);
+    u.temp_min = f::max(Tcmb0 / x / f::pow2(a), clamp);
   }
-
   // Density limits in grid units
   u.Dgas_avg = ob / om;
   u.Dgas_min = u.Dgas_avg * folded::ten_lgD_min;
@@ -124,7 +142,19 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
   }
   u.Thydro_min = cfg.thermal_floor / u.temp1_unit;
 
-  u.Tgas_min = u.temp_min / u.temp1_unit;
+  // The preheating floor (Config::T_min, z_floor; docs/production_run.md
+  // section 10, docs/thermal_history.md section 5), after thermal_init's
+  // temp_min: the RT cell physics clamps at temp_floor, and the hydro floor
+  // and the PM step's clamp are raised to it, so the floor also holds in
+  // the hydro steps the RT does not run in. temp_min itself (the outputs)
+  // is unchanged.
+  u.temp_floor = u.temp_min;
+  if (cfg.T_min > 0 && z < cfg.z_floor) {
+    u.temp_floor = f::max(u.temp_min, cfg.T_min);
+    u.Thydro_min = f::max(u.Thydro_min, cfg.T_min / u.temp1_unit);
+  }
+
+  u.Tgas_min = u.temp_floor / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 
   // MF temperature limits in grid units
@@ -139,8 +169,8 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
 }
 
 // cosmo_tools.f90: calc_dt_from_da
-void calc_dt_from_da(double a, double da, double& dt, double& dy) {
-  const double w = wde, om = omegam, ol = omegal, orr = omegar, h0 = hubble0;
+void calc_dt_from_da(const Cosmology& c, double a, double da, double& dt, double& dy) {
+  const double w = wde, om = c.omegam, ol = c.omegal, orr = c.omegar, h0 = c.hubble0;
   const std::int32_t n = f::max<std::int32_t>(100, f::int4(da / 1e-4));
   const double dx = da / n;
   dt = 0;
@@ -158,8 +188,8 @@ void calc_dt_from_da(double a, double da, double& dt, double& dy) {
 }
 
 // cosmo_tools.f90: calc_da_from_dt
-void calc_da_from_dt(double a, double& da, double dt, double& dy) {
-  const double w = wde, om = omegam, ol = omegal, orr = omegar, h0 = hubble0;
+void calc_da_from_dt(const Cosmology& c, double a, double& da, double dt, double& dy) {
+  const double w = wde, om = c.omegam, ol = c.omegal, orr = c.omegar, h0 = c.hubble0;
   const std::int32_t n = f::max<std::int32_t>(100, f::int4(dt / 1e-4));
   const double ds = dt / n;
   da = 0;
@@ -179,8 +209,8 @@ void calc_da_from_dt(double a, double& da, double dt, double& dy) {
 }
 
 // radhydro.f90: init_variables
-void init_variables(double z_init, SimClock& clk) {
-  const double om = omegam, ol = omegal, h0 = hubble0;
+void init_variables(const Cosmology& c, double z_init, SimClock& clk) {
+  const double om = c.omegam, ol = c.omegal, h0 = c.hubble0;
   clk = SimClock{};
   clk.redshift = z_init;
   clk.scalefactor = 1 / (1 + z_init);  // ainit = 1/(1+zinit)
@@ -198,7 +228,8 @@ void init_variables(double z_init, SimClock& clk) {
 
 // radhydro.f90: calc_timestep, without the speed conversions and output
 namespace {
-TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed, SimClock& clk) {
+TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed, SimClock& clk,
+                           const Units* u = nullptr) {
   using namespace stepp;
   TimestepInfo t;
   const double z = clk.redshift;
@@ -212,7 +243,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
       clk.da_sim = da_fixed;
     else  // Restrict expansion timestep based on da/a ratio
       clk.da_sim = a * cfg.ra_max / (1 - cfg.ra_max);
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+    calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     t.dt_vg = 0;
     t.dt_ap = 0;
     clk.dt_sec = clk.dt_yr * yr2sec;
@@ -221,9 +252,9 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
     t.dt_vg = 2 * dt_gas_factor / clk.cmax_gas;
     t.dt_ap = dt_pm_factor / std::sqrt(clk.amax_dm);
     clk.dt_sim = f::gmin(t.dt_vg, t.dt_ap);
-    calc_da_from_dt(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+    calc_da_from_dt(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     clk.da_sim = f::gmin(clk.da_sim, a * cfg.ra_max / (1 - cfg.ra_max));
-    calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+    calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
     t.dt_vg = clk.dt_yr * (t.dt_vg / clk.dt_sim);
     t.dt_ap = clk.dt_yr * (t.dt_ap / clk.dt_sim);
     clk.dt_sec = clk.dt_yr * yr2sec;
@@ -236,7 +267,10 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
   //   dt_max_myr: the step is at most dt_max_myr Myr;
   //   rt_substeps_max: the step holds at most this many RT substeps (the
   //               light crossing of rt_substeps_max * rt_cells_per_substep
-  //               RT cells at c_reduced).
+  //               RT cells at c_reduced);
+  //   plane_turnon_cfl (plane mode, default on): the step that starts at
+  //               plane_z_re is at most the CFL step of the gas once
+  //               photoheated (below).
   // Each one shortens da_sim; dt follows from da as above.
   {
     double da_cap = clk.da_sim;
@@ -255,8 +289,9 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
       da_cap = cfg.land_a - a;
     if (caps && cfg.rt_substeps_max > 0) {
       // dl_c(da) = 2c/(H0 h sqrt(om)) (sqrt(a+da) - sqrt(a)) = nmax dl_sub / cscale
-      const double dl_sub = cfg.box / hubble0 * Mpc2cm / cfg.Nrt * cfg.rt_cells_per_substep;
-      const double x = cfg.rt_substeps_max * dl_sub / cfg.c_reduced * (H0_cgs * hubble0 * std::sqrt(omegam)) / (2 * c_cgs);
+      const double h0 = cfg.cosmo.hubble0;
+      const double dl_sub = cfg.box / h0 * Mpc2cm / cfg.Nrt * cfg.rt_cells_per_substep;
+      const double x = cfg.rt_substeps_max * dl_sub / cfg.c_reduced * (H0_cgs * h0 * std::sqrt(cfg.cosmo.omegam)) / (2 * c_cgs);
       const double sa = std::sqrt(a) + x;
       da_cap = f::gmin(da_cap, sa * sa - a);
     }
@@ -265,7 +300,7 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
       double lo = 0, hi = da_cap, dts = 0, dty = 0;
       for (int it = 0; it < 80; ++it) {
         const double mid = 0.5 * (lo + hi);
-        calc_dt_from_da(a, mid, dts, dty);
+        calc_dt_from_da(cfg.cosmo, a, mid, dts, dty);
         if (dty > cfg.dt_max_myr * 1e6)
           hi = mid;
         else
@@ -273,9 +308,38 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
       }
       da_cap = f::gmin(da_cap, lo);
     }
+    // plane_turnon_cfl = 1 (config.hpp; docs/plane_parallel.md): the hydro
+    // step runs before the RT of the same interval, so the step that starts
+    // at the turn-on (a = a_re within 1e-9: the step before lands on it; the
+    // first step with the RT on) would be sized by the cold gas only and the
+    // photoheated gas would sit that long without a hydro response. It is
+    // at most plane_turnon_courant 2 dt_gas_factor / (cmax_gas + c_hot), the
+    // CFL step with the sound speed of fully ionised gas at plane_turnon_temp
+    // added (times a Courant fraction, default 1):
+    // c_hot^2 = gamma k T / (mu m_H), mu = 1 / (2 X + 3 Y/4) (H II, He III:
+    // the hydro's c_s^2 = gamma (gamma - 1) e / rho of that gas at T =
+    // temp3_unit e / rho), in code units by vel_unit = x_unit / time_unit as
+    // calc_timestep converts vmax_gas. A function of a only, so a restart at
+    // z_re repeats it (the clock, cmax_gas included, is checkpointed) and no
+    // later step can trigger it. Last, so that it changes nothing when it
+    // does not bind (the dt_max_myr bisection starts from the da before it).
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_turnon_cfl && u != nullptr &&
+        mode != TimestepMode::Fixed) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (std::fabs(a - a_re) <= a_re * 1e-9) {
+        const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
+        t.c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
+        double da_hot = 0, dty = 0;
+        calc_da_from_dt(cfg.cosmo, a, da_hot, cfg.plane_turnon_courant * (2 * dt_gas_factor / (clk.cmax_gas + t.c_hot)), dty);
+        if (da_hot < da_cap) {
+          da_cap = da_hot;
+          t.turnon_capped = true;
+        }
+      }
+    }
     if (da_cap < clk.da_sim) {
       clk.da_sim = da_cap;
-      calc_dt_from_da(a, clk.da_sim, clk.dt_sim, clk.dt_yr);
+      calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
       clk.dt_sec = clk.dt_yr * yr2sec;
     }
   }
@@ -288,9 +352,9 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
   // the light crossings of k cells, and the carry and the >= 1 guard act on
   // that count.
   const double cscale = cfg.c_reduced;
-  const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
+  const double dl_c = 2 * c_cgs / (H0_cgs * cfg.cosmo.hubble0 * std::sqrt(cfg.cosmo.omegam)) *
                       (std::sqrt(a + clk.da_sim) - std::sqrt(a));
-  const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
+  const double dl_rt = cfg.box / cfg.cosmo.hubble0 * Mpc2cm / cfg.Nrt;
   const double dl_sub = dl_rt * cfg.rt_cells_per_substep;  // = dl_rt for k = 1
   t.ns_rt = f::nint(dl_c / dl_rt);
   clk.nstep_rt = f::nint(dl_c / dl_sub * cscale);
@@ -330,7 +394,17 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
 
 TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode, double da_fixed,
                            SimClock& clk, std::ostream* out) {
-  const TimestepInfo t = timestep_core(cfg, mode, da_fixed, clk);
+  const TimestepInfo t = timestep_core(cfg, mode, da_fixed, clk, &u);
+  if (out && t.c_hot > 0) {
+    char buf[256];
+    std::snprintf(buf, sizeof buf,
+                  " calc_timestep: plane turn-on step: c_hot = %.4g km/s (plane_turnon_temp = %g K), "
+                  "cmax_gas = %.4g km/s, plane_turnon_courant = %g, %s\n",
+                  t.c_hot * u.vel_unit / 1e5, cfg.plane_turnon_temp, clk.cmax_gas * u.vel_unit / 1e5,
+                  cfg.plane_turnon_courant,
+                  t.turnon_capped ? "the step is capped" : "the cap does not bind");
+    *out << buf;
+  }
 
   // Velocity in km/s, acceleration in km/s/Gyr (in place, as the original;
   // 1E5 and 1E9 are real(4) literals, exact)
@@ -371,9 +445,9 @@ double rt_path_fraction(const Config& cfg, const SimClock& clk) {
   // dl_c and dl_rt as in timestep_core (computed here, not stored in the
   // clock, so that SimClock and the checkpoint format are unchanged)
   const double a1 = clk.scalefactor - clk.da_sim;
-  const double dl_c = 2 * c_cgs / (H0_cgs * hubble0 * std::sqrt(omegam)) *
+  const double dl_c = 2 * c_cgs / (H0_cgs * cfg.cosmo.hubble0 * std::sqrt(cfg.cosmo.omegam)) *
                       (std::sqrt(a1 + clk.da_sim) - std::sqrt(a1));
-  const double dl_rt = cfg.box / hubble0 * Mpc2cm / cfg.Nrt;
+  const double dl_rt = cfg.box / cfg.cosmo.hubble0 * Mpc2cm / cfg.Nrt;
   // k = rt_cells_per_substep RT cells per substep
   return clk.nstep_rt * cfg.rt_cells_per_substep * dl_rt / dl_c;
 }
@@ -399,6 +473,100 @@ void advance_clock_hydro_step(const Config& cfg, SimClock& clk, Units& u) {
     clk.scalefactor = clk.scalefactor + clk.da_sim / 2;
     clk.redshift = 1 / clk.scalefactor - 1;
     calc_sim_var(cfg, clk, u);
+  }
+}
+
+}  // namespace radray
+
+namespace radray {
+
+bool set_cosmology_param(Config& cfg, const std::string& key, const std::string& val) {
+  if (set_cosmology_key(cfg.cosmo, key, val)) return true;
+  if (key == "T_min" || key == "z_floor") {
+    std::size_t n = 0;
+    const double v = std::stod(val, &n);
+    if (key == "T_min") {
+      if (!(v >= 0)) throw std::runtime_error("T_min must be >= 0 (kelvin; 0 = off)");
+      cfg.T_min = v;
+    } else {
+      cfg.z_floor = v;
+    }
+    return true;
+  }
+  return false;
+}
+
+void copy_cosmology_param(const Config& from, Config& to) {
+  to.cosmo = from.cosmo;
+  to.cosmo.derive();
+  to.T_min = from.T_min;
+  to.z_floor = from.z_floor;
+  if (to.T_min > 0 && !(to.z_floor >= 0))
+    throw std::runtime_error("T_min > 0 needs z_floor >= 0: the floor applies at z < z_floor");
+}
+
+std::string cosmology_summary(const Config& cfg) {
+  std::string s;
+  if (!cfg.cosmo.is_original() || cfg.cosmo.sigma8 != cp::sigma8 || cfg.cosmo.ns != cp::nsinit)
+    s += "cosmology " + cfg.cosmo.summary();
+  if (cfg.T_min > 0) {
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "%sT_min = %g K at z < %g", s.empty() ? "" : "; ", cfg.T_min,
+                  cfg.z_floor);
+    s += buf;
+  }
+  return s;
+}
+
+}  // namespace radray
+
+namespace radray {
+
+void check_ics_info(const std::string& dir, double z_init, const Cosmology& c) {
+  const std::string path = dir + "/ics_info.txt";
+  std::ifstream in(path);
+  if (!in) return;
+  std::map<std::string, std::string> kv;
+  std::string line;
+  while (std::getline(in, line)) {
+    const auto h = line.find('#');
+    if (h != std::string::npos) line = line.substr(0, h);
+    const auto eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    auto trim = [](std::string t) {
+      const auto a = t.find_first_not_of(" \t\r");
+      if (a == std::string::npos) return std::string();
+      return t.substr(a, t.find_last_not_of(" \t\r") - a + 1);
+    };
+    kv[trim(line.substr(0, eq))] = trim(line.substr(eq + 1));
+  }
+  const std::string fix = " (set the params.txt key to the ICs' value, or regenerate the ICs; "
+                          "ics_check = 0 skips this check)";
+  if (kv.count("z_init")) {
+    const double zi = std::strtod(kv["z_init"].c_str(), nullptr);
+    if (!(std::fabs(zi - z_init) <= 1e-9 * (1 + std::fabs(z_init))))
+      throw std::runtime_error(path + ": the ICs are for z_init = " + kv["z_init"] +
+                               ", the run starts at z_init = " + std::to_string(z_init) + fix);
+  }
+  const Cosmology orig;
+  const struct {
+    const char* key;
+    double run, original;
+  } par[] = {{"omegam", c.omegam, orig.omegam},
+             {"omegab", c.omegab, orig.omegab},
+             {"hubble0", c.hubble0, orig.hubble0},
+             {"sigma8", c.sigma8, orig.sigma8},
+             {"ns", c.ns, orig.ns}};
+  for (const auto& q : par) {
+    // make_ics.py writes the real(4)-rounded values; strtof rounds back
+    const double ic = kv.count(q.key) ? static_cast<double>(std::strtof(kv[q.key].c_str(), nullptr))
+                                      : q.original;
+    if (ic != q.run) {
+      char buf[160];
+      std::snprintf(buf, sizeof buf, ": the ICs have %s = %.7g%s, the run %.7g", q.key, ic,
+                    kv.count(q.key) ? "" : " (not recorded: the original's)", q.run);
+      throw std::runtime_error(path + buf + fix);
+    }
   }
 }
 
