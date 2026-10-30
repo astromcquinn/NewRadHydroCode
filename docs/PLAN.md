@@ -1747,8 +1747,11 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   (user decision, 2026-10-29):** the original lets cells denser than 50×
   the mean ionise without consuming photons (`rho_source` in
   `docs/port_notes.md`); the plane-parallel problems and
-  `make_production.py --plane-parallel` set 1 so dense gas self-shields;
-  the code default stays 0, the original.
+  `make_production.py --plane-parallel` set 1 so dense gas self-shields.
+  **With P11 (user decision 2026-10-28, below)** `photon_consume_dense`
+  follows `legacy_physics`, so `legacy_physics = 0` turns it on and
+  `make_production.py` no longer writes the explicit line; with
+  `legacy_physics = 1` the default stays the original.
 * **The default floor of the plane-parallel problems (user decision,
   2026-10-29):** no preheating floor by default (`T_min = 0`), and the
   original's 1 K floor lowered to 0.1 K in the plane-parallel problems
@@ -1777,6 +1780,71 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+* **The turn-on step (user request, 2026-10-28: "could we just make sure
+  the first step after turn on of RT is small in plane parallel
+  cases?"):** `plane_turnon_cfl` (default 1 in plane mode, 0 = the step
+  before 2026-10-28) and `plane_turnon_temp` (default 2e4 K). The hydro
+  step runs before the RT of the same interval, so the step that starts
+  at z_re is sized by the cold gas (25 Myr at 64³ in the T4 problem) and
+  the photoheated gas waits that long for its first hydro response. That
+  one step is now at most the CFL step 2 dt_gas_factor / (cmax_gas +
+  c_hot), c_hot the sound speed of fully ionised gas at 2e4 K; the steps
+  after it are unchanged (their cmax_gas already holds the hot gas).
+  Implementation choices (this thread; `docs/plane_parallel.md`, "Turn-on
+  and the step caps"): μ of H II + He III (2X + 3Y/4 particles per m_H,
+  the code's own X, Y, γ, k, m_H); the cap applied after the other caps
+  so that it changes nothing when it does not bind; a function of a only
+  (a = a_re to 1e-9), so a restart at z_re repeats it bit for bit.
+  `make_production.py --plane-parallel` needs nothing (the default is on).
+  Added in this thread: `plane_turnon_courant` (default 1), because the
+  T4 runs at 64³ show the requested CFL step with c_hot (20 Myr) does not
+  remove the lag while a ~1 Myr turn-on step (0.05) does.
+* **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
+  default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
+  64³, one extra hydro step).
+* **No `dt_max_myr` cap in the production plane-parallel problems (user,
+  2026-10-30):** the short turn-on step is the solution to the coupling
+  lag; `make_production.py --plane-parallel` writes no `dt_max_myr`, so
+  the steps after the turn-on stay the CFL steps (the T4 runs at 64³ leave
+  12–14 % in E(k) at 200–400 Myr from them, against 2 % with a 1-Myr cap;
+  `--dt-max-myr` remains for tests).
+* **The C1 ladder's initial conditions (2026-10-30, after PR #15):**
+  `tools/hyak/c1_ladder.sh` makes C26's set-up by default: MUSIC in uniform
+  mode from z = 300 with CAMB's separate CDM and baryon transfer functions
+  (`c2_uniform.conf` at level log2 N, the seed at level 10, so the rungs
+  and the linear-growth box share their modes), the C26 cosmology, and
+  `thermal_init = recfast` with that cosmology's `recfast_table`.
+  `ICS=zeldovich` keeps the ladder of before (z = 100, original
+  cosmology, floor history). Because recfast is refused with
+  `amrex_state = 1`, every rung with recfast runs the serial build on a
+  whole node (512³ included, ~100 GB with the sweep transport);
+  `THERMAL=floor` gives the 512³ rung the backend as before.
+
+## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
+
+* **User decision:** dense gas must consume photons by default in
+  production. Following the ground rules (the original stays the
+  default; corrections go behind `legacy_physics`), the key
+  `photon_consume_dense` now works like `photon_conserve` (B17): −1 (the
+  default) follows `legacy_physics`, so it is on with `legacy_physics = 0`
+  and off (the original `rho_source` factor of `photo_cell`) with
+  `legacy_physics = 1`; an explicit 0 or 1 overrides in either mode. ID
+  **P11** (`docs/port_notes.md` §5b).
+* **Scope:** only the photon-consumption factor of `photo_cell`. The other
+  two uses of `rho_source` stay as they are in both modes: the SN heating
+  above 50× the mean (a subgrid feedback term, not photon bookkeeping)
+  and the `rho_source`-weighted clumping factor of the gas summary (an
+  output diagnostic compared with the Fortran full harness).
+* **No Fortran mirror** (user decision 2026-10-08: new flags need none),
+  so every comparison of a `legacy_physics = 0` run with the Fortran
+  harnesses or their stored outputs sets `photon_consume_dense = 0`.
+* **Production:** `make_production.py` (`legacy_physics = 0`) gets it
+  without a line; `--photon-consume-dense 0` restores the original. It
+  lowers the effective escape fraction, so the f_esc(z) calibration
+  (`docs/production_run.md` §8, already pending for the ĉ schedule) must
+  be redone with it. A run already in progress keeps the old behaviour
+  only if `photon_consume_dense = 0` is added to its `params.txt` before
+  it is restarted with a binary that has P11.
 
 ## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
 
@@ -1786,3 +1854,16 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
   explicit key wins. Without `recfast` the code default stays 0, so
   every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).
+
+## Rank 0 without the full grid copy (2026-10-29, branch `rank0-no-mirror`)
+
+User decisions (2026-10-29):
+
+- Remove rank 0's full copy of the grid under `amrex_state = 1`
+  (`docs/rank0_streaming.md`). At 1024³ it was about 270 GB of the
+  458 GB peak of rank 0, and at 2048³ it would be about 2 TB.
+- Leave the halo finder on rank 0's particle copy for now. A distributed
+  friends-of-friends is a separate, later project. Runs that need no halo
+  sources, such as the plane-parallel mode, can turn the halo finder off.
+- Recommendation adopted: do the grid part first, then the power spectrum
+  on the level, which frees the host PM mesh arrays on rank 0.

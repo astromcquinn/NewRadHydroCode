@@ -164,7 +164,10 @@ if(Python3_Interpreter_FOUND)
       set_tests_properties(ref_legacy0_${p} PROPERTIES TIMEOUT 1800 LABELS reference)
     endif()
     # Recommended configuration, legacy_rt = 0 + legacy_physics = 0 (atomic
-    # physics fixes P1-P9), against reference/harness/outputs_legacy_rt0_phys0.
+    # physics fixes P1-P10, B17), against reference/harness/outputs_legacy_rt0_phys0.
+    # photon_consume_dense = 0: P11 (part of legacy_physics = 0 since
+    # 2026-10-28) has no Fortran mirror, so every Fortran comparison of
+    # legacy_physics = 0 keeps the original rho_source factor.
     set(refdir00 ${PROJECT_SOURCE_DIR}/reference/harness/outputs_legacy_rt0_phys0/${p})
     if(EXISTS ${refdir00})
       add_test(NAME ref_fixed_${p}
@@ -173,7 +176,7 @@ if(Python3_Interpreter_FOUND)
                  -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
                  -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ref_runs_fixed/${p}
                  -DREF=${refdir00}
-                 -DSET=legacy_rt=0,legacy_physics=0
+                 -DSET=legacy_rt=0,legacy_physics=0,photon_consume_dense=0
                  -DPYTHON=${Python3_EXECUTABLE}
                  -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
@@ -182,7 +185,7 @@ if(Python3_Interpreter_FOUND)
   endforeach()
   # Ray dump (compression study) on: still bit-identical to the Fortran, and
   # the codec prototype round-trips the snapshots (docs/ray_compression.md).
-  foreach(cfg "legacy;outputs;" "fixed;outputs_legacy_rt0_phys0;legacy_rt=0,legacy_physics=0")
+  foreach(cfg "legacy;outputs;" "fixed;outputs_legacy_rt0_phys0;legacy_rt=0,legacy_physics=0,photon_consume_dense=0")
     list(GET cfg 0 tag)
     list(GET cfg 1 refsub)
     list(GET cfg 2 sets)
@@ -372,7 +375,8 @@ if(Python3_Interpreter_FOUND)
                        PROPERTIES TIMEOUT 900 LABELS "physics;cosmology")
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
-  # recommended flags, against reference/harness/outputs_c0.1_fixed.
+  # recommended flags, against reference/harness/outputs_c0.1_fixed
+  # (photon_consume_dense = 0: P11 has no Fortran mirror).
   foreach(p uniform_8src lognormal_16src_smallbuf)
     set(refdirc ${PROJECT_SOURCE_DIR}/reference/harness/outputs_c0.1_fixed/${p})
     if(EXISTS ${refdirc})
@@ -382,7 +386,7 @@ if(Python3_Interpreter_FOUND)
                  -DPROBLEM=${CMAKE_CURRENT_SOURCE_DIR}/problems/${p}
                  -DOUT=${CMAKE_CURRENT_BINARY_DIR}/ref_runs_c01/${p}
                  -DREF=${refdirc}
-                 -DSET=c_reduced=0.1,legacy_rt=0,legacy_physics=0
+                 -DSET=c_reduced=0.1,legacy_rt=0,legacy_physics=0,photon_consume_dense=0
                  -DPYTHON=${Python3_EXECUTABLE}
                  -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/compare_reference.py
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_and_compare.cmake)
@@ -606,7 +610,9 @@ if(RADRAY_HAVE_PM AND Python3_Interpreter_FOUND)
                -DTESTS=${CMAKE_CURRENT_SOURCE_DIR}
                -DCOMPARE=${PROJECT_SOURCE_DIR}/tools/compare/compare.py)
   set(FULL_SET_rt1 "legacy_rt=1,legacy_physics=1")
-  set(FULL_SET_rt0 "legacy_rt=0,legacy_physics=0")
+  # photon_consume_dense = 0: P11 (part of legacy_physics = 0 since
+  # 2026-10-28) has no Fortran mirror; the harness ignores the key
+  set(FULL_SET_rt0 "legacy_rt=0,legacy_physics=0,photon_consume_dense=0")
 
   # Strict comparison with the stored Fortran full-harness outputs (stats of
   # every step, SHA-256 of every field file, hydro.log, P(k), particles).
@@ -1175,11 +1181,12 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                        LABELS "amrex;cosmology" ENVIRONMENT OMP_NUM_THREADS=1 TIMEOUT 1800 PROCESSORS 2)
   # bitwise matrix: 3 cases x (ranks, threads, max_grid_size), the matrix of
   # spike/amrex/validate.sh (N = 32: box sizes 32, 16 and 8)
-  # (ln16p0: the spike's rt_serial keeps the original photon limiter, so
-  # the rt_driver side runs the fixed physics with photon_conserve = 0, the
-  # pre-2026-10-14 meaning of legacy_physics = 0)
+  # (ln16p0: the spike's rt_serial keeps the original photon limiter and
+  # rho_source factor, so the rt_driver side runs the fixed physics with
+  # photon_conserve = 0 and photon_consume_dense = 0, the pre-2026-10-14
+  # meaning of legacy_physics = 0)
   foreach(case "u8;uniform_8src;-" "ln16;lognormal_16src_smallbuf;-"
-               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0;photon_conserve=0")
+               "ln16p0;lognormal_16src_smallbuf;legacy_physics=0;photon_conserve=0,photon_consume_dense=0")
     list(GET case 0 tag)
     list(GET case 1 prob)
     list(GET case 2 xs)  # one extra key=value for both sides, or -
@@ -1190,7 +1197,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set(extra --set ${xs})
       set(xset ",${xs}")
     endif()
-    if(ncase GREATER 3)  # a key=value for the rt_driver side only
+    if(ncase GREATER 3)  # key=value pairs (comma-separated) for the rt_driver side only
       list(GET case 3 xs2)
       set(xset "${xset},${xs2}")
     endif()

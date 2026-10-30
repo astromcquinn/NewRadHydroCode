@@ -555,15 +555,22 @@ struct Config {
   //                    every substep).
   double dt_max_myr = 0;
   int rt_substeps_max = 0;
-  // params.txt photon_consume_dense (set_plane_param; docs/port_notes.md
-  // "rho_source"): 0 (default) = the original: a cell denser than
-  // rho_source = 50 times the mean removes only the fraction
-  // exp(-(delta - 50)/50) of the photons its photoionisations used from the
-  // radiation, so dense gas is ionised without consuming photons (no
-  // self-shielding of dense cells); 1 = every photoionisation consumes its
-  // photon. Not tied to legacy_physics (a new flag; the plane-parallel
-  // problems and tools/production/make_production.py --plane-parallel use 1).
+  // P11 (docs/port_notes.md 5b; photo_cell's rho_source factor): false =
+  // the original: a cell denser than rho_source = 50 times the mean removes
+  // only the fraction exp(-(delta - 50)/50) of the photons its
+  // photoionisations used from the radiation, so dense gas is ionised
+  // without consuming photons (no self-shielding of dense cells); true =
+  // every photoionisation consumes its photon. Part of legacy_physics = 0
+  // since 2026-10-28 (user decision); not mirrored in the Fortran harnesses
+  // (a new flag), so the Fortran comparisons of legacy_physics = 0 set
+  // photon_consume_dense = 0. Rays (serial, sweep, AMReX) and the moment RT.
   bool photon_consume_dense = false;
+  // The params.txt key photon_consume_dense: -1 (default) follows
+  // legacy_physics (P11 is part of legacy_physics = 0 since 2026-10-28),
+  // 0 | 1 override in either mode.
+  static bool photon_consume_dense_effective(int key, bool legacy_physics) {
+    return key < 0 ? !legacy_physics : key == 1;
+  }
   // params.txt land_outputs (set_plane_param): 1 = the hydro step before a
   // zdata1 output ends exactly on it (apps/radhydro sets land_a to the next
   // output's scale factor before every step; timestep_core clips da to it),
@@ -571,6 +578,24 @@ struct Config {
   // time. 0 (default) = the original: the first step past the redshift.
   bool land_outputs = false;
   double land_a = 0;  // the next landing scale factor (0 = none); set per step by the driver
+  // params.txt plane_turnon_cfl, plane_turnon_temp (set_plane_param;
+  // docs/plane_parallel.md "Turn-on and the step caps"; user request
+  // 2026-10-28). Plane-parallel mode only (plane_parallel = 1 with
+  // plane_z_re >= 0; nothing changes otherwise). The hydro step runs before
+  // the RT of the same interval, so the RT heating reaches the hydro only
+  // at the next step, and the step starting at the turn-on is sized by the
+  // cold gas's signal speed. plane_turnon_cfl = 1 (default): the step that
+  // starts at plane_z_re (the first with the RT on) is at most the CFL step
+  // 2 dt_gas_factor / (cmax_gas + c_hot), c_hot the sound speed of fully
+  // ionised gas at plane_turnon_temp (K, default 2e4), times
+  // plane_turnon_courant (default 0.05, user decision 2026-10-28: the T4
+  // test at 64^3 needs a turn-on step of ~1 Myr to remove the lag, which 1,
+  // the CFL step with c_hot alone, does not: docs/plane_parallel.md);
+  // plane_turnon_cfl = 0 = the uncapped step (the behaviour before
+  // 2026-10-28).
+  int plane_turnon_cfl = 1;
+  double plane_turnon_temp = 2e4;
+  double plane_turnon_courant = 0.05;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

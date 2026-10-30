@@ -256,11 +256,13 @@ struct MomentLevel : CellLevel {
   }
 
   // gamma_avg_field on the cells, gathered onto rank 0 slab by slab
-  void gamma_avg_gather(const Simulation& s, std::vector<float>& out) const override {
+  // gammaHI_avg streamed onto rank 0 slab by slab (amrex_gamma_avg_stream)
+  void gamma_avg_stream(const Simulation& s, const StreamFn& fn) const override {
     const Simulation::GammaAvg& A = s.gamma_avg;
-    const bool io = ax::ParallelDescriptor::IOProcessor();
-    out.assign(io ? static_cast<std::size_t>(s.rt.ncell) : 0, 0.0f);
-    if (!GA.ok() || !(A.time > 0)) return;  // zeros, as the serial code
+    if (!GA.ok() || !(A.time > 0)) {  // zeros, as the serial code
+      stream_zeros(N, fn);
+      return;
+    }
     const double inv = 1.0 / A.time;
     FFab Cf(ba, dm, 1, 0);
     for (ax::MFIter mfi(Cf); mfi.isValid(); ++mfi) {
@@ -270,15 +272,8 @@ struct MomentLevel : CellLevel {
         f(i, j, k) = static_cast<float>(a(i, j, k) * inv);
       });
     }
-    const int NN = N;
-    float* o = out.data();
-    gs::gather_slabs(Cf, N, 1, [&](int k0, int nk, ax::Array4<float const> const& a) {
-#pragma omp parallel for schedule(static) collapse(2)
-      for (int k = k0; k < k0 + nk; ++k)
-        for (int j = 0; j < NN; ++j)
-          for (int i = 0; i < NN; ++i)
-            o[i + static_cast<std::int64_t>(NN) * (j + static_cast<std::int64_t>(NN) * k)] = a(i, j, k);
-    });
+    std::vector<float> buf;
+    gs::stream_slabs(Cf, N, 0, 1, buf, fn);
   }
 
   // ---- the OTVET tensor (once per hydro step) -------------------------------

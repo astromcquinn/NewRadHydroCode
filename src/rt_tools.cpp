@@ -238,8 +238,8 @@ void RTGrid::allocate_none(int n) {
 
 // rt_tools.f90: init_rt
 void init_rt(Simulation& s) {
-  if (use_amrex_state(s.cfg) && !io_rank())
-    s.rt.allocate_none(s.cfg.Nrt);  // the mirror is rank 0's (amrex_state.hpp)
+  if (use_amrex_state(s.cfg))
+    s.rt.allocate_none(s.cfg.Nrt);  // the grid lives on the levels; no rank keeps a copy (docs/rank0_streaming.md)
   else
     s.rt.allocate(s.cfg.Nrt);
   s.rt_save = RTStat{};
@@ -300,7 +300,7 @@ void calc_halo(Simulation& s, const std::vector<Source>& sources) {
     s.rt_stat.Luv = s.rt_stat.Luv + Luv;
     s.rt_stat.sfr = s.rt_stat.sfr + sfr;
   }
-  // the dense fields (all ranks of the serial backends; rank 0's mirror
+  // the dense fields (all ranks of the serial backends; no rank holds them
   // with amrex_state = 1)
   if (!G.Luv.empty()) {
     std::fill(G.Luv.begin(), G.Luv.end(), 0.0f);

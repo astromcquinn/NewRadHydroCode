@@ -17,7 +17,8 @@ and restart after an interruption with
 
     build/radhydro OUTDIR OUTDIR/run --quiet --restart OUTDIR/run/restart/checkpoint.bin
 
-The configuration: all fixes on (legacy_rt = legacy_physics = 0), the
+The configuration: all fixes on (legacy_rt = legacy_physics = 0, which includes
+B17, photon_conserve, and P11, photon_consume_dense: dense gas consumes photons), the
 deterministic parallel ray tracing, reduced speed of light, exact total RT
 substeps (rt_substep_carry), the source-ray frame rotated every RT substep
 and source (ray_rotate = 3, the B16 fix; --ray-rotate), the unsplit hydro with dual energy
@@ -174,6 +175,12 @@ def main():
                     help="iterate photo_cell's photon limit to convergence (photon_conserve, "
                          "the B17 fix, docs/rt_multicell.md); -1 (default, no line written): "
                          "follow legacy_physics, i.e. on in production (legacy_physics = 0)")
+    ap.add_argument("--photon-consume-dense", type=int, default=-1, choices=(-1, 0, 1),
+                    help="every photoionisation consumes its photon, also in cells denser than "
+                         "rho_source = 50 times the mean (photon_consume_dense, P11, docs/port_notes.md "
+                         "5b); -1 (default, no line written): follow legacy_physics, i.e. on in "
+                         "production (legacy_physics = 0, user decision 2026-10-28); 0: the original "
+                         "rho_source factor")
     ap.add_argument("--cool-suppress-overdensity", type=float, default=200.0,
                     help="overdensity above which cooling and SN heating are suppressed "
                          "(cool_suppress_overdensity, docs/stage_f.md); 200: the original (default, "
@@ -359,6 +366,8 @@ def main():
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")
     if a.photon_conserve >= 0:
         lines.append(f"photon_conserve = {a.photon_conserve}")
+    if a.photon_consume_dense >= 0:
+        lines.append(f"photon_consume_dense = {a.photon_consume_dense}")
     if a.ray_deposit != "share":
         lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.cool_suppress_overdensity != 200.0:
@@ -391,9 +400,6 @@ def main():
                   f"plane_faces = {a.plane_faces}",
                   f"plane_gamma12 = {a.plane_gamma12:g}",
                   f"plane_z_re = {a.plane_z_re:g}",
-                  "# every photoionisation consumes its photon (self-shielding of dense cells;",
-                  "# the original's rho_source factor is off)",
-                  "photon_consume_dense = 1",
                   "# the hydro steps end exactly on the zdata1 outputs (the same times for every step cap)",
                   "land_outputs = 1"]
         if a.plane_alpha != 1.5:
