@@ -877,8 +877,12 @@ int main(int argc, char** argv) {
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
     plane_init(s);                                     // plane_parallel = 1: the face sources
-    if (cfg.sf_overdensity > 0 && !on_level)
-      throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs amrex_state = 1 in radhydro");
+    // the star-formation sink: star particles on the PM level with the gas on
+    // the levels (amrex_state = 1); the serial unsplit hydro removes the mass
+    // instead (no star particles; hydro_unsplit.cpp serial_sink)
+    const bool pm_stars = cfg.sf_overdensity > 0 && on_level;
+    if (cfg.sf_overdensity > 0 && !on_level && use_amrex_hydro(cfg))
+      throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) with hydro_backend = amrex needs amrex_state = 1 in radhydro");
     if (on_level) {
       amrex_state_init(s);
       // the gas grid lives on the level; no rank keeps a host copy (rank 0
@@ -903,13 +907,13 @@ int main(int argc, char** argv) {
     auto sync_mirror = [&]() {
       if (!on_level) return;
       sync_xv();
-      if (cfg.sf_overdensity > 0) amrex_pm_gather_stars(pm);
+      if (pm_stars) amrex_pm_gather_stars(pm);
     };
     // the star-formation sink: the hydro's events of the last call become
     // star particles on the PM level (collective)
     std::int64_t nstar_step = 0;
     auto sink_to_stars = [&]() {
-      if (!(cfg.sf_overdensity > 0)) return;
+      if (!pm_stars) return;
       std::vector<SinkEvent> ev;
       amrex_hydro_take_sink_events(ev);
       nstar_step += amrex_pm_add_stars(pm, ev, s.clk.scalefactor);
@@ -1754,7 +1758,7 @@ int main(int argc, char** argv) {
       if (on_level) {  // the grids from the file and rank 0's particles onto the levels
         read_checkpoint_grids(restart_from, s);
         amrex_pm_load_particles(pm);
-        if (cfg.sf_overdensity > 0) amrex_pm_load_stars(pm);  // the sink's stars (version 8)
+        if (pm_stars) amrex_pm_load_stars(pm);  // the sink's stars (version 8)
       }
       // Stage F: the refined hydro levels of the checkpoint (a checkpoint
       // without them starts with level 0 only and regrids at the first step)
@@ -1915,7 +1919,7 @@ int main(int argc, char** argv) {
           write_data_files_streamed(pm::ztag(s.clk.redshift), false, P.data_files);
         else if (io)
           write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
-        if (cfg.sf_overdensity > 0 && io) {
+        if (pm_stars && io) {
           write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
           write_sink_summary(odir + "/sink.txt", pm);
         }
@@ -1950,7 +1954,7 @@ int main(int argc, char** argv) {
           write_data_files_streamed(pm::ztag(s.clk.redshift), true, P.data_files);
         else if (io)
           write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
-        if (cfg.sf_overdensity > 0 && io) {
+        if (pm_stars && io) {
           write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
           write_sink_summary(odir + "/sink.txt", pm);
         }
@@ -2039,7 +2043,7 @@ int main(int argc, char** argv) {
     }
 
     backend_barrier();
-    if (cfg.sf_overdensity > 0) {  // the sink's final count and mass (sink.txt)
+    if (pm_stars) {  // the sink's final count and mass (sink.txt)
       amrex_pm_gather_stars(pm);
       if (io) write_sink_summary(odir + "/sink.txt", pm);
     }
@@ -2075,10 +2079,16 @@ int main(int argc, char** argv) {
                   static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_reset),
                   static_cast<long long>(U.cells_synced), static_cast<long long>(U.floor_T),
                   static_cast<long long>(U.floor_rho));
+      if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
+        std::printf(" serial sink (mass removed): %lld events, %.6g mean-gas cell masses (%.4g of the gas)\n",
+                    static_cast<long long>(U.sink_events), U.sink_mass, U.sink_mass / static_cast<double>(cfg.Ncell));
       timing << "# unsplit calls " << U.calls << " substeps " << U.substeps << " max_substeps "
              << U.max_substeps << " cells_from_e " << U.cells_from_e << " cells_reset "
              << U.cells_reset << " cells_synced " << U.cells_synced << " floor_T " << U.floor_T
              << " floor_rho " << U.floor_rho << "\n";
+      if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
+        timing << "# serial_sink events " << U.sink_events << " mass " << std::setprecision(10) << U.sink_mass
+               << " gas_fraction " << U.sink_mass / static_cast<double>(cfg.Ncell) << "\n";
     }
     timing << "# " << format_rt_timers(s.timers) << "\n";
     if (use_amrex_hydro(cfg)) timing << "# " << amrex_hydro_timers() << "\n";

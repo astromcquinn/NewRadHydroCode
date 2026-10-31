@@ -128,8 +128,8 @@ std::string hydro_backend_summary(const Config& c) {
 }
 
 void check_hydro_backend_param(const Config& c) {
-  if (c.sf_overdensity > 0 && !use_amrex_hydro(c))
-    throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs hydro_backend = amrex");
+  if (c.sf_overdensity > 0 && !use_amrex_hydro(c) && c.hydro_scheme != HydroScheme::Unsplit)
+    throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs hydro_scheme = unsplit or hydro_backend = amrex");
   if (!use_amrex_hydro(c)) return;
   if (!amrex_available())
     throw std::runtime_error("hydro_backend = amrex: this build has no AMReX (cmake -DRADRAY_AMREX=ON)");
