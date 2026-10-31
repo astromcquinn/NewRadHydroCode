@@ -41,6 +41,11 @@ The open item of `stage-g-subcycle` below (`docs/stage_g.md` §6.9 item 3;
 - **Tests:** the nightly `amrex_pm_subcycle_rt_ranks` runs to step 15 again;
   new nightly `amrex_pm_subcycle_rt_restart_ranks` (the 1-rank run's
   checkpoint 13 restarted on 3 ranks; `restart_check.py --restart-np`).
+- **Suites:** `ctest -L amrex -LE nightly` (326 tests) and `ctest -R restart
+  -LE "long|nightly"` (36) pass. One test, `amrex_moment_full_pair_split_r2t2_p2`
+  (single-level OTVET, which does not reach this code), timed out at 1800 s
+  under `-j4` on the 4-core VM, then passed alone in 7 s. That looks like an
+  MPI stall under oversubscription; watch for it in CI.
 
 ## Done 2026-10-31: the refined levels' gravity on their own timescale (branch `stage-g-subcycle`)
 
