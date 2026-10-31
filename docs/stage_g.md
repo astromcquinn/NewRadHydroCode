@@ -605,9 +605,13 @@ the end of each level-0 substep provides (§6.2). The FFT is ~1 % of a step
   predicted and its covered cells' gas from its own coarse substep (the
   coarse prediction of what the average-down will give); it is not redone
   after the children (a corrector solve would double the solves of every
-  level that has children; §6.7). A virtual drift that would leave the
-  deposit's ghost layers is dropped for that particle (counted:
-  `unpredicted` in the timers line).
+  level that has children; §6.7). A virtual drift of more than 2 of the
+  level's cells in a direction is dropped for that particle (it is
+  deposited where it is; counted: `unpredicted` in the timers line). The
+  rule depends on the particle alone: a first version tested the predicted
+  cell against the particle's box, whose size depends on the rank count
+  (AmrMesh chops the refined levels' grids by it), and 1 and 3 ranks
+  diverged at the smoke problem's step 15 (`amrex_pm_subcycle_rt_ranks`).
 - **The scale factor** in lap φ = (2a/3)(ρ − ρ̄) is linear in time across
   the call, as the base step's a at Δ/2 is.
 - **The hydro's ghosts** interpolate the parent's states before its K1 and
@@ -628,8 +632,9 @@ the end of each level-0 substep provides (§6.2). The FFT is ~1 % of a step
   per substep, two substeps per parent substep), deposits its CIC mass into
   level l's ghost layers (the spill restricted onto the parent, §1) and is
   kicked by the force of level l's ghost layers (the parent's potential
-  interpolated, §1); the deposits and forces of every level carry 4 ghost
-  layers, the potentials 6 (the 4-point gradient), so a level must be nested
+  interpolated, §1); the forces of every level carry 4 ghost layers, the
+  deposits 6 (the prediction above), the potentials 6 (the 4-point
+  gradient), so a level must be nested
   4 parent cells inside its parent (AmrMesh's blocking_factor/2 with the
   default 8; checked). An orphan farther out, or a finer-level particle that
   left its parent's boxes within one substep, stops the run with a message
@@ -777,9 +782,33 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
    box to z = 28 (12 gravity-only steps; `amrex_pm_subcycle_ranks_smoke`,
    `amrex_pm_subcycle_restart_smoke`): 1, 2 and 3 ranks byte-identical
    (every field, movie frame and checkpoint), a restart from step 9
-   bit-identical; nightly the same through the RT steps 13–15
-   (`amrex_pm_subcycle_rt_ranks`, `amrex_pm_subcycle_rt_restart`; not run
-   here, ~10 min each).
+   bit-identical. Nightly, through the RT steps: a restart from step 13
+   (the first RT step) to 15 bit-identical (`amrex_pm_subcycle_rt_restart`,
+   7 min), and 1, 2 and 3 ranks byte-identical to step 14
+   (`amrex_pm_subcycle_rt_ranks`). Two things found on the way:
+   - *The restriction's rounding* (`restrict_and_spill`, §1 item 3): a
+     parent cell whose [1, 3, 3, 1] stencil spans several of the level's
+     boxes gets one partial sum per box, and each was divided by 512 and
+     truncated before the partials were added, so the parent's total
+     depended on how the level's boxes are cut, i.e. on the rank count
+     (AmrMesh chops the refined grids by it): 1 and 3 ranks differed by
+     ~1e-13 of TOT(0) at the smoke problem's step 15 and the particles
+     diverged. With the flag the partials carry their floor quotient and
+     remainder through the sum and are divided once (exact). Without the
+     flag the truncation is kept (byte-identity); it is a latent rank
+     dependence of `pm_level_solve` itself, harmless in the tests so far
+     (the float rounding of the density absorbs it) and left for a
+     separate fix.
+   - *The RT at step 15*: with the gravity fixed, the gas of every level and
+     the particles entering step 15's RT are identical on 1 and 3 ranks
+     (checksums, `RADRAY_PM_SUB_DEBUG=1`), and the RT's fields still
+     differ (photons in flight in a few cells, 9e-23 against 0). The same
+     happens with `pm_level_subcycle = 0` restarted from the same
+     checkpoint (with the exact restriction, so that the particles agree):
+     a rank dependence of the RT across two levels that this state
+     triggers and the `pm_level_solve` nightly test's states do not, not
+     the gravity's. Hence the rank test stops after step 14; the RT issue
+     is reported for a separate fix.
 4. **Momentum** (`amrex_pm_subcycle_momentum`,
    `tests/pm_subcycle_check.py`, `RADRAY_PM_MOMENTUM_CHECK=1`, the smoke
    problem, 6 steps): the momentum all kicks of a base step add against

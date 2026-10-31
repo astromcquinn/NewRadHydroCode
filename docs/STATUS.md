@@ -44,6 +44,15 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   per substep on every level with children). Phase 2 (each level's
   substep count from its own CFL limit) needs no change on the gravity
   side; it awaits the user's go.
+- **Found on the way** (`docs/stage_g.md` §6.9 item 3): `restrict_and_spill`
+  truncated each fine box's partial sum before adding, a rank dependence
+  (the refined grids are chopped by the rank count) of 1e-13 in level 0's
+  deposit; exact under the flag, kept without it (byte-identity), to fix
+  separately for `pm_level_solve`. **Open:** from the smoke problem's
+  checkpoint 14 (two levels, the RT on) the RT of step 15 differs between 1
+  and 3 ranks from identical gas and particles, with the flag off too: an
+  RT-across-levels rank dependence, not the gravity's; the new nightly rank
+  test stops after step 14.
 - Tests: `ctest -L subcycle` (`amrex_pm_subcycle_orbit`, `_momentum`,
   `_ranks_smoke`, `_restart_smoke`, `_identity_smoke`; nightly `_rt_ranks`,
   `_rt_restart`, `_collapse`, `amrex_pm_zoom_t1_subcycle`).

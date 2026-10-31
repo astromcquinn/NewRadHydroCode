@@ -448,12 +448,14 @@ struct PMLevel {
   // gravity inside their hydro substeps (pmsub, called by the hydro). A
   // particle may sit up to kOrphan cells outside its level's boxes (it left
   // the level during the parent's substep; moved at the parent's substep
-  // end) and one more cell after its drift, so the deposits and forces of
-  // every level carry ngp ghost layers (the CIC's cell on top) and the
-  // potentials ngp + 2 (the 4-point gradient); without sub-cycling 1 and 3.
-  static constexpr int kOrphan = 2;
+  // end) and one more cell after its drift, so the forces of every level
+  // carry ngp ghost layers (the CIC's cell on top) and the potentials
+  // ngp + 2 (the 4-point gradient); a deposit moves a particle virtually by
+  // up to kPredict more cells (deposit_level), so the deposits carry
+  // ngacc = ngp + kPredict; without sub-cycling 1, 3 and 1.
+  static constexpr int kOrphan = 2, kPredict = 2;
   bool subcycle = false;
-  int ngp = 1, ngpot = 3;
+  int ngp = 1, ngpot = 3, ngacc = 1;
   double ndmr = 0;              // the DM grid's size (the periodic wrap of the drifts)
   bool armed = false;           // a hydro call is in progress (amrex_pm_subcycle_call .. pmsub::done)
   int call_half = 0;            // 0: the base step's first hydro call, 1: the second
@@ -530,12 +532,13 @@ struct PMLevel {
     if (subcycle) {
       ngp = kOrphan + 2;
       ngpot = ngp + 2;
+      ngacc = ngp + kPredict;
       if (r != 1) throw std::runtime_error("pm_level_subcycle = 1 needs pm_refine = 1");
     }
     ndmr = pc_.ndmr;
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
-    acc.define(ba, dm, 1, ngp);  // sub-cycling: level 0's particles moved virtually to the refined levels' times
+    acc.define(ba, dm, 1, ngacc);  // sub-cycling: level 0's particles moved virtually to the refined levels' times
     gas.define(bag, dm, 8, 0);
     if (level_solve) {
       // the hierarchy's levels in one container: level l's domain is the
@@ -648,10 +651,10 @@ struct PMLevel {
       M.pot.define(M.ba, M.dm, 1, ngpot);
       M.frc.define(M.ba, M.dm, 3, ngp);
       M.gas.define(M.bag, M.dm, 8, 0);
-      M.acc.define(M.ba, M.dm, 1, ngp);
+      M.acc.define(M.ba, M.dm, 1, ngacc);
       M.own.define(M.ba, M.dm, 1, 0);
       M.tot.define(M.ba, M.dm, 1, 0);
-      M.cov.define(M.ba, M.dm, 1, ngpot);
+      M.cov.define(M.ba, M.dm, 1, std::max(ngpot, ngacc));
       M.cov.setVal(0);
       M.cov.setVal(1, 0, 1, 0);
       M.cov.FillBoundary(M.period);
@@ -718,7 +721,7 @@ struct PMLevel {
     dm = dm2;
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
-    acc.define(ba, dm, 1, ngp);
+    acc.define(ba, dm, 1, ngacc);
     gas.define(bag, dm, 8, 0);
     if (level_solve) {
       own0.define(ba, dm, 1, 0);
@@ -1194,7 +1197,9 @@ struct PMLevel {
   // SumBoundary. bad counts the corners outside the ghost layer.
   // offset != 0 (pm_level_subcycle): every particle deposited where its
   // drift by offset would put it (the drift's arithmetic, nothing stored),
-  // unless that leaves the ghost layer (then where it is; counted).
+  // unless that moves it more than kPredict of the level's cells in a
+  // direction (then where it is; counted): a rule of the particle alone, not
+  // of the box it sits in, whose size depends on the rank count.
   // only (pm_level_subcycle): deposit only the tiles whose boxes, grown by
   // the deposit's ghost layers, meet these boxes (the cells a caller reads;
   // the other tiles cannot reach them)
@@ -1208,11 +1213,11 @@ struct PMLevel {
     const rpk::MeshGeom g = l == 0 ? mg : mesh_geom(l);
     const int ng = A.nGrow();
     const double nd = ndmr;
+    const double cells_per_dm = x_dm_m * static_cast<double>(1 << l);  // the level's cells per DM-grid cell
     Long unpred = 0;
     for (ax::MFIter mfi(A); mfi.isValid(); ++mfi) {
       const ax::Box bx = mfi.validbox();
       const ax::Box gbx = ax::grow(bx, ng);
-      const ax::Box hbx = ax::grow(bx, ng - 1);  // the home cells whose CIC corners lie in gbx
       if (only && !only->intersects(gbx)) continue;
       const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx), glen = ax::length(gbx);
       const Long ngc = gbx.numPts();
@@ -1233,19 +1238,17 @@ struct PMLevel {
             const float pos[3] = {pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n]};
             home_near(pos, l, bx, NN, h);
             if (offset != 0) {
-              float xv[3], pv[3];
-              for (int c = 0; c < 3; ++c) {
-                const double t = static_cast<double>(x[c]) + static_cast<double>(pd.m_rdata[kV + c][n]) * offset + nd;
-                xv[c] = static_cast<float>(f::mod(t, nd));
-                pv[c] = fpos(xv[c]);
-              }
-              int hv[3];
-              home_near(pv, l, bx, NN, hv);
-              if (hbx.contains(ax::IntVect(hv[0], hv[1], hv[2]))) {
+              bool near = true;
+              for (int c = 0; c < 3; ++c)
+                if (std::fabs(static_cast<double>(pd.m_rdata[kV + c][n]) * offset) * cells_per_dm > kPredict) near = false;
+              if (near) {
+                float pv[3];
                 for (int c = 0; c < 3; ++c) {
-                  x[c] = xv[c];
-                  h[c] = hv[c];
+                  const double t = static_cast<double>(x[c]) + static_cast<double>(pd.m_rdata[kV + c][n]) * offset + nd;
+                  x[c] = static_cast<float>(f::mod(t, nd));
+                  pv[c] = fpos(x[c]);
                 }
+                home_near(pv, l, bx, NN, h);
               } else {
                 unpred += 1;
               }
@@ -1305,7 +1308,16 @@ struct PMLevel {
     // the spill reaches ng fine cells beyond the boxes (the deposits' ghost
     // layers), i.e. the parent cells within (ng + 2) / 2 of the coarsened box
     const int ng = M.acc.nGrow(), ngc = (ng + 2) / 2;
-    LFab cr(ax::coarsen(M.ba, 2), M.dm, 1, ngc);
+    // pm_level_subcycle: a parent cell whose stencil spans several of the
+    // level's boxes gets one partial sum from each; truncating each partial
+    // by the division makes the total depend on how the boxes are cut (by
+    // the rank count: AmrMesh chops the refined grids by it). With the flag
+    // the partials carry their quotient and remainder (floor division) and
+    // are divided once after the sum: exact, layout-independent. (Without
+    // it the original truncation stays: byte-identical, docs/stage_g.md 6.9.)
+    const bool exact = subcycle;
+    const int ncr = exact ? 2 : 1;
+    LFab cr(ax::coarsen(M.ba, 2), M.dm, ncr, ngc);
     cr.setVal(0);
     for (ax::MFIter mfi(cr); mfi.isValid(); ++mfi) {
       const ax::Box cbx = mfi.validbox();
@@ -1331,10 +1343,33 @@ struct PMLevel {
                 continue;  // another box's cell (it adds it) or beyond the reach of any CIC cloud
               sum += static_cast<i128>(v) * (kw[di + 1] * kw[dj + 1] * kw[dk + 1]);
             }
-        c(i, j, k) = static_cast<Long>((sum * mul) / 512);
+        if (exact) {
+          const i128 S = sum * mul;
+          i128 q = S / 512, rem = S % 512;
+          if (rem < 0) {
+            rem += 512;
+            q -= 1;
+          }
+          c(i, j, k, 0) = static_cast<Long>(q);
+          c(i, j, k, 1) = static_cast<Long>(rem);
+        } else {
+          c(i, j, k) = static_cast<Long>((sum * mul) / 512);
+        }
       });
     }
-    TOT(l - 1).ParallelAdd(cr, 0, 0, 1, ngc, 0, PER(l - 1));
+    if (!exact) {
+      TOT(l - 1).ParallelAdd(cr, 0, 0, 1, ngc, 0, PER(l - 1));
+      return;
+    }
+    LFab R(BA(l - 1), DM(l - 1), 2, 0);
+    R.setVal(0);
+    R.ParallelAdd(cr, 0, 0, 2, ngc, 0, PER(l - 1));
+    LFab& Tp = TOT(l - 1);
+    for (ax::MFIter mfi(Tp); mfi.isValid(); ++mfi) {
+      auto t = Tp.array(mfi);
+      auto r = R.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) { t(i, j, k) += r(i, j, k, 0) + r(i, j, k, 1) / 512; });
+    }
   }
 
   // pm_level_solve: the density of level l into POT(l): the level's gas,
@@ -2416,8 +2451,64 @@ struct PMLevel {
     if (bad) throw std::runtime_error("pm_level_subcycle: a CIC corner fell outside the ghost layer");
     if (l > 0) ax::Copy(OWN(l - 1), ACC(l - 1), 0, 0, 1, 0);
     for (int q = l; q <= nf; ++q) ax::Copy(TOT(q), ACC(q), 0, 0, 1, 0);
+    if (sub_debug)
+      for (int q = std::max(l - 1, 0); q <= nf; ++q) {
+        Long cs[2] = {0, 0};
+        for (ax::MFIter mfi(ACC(q)); mfi.isValid(); ++mfi) {
+          auto a = ACC(q).const_array(mfi);
+          ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) { cs[0] += a(i, j, k); });
+          ax::LoopOnCpu(ax::grow(mfi.validbox(), ACC(q).nGrow()), [&](int i, int j, int k) { cs[1] += a(i, j, k); });
+        }
+        ax::ParallelDescriptor::ReduceLongSum(cs, 2);
+        if (ax::ParallelDescriptor::IOProcessor())
+          std::fprintf(stderr, "PMSUB dep for l%d t %.17g: q%d offset %.6g valid %lld grown %lld boxes %d\n", l, t, q,
+                       t - t_part[static_cast<std::size_t>(q)], (long long)cs[0], (long long)cs[1],
+                       static_cast<int>(BA(q).size()));
+      }
     for (int q = nf; q > l; --q) restrict_and_spill(q);
+    if (sub_debug) {
+      Long c = 0;
+      for (ax::MFIter mfi(TOT(l)); mfi.isValid(); ++mfi) {
+        auto a = TOT(l).const_array(mfi);
+        ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) { c += a(i, j, k); });
+      }
+      ax::ParallelDescriptor::ReduceLongSum(c);
+      if (ax::ParallelDescriptor::IOProcessor()) std::fprintf(stderr, "PMSUB tot l%d t %.17g: %lld\n", l, t, (long long)c);
+    }
     T.s_dep += now() - t0;
+  }
+
+  // RADRAY_PM_SUB_DEBUG=1: order-independent checksums (sums of the bit
+  // patterns) of a level's potential, its particles and its gas, printed by
+  // rank 0 (the first divergence between two runs)
+  bool sub_debug = std::getenv("RADRAY_PM_SUB_DEBUG") != nullptr;
+  void sub_check(const char* what, int l, double t, const ax::MultiFab* U = nullptr) {
+    if (!sub_debug) return;
+    unsigned long long cs[4] = {0, 0, 0, 0};
+    auto bits = [](float x) { std::uint32_t b; std::memcpy(&b, &x, 4); return static_cast<unsigned long long>(b); };
+    auto bitsd = [](double x) { unsigned long long b; std::memcpy(&b, &x, 8); return b; };
+    for (ax::MFIter mfi(POT(l)); mfi.isValid(); ++mfi) {
+      auto p = POT(l).const_array(mfi);
+      ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) { cs[0] += bits(p(i, j, k)); });
+      auto& pt = tile(l, mfi);
+      const PTD pd = pt.getParticleTileData();
+      for (int n = 0; n < static_cast<int>(pt.numParticles()); ++n)
+        for (int c = 0; c < 3; ++c) {
+          cs[1] += bits(pd.m_rdata[kX + c][n]);
+          cs[2] += bits(pd.m_rdata[kV + c][n]);
+        }
+    }
+    if (U)
+      for (ax::MFIter mfi(*U); mfi.isValid(); ++mfi) {
+        auto u = U->const_array(mfi);
+        ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+          for (int m = 0; m < 5; ++m) cs[3] += bitsd(u(i, j, k, m));
+        });
+      }
+    ax::ParallelDescriptor::ReduceLongSum(reinterpret_cast<Long*>(cs), 4);
+    if (ax::ParallelDescriptor::IOProcessor())
+      std::fprintf(stderr, "PMSUB %d %s l%d t %.17g pot %llx x %llx v %llx gas %llx\n", call_half, what, l, t, cs[0], cs[1],
+                   cs[2], cs[3]);
   }
 
   // Level l's potential at call time t (l >= 1: and its force)
@@ -2443,6 +2534,7 @@ struct PMLevel {
       T.s_solves += 1;
     }
     t_new[L] = t;
+    sub_check("solve", l, t, &U);
   }
 
   // Level l's gas (valid cells and ng ghost layers of the hydro's U) and
@@ -2487,6 +2579,7 @@ struct PMLevel {
     kick_dm_level(l, dt, k.a, k.v, k.ma, k.mv, bad, pcheck_sub ? pk_sum : nullptr, dm_mass);
     if (bad) throw std::runtime_error("pm_level_subcycle: a CIC corner of a kick fell outside the ghost layer");
     kstat[static_cast<std::size_t>(l)] = k;  // the level's last kick
+    sub_check("kick", l, t_part[static_cast<std::size_t>(l)], &U);
     T.s_kick += now() - t0;
   }
 
@@ -2689,6 +2782,25 @@ struct PMLevel {
   // kick; vmax and vrms over every particle's velocity now). Collective.
   void sub_finish(pm::PMState& s, SimClock& clk) {
     if (!drift_pending) return;
+    if (sub_debug) {  // the gas state of every level (floats)
+      for (int l = 0; l <= state->finest; ++l) {
+        const gs::FFab& G = l == 0 ? state->G : state->fine[static_cast<std::size_t>(l) - 1].G;
+        Long cs = 0;
+        for (ax::MFIter mfi(G); mfi.isValid(); ++mfi) {
+          auto g = G.const_array(mfi);
+          ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+            for (int m = 0; m < gs::kNC; ++m) {
+              std::uint32_t b;
+              const float x = g(i, j, k, m);
+              std::memcpy(&b, &x, 4);
+              cs += static_cast<Long>(b) * (m + 1);
+            }
+          });
+        }
+        ax::ParallelDescriptor::ReduceLongSum(cs);
+        if (ax::ParallelDescriptor::IOProcessor()) std::fprintf(stderr, "PMSUB finish gas l%d %llx\n", l, (unsigned long long)cs);
+      }
+    }
     drift0(clk.dt_sim);
     drift_pending = false;
     sync_levels();
