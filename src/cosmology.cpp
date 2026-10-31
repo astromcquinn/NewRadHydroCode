@@ -228,7 +228,8 @@ void init_variables(const Cosmology& c, double z_init, SimClock& clk) {
 
 // radhydro.f90: calc_timestep, without the speed conversions and output
 namespace {
-TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed, SimClock& clk) {
+TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed, SimClock& clk,
+                           const Units* u = nullptr) {
   using namespace stepp;
   TimestepInfo t;
   const double z = clk.redshift;
@@ -266,7 +267,10 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
   //   dt_max_myr: the step is at most dt_max_myr Myr;
   //   rt_substeps_max: the step holds at most this many RT substeps (the
   //               light crossing of rt_substeps_max * rt_cells_per_substep
-  //               RT cells at c_reduced).
+  //               RT cells at c_reduced);
+  //   plane_turnon_cfl (plane mode, default on): the step that starts at
+  //               plane_z_re is at most the CFL step of the gas once
+  //               photoheated (below).
   // Each one shortens da_sim; dt follows from da as above.
   {
     double da_cap = clk.da_sim;
@@ -303,6 +307,35 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
           lo = mid;
       }
       da_cap = f::gmin(da_cap, lo);
+    }
+    // plane_turnon_cfl = 1 (config.hpp; docs/plane_parallel.md): the hydro
+    // step runs before the RT of the same interval, so the step that starts
+    // at the turn-on (a = a_re within 1e-9: the step before lands on it; the
+    // first step with the RT on) would be sized by the cold gas only and the
+    // photoheated gas would sit that long without a hydro response. It is
+    // at most plane_turnon_courant 2 dt_gas_factor / (cmax_gas + c_hot), the
+    // CFL step with the sound speed of fully ionised gas at plane_turnon_temp
+    // added (times a Courant fraction, default 1):
+    // c_hot^2 = gamma k T / (mu m_H), mu = 1 / (2 X + 3 Y/4) (H II, He III:
+    // the hydro's c_s^2 = gamma (gamma - 1) e / rho of that gas at T =
+    // temp3_unit e / rho), in code units by vel_unit = x_unit / time_unit as
+    // calc_timestep converts vmax_gas. A function of a only, so a restart at
+    // z_re repeats it (the clock, cmax_gas included, is checkpointed) and no
+    // later step can trigger it. Last, so that it changes nothing when it
+    // does not bind (the dt_max_myr bisection starts from the da before it).
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_turnon_cfl && u != nullptr &&
+        mode != TimestepMode::Fixed) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (std::fabs(a - a_re) <= a_re * 1e-9) {
+        const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
+        t.c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
+        double da_hot = 0, dty = 0;
+        calc_da_from_dt(cfg.cosmo, a, da_hot, cfg.plane_turnon_courant * (2 * dt_gas_factor / (clk.cmax_gas + t.c_hot)), dty);
+        if (da_hot < da_cap) {
+          da_cap = da_hot;
+          t.turnon_capped = true;
+        }
+      }
     }
     if (da_cap < clk.da_sim) {
       clk.da_sim = da_cap;
@@ -361,7 +394,17 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
 
 TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode, double da_fixed,
                            SimClock& clk, std::ostream* out) {
-  const TimestepInfo t = timestep_core(cfg, mode, da_fixed, clk);
+  const TimestepInfo t = timestep_core(cfg, mode, da_fixed, clk, &u);
+  if (out && t.c_hot > 0) {
+    char buf[256];
+    std::snprintf(buf, sizeof buf,
+                  " calc_timestep: plane turn-on step: c_hot = %.4g km/s (plane_turnon_temp = %g K), "
+                  "cmax_gas = %.4g km/s, plane_turnon_courant = %g, %s\n",
+                  t.c_hot * u.vel_unit / 1e5, cfg.plane_turnon_temp, clk.cmax_gas * u.vel_unit / 1e5,
+                  cfg.plane_turnon_courant,
+                  t.turnon_capped ? "the step is capped" : "the cap does not bind");
+    *out << buf;
+  }
 
   // Velocity in km/s, acceleration in km/s/Gyr (in place, as the original;
   // 1E5 and 1E9 are real(4) literals, exact)

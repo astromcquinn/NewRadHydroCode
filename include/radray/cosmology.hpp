@@ -122,6 +122,10 @@ struct TimestepInfo {
   int ns_rt = 0;
   double dt_vg = 0, dt_ap = 0;  // years (0 in the istep == 0 / fixed branch)
   double z1 = 0, z2 = 0, a1 = 0, a2 = 0, y1 = 0, y2 = 0;
+  // plane_turnon_cfl (the step that starts at plane_z_re): c_hot in code
+  // units (0 when the rule did not apply) and whether it shortened the step
+  double c_hot = 0;
+  bool turnon_capped = false;
 };
 TimestepInfo calc_timestep(const Config& cfg, const Units& u, TimestepMode mode, double da_fixed,
                            SimClock& clk, std::ostream* out = nullptr);

@@ -1777,6 +1777,28 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+* **The turn-on step (user request, 2026-10-28: "could we just make sure
+  the first step after turn on of RT is small in plane parallel
+  cases?"):** `plane_turnon_cfl` (default 1 in plane mode, 0 = the step
+  before 2026-10-28) and `plane_turnon_temp` (default 2e4 K). The hydro
+  step runs before the RT of the same interval, so the step that starts
+  at z_re is sized by the cold gas (25 Myr at 64³ in the T4 problem) and
+  the photoheated gas waits that long for its first hydro response. That
+  one step is now at most the CFL step 2 dt_gas_factor / (cmax_gas +
+  c_hot), c_hot the sound speed of fully ionised gas at 2e4 K; the steps
+  after it are unchanged (their cmax_gas already holds the hot gas).
+  Implementation choices (this thread; `docs/plane_parallel.md`, "Turn-on
+  and the step caps"): μ of H II + He III (2X + 3Y/4 particles per m_H,
+  the code's own X, Y, γ, k, m_H); the cap applied after the other caps
+  so that it changes nothing when it does not bind; a function of a only
+  (a = a_re to 1e-9), so a restart at z_re repeats it bit for bit.
+  `make_production.py --plane-parallel` needs nothing (the default is on).
+  Added in this thread: `plane_turnon_courant` (default 1), because the
+  T4 runs at 64³ show the requested CFL step with c_hot (20 Myr) does not
+  remove the lag while a ~1 Myr turn-on step (0.05) does.
+* **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
+  default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
+  64³, one extra hydro step).
 
 ## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
 
@@ -1786,3 +1808,16 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   In `apps/radhydro`, `thermal_init = recfast` makes it the default; an
   explicit key wins. Without `recfast` the code default stays 0, so
   every existing run is byte-identical (`docs/hydro_unsplit.md` §7, U7).
+
+## Rank 0 without the full grid copy (2026-10-29, branch `rank0-no-mirror`)
+
+User decisions (2026-10-29):
+
+- Remove rank 0's full copy of the grid under `amrex_state = 1`
+  (`docs/rank0_streaming.md`). At 1024³ it was about 270 GB of the
+  458 GB peak of rank 0, and at 2048³ it would be about 2 TB.
+- Leave the halo finder on rank 0's particle copy for now. A distributed
+  friends-of-friends is a separate, later project. Runs that need no halo
+  sources, such as the plane-parallel mode, can turn the halo finder off.
+- Recommendation adopted: do the grid part first, then the power spectrum
+  on the level, which frees the host PM mesh arrays on rank 0.
