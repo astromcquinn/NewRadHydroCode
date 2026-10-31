@@ -520,7 +520,200 @@ cumulative timers):
   against their 30–60 s steps, but a short benchmark on `/gscratch`
   should not be read without the `io` column.
 
-## 6. How to run
+## 6. Sub-cycled gravity on the refined levels (`pm_level_subcycle`)
+
+*Design written 2026-10-31 (branch `stage-g-subcycle`), the user's decision
+of 2026-10-29 (`docs/PLAN.md`, "Stage G"): the fine levels need gravity on
+their own timescale. Behind `pm_level_subcycle = 1` (default 0), which acts
+only with `pm_level_solve = 1`, `amrex_max_level > 0` and `pm_refine = 1`;
+with 0 every result is byte-identical (§6.8). Results in §6.9.*
+
+### 6.1 The time-stepping order per level
+
+A base step [0, Δ] is two hydro calls of Δ/2 around the PM step. Without the
+flag, every level is drifted, solved and kicked once, at Δ/2 (§1). With it:
+
+- **Level 0** keeps its one kick per base step (drift–kick–drift, DKD): its
+  particles drift Δ/2, level 0's density (every level's particles and gas at
+  Δ/2, the finer levels restricted onto it) is FFT-solved, its particles and
+  its gas are kicked by g₀(Δ/2)·Δ. The second drift of level 0's particles
+  is deferred to the end of the second hydro call (the same arithmetic, so
+  without refinement the step is bitwise unchanged). The refined levels are
+  neither solved nor kicked here.
+- **Level l ≥ 1**, in every one of its hydro substeps [T, T + h] (h is
+  whatever the hydro takes; today h_{l−1}/2), kick–drift–kick (KDK):
+  1. its state at T is the children's interpolation source (`Uold`), as
+     before;
+  2. K1: its gas (the valid cells and the two ghost layers the substep
+     reads) and its particles kicked by g_l(T)·h/2;
+  3. the hydro substep, unchanged;
+  4. its particles drift by h;
+  5. the closing solve at T + h: the deposit (§6.2), the MLMG level solve,
+     the force g_l(T + h);
+  6. K2: gas (valid cells) and particles kicked by g_l(T + h)·h/2;
+  7. the children's substeps (each the same, recursively), the reflux and
+     the average-down, as before;
+  8. the particles of levels l and finer reassigned (§6.3).
+  
+  The next substep's K1 reuses g_l(T + h): one solve per substep.
+  K(h/2) H(h) K(h/2) is Strang splitting of hydro and gravity, second order
+  like the base step's H(Δ/2) K(Δ) H(Δ/2); for the particles it is the
+  leapfrog, second order and symplectic within a level. The base step's
+  form (half hydro, gravity, half hydro) per fine substep would need the
+  hydro substep split in two, i.e. twice the hydro work and a new reflux
+  pattern; KDK has the same order with one force per substep.
+- **Level 0 for level 1:** after each level-0 hydro substep, before level 1's
+  substeps, level 0 is solved at the substep's end (deposit and FFT) for
+  level 1's boundary values only; level 0 is never kicked by it.
+- **Opening:** at the start of each hydro call, after the hydro's push-down
+  and regrid, the PM levels follow the gas state's, every particle goes to
+  the finest level holding it, and every level is solved at the call's start
+  (g_l for the first K1). Nothing is carried from one call to the next
+  except the particles and the gas.
+
+Per base step, level l ≥ 1 does N_l + 2 solves (N_l its substeps, 2·nsub·2^l
+today, nsub the level-0 CFL substeps per half step; the 2 the openings) and
+level 0 does 1 FFT for its kick, 2 for the openings and 2·nsub for the
+boundary values. **This is more than "level 0 keeps the FFT once per base
+step":** level 0's gravity (its kick) is still once per step, but level 1
+needs level 0's potential at level 1's times, which only a level-0 solve at
+the end of each level-0 substep provides (§6.2). The FFT is ~1 % of a step
+(§5), so the extra 2–4 cost nothing measurable; the alternative is in §6.7.
+
+### 6.2 What is interpolated in time
+
+- **The boundary values.** A level-l solve at time t takes its Dirichlet
+  values and the potential of its ghost layers from the parent's potential
+  interpolated linearly in time between the parent's last two solves, i.e.
+  between the start and the end of the parent's substep that contains t
+  (the parent is ahead: its closing solve precedes its children's
+  substeps). The time-interpolated parent potential replaces the parent's
+  potential of §1 step 5, cell by cell (exact for t at either end).
+- **The density of a solve at t** is level l's gas (the hydro's double
+  state, rounded once), its own particles at t, the finer levels' particles
+  (still at T, the parent's substep start) and the parent level's particles
+  (`own(l−1)` prolonged, already at the parent's substep end) each moved
+  **virtually** to t: deposited at x + v (t − t_q) with the drift's
+  arithmetic, nothing stored (level 0's particles: from the call's start,
+  their DKD positions, with the velocity of the drift they are in). This is
+  a second-order prediction (Enzo deposits predicted positions the same
+  way). The parent's closing solve therefore sees its children's particles
+  predicted and its covered cells' gas from its own coarse substep (the
+  coarse prediction of what the average-down will give); it is not redone
+  after the children (a corrector solve would double the solves of every
+  level that has children; §6.7). A virtual drift that would leave the
+  deposit's ghost layers is dropped for that particle (counted:
+  `unpredicted` in the timers line).
+- **The scale factor** in lap φ = (2a/3)(ρ − ρ̄) is linear in time across
+  the call, as the base step's a at Δ/2 is.
+- **The hydro's ghosts** interpolate the parent's states before its K1 and
+  after its K2: both synchronous (gravity included up to that time), so
+  the children's coarse–fine ghosts carry the parent's gravity in time.
+  Level 0's gravity is not in its substeps (its kick is at Δ/2), so level
+  1's ghosts from level 0 lag or lead by up to g₀Δ/2 in velocity: the same
+  first-order mismatch the boundary of the level solve already has, at the
+  base step's resolution.
+
+### 6.3 Particles between levels
+
+- A particle stays on one level for a whole substep of that level, and for
+  the whole substep of its parent: the reassignment (AMReX `Redistribute`
+  over levels l..finest) happens at the end of every level-l substep.
+- A particle of level l that left its boxes during the parent's substep
+  stays on level l (an *orphan*, at most 2 of its cells outside: one cell
+  per substep, two substeps per parent substep), deposits its CIC mass into
+  level l's ghost layers (the spill restricted onto the parent, §1) and is
+  kicked by the force of level l's ghost layers (the parent's potential
+  interpolated, §1); the deposits and forces of every level carry 4 ghost
+  layers, the potentials 6 (the 4-point gradient), so a level must be nested
+  4 parent cells inside its parent (AmrMesh's blocking_factor/2 with the
+  default 8; checked). An orphan farther out, or a finer-level particle that
+  left its parent's boxes within one substep, stops the run with a message
+  (a particle faster than a cell per substep).
+- **Level 0 ↔ level 1.** Level 0's particles sit at the call's start with
+  the velocity of their drift (DKD), so they enter the refined levels only
+  at the call openings: at the base step's start (both schemes synchronous)
+  without a correction, at its middle minus the half of level 0's kick
+  that the refined level will apply again, v −= g₀(Δ/2)·Δ/2. Particles of
+  the refined levels that left level 1 become level-0 particles at the end
+  of every level-0 substep (call time t_k, their level's force g): in the
+  first call v' = v − g t_k, x' = x − v t_k + g t_k Δ/2, so that level 0's
+  kick and first drift give v + g(Δ − t_k) and x + v(Δ/2 − t_k) to O(gΔ²);
+  in the second call v' = v + g(Δ/2 − t_k), x' = x − v' t_k, which the
+  deferred drift takes to the step's end. These few particles get level 0's
+  first-order force placement; inside the levels the scheme is KDK.
+- Stars of the sink are created as level-0 particles (as now: those of the
+  first call are drifted by the PM step's first drift) and enter their level
+  at the next opening.
+
+### 6.4 Momentum: average-down and reflux
+
+The fine levels' gas is kicked in the hydro's double state of the level. The
+hydro's average-down after the children (all ten components) carries the
+children's kicks into the parent's covered cells; the reflux corrects the
+hydro fluxes only (gravity is a cell source, not a flux, and nothing of it
+enters the flux registers). Level 0's kick at Δ/2 is applied to all of
+level 0 and then its covered cells are overwritten by the average of the
+fine levels' momenta and energies (`average_down_momenta`, as with
+`pm_gas_levels`), so the fine gas gets no level-0 kick. The total momentum
+is not conserved exactly: the Dirichlet boundary (as in §1.1) and, new, the
+time offset between a level's mass and the other levels' kicks (the parent
+feels its children's predicted mass, the children their parent's
+interpolated potential; O(h²)). `RADRAY_PM_MOMENTUM_CHECK=1` prints the
+momentum the kicks of a whole base step add against their summed |Δp|.
+
+### 6.5 The push-down and `level0_is_current`
+
+- Within a hydro call the fine levels' kicks change only the hydro's own
+  state; the push-down compares level 0 with what the last call wrote out,
+  so nothing new enters it.
+- The PM step's level-0 kick changes level 0 between the calls; the
+  average-down above restores the covered cells and then declares level 0
+  current (`amrex_hydro_level0_is_current`), so the second call pushes
+  nothing down, as with `pm_gas_levels` and `pm_level_solve` before.
+- The RT acts between base steps on every level, averages down and declares
+  level 0 current (unchanged); its gravity-free changes need no push-down.
+  The push-down keeps carrying only what it carried before (the summaries'
+  clamps, the halo metals).
+
+### 6.6 Restarts, ranks and the timestep
+
+- Checkpoints are written at the ends of base steps, where every particle is
+  synchronous (level 0's deferred drift done, the refined levels at their
+  last K2) and on its level after a full reassignment; no potential or force
+  is carried (each call's opening recomputes them). The checkpoint is
+  unchanged; a restart reproduces the uninterrupted run bit for bit (§6.9).
+- Every new operation is per cell or per particle, the deposits are fixed
+  point, the solves the fixed-iteration MLMG, the statistics 128-bit fixed
+  point and maxima: no floating-point reduction enters the physics, so the
+  results do not depend on the rank or thread count (the particles' order
+  in a tile does not matter).
+- The kick statistics: amax and arms over level 0's kick and every refined
+  level's last kick of the step, vmax and vrms over every particle's
+  velocity at the step's end; the timestep criteria are unchanged (in
+  level-0 units), so the base step is as long as without sub-cycling.
+
+### 6.7 Choices, and the options not taken
+
+1. **Level 1's boundary values** (the one deviation from the request's
+   "level 0 keeps the FFT once per base step"): a level-0 solve after each
+   level-0 hydro substep (built; time-interpolated like every other level).
+   The alternative, level 0's potential held constant over each half step
+   (the opening's, then the PM step's), saves 2·nsub FFTs and their
+   deposits per step and is first order in time at level 1's boundary.
+2. **No corrector solve** after the children (built: the parent's closing
+   solve uses its children's predicted mass). A corrector would make the
+   parent's K2 and its children's last boundary values exact at the cost of
+   one more solve per substep on every level that has children (~2× on the
+   intermediate levels of a zoom).
+3. **Level 0's particles enter the hierarchy only at the call openings**
+   (built); fine particles leave to level 0 at every level-0 substep end.
+4. **The substep ratio:** everything follows the hydro's substeps and their
+   times (the parent interpolation uses times, not the ratio), so phase 2
+   (each level's substep count from its own CFL limit) needs no change on
+   the gravity side.
+
+## 7. How to run
 
 ```
 # AMReX with the linear solvers (the default): -DAMReX_LINEAR_SOLVERS=ON in the
