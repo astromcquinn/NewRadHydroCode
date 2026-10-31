@@ -70,8 +70,9 @@ def main():
                 sc = re.search(r"; sub-cycled: (.*?), to level 0 (\d+), unpredicted (\d+)", rest)
                 if sc:
                     sp = []
-                    for key in ("open", "deposit", "level-0 fft", "solve", "kick", "drift", "regroup"):
-                        mm = re.search(key + r" ([0-9.]+)(?: \((\d+)\))?", sc.group(1))
+                    for key in ("open", "deposit", "level 0's particles", "level-0 fft", "solve", "kick", "drift",
+                                "regroup"):
+                        mm = re.search(r"(?<![\w-])" + key + r" ([0-9.]+)(?: \((\d+)\))?", sc.group(1))
                         if mm:
                             sp.append(f"{key} {float(mm.group(1)) / nst:.3f}" +
                                       (f" ({int(mm.group(2)) / nst:.0f}/step)" if mm.group(2) else ""))

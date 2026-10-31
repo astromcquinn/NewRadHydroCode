@@ -167,7 +167,7 @@ struct Timers {
   // refined levels' solves inside the hydro calls, the kicks, drifts and
   // reassignments; the solves, the particles moved to level 0 by a
   // reassignment, the virtual drifts dropped (beyond the deposit's ghosts)
-  double s_open = 0, s_dep = 0, s_fft = 0, s_solve = 0, s_kick = 0, s_drift = 0, s_regroup = 0;
+  double s_open = 0, s_dep = 0, s_dep0 = 0, s_fft = 0, s_solve = 0, s_kick = 0, s_drift = 0, s_regroup = 0;
   Long s_solves = 0, s_fft_n = 0, s_to0 = 0, s_unpred = 0;
   Long steps = 0;
 };
@@ -1195,7 +1195,10 @@ struct PMLevel {
   // offset != 0 (pm_level_subcycle): every particle deposited where its
   // drift by offset would put it (the drift's arithmetic, nothing stored),
   // unless that leaves the ghost layer (then where it is; counted).
-  void deposit_level(int l, double mass, Long& bad, double offset = 0) {
+  // only (pm_level_subcycle): deposit only the tiles whose boxes, grown by
+  // the deposit's ghost layers, meet these boxes (the cells a caller reads;
+  // the other tiles cannot reach them)
+  void deposit_level(int l, double mass, Long& bad, double offset = 0, const ax::BoxArray* only = nullptr) {
     LFab& A = ACC(l);
     A.setVal(0);
     const int NN = Nm << l;
@@ -1210,6 +1213,7 @@ struct PMLevel {
       const ax::Box bx = mfi.validbox();
       const ax::Box gbx = ax::grow(bx, ng);
       const ax::Box hbx = ax::grow(bx, ng - 1);  // the home cells whose CIC corners lie in gbx
+      if (only && !only->intersects(gbx)) continue;
       const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx), glen = ax::length(gbx);
       const Long ngc = gbx.numPts();
       auto& pt = tile(l, mfi);
@@ -2402,7 +2406,12 @@ struct PMLevel {
       if (q > 0 && dm_mass * std::ldexp(1.0, 3 * q) > std::ldexp(1.0, 62 - BITS(q)))
         throw std::runtime_error("pm_level_solve: the particle mass overflows level " + std::to_string(q) +
                                  "'s fixed point (lighter particles or fewer levels)");
-      deposit_level(q, dm_mass, bad, t - t_part[static_cast<std::size_t>(q)]);
+      // the parent level's particles enter level l's density only through
+      // their deposit on the parent cells under level l (rho_level)
+      const ax::BoxArray under = q == l - 1 ? ax::coarsen(BA(l), 2) : ax::BoxArray();
+      const double tq = now();
+      deposit_level(q, dm_mass, bad, t - t_part[static_cast<std::size_t>(q)], q == l - 1 ? &under : nullptr);
+      if (q == 0) T.s_dep0 += now() - tq;
     }
     if (bad) throw std::runtime_error("pm_level_subcycle: a CIC corner fell outside the ghost layer");
     if (l > 0) ax::Copy(OWN(l - 1), ACC(l - 1), 0, 0, 1, 0);
@@ -2537,6 +2546,8 @@ struct PMLevel {
           (void)n0;
         }
       T.s_to0 += static_cast<Long>(moved.size());
+      Long nmoved = static_cast<Long>(moved.size());
+      ax::ParallelDescriptor::ReduceLongSum(nmoved);  // (an integer: the same on every layout)
       {
         ax::MFIter m0(pot);  // (closed before the Redistribute's own MFIters)
         if (m0.isValid()) {
@@ -2545,7 +2556,7 @@ struct PMLevel {
           append(pc->DefineAndReturnParticleTile(0, 0, 0), moved);  // (a rank without level-0 boxes)
         }
       }
-      pc->Redistribute(0, 0);
+      if (nmoved > 0) pc->Redistribute(0, 0);
       pc->Redistribute(1, nf);
       T.s_regroup += now() - t0;
       return;
@@ -2860,9 +2871,9 @@ struct PMLevel {
       if (subcycle) {
         char b4[320];
         std::snprintf(b4, sizeof b4,
-                      "; sub-cycled: open %.3f deposit %.3f level-0 fft %.3f (%lld) solve %.3f (%lld) kick %.3f "
+                      "; sub-cycled: open %.3f deposit %.3f (level 0's particles %.3f) level-0 fft %.3f (%lld) solve %.3f (%lld) kick %.3f "
                       "drift %.3f regroup %.3f, to level 0 %lld, unpredicted %lld",
-                      T.s_open, T.s_dep, T.s_fft, static_cast<long long>(T.s_fft_n), T.s_solve,
+                      T.s_open, T.s_dep, T.s_dep0, T.s_fft, static_cast<long long>(T.s_fft_n), T.s_solve,
                       static_cast<long long>(T.s_solves), T.s_kick, T.s_drift, T.s_regroup,
                       static_cast<long long>(T.s_to0), static_cast<long long>(T.s_unpred));
         out += b4;
