@@ -105,6 +105,7 @@ int main(int argc, char** argv) {
         Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
+    s.cfg.sn_heating = P.sn_heating != 0;
     if (P.rt_substep_carry) {
       if (s.cfg.legacy_rt) throw std::runtime_error("rt_substep_carry requires legacy_rt = 0");
       s.cfg.rt_substep_carry = true;

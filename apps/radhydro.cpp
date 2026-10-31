@@ -131,6 +131,7 @@ struct RunParams {
   int photon_consume_dense = -1;  // Config::photon_consume_dense (P11 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
+  int sn_heating = 1;                        // Config::sn_heating (1 = original; 0 = off)
   // thermal_init = floor | recfast (Config::thermal_init, docs/thermal_history.md)
   // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
   int thermal_init = 0;
@@ -251,6 +252,10 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "cool_suppress_overdensity") {
     P.cool_suppress_overdensity = std::stod(val);
     if (!(P.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
+  }
+  else if (key == "sn_heating") {
+    P.sn_heating = std::stoi(val);
+    if (P.sn_heating != 0 && P.sn_heating != 1) throw std::runtime_error("sn_heating must be 0 or 1");
   }
   else if (key == "thermal_init") {
     if (val == "floor")
@@ -750,6 +755,7 @@ int main(int argc, char** argv) {
         Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
+    s.cfg.sn_heating = P.sn_heating != 0;
     s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
     s.cfg.thermal_floor = P.thermal_floor > 0 ? P.thermal_floor : (P.thermal_init == 1 ? 0.1 : 1.0);
     copy_hydro_scheme(P.hydro, s.cfg);

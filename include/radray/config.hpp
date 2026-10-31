@@ -191,6 +191,14 @@ struct Config {
   // legacy_physics; no Fortran mirror (a new flag).
   double cool_suppress_overdensity = 200.0;
 
+  // params.txt sn_heating: photo_cell's SN heating (T > 1e4 K and rho >
+  // rho_source = 50 times the mean: eSN eSF rho / t_dyn c^2, the original's
+  // sub-grid feedback, applied with or without sources). 1 (default) is the
+  // original; 0 switches it off (user decision 2026-10-30: no SN heating in
+  // any run; make_production.py writes 0; docs/plane_parallel.md). Not tied
+  // to legacy_physics; no Fortran mirror (a new flag).
+  bool sn_heating = true;
+
   // params.txt thermal_init = floor (default, the original) | recfast
   // (docs/thermal_history.md, quirk T1 of docs/port_notes.md 5b). floor:
   // the gas starts at temp_min and neutral gas never couples to the CMB.

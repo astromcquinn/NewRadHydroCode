@@ -73,7 +73,8 @@ def main():
                  "--movie-dz", "0", "--hydro-scheme", "legacy", "--redshift-per-distance", "0",
                  "--recomb-case", "B", "--recomb-rad", "0",  # recomb_rad: serial RT only
                  "--c-schedule", "none",  # the constant 0.01c of the measurement
-                 "--photon-consume-dense", "0"],  # the rho_source factor of the measurement (before P11)
+                 "--photon-consume-dense", "0",  # the rho_source factor of the measurement (before P11)
+                 "--sn-heating", "1"],  # the SN heating of the measurement (before 2026-10-30)
                 os.path.join(work, "make.log"))
         else:
             # today's production defaults (unsplit, redshift_per_distance, case B
@@ -85,7 +86,8 @@ def main():
             # on the backends: amrex_state_c_schedule_r2
             run([sys.executable, os.path.join(tools, "production", "make_production.py"), prob, "--N", "64",
                  "--movie-dz", "0", "--recomb-rad", "0", "--c-schedule", "none",
-                 "--photon-consume-dense", "0"],  # the rho_source factor of the measurement (before P11)
+                 "--photon-consume-dense", "0",  # the rho_source factor of the measurement (before P11)
+                 "--sn-heating", "1"],  # the SN heating of the measurement (before 2026-10-30)
                 os.path.join(work, "make.log"))
     common = ["--quiet", "--set", "restart_every=0", "--set", "movie_dz=0.25", "--set", "movie_z0=15"]
     runs = {"serial": [exe, prob, os.path.join(work, "serial")] + common,

@@ -185,6 +185,10 @@ def main():
                     help="overdensity above which cooling and SN heating are suppressed "
                          "(cool_suppress_overdensity, docs/stage_f.md); 200: the original (default, "
                          "no line written); 0: off (dense gas cools)")
+    ap.add_argument("--sn-heating", type=int, default=0, choices=(0, 1),
+                    help="photo_cell's SN heating above rho_source = 50 times the mean in "
+                         "photoheated gas (sn_heating); 0 (default, user decision 2026-10-30: "
+                         "no SN heating in any run): off; 1: the original")
     ap.add_argument("--amrex-max-level", type=int, default=0,
                     help="refinement levels of the gas hierarchy (amrex_max_level, docs/stage_f.md; "
                          "--backend amrex only); 0: none (default, no line written)")
@@ -372,6 +376,8 @@ def main():
         lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.cool_suppress_overdensity != 200.0:
         lines.append(f"cool_suppress_overdensity = {a.cool_suppress_overdensity:g}")
+    if a.sn_heating != 1:
+        lines.append(f"sn_heating = {a.sn_heating}")
     if a.amrex_max_level > 0 or a.sf_overdensity > 0:
         if a.backend != "amrex":
             sys.exit("--amrex-max-level and --sf-overdensity need --backend amrex")

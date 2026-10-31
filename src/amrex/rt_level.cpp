@@ -1247,6 +1247,7 @@ struct Level : LevelBase {
       X.cells = cells;  // the crossing speed of this level's path
       X.photon_conserve = s.cfg.photon_conserve;
       X.cool_suppress = s.cfg.cool_suppress_overdensity;
+      X.sn_heating = s.cfg.sn_heating;
       X.photon_consume_dense = s.cfg.photon_consume_dense;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;

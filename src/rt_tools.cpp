@@ -1156,6 +1156,7 @@ void radiative_physics_plane(Simulation& s, int krt, RPSink& sink) {
   X.cells = s.cfg.rt_cells_per_substep;
   X.photon_conserve = s.cfg.photon_conserve;
   X.cool_suppress = s.cfg.cool_suppress_overdensity;
+  X.sn_heating = s.cfg.sn_heating;
   X.photon_consume_dense = s.cfg.photon_consume_dense;
   X.want_nrab = static_cast<bool>(s.recomb);
   // xray_heating (docs/xray_heating.md): the uniform X-ray rates of this
