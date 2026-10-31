@@ -1742,6 +1742,16 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(amrex_pm_subcycle_collapse PROPERTIES TIMEOUT 7200
                            LABELS "amrex;amrex_pm;amr;level_solve;subcycle;nightly" ENVIRONMENT OMP_NUM_THREADS=2
                            PROCESSORS 4 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+      # T1 with pm_level_subcycle = 1 as well (run D, held to B's criteria;
+      # nightly, ~6 min on 2 ranks)
+      add_test(NAME amrex_pm_zoom_t1_subcycle
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_zoom_t1_check.py
+                       ${amrex_runs}/pm_zoom_t1_subcycle "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} 2 $<TARGET_FILE:radhydro> $<TARGET_FILE:find_halos> ${PROJECT_SOURCE_DIR}
+                       --subcycle)
+      set_tests_properties(amrex_pm_zoom_t1_subcycle PROPERTIES TIMEOUT 7200
+                           LABELS "amrex;amrex_pm;amr;level_solve;subcycle;nightly" ENVIRONMENT OMP_NUM_THREADS=2
+                           PROCESSORS 4 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
       # without refinement the level solve is the Stage E level: byte-identical
       add_test(NAME amrex_pm_level_solve_identity_smoke
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/flag_identity_check.py

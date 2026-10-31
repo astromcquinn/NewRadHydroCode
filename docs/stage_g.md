@@ -21,6 +21,7 @@ gradient and the kicks per level. Behind `pm_level_solve = 1` (default 0);
 | The forces and kicks per level, the average-down of the kicked momenta | done | momentum conserved to 1e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet boundary) |
 | Tests `ctest -L level_solve` (10 tests) | done | all pass here (4-core VM, OpenMPI 4.1.6, AMReX 26.10 with the linear solvers) |
 | T1 of the zoom ladder (32³ base, two levels over the central eighth, against uniform 128³) | §4 | nightly `amrex_pm_zoom_t1` |
+| Sub-cycled gravity of the refined levels (`pm_level_subcycle`, §6) | done 2026-10-31 | §6.9: the orbit energy error 73× smaller (64× expected), momentum as before, 1/2/3 ranks byte-identical, bit-identical restarts, byte-identical to 0 without a refined level; klone profile to run |
 | Timing at 128³ with two levels | §5: klone, one node (2026-10-24, re-run 2026-10-28): the level solve's PM 0.16–0.17 s per step against 0.27 s for the uniform 512³ mesh; the step 1.5 s in both (the hydro hierarchy, 1.2 s); the VM numbers as well | the profile found the bottom-solve stall of a 144-cell level, fixed at no cost (width² sweeps, a floor of 8: 0.122 s per step against 0.124 s, 1.5e-11 against 4e-7); the 2026-10-28 step slowdown was `/gscratch` metadata latency, §5.1 |
 
 Ground rules kept: `reference/` untouched; every new behaviour behind
@@ -163,6 +164,9 @@ same arithmetic): byte-identical.
 | `include/radray/pm.hpp`, `src/pm.cpp` | `PMConfig::level_solve`, `max_level`, `blocking_factor`, `mlmg_*`; `dm_mass_ratio`; `Ndm` a multiple of the mesh |
 | `src/amrex/pm_level.cpp` | `FineMesh`, `bits_of`, `interp_parent(_quad)`; `PMLevel::sync_levels`, `deposit_level`, `restrict_and_spill`, `rho_level`, `solve_level`, `force_level`, `kick_dm_level`, `kick_levels`, `average_down_momenta`, `force_at`; `fpos`/`home_l` (the positions by level), `for_tiles` |
 | `src/amrex/pm_level_stub.cpp` | the no-AMReX stub of `amrex_pm_force_at` |
+| `src/amrex/pm_subcycle.hpp` | `pm_level_subcycle` (§6): the PM's functions the hydro hierarchy calls (`pmsub::open`, `solve`, `kick`, `drift`, `regroup`, `done`); in `pm_level.cpp`: `sub_open`, `sub_solve` (`sub_density`, `parent_at`), `sub_kick`, `sub_drift`, `sub_regroup` (`to_level0`), `step_level0`, `sub_finish`; `amrex_pm_subcycle_call`, `amrex_pm_subcycle_finish` (`pm_backend.hpp`) |
+| `src/amrex/hydro_level.cpp` | `HydroLevel::advance`/`step`: the calls of §6.1 |
+| `tests/test_amrex_pm_subcycle.cpp`, `tests/pm_subcycle_check.py`, `tests/pm_subcycle_collapse_check.py` | §6.9 |
 | `CMakeLists.txt` | the `LSOLVERS` component of `find_package(AMReX)`, `AMReX_LINEAR_SOLVERS ON` for `RADRAY_FETCH_AMREX` |
 | `tools/hyak/build_amrex.sh` | AMReX with the linear solvers into `$RADRAY_SW/amrex-26.10-mlmg` |
 | `tests/test_amrex_pm_levels.cpp` | the unit tests (§3) on a gas state with refined levels built by the test |
@@ -725,4 +729,10 @@ mpirun -np 4 build-amrex/radhydro RUN out --set rt_backend=amrex --set hydro_bac
   --set step_timers=1      # the MLMG iterations and residual per level in the timers line
 ctest --test-dir build-amrex -L level_solve
 RADRAY_PM_LEVEL_DEBUG=1 ...   # the mass of every level's deposits after each PM deposit
+# the refined levels' gravity in their own substeps (section 6; pm_refine = 1)
+mpirun -np 4 build-amrex/radhydro RUN out ... --set pm_level_solve=1 --set pm_level_subcycle=1
+ctest --test-dir build-amrex -L subcycle     # (the nightly ones with -DRADRAY_NIGHTLY_TESTS=ON)
+RADRAY_PM_MOMENTUM_CHECK=1 ...   # the momentum the kicks of each base step add
+# klone: the 128^3 two-level profile with and without the flag (section 6.9)
+CONFIGS="level_solve level_subcycle" LOCAL=1 sbatch tools/hyak/pm_level_solve_profile.slurm
 ```

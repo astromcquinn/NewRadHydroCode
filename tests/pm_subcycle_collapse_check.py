@@ -5,7 +5,7 @@ docs/stage_g.md section 6), against the uniform run at the finest
 resolution with a short time step.
 
 usage: pm_subcycle_collapse_check.py WORKDIR LAUNCH "LAUNCH_FLAGS" NPFLAG NP RADHYDRO SRC
-                                     [--base 16] [--fine 64] [--zc 12] [--zend 7] [--sigma 3]
+                                     [--base 16] [--fine 64] [--zc 15] [--zend 6] [--sigma 5]
 
 The particles (fine^3, a lattice in a 4 Mpc/h box from z = 100) carry one
 spherical Gaussian Zel'dovich displacement towards a point near the box's
@@ -23,9 +23,12 @@ neighbourhood: the centre of mass within 2 fine cells of A's, iterated), its
 mass M200 (the particles within the radius where the enclosed mean density
 falls to 200 times the mean) and its spherically averaged density profile
 (fine-cell shells 0.5-12) for each run. Passes when B1's centre lies within
-0.5 fine cells of A's, its M200 within 10 % of A's, its profile within 25 %
-rms (log) of A's, and B1 is not worse than B0 in centre, mass and profile
-(each by a margin of 10 % of B0's error or 1e-3).
+0.25 fine cells of A's, its M200 within 5 % of A's, its profile within 5 %
+rms (log) of A's, B1 is not worse than B0 in centre and mass (by a margin
+of 10 % of B0's error or 1e-3) and its profile error is at most half B0's.
+2026-10-31 (4-core VM, 2 ranks x 2 threads, ~25 min): A's halo 544
+particles; B0 centre 0.025 cells, M200 +7.5 %, profile 8.8 %; B1 0.008
+cells, M200 0, profile 0.8 %.
 """
 import argparse
 import os
@@ -39,7 +42,8 @@ import numpy as np
 BASE = ["--quiet", "--set", "legacy_rt=0", "--set", "legacy_physics=0", "--set", "rt_backend=amrex",
         "--set", "hydro_scheme=unsplit", "--set", "hydro_backend=amrex", "--set", "amrex_hydro_max_grid_size=0",
         "--set", "pm_backend=amrex", "--set", "amrex_state=1", "--set", "amrex_max_grid_size=8",
-        "--set", "deterministic_parallel=0", "--set", "tvir_min=1e30", "--set", "movie_dz=0"]
+        "--set", "deterministic_parallel=0", "--set", "tvir_min=1e30", "--set", "movie_dz=0",
+        "--set", "land_outputs=1"]  # every run ends exactly at ZEND
 
 
 def run(cmd, log, env=None):
@@ -97,9 +101,9 @@ def main():
         ap.error("usage: pm_subcycle_collapse_check.py " + " ".join(p.upper() for p in pos) + " [options]")
     ap.add_argument("--base", type=int, default=16)
     ap.add_argument("--fine", type=int, default=64)
-    ap.add_argument("--zc", type=float, default=12.0)
-    ap.add_argument("--zend", type=float, default=7.0)
-    ap.add_argument("--sigma", type=float, default=3.0)
+    ap.add_argument("--zc", type=float, default=15.0)
+    ap.add_argument("--zend", type=float, default=6.0)
+    ap.add_argument("--sigma", type=float, default=5.0)
     ap.add_argument("--keep", action="store_true", help="reuse existing runs")
     a = ap.parse_args(sys.argv[8:])
     for name, val in zip(pos, sys.argv[1:8]):
@@ -155,7 +159,7 @@ def main():
             run(mpi + [a.exe, os.path.join(work, p), o] + BASE + sets("run_steps=2000", "step_timers=1") + extra,
                 os.path.join(work, name + ".log"))
     # A's step: 1/8 of B1's median base step (level 2's substep)
-    dts = [float(m.group(1)) for m in re.finditer(r"(?m)^dt_yr\s+(\S+)", "".join(
+    dts = [float(m.group(1)) for m in re.finditer(r"(?m)^dt_yr\s*=\s*(\S+)", "".join(
         open(os.path.join(work, "B1", s, "stats.txt")).read() for s in sorted(os.listdir(os.path.join(work, "B1")))
         if s.startswith("step_") and os.path.isfile(os.path.join(work, "B1", s, "stats.txt"))))]
     dts = [x for x in dts if x > 0]
@@ -186,11 +190,11 @@ def main():
               f"difference {lp:.3f}; profile " + " ".join(f"{v:.3g}" for v in p))
     fails = []
     e0, e1 = err["B0"], err["B1"]
-    for i, (lab, lim) in enumerate((("centre", 0.5), ("M200", 0.10), ("profile", 0.25))):
+    for i, (lab, lim) in enumerate((("centre", 0.25), ("M200", 0.05), ("profile", 0.05))):
         if not e1[i] < lim:
             fails.append(f"B1 {lab} {e1[i]:.3f} >= {lim:g}")
-        if not e1[i] <= 1.1 * e0[i] + 1e-3:
-            fails.append(f"B1 {lab} {e1[i]:.3f} worse than B0's {e0[i]:.3f}")
+        if not e1[i] <= (0.5 * e0[i] if lab == "profile" else 1.1 * e0[i] + 1e-3):
+            fails.append(f"B1 {lab} {e1[i]:.3f} not better than B0's {e0[i]:.3f}")
     if fails:
         print("FAIL:\n  " + "\n  ".join(fails))
         sys.exit(1)
