@@ -293,12 +293,34 @@ step that starts at a_re is the turn-on step). `make_production.py
 --plane-parallel` needs nothing (the default is on). With `plane_parallel
 = 0`, or without `plane_z_re`, nothing changes.
 
+**The coupling cap (`plane_couple_courant`; user decision 2026-10-30).**
+After the turn-on cmax_gas holds the hot gas, so the CFL step is about
+0.45 Δx/c_hot (16 Myr at 64³). The RT heating and cooling meet the hydro
+only once per step, and in the C1 boxes that is long enough for a
+clump to cool and contract while a neighbouring cell is drained and heated
+numerically (Δ 47 → 0.4 with T 1.6 × 10⁴ → 7 × 10⁵ K, then 2 × 10⁶ K,
+at 64³ without SN heating; cmax_gas 10× its value for ~30 Myr; below).
+`plane_couple_courant` = C caps every step from the turn-on (a ≥ a_re) at
+
+  dt_sim = C / c_hot  (code units: Δx = x_unit), i.e. dt = C Δx_phys / c_hot,
+
+with c_hot of the turn-on rule (`plane_turnon_temp`). It scales with the
+cell like the CFL step, so every rung of a ladder has the same coupling
+as a fraction of the hot gas's cell crossing (C = 0.15: 5, 2.6, 1.3,
+0.65 Myr at 64³, 128³, 256³, 512³ in the 0.25 Mpc/h box). Default 0 =
+off; `make_production.py --plane-parallel` writes 0.15. It comes after
+the turn-on rule (which is shorter at the turn-on step). A function of a
+only, so restarts repeat it. The extra hydro, PM and summary steps are
+cheap next to the RT, whose substeps are set by ĉ: at 64³ the capped run
+costs 602 s against 700 s for the uncapped one, which the hot cells had
+slowed down.
+
 ### Tests (`tests/CMakeLists.txt`)
 
 | test | what |
 |---|---|
 | `plane_rt` (`tests/plane_check.py`, RT-only driver, uniform gas built per check) | Γ_HI normalisation to 5e-8 in the source cells and to the attenuation elsewhere, for 1, 2 and 4 cells per substep; the bins and the optical depths; slab attenuation per bin = Π(1 − τ_j) to 4e-4 and e^−τ to 2 %; one front across the whole box against the photon budget (thin gas: 0.5 %; 100× the mean density with recombinations: the column = (photons − the code's recombinations)/n_H and α_eff against case B); the light-limited front at ĉ; photon conservation (3e-5); 2³ domains ionising identically (1e-6) with no ray crossing a domain edge; 1 vs 2 threads byte-identical |
-| `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 4e4`, `plane_turnon_courant = 0.5`, as the default does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 0.5, dt ≤ 0.5 Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 37.1 Myr) |
+| `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 4e4`, `plane_turnon_courant = 0.5`, as the default does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 0.5, dt ≤ 0.5 Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 37.1 Myr); `plane_couple_courant = 0.3`: dt_sim c_hot = 0.3 where it binds (most steps after z_re), at most 0.3 in all of them, the steps before z_re bit for bit, T_M(z) and x_HII,V(z) of the uncapped run to 0.5 % |
 | `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
 | `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step: the steps to it bit for bit those of the serial run (the later CFL steps to 4e-8) |
 
@@ -339,3 +361,74 @@ The bitwise suite is untouched: every new flag defaults to the original.
   cross in the first step, T_M = 17 900 K behind them, E(k) steepens from
   k^−3.6 to k^−5 with no k^−5/3 range, as C26 Fig. 3 (bottom) at Δx ≥ 0.5
   kpc/h. The 128³–512³ rungs run on klone (`tools/hyak/c1_ladder.sh`).
+
+### The C1 ladder from C26's ICs (2026-10-30; klone, `tools/hyak/c1_ladder.sh`)
+
+Runs in `/gscratch/astro/mcquinn/radhydro/runs/c1_c26` (`c1_N<N>/run`;
+the cancelled first launch with SN heating in `c1_N<N>/run_sn1`). MUSIC +
+CAMB from z = 300, the C26 cosmology, `thermal_init = recfast` with its
+table, z_re = 7, Γ_−12 = 0.3, 8³ domains lit from +x and +y, cooling on
+everywhere, no preheating, the serial build (`sweep` transport).
+
+**64³ checks** (16 threads):
+
+* Before z_re the mean-density gas (median T at 0.9 < Δ < 1.1, from
+  `e_gas`) follows the RECFAST table to ≤ 0.6 % from z = 50 to 15, then
+  +1.7 % at z = 11 and +4–5 % at z = 8–7 (the non-linear warming of
+  `docs/thermal_history.md` §4). The volume-weighted T of `Log/hydro.log`
+  follows the table to 0.1–0.5 % down to z ≈ 20; below that shocked gas
+  dominates it. `stats.txt` shows T_M = −nan before z_re (known).
+* The turn-on step is 0.81 Myr (`plane_turnon_courant = 0.05`). The
+  fronts cross the 8³ domains in that first step: x_HII,V = 0.986,
+  T_V = 19 800 K, T_M = 18 500 K behind them; x_HII,V = 0.9998 at
+  z = 6.9, when ĉ drops to 0.01c. T_V falls to 12 700 K at z = 6 and
+  7 400 K at z = 4.2.
+* E(k) against the Zel'dovich 64³ rung of 2026-10-27
+  (`docs/data/plane/c1_N64_ek.json`): at z = 6.6 the new rung has 5× its
+  ⟨v²⟩ (47 against 9.4 (km/s)²), because the old rung predates the short
+  turn-on step and its ⟨v²⟩ only starts rising after z = 6.5. From
+  z ≈ 6.2 on the two agree: ⟨v²⟩ 49 against 51.5 at z = 6, 44.5 against
+  46.3 at 5.5, 40.7 against 40.9 at 5; E(k) band by band within 0.7–1.9×
+  (different ICs and cosmology); the same slope between 0.25 and
+  0.6 h/kpc (−4.3 at z = 6). The domain imprint is small: ≤ 1 % of ⟨v²⟩
+  is on the domain harmonics (k a multiple of 2π/31.25 kpc/h), gone by
+  z = 6.
+
+**SN heating in source-free boxes (found in the first launch).** The
+128³ and 256³ rungs slowed to 0.2-Myr steps from z ≈ 5.5: cmax_gas rose
+from 60 to 2 500 and vmax_gas to 2 000 (code units; the DM stayed at
+vmax ≈ 40). `photo_cell` adds the original's sub-grid SN heating,
+eSN eSF ρ c²/t_dyn, to every cell above 10⁴ K and 50× the mean density,
+with or without sources. Its (200/x)^1.5 damping above 200× is part of
+`cool_suppress_overdensity`, which these problems set to 0, so the
+photoheated minihalo gas exploded. Per unit mass it injects ~200× the
+thermal energy of 10⁴ K gas per dynamical time. At 64³ it changes
+⟨v²⟩ by only 1–7 % (the episode at z ≈ 5.4–5.0, vmax ~600, relaxes). Now off
+everywhere (`sn_heating = 0`, user decision; `docs/PLAN.md`).
+
+**Numerical hot cells, and the coupling cap.** Without SN heating one
+cell next to a cooling clump (Δ ~ 1 000 at 64³) was evacuated and heated
+to 2 × 10⁶ K (cmax_gas 10× for ~30 Myr). Variants at 64³, peak
+cmax_gas / vmax_gas between z_re and z = 4 (baseline ≈ 28 / 13):
+
+| variant | peak cmax / vmax |
+|---|---|
+| `sn_heating = 0`, the CFL steps (12–16 Myr) | 150–280 / 60 |
+| the same with outputs every Δz = 0.01 (steps ≤ 2.8 Myr) | 27 / 13 |
+| `dt_max_myr` = 1, 3 or 5 | 31 / 14 |
+| `plane_couple_courant = 0.15` (5.4–6.4 Myr) | 31 / 14 |
+| `hydro_scheme = legacy` (20 Myr steps) | 21 / 10 |
+| `dual_e_self = 0` | 500 / 1 300 |
+| `dual_energy = 0` | 164 / 38 |
+
+The hot cell depends on the coupling interval of the unsplit hydro, not on
+the dual-energy rules alone. E(k) at 0.05 < k < 0.4 h/kpc moves by
+≤ 13 % between the uncapped run and the 1-Myr cap (≤ 8 % for 5 Myr).
+Hence `plane_couple_courant = 0.15` (above).
+
+**The ladder with `sn_heating = 0` and `plane_couple_courant = 0.15`**
+(relaunched 2026-10-30 21:25): results below when the rungs finish.
+
+| N | Δx [kpc/h] | threads | wall | peak RSS | RT substeps | steps |
+|---|---|---|---|---|---|---|
+| 64 | 3.9 | 16 | 10.0 min | 0.29 GB | 2 844 | 179 |

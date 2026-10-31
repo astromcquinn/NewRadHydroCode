@@ -1819,6 +1819,29 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   `amrex_state = 1`, every rung with recfast runs the serial build on a
   whole node (512³ included, ~100 GB with the sweep transport);
   `THERMAL=floor` gives the 512³ rung the backend as before.
+* **No SN heating in any run (user, 2026-10-30: "I want supernova
+  heating to be zero in all runs").** `photo_cell`'s sub-grid SN heating
+  (T > 10⁴ K and ρ > `rho_source` = 50× the mean: eSN eSF ρ c²/t_dyn,
+  with or without sources) is behind the new key `sn_heating` (1, the
+  default, is the original and byte-identical; 0 = off, both drivers and
+  both RT paths); `make_production.py` writes `sn_heating = 0` for every
+  problem (`--sn-heating 1` restores it). Found in the C1 ladder: with
+  `cool_suppress_overdensity = 0` its (200/x)^1.5 damping is gone and the
+  photoheated minihalo gas exploded (vmax_gas ~2000, 0.2-Myr steps at
+  128³/256³; `docs/plane_parallel.md`, "The C1 ladder from C26's ICs").
+  Every reionisation run before 2026-10-30 had it (damped above 200×
+  there); its effect on them was not measured. Not tied to
+  `legacy_physics`; no Fortran mirror.
+* **The coupling cap scales with the cell (user, 2026-10-30), replacing
+  "no cap" for the plane-parallel problems.** With the CFL step after the
+  turn-on (≈ 0.45 Δx/c_hot) gas next to a cooling clump was drained and
+  heated numerically within one RT–hydro coupling interval (2 × 10⁶ K at
+  Δ = 0.1, 64³). A hard `dt_max_myr` was not well motivated (user: "shouldn't
+  it scale with size of cell?"), so the new key `plane_couple_courant` = C
+  caps every step from z_re at C Δx/c_hot (c_hot of the turn-on rule);
+  C = 0.15 (user decision; the loosest value tested that removes the hot
+  cells at 64³: 5 Myr there, 2.6/1.3/0.65 Myr at 128³/256³/512³).
+  Default 0 = off; `make_production.py --plane-parallel` writes 0.15.
 
 ## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
 

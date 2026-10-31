@@ -5,7 +5,9 @@
 # z_re = 7, Gamma_-12 = 0.3, 8^3 RT domains lit from +x and +y, DM20's speed
 # of light schedule (0.1 c until x_HI,V < 1 per cent, then 0.01 c), cooling on
 # everywhere, no preheating unless PREHEAT is set (the pre-heating floor in K
-# from z = 15, C26's 100 or 1000), Ndm = Ngas. Also the T4 coupling-interval
+# from z = 15, C26's 100 or 1000), Ndm = Ngas, no SN heating (sn_heating = 0) and
+# the coupling cap plane_couple_courant = 0.15 (make_production.py's defaults since
+# 2026-10-30; docs/plane_parallel.md). Also the T4 coupling-interval
 # test at 128^3 (tools/analysis/t4_coupling.py; Zel'dovich ICs as before).
 #
 # Initial conditions (ICS):
