@@ -22,7 +22,7 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   between calls: restarts need no new state). Momentum averaged down by
   the hydro, gravity not refluxed; the push-down untouched
   (`average_down_momenta` and `level0_is_current` after level 0's kick).
-- **Results** (4-core VM): an orbit inside level 2, energy error 73×
+- **Results** (4-core VM): an orbit inside level 2, energy error 77×
   smaller (64× expected: 8 level-2 kicks per base step); a collapsing
   halo on two levels against the uniform fine run with level 2's step:
   profile within 0.8 % (8.8 % without), M200 exact (+7.5 %); T1: the inner

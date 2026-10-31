@@ -323,7 +323,7 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   substeps, solving at its own times with the parent's potential
   interpolated in time; particles change level at the end of the parent's
   substep; level 0 keeps one kick per base step. An orbit inside level 2
-  conserves energy 73× better; a collapsing halo's profile matches the
+  conserves energy 77× better; a collapsing halo's profile matches the
   uniform fine run to 0.8 % (8.8 % with one kick per base step); T1's
   inner-region error halves. Cost at Z1/Z2 to be measured (the klone
   128³ profile first). Phase 2, each level's substep count from its own

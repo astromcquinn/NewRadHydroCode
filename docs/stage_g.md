@@ -21,7 +21,7 @@ gradient and the kicks per level. Behind `pm_level_solve = 1` (default 0);
 | The forces and kicks per level, the average-down of the kicked momenta | done | momentum conserved to 1e-9 with levels over the whole box, 5e-4 with a region (the Dirichlet boundary) |
 | Tests `ctest -L level_solve` (10 tests) | done | all pass here (4-core VM, OpenMPI 4.1.6, AMReX 26.10 with the linear solvers) |
 | T1 of the zoom ladder (32³ base, two levels over the central eighth, against uniform 128³) | §4 | nightly `amrex_pm_zoom_t1` |
-| Sub-cycled gravity of the refined levels (`pm_level_subcycle`, §6) | done 2026-10-31 | §6.9: the orbit energy error 73× smaller (64× expected), momentum as before, 1/2/3 ranks byte-identical, bit-identical restarts, byte-identical to 0 without a refined level; klone profile to run |
+| Sub-cycled gravity of the refined levels (`pm_level_subcycle`, §6) | done 2026-10-31 | §6.9: the orbit energy error 77× smaller (64× expected), momentum as before, 1/2/3 ranks byte-identical, bit-identical restarts, byte-identical to 0 without a refined level; klone profile to run |
 | Timing at 128³ with two levels | §5: klone, one node (2026-10-24, re-run 2026-10-28): the level solve's PM 0.16–0.17 s per step against 0.27 s for the uniform 512³ mesh; the step 1.5 s in both (the hydro hierarchy, 1.2 s); the VM numbers as well | the profile found the bottom-solve stall of a 144-cell level, fixed at no cost (width² sweeps, a floor of 8: 0.122 s per step against 0.124 s, 1.5e-11 against 4e-7); the 2026-10-28 step slowdown was `/gscratch` metadata latency, §5.1 |
 
 Ground rules kept: `reference/` untouched; every new behaviour behind
@@ -739,7 +739,7 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
 2026-10-31).
 
 1. **An orbit inside level 2** (`amrex_pm_subcycle_orbit`,
-   `tests/test_amrex_pm_subcycle.cpp`, 86 s on 2 ranks × 2 threads): a light
+   `tests/test_amrex_pm_subcycle.cpp`, 95 s on 2 ranks × 2 threads): a light
    particle on a circular orbit 6 level-2 cells around a clump of 511
    particles at one point (the clump at the centre of level 2 of a 32³
    base; a static universe; a cold, light gas), radhydro's base step at a
@@ -751,9 +751,9 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
 
    | | max \|E − E_ref\| / (v²/2) |
    |---|---|
-   | `pm_level_subcycle = 0` (level 2 kicked once per base step) | 3.62e-3 |
-   | `pm_level_subcycle = 1` (8 times: 2 hydro calls × 4 level-2 substeps) | 4.93e-5 |
-   | ratio | 73 (expected (2·2²)² = 64; the request's (2^l)² = 16 counted one hydro call per base step) |
+   | `pm_level_subcycle = 0` (level 2 kicked once per base step) | 3.63e-3 |
+   | `pm_level_subcycle = 1` (8 times: 2 hydro calls × 4 level-2 substeps) | 4.71e-5 |
+   | ratio | 77 (expected (2·2²)² = 64; the request's (2^l)² = 16 counted one hydro call per base step) |
 
    At 16 base steps per orbit the cold gas falling onto the clump makes the
    hydro take 4 substeps per call (both runs), so the sub-cycled run has
