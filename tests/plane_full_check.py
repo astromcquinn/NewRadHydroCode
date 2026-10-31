@@ -44,12 +44,13 @@ then 0.01 c). Checks:
 --dm20 (label nightly): the scaled-down physics sanity check of
 docs/plane_parallel.md: 0.256 Mpc/h, 32^3 (DM20: 1024^3), Zel'dovich
 initial conditions from z = 100, z_re = 8, Gamma_-12 = 0.3, 2^3 domains,
-cooling on everywhere (cool_suppress_overdensity = 0), run to z = 7.
-Checks: x_HII,V > 0.99 at z = 7, the mass-weighted temperature of the
-ionised gas in 1e4 .. 3e4 K (DM20: about 2e4 K just behind the fronts),
-the ionised-gas clumping factor <n^2>/<n>^2 in 1 .. 10 (DM20 Fig. 4:
-~ 2-3 at 1 kpc/h; coarser here), and the photon bookkeeping closes to
-1e-3 in every RT step.
+cooling on everywhere (cool_suppress_overdensity = 0), land_outputs = 1,
+run to z = 7. Checks: the run ends on z = 7 and the outputs are the
+zdata1 redshifts (no extra step past the last one), x_HII,V > 0.99 at
+z = 7, the mass-weighted temperature of the ionised gas in 1e4 .. 3e4 K
+(DM20: about 2e4 K just behind the fronts), the ionised-gas clumping
+factor <n^2>/<n>^2 in 1 .. 10 (DM20 Fig. 4: ~ 2-3 at 1 kpc/h; coarser
+here), and the photon bookkeeping closes to 1e-3 in every RT step.
 """
 import argparse
 import glob
@@ -364,12 +365,15 @@ def dm20(a):
     prob = os.path.join(a.work, "dm20")
     make_problem(prob, N, 0.256, 100, "30 20 15 12 10 9 8.5 8 7.5 7", False,
                  {"plane_ndom": 2, "plane_faces": "+x +y", "plane_gamma12": 0.3, "plane_z_re": 8,
-                  "c_reduced_schedule": "0.1 0.99 0.01", "cool_suppress_overdensity": 0})
+                  "c_reduced_schedule": "0.1 0.99 0.01", "cool_suppress_overdensity": 0,
+                  "land_outputs": 1})
     out = run(a.exe, prob, os.path.join(a.work, "dm20_run"), a.set)
     st = steps(out)
     print("the scaled-down DM20 problem at z = 7")
     s = st[-1]
-    check(abs(s["redshift"][0] - 7) < 0.05, f"the run ended at z = {s['redshift'][0]:.3f}")
+    check(abs(s["redshift"][0] - 7) < 1e-9, f"the run ended on the last output z = 7 (z = {s['redshift'][0]:.12f})")
+    zw = sorted((float(p.split("z=")[1]) for p in glob.glob(os.path.join(out, "Pk", "pk.z=*"))), reverse=True)
+    check(zw == [30, 20, 15, 12, 10, 9, 8.5, 8, 7.5, 7], f"land_outputs = 1: the outputs are the zdata1 redshifts ({zw})")
     check(s["xHII_V"][0] > 0.99, f"x_HII,V = {s['xHII_V'][0]:.4f} > 0.99")
     fHI, T, rho = last_fields(out, N)
     ion = fHI < 0.5

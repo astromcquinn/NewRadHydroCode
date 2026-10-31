@@ -1797,7 +1797,7 @@ int main(int argc, char** argv) {
       const TimestepInfo ti =
           calc_timestep(cfg, s.units, TimestepMode::Original, 0.0, s.clk, out);
       // Set IO flags (calc_timestep)
-      if (ti.a2 >= adata1[idata1 - 1]) data1_out = true;
+      if (idata1 <= Ndata1 && ti.a2 >= adata1[idata1 - 1]) data1_out = true;
       if (idata2 <= Ndata2)
         if (ti.a2 >= adata2[idata2 - 1]) data2_out = true;
 
@@ -1956,7 +1956,10 @@ int main(int argc, char** argv) {
           tensor_diag_write(s, d, io);
         }
       }
-      const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
+      // land_outputs = 1: the clock's two half steps can leave the redshift a few
+      // ulp above the last output it landed on; the run ends once that output
+      // is written
+      const bool last = s.clk.redshift <= zdata1[Ndata1 - 1] || (cfg.land_outputs && idata1 > Ndata1);
       write_stats(d);
       update_sched_x();
       if (fields || last) {
