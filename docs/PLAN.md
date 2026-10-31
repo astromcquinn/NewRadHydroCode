@@ -1747,8 +1747,11 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   (user decision, 2026-10-29):** the original lets cells denser than 50×
   the mean ionise without consuming photons (`rho_source` in
   `docs/port_notes.md`); the plane-parallel problems and
-  `make_production.py --plane-parallel` set 1 so dense gas self-shields;
-  the code default stays 0, the original.
+  `make_production.py --plane-parallel` set 1 so dense gas self-shields.
+  **With P11 (user decision 2026-10-28, below)** `photon_consume_dense`
+  follows `legacy_physics`, so `legacy_physics = 0` turns it on and
+  `make_production.py` no longer writes the explicit line; with
+  `legacy_physics = 1` the default stays the original.
 * **The default floor of the plane-parallel problems (user decision,
   2026-10-29):** no preheating floor by default (`T_min = 0`), and the
   original's 1 K floor lowered to 0.1 K in the plane-parallel problems
@@ -1799,6 +1802,32 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
   default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
   64³, one extra hydro step).
+
+## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
+
+* **User decision:** dense gas must consume photons by default in
+  production. Following the ground rules (the original stays the
+  default; corrections go behind `legacy_physics`), the key
+  `photon_consume_dense` now works like `photon_conserve` (B17): −1 (the
+  default) follows `legacy_physics`, so it is on with `legacy_physics = 0`
+  and off (the original `rho_source` factor of `photo_cell`) with
+  `legacy_physics = 1`; an explicit 0 or 1 overrides in either mode. ID
+  **P11** (`docs/port_notes.md` §5b).
+* **Scope:** only the photon-consumption factor of `photo_cell`. The other
+  two uses of `rho_source` stay as they are in both modes: the SN heating
+  above 50× the mean (a subgrid feedback term, not photon bookkeeping)
+  and the `rho_source`-weighted clumping factor of the gas summary (an
+  output diagnostic compared with the Fortran full harness).
+* **No Fortran mirror** (user decision 2026-10-08: new flags need none),
+  so every comparison of a `legacy_physics = 0` run with the Fortran
+  harnesses or their stored outputs sets `photon_consume_dense = 0`.
+* **Production:** `make_production.py` (`legacy_physics = 0`) gets it
+  without a line; `--photon-consume-dense 0` restores the original. It
+  lowers the effective escape fraction, so the f_esc(z) calibration
+  (`docs/production_run.md` §8, already pending for the ĉ schedule) must
+  be redone with it. A run already in progress keeps the old behaviour
+  only if `photon_consume_dense = 0` is added to its `params.txt` before
+  it is restarted with a binary that has P11.
 
 ## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
 

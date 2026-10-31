@@ -295,8 +295,9 @@ struct PhysCtx {
   // kPhotonIterMax iterations), not only until ne converges (at most 5, the
   // original). false is the original.
   bool photon_conserve = false;
-  // Config::photon_consume_dense: true = every photoionisation consumes its
-  // photon; false (the original) = the rho_source factor below
+  // P11 fix (Config::photon_consume_dense, docs/port_notes.md 5b): true =
+  // every photoionisation consumes its photon; false (the original) = the
+  // rho_source factor below
   bool photon_consume_dense = false;
   // Config::cool_suppress_overdensity: the overdensity above which the
   // cooling and SN heating are suppressed ((x0/x)^2, (x0/x)^1.5); 200 is

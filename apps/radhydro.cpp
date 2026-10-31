@@ -128,6 +128,7 @@ struct RunParams {
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
   int photon_conserve = -1;       // Config::photon_conserve (B17 fix): -1 = !legacy_physics, else 0 | 1
+  int photon_consume_dense = -1;  // Config::photon_consume_dense (P11 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
   // thermal_init = floor | recfast (Config::thermal_init, docs/thermal_history.md)
@@ -262,6 +263,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_conserve < -1 || P.photon_conserve > 1)
       throw std::runtime_error("photon_conserve must be 0 or 1");
+  }
+  else if (key == "photon_consume_dense") {
+    P.photon_consume_dense = std::stoi(val);  // -1: follow legacy_physics (the default)
+    if (P.photon_consume_dense < -1 || P.photon_consume_dense > 1)
+      throw std::runtime_error("photon_consume_dense must be 0 or 1");
   }
   else if (key == "redshift_per_distance") {
     P.redshift_per_distance = std::stoi(val);
@@ -735,6 +741,8 @@ int main(int argc, char** argv) {
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
+    s.cfg.photon_consume_dense =
+        Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
@@ -988,6 +996,10 @@ int main(int argc, char** argv) {
            << (P.photon_conserve >= 0 ? ", photon_conserve = " + std::to_string(P.photon_conserve) +
                                             (P.photon_conserve == int(!cfg.legacy_physics) ? "" : " (set explicitly)")
                                       : std::string())
+           << (P.photon_consume_dense >= 0
+                   ? ", photon_consume_dense = " + std::to_string(P.photon_consume_dense) +
+                         (P.photon_consume_dense == int(!cfg.legacy_physics) ? "" : " (set explicitly)")
+                   : std::string())
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << (P.cool_suppress_overdensity != 200.0
                    ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
