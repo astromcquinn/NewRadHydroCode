@@ -1809,6 +1809,10 @@ int main(int argc, char** argv) {
       // or one unsplit step over dt_sim/2 (hydro_scheme = unsplit)
       auto th = Clock::now();
       nstar_step = 0;
+      // pm_level_subcycle: the refined levels' gravity inside the hydro calls
+      // (docs/stage_g.md section 6)
+      const bool pm_sub = use_amrex_pm(cfg) && amrex_pm_subcycled(pm);
+      if (pm_sub) amrex_pm_subcycle_call(pm, s.clk);
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::First, s.gas, hs);
       sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
@@ -1831,7 +1835,13 @@ int main(int argc, char** argv) {
       // Reverse hydro step with transposes in between (legacy), or the
       // second unsplit step over dt_sim/2
       th = Clock::now();
+      if (pm_sub) amrex_pm_subcycle_call(pm, s.clk);
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::Second, s.gas, hs);
+      if (pm_sub) {  // level 0's second drift, the particles onto their levels (before this call's stars)
+        const auto tp = Clock::now();
+        amrex_pm_subcycle_finish(pm, s.clk);
+        T.pm += std::chrono::duration<double>(Clock::now() - tp).count();
+      }
       sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 

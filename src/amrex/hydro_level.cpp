@@ -88,6 +88,7 @@
 #endif
 
 #include "gas_state.hpp"
+#include "pm_subcycle.hpp"
 #include "radray/hydro_backend.hpp"
 #include "radray/kernels/hydro_mh.hpp"
 
@@ -286,6 +287,9 @@ class HydroLevel {
   double rho_avg = 0;  // the mean gas density (tagging)
   std::vector<SinkEvent> events;  // the sink's events of the last call (this rank)
   double mass0 = 0;  // the gas mass of level 0 after the last call (double sum; diagnostic)
+  // pm_level_subcycle (docs/stage_g.md section 6): this call's refined levels
+  // get their gravity in their substeps (pmsub, the PM's side)
+  bool sub = false;
 
   const ax::Geometry& geom_of(int lev) const { return max_level > 0 ? mesh->Geom(lev) : geom; }
   // The coarse-to-fine interpolation: cell-conservative linear with the
@@ -938,6 +942,15 @@ class HydroLevel {
   // holds dt A F / V_c in level-0 cell units: -dtdx from the coarse side
   // and dtdx/8 per fine face and fine substep (dt_f A_f / V_c with
   // dt_f = dt_c/2, A_f = A_c/4, V_c = A_c dx_c).
+  //
+  // pm_level_subcycle (sub): a refined level's substep is kick-drift-kick
+  // with its gravity (docs/stage_g.md section 6): its gas (with the ghost
+  // layers the substep reads) and particles kicked by its force at t over
+  // dt/2, the substep, its particles drifted by dt, its potential and force
+  // at t + dt (level 0: the boundary values of level 1, before level 1's
+  // substeps), the kick at t + dt over dt/2, then the children (whose
+  // ghosts interpolate this level's states before the first and after the
+  // second kick); its particles reassigned at its end.
   void advance(int lev, double t, double dt, const rrh::DualEnergy& de, double rho_min, double Tmin, bool p_old,
                Counts& total_c, bool prepared) {
     LevelData& L = levels[static_cast<std::size_t>(lev)];
@@ -952,8 +965,14 @@ class HydroLevel {
       L.t_old = t;
       L.t_new = t + dt;
     }
+    if (sub && lev > 0) pmsub::kick(lev, L.U, NG, dt / 2, de.eta1, rho_min);
     const Counts sc = substep(lev, dtdx, de, rho_min, Tmin, p_old);
     check(lev, "after substep", false);
+    if (sub) {
+      if (lev > 0) pmsub::drift(lev, t, dt);
+      if (lev > 0 || lev < finest) pmsub::solve(lev, t + dt, L.U);
+      if (lev > 0) pmsub::kick(lev, L.U, 0, dt / 2, de.eta1, rho_min);
+    }
     for (int m = 0; m < 5; ++m) total_c.v[m] += sc.v[m];
     if (lev < finest) {
       LevelData& F = levels[static_cast<std::size_t>(lev) + 1];
@@ -981,6 +1000,7 @@ class HydroLevel {
       for (int d = 0; d < 3; ++d) L.fr->FineAdd(L.flux[d], d, 0, 0, NC, dtdx / 8.0);
       T.reflux += now() - t0;
     }
+    if (sub) pmsub::regroup(lev);
   }
 
   void step(const Config& cfg, const Units& un, double dt, double scalefactor, GasGrid& gas, HydroState& hs) {
@@ -994,6 +1014,15 @@ class HydroLevel {
     if (max_level > 0) {
       push_down();
       if (T.calls % regrid_every == 0 || finest == 0) regrid();
+    }
+    // pm_level_subcycle: the PM levels and particles after the regrid, every
+    // level's potential at the call's start
+    sub = false;
+    if (pmsub::active()) {
+      ax::Vector<ax::MultiFab*> Us;
+      for (int lev = 0; lev <= finest; ++lev) Us.push_back(&U(lev));
+      pmsub::open(Us, finest);
+      sub = finest > 0;
     }
     const rrh::DualEnergy de{cfg.dual_energy ? cfg.dual_eta1 : 0.0, cfg.dual_eta2, cfg.dual_eta1_local,
                              cfg.dual_nb_radius, cfg.dual_reset_rule, cfg.dual_eta2_local,
@@ -1031,6 +1060,8 @@ class HydroLevel {
       t += dt_sub;
       remaining = nsub == 1 ? 0.0 : remaining - dt_sub;
     }
+    if (pmsub::active()) pmsub::done();
+    sub = false;
     const double t1 = now();
     ax::ParallelDescriptor::ReduceLongSum(total_c.v, 5);
     T.reduce += now() - t1;

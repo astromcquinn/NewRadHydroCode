@@ -61,6 +61,11 @@ bool set_pm_backend_param(Config& c, const std::string& key, const std::string& 
     if (!(c.pm_mlmg_bottom_scale >= 0)) throw std::runtime_error("pm_mlmg_bottom_scale must be >= 0");
     return true;
   }
+  if (key == "pm_level_subcycle") {
+    c.pm_level_subcycle = std::stoi(val);
+    if (c.pm_level_subcycle != 0 && c.pm_level_subcycle != 1) throw std::runtime_error("pm_level_subcycle must be 0 or 1");
+    return true;
+  }
   if (key == "pm_mlmg_verbose") {
     c.pm_mlmg_verbose = std::stoi(val);
     return true;
@@ -79,6 +84,7 @@ void copy_pm_backend_param(const Config& from, Config& to) {
   to.pm_mlmg_bottom_sweeps = from.pm_mlmg_bottom_sweeps;
   to.pm_mlmg_bottom_scale = from.pm_mlmg_bottom_scale;
   to.pm_mlmg_verbose = from.pm_mlmg_verbose;
+  to.pm_level_subcycle = from.pm_level_subcycle;
 }
 
 std::string pm_backend_summary(const Config& c) {
@@ -87,7 +93,8 @@ std::string pm_backend_summary(const Config& c) {
   return "pm_backend = amrex (max_grid_size = " + std::to_string(mgs) +
          ", fft = " + (c.amrex_pm_fft ? "amrex" : "pencil") +
          (c.amrex_max_level > 0
-              ? (c.pm_level_solve ? std::string(", level solve (mlmg iters ") + std::to_string(c.pm_mlmg_iters) + ")"
+              ? (c.pm_level_solve ? std::string(", level solve (mlmg iters ") + std::to_string(c.pm_mlmg_iters) +
+                                    (c.pm_level_subcycle ? ", sub-cycled" : "") + ")"
                                   : std::string(", gas levels ") + (c.pm_gas_levels ? "on" : "off (level 0)"))
               : "") +
          ")";
@@ -111,6 +118,11 @@ void check_pm_backend_param(const Config& c) {
   if (c.pm_level_solve && c.amrex_max_level > 0 && !c.amrex_state)
     throw std::runtime_error("pm_level_solve = 1 with refinement needs amrex_state = 1 (the particles and the "
                              "gas on the levels)");
+  if (c.pm_level_subcycle && c.pm_level_solve && c.amrex_max_level > 0) {
+    if (c.pm_refine != 1) throw std::runtime_error("pm_level_subcycle = 1 needs pm_refine = 1");
+    if (c.hydro_scheme != HydroScheme::Unsplit || !use_amrex_hydro(c))
+      throw std::runtime_error("pm_level_subcycle = 1 needs hydro_scheme = unsplit and hydro_backend = amrex");
+  }
 }
 
 }  // namespace radray

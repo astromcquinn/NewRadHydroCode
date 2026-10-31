@@ -74,6 +74,17 @@ void amrex_pm_drift(pm::PMState& s, double dt_sim);
 // a_form; gather: every star into rank 0's s.stars (collective; returns
 // the count on every rank); load: s.stars (the same list on every rank, a
 // checkpoint read) onto the level, each rank keeping its own.
+// pm_level_subcycle (docs/stage_g.md section 6; pm_level_solve with
+// refinement): subcycled is s.pc.subcycle; then the PM step (after the
+// first hydro call) kicks level 0's particles and gas only and defers
+// level 0's second drift, and the caller calls amrex_pm_subcycle_call before
+// each of the base step's two hydro calls (clk at that call's start: the
+// refined levels' gravity runs inside it) and amrex_pm_subcycle_finish after
+// the second (level 0's deferred drift, every particle onto its level, the
+// kick statistics into clk). Collective.
+bool amrex_pm_subcycled(const pm::PMState& s);
+void amrex_pm_subcycle_call(pm::PMState& s, const SimClock& clk);
+void amrex_pm_subcycle_finish(pm::PMState& s, SimClock& clk);
 std::int64_t amrex_pm_add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form);
 std::int64_t amrex_pm_gather_stars(pm::PMState& s);
 void amrex_pm_load_stars(pm::PMState& s);

@@ -77,6 +77,7 @@
 
 #include "exact_sum.hpp"
 #include "gas_state.hpp"
+#include "pm_subcycle.hpp"
 #include "radray/constants.hpp"
 #include "radray/fortran.hpp"
 #include "radray/kernels/hydro_mh.hpp"
@@ -100,6 +101,7 @@ using CFab = ax::FabArray<ax::BaseFab<ax::GpuComplex<float>>>;
 using PC = ax::ParticleContainerPureSoA<11, 1>;
 using PTD = PC::ParticleTileType::ParticleTileDataType;
 constexpr int kX = 3, kV = 6, kM = 9, kA = 10;  // SoA real components
+constexpr int kNR = 11;                        // (their number)
 constexpr int kType = 0;                       // SoA int component
 
 static_assert(std::is_same_v<ax::ParticleReal, float>, "build AMReX with AMReX_PARTICLES_PRECISION=SINGLE");
@@ -161,6 +163,12 @@ struct Timers {
   double d_fine = 0, k_fine = 0;  // pm_gas_levels: the refined levels' deposit and kick (+ average-down)
   double sync = 0, d_lev = 0, solve = 0, f_lev = 0, k_lev = 0;  // pm_level_solve: the refined levels
   double g_vwrite = 0, g_vred = 0, g_vcopy = 0, g_gas = 0, g_pot = 0, p_locate = 0, p_fill = 0;
+  // pm_level_subcycle: the openings, the deposits, level 0's FFTs and the
+  // refined levels' solves inside the hydro calls, the kicks, drifts and
+  // reassignments; the solves, the particles moved to level 0 by a
+  // reassignment, the virtual drifts dropped (beyond the deposit's ghosts)
+  double s_open = 0, s_dep = 0, s_fft = 0, s_solve = 0, s_kick = 0, s_drift = 0, s_regroup = 0;
+  Long s_solves = 0, s_fft_n = 0, s_to0 = 0, s_unpred = 0;
   Long steps = 0;
 };
 
@@ -436,6 +444,37 @@ struct PMLevel {
   LFab own0, tot0;
   double rho_mean = 0;
   Timers T;
+  // pm_level_subcycle (docs/stage_g.md section 6): the refined levels'
+  // gravity inside their hydro substeps (pmsub, called by the hydro). A
+  // particle may sit up to kOrphan cells outside its level's boxes (it left
+  // the level during the parent's substep; moved at the parent's substep
+  // end) and one more cell after its drift, so the deposits and forces of
+  // every level carry ngp ghost layers (the CIC's cell on top) and the
+  // potentials ngp + 2 (the 4-point gradient); without sub-cycling 1 and 3.
+  static constexpr int kOrphan = 2;
+  bool subcycle = false;
+  int ngp = 1, ngpot = 3;
+  double ndmr = 0;              // the DM grid's size (the periodic wrap of the drifts)
+  bool armed = false;           // a hydro call is in progress (amrex_pm_subcycle_call .. pmsub::done)
+  int call_half = 0;            // 0: the base step's first hydro call, 1: the second
+  double dt_call = 0;           // its length (dt_sim / 2)
+  double a_call0 = 0, a_call1 = 0;  // the scale factor at its start and end (linear in between)
+  std::vector<double> t_part;   // level l's particles' time in the call (level 0: 0, its DKD positions)
+  std::vector<FFab> pot_old;    // level l's potential at its previous solve (valid cells)
+  std::vector<double> t_old, t_new;  // the times of pot_old and of the current potential
+  bool drift_pending = false;   // level 0's second drift, deferred to the end of the base step
+  // the kick statistics of the step: level 0's kick and every level's last
+  // kick (the last of a call is at its end), reduced at the end of the step
+  struct KStat {
+    i128 a = 0, v = 0;
+    double ma = 0, mv = 0;
+  };
+  std::vector<KStat> kstat;
+  // RADRAY_PM_MOMENTUM_CHECK with sub-cycling: the momentum the kicks add
+  // (the particles and the gas cells not covered by a finer level) and the
+  // summed |dp| of those gas cells, over the base step
+  bool pcheck_sub = false;
+  double pk_sum[3] = {0, 0, 0}, pk_abs = 0;
 
   explicit PMLevel(const pm::PMConfig& pc_) {
     Nm = pc_.Nm;
@@ -486,9 +525,17 @@ struct PMLevel {
         throw std::runtime_error("pm_level_solve = 1: the finest mesh exceeds 2^23 cells per dimension (the "
                                  "particle positions are floats)");
     }
+    subcycle = level_solve && pc_.subcycle;
+    pcheck_sub = subcycle && std::getenv("RADRAY_PM_MOMENTUM_CHECK") != nullptr;
+    if (subcycle) {
+      ngp = kOrphan + 2;
+      ngpot = ngp + 2;
+      if (r != 1) throw std::runtime_error("pm_level_subcycle = 1 needs pm_refine = 1");
+    }
+    ndmr = pc_.ndmr;
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
-    acc.define(ba, dm, 1, 1);
+    acc.define(ba, dm, 1, ngp);  // sub-cycling: level 0's particles moved virtually to the refined levels' times
     gas.define(bag, dm, 8, 0);
     if (level_solve) {
       // the hierarchy's levels in one container: level l's domain is the
@@ -517,6 +564,9 @@ struct PMLevel {
   // ---- pm_level_solve: the levels ---------------------------------------------
 
   int finest() const { return static_cast<int>(fm.size()); }  // the refined levels in use (0 without level_solve)
+  // The parent cells around a level that its potential's ghost layers read
+  // (the tri-quadratic interpolation's 3 parent cells): 3, or 4 with ngpot = 6
+  int npar() const { return (ngpot + 1) / 2 + 1; }
   FFab& POT(int l) { return l == 0 ? pot : fm[static_cast<std::size_t>(l) - 1].pot; }
   FFab& FRC(int l) { return l == 0 ? frc : fm[static_cast<std::size_t>(l) - 1].frc; }
   FFab& GAS(int l) { return l == 0 ? gas : fm[static_cast<std::size_t>(l) - 1].gas; }
@@ -595,13 +645,13 @@ struct PMLevel {
       M.ba = F.ba;
       M.ba.refine(r);
       M.dm = F.dm;
-      M.pot.define(M.ba, M.dm, 1, 3);
-      M.frc.define(M.ba, M.dm, 3, 1);
+      M.pot.define(M.ba, M.dm, 1, ngpot);
+      M.frc.define(M.ba, M.dm, 3, ngp);
       M.gas.define(M.bag, M.dm, 8, 0);
-      M.acc.define(M.ba, M.dm, 1, 1);
+      M.acc.define(M.ba, M.dm, 1, ngp);
       M.own.define(M.ba, M.dm, 1, 0);
       M.tot.define(M.ba, M.dm, 1, 0);
-      M.cov.define(M.ba, M.dm, 1, 3);
+      M.cov.define(M.ba, M.dm, 1, ngpot);
       M.cov.setVal(0);
       M.cov.setVal(1, 0, 1, 0);
       M.cov.FillBoundary(M.period);
@@ -631,15 +681,17 @@ struct PMLevel {
       }
       // proper nesting: the parent's cells must cover 3 parent cells around
       // the level (the Dirichlet data and the ghost potential come from them;
-      // AmrMesh nests by blocking_factor / 2 = 4 cells)
+      // AmrMesh nests by blocking_factor / 2 = 4 cells; 4 with sub-cycling,
+      // whose potentials carry 6 ghost layers)
       {
-        ax::iMultiFab m2(ax::coarsen(M.ba, 2), M.dm, 1, 3), ones(BA(l - 1), DM(l - 1), 1, 0);
+        const int npg = npar();
+        ax::iMultiFab m2(ax::coarsen(M.ba, 2), M.dm, 1, npg), ones(BA(l - 1), DM(l - 1), 1, 0);
         m2.setVal(0);
         ones.setVal(1);
-        m2.ParallelCopy(ones, 0, 0, 1, 0, 3, PER(l - 1));
-        if (m2.min(0, 3) < 1)
-          throw std::runtime_error("pm_level_solve: level " + std::to_string(l) +
-                                   " is not nested 3 parent cells inside level " + std::to_string(l - 1));
+        m2.ParallelCopy(ones, 0, 0, 1, 0, npg, PER(l - 1));
+        if (m2.min(0, npg) < 1)
+          throw std::runtime_error("pm_level_solve: level " + std::to_string(l) + " is not nested " +
+                                   std::to_string(npg) + " parent cells inside level " + std::to_string(l - 1));
       }
       pc->SetParticleBoxArray(l, M.ba);
       pc->SetParticleDistributionMap(l, M.dm);
@@ -666,7 +718,7 @@ struct PMLevel {
     dm = dm2;
     pot.define(ba, dm, 1, 3);
     frc.define(ba, dm, 3, 1);
-    acc.define(ba, dm, 1, 1);
+    acc.define(ba, dm, 1, ngp);
     gas.define(bag, dm, 8, 0);
     if (level_solve) {
       own0.define(ba, dm, 1, 0);
@@ -747,6 +799,11 @@ struct PMLevel {
   // calc_drift on the level: x = mod(x + v dt/2 + ndmr, ndmr) per particle
   // (the host arithmetic), then the home cells and a Redistribute
   void drift(double dt_sim, double ndmr) {
+    if (subcycle) {  // the PM step's first drift: level 0's only (docs/stage_g.md section 6)
+      drift0(dt_sim);
+      pc->Redistribute(0, 0);
+      return;
+    }
     sync_levels();  // the hydro may have regridded: the Redistribute below moves the particles onto the levels
     const double t0 = now();
     for_tiles([&](int l, const ax::MFIter& mfi) {
@@ -920,7 +977,10 @@ struct PMLevel {
       }
     }
     s.nstar += total;
-    pc->Redistribute();
+    if (subcycle)
+      pc->Redistribute(0, 0);  // level-0 particles until the next hydro call's start (docs/stage_g.md section 6)
+    else
+      pc->Redistribute();
     T.prep += now() - t0;
     return total;
   }
@@ -1120,10 +1180,22 @@ struct PMLevel {
 
   // ---- calc_density_field: CIC in int64 fixed point + the gas -------------
 
+  // The home cell at level l of a particle in the tile of box bx, as the
+  // periodic image nearest to the box (sub-cycling: a particle may sit a
+  // few cells outside its box, also across the periodic boundary; inside
+  // its box this is the home cell itself)
+  static AMREX_FORCE_INLINE void home_near(const float pos[3], int l, const ax::Box& bx, int NN, int h[3]) {
+    for (int c = 0; c < 3; ++c)
+      h[c] = near_image(home_l(pos[c], l), (bx.smallEnd(c) + bx.bigEnd(c)) / 2, NN);
+  }
+
   // The CIC deposit of level l's particles into ACC(l) (its own mesh, in
   // density units: mass 8^l, with the level's fixed point), then
   // SumBoundary. bad counts the corners outside the ghost layer.
-  void deposit_level(int l, double mass, Long& bad) {
+  // offset != 0 (pm_level_subcycle): every particle deposited where its
+  // drift by offset would put it (the drift's arithmetic, nothing stored),
+  // unless that leaves the ghost layer (then where it is; counted).
+  void deposit_level(int l, double mass, Long& bad, double offset = 0) {
     LFab& A = ACC(l);
     A.setVal(0);
     const int NN = Nm << l;
@@ -1131,9 +1203,13 @@ struct PMLevel {
     const double scale = std::ldexp(1.0, 3 * l);  // mass per level-l cell -> density per level-0 mesh cell
     const double r3 = static_cast<double>(r) * r * r;
     const rpk::MeshGeom g = l == 0 ? mg : mesh_geom(l);
+    const int ng = A.nGrow();
+    const double nd = ndmr;
+    Long unpred = 0;
     for (ax::MFIter mfi(A); mfi.isValid(); ++mfi) {
       const ax::Box bx = mfi.validbox();
-      const ax::Box gbx = ax::grow(bx, 1);
+      const ax::Box gbx = ax::grow(bx, ng);
+      const ax::Box hbx = ax::grow(bx, ng - 1);  // the home cells whose CIC corners lie in gbx
       const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx), glen = ax::length(gbx);
       const Long ngc = gbx.numPts();
       auto& pt = tile(l, mfi);
@@ -1142,13 +1218,35 @@ struct PMLevel {
       const int nt = nthreads_max();
       std::vector<Long> buf(static_cast<std::size_t>(nt) * ngc, 0);
       auto a = A.array(mfi);
-#pragma omp parallel reduction(+ : bad)
+#pragma omp parallel reduction(+ : bad, unpred)
       {
         Long* mine = buf.data() + static_cast<std::size_t>(thread_id()) * ngc;
 #pragma omp for schedule(static)
         for (int n = 0; n < np; ++n) {
-          const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
-          const int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
+          float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
+          int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
+          if (ng > 1) {
+            const float pos[3] = {pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n]};
+            home_near(pos, l, bx, NN, h);
+            if (offset != 0) {
+              float xv[3], pv[3];
+              for (int c = 0; c < 3; ++c) {
+                const double t = static_cast<double>(x[c]) + static_cast<double>(pd.m_rdata[kV + c][n]) * offset + nd;
+                xv[c] = static_cast<float>(f::mod(t, nd));
+                pv[c] = fpos(xv[c]);
+              }
+              int hv[3];
+              home_near(pv, l, bx, NN, hv);
+              if (hbx.contains(ax::IntVect(hv[0], hv[1], hv[2]))) {
+                for (int c = 0; c < 3; ++c) {
+                  x[c] = xv[c];
+                  h[c] = hv[c];
+                }
+              } else {
+                unpred += 1;
+              }
+            }
+          }
           // dark matter: the particle mass; a star: its gas mass (mean-matter
           // x level-0 gas-cell volumes) spread over the r^3 mesh cells of a
           // gas cell, i.e. mass_gas r^3 per mesh cell of full weight
@@ -1176,6 +1274,7 @@ struct PMLevel {
     const double t1 = now();
     A.SumBoundary(PER(l));  // fold the ghost deposits into their owners (int64: exact)
     T.sumbnd += now() - t1;
+    T.s_unpred += unpred;
   }
 
   // pm_level_solve: level l's deposits restricted onto its parent and added
@@ -1199,17 +1298,20 @@ struct PMLevel {
     FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
     const int db = BITS(l - 1) - BITS(l);  // 0 or 3
     const Long mul = Long(1) << db;
-    LFab cr(ax::coarsen(M.ba, 2), M.dm, 1, 1);
+    // the spill reaches ng fine cells beyond the boxes (the deposits' ghost
+    // layers), i.e. the parent cells within (ng + 2) / 2 of the coarsened box
+    const int ng = M.acc.nGrow(), ngc = (ng + 2) / 2;
+    LFab cr(ax::coarsen(M.ba, 2), M.dm, 1, ngc);
     cr.setVal(0);
     for (ax::MFIter mfi(cr); mfi.isValid(); ++mfi) {
       const ax::Box cbx = mfi.validbox();
       const ax::Box fbx = M.ba[mfi.index()];
-      const ax::Box fgb = ax::grow(fbx, 1);
+      const ax::Box fgb = ax::grow(fbx, ng);
       auto c = cr.array(mfi);
       auto t = M.tot.const_array(mfi);
       auto a = M.acc.const_array(mfi);
       auto cv = M.cov.const_array(mfi);
-      ax::ParallelForOMP(ax::grow(cbx, 1), [=](int i, int j, int k) {
+      ax::ParallelForOMP(ax::grow(cbx, ngc), [=](int i, int j, int k) {
         static constexpr int kw[4] = {1, 3, 3, 1};
         i128 sum = 0;
         for (int dk = -1; dk <= 2; ++dk)
@@ -1228,7 +1330,7 @@ struct PMLevel {
         c(i, j, k) = static_cast<Long>((sum * mul) / 512);
       });
     }
-    TOT(l - 1).ParallelAdd(cr, 0, 0, 1, 1, 0, PER(l - 1));
+    TOT(l - 1).ParallelAdd(cr, 0, 0, 1, ngc, 0, PER(l - 1));
   }
 
   // pm_level_solve: the density of level l into POT(l): the level's gas,
@@ -1270,7 +1372,33 @@ struct PMLevel {
     }
   }
 
-  void density(double mass) {
+  // The mean of level 0's density (in pot): an exact fixed-point sum
+  void level0_mean() {
+    i128 S = 0;
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+      auto p = pot.const_array(mfi);
+      const ax::Box bx = mfi.validbox();
+      const int nt = nthreads_max();
+      std::vector<i128> part(static_cast<std::size_t>(nt), 0);
+#pragma omp parallel
+      {
+        i128 mine = 0;
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+#pragma omp for schedule(static) collapse(2)
+        for (int k = lo.z; k <= hi.z; ++k)
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i) mine += to_fx128(static_cast<double>(p(i, j, k)), kDensBits);
+        part[static_cast<std::size_t>(thread_id())] = mine;
+      }
+      for (int t = 0; t < nt; ++t) S += part[static_cast<std::size_t>(t)];
+    }
+    allreduce_i128(&S, 1);
+    rho_mean = from_fx128(S, kDensBits) / (static_cast<double>(Nm) * Nm * Nm);
+  }
+
+  // levels: also the refined levels' densities (the sub-cycled step's level-0
+  // kick needs level 0's only)
+  void density(double mass, bool levels = true) {
     const double t0 = now();
     Long bad = 0;
     const int nf = finest();
@@ -1293,27 +1421,8 @@ struct PMLevel {
         ax::Copy(TOT(l), ACC(l), 0, 0, 1, 0);
       }
       for (int l = nf; l >= 1; --l) restrict_and_spill(l);
-      for (int l = 0; l <= nf; ++l) rho_level(l);
-      i128 S = 0;
-      for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
-        auto p = pot.const_array(mfi);
-        const ax::Box bx = mfi.validbox();
-        const int nt = nthreads_max();
-        std::vector<i128> part(static_cast<std::size_t>(nt), 0);
-#pragma omp parallel
-        {
-          i128 mine = 0;
-          const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
-#pragma omp for schedule(static) collapse(2)
-          for (int k = lo.z; k <= hi.z; ++k)
-            for (int j = lo.y; j <= hi.y; ++j)
-              for (int i = lo.x; i <= hi.x; ++i) mine += to_fx128(static_cast<double>(p(i, j, k)), kDensBits);
-          part[static_cast<std::size_t>(thread_id())] = mine;
-        }
-        for (int t = 0; t < nt; ++t) S += part[static_cast<std::size_t>(t)];
-      }
-      allreduce_i128(&S, 1);
-      rho_mean = from_fx128(S, kDensBits) / (static_cast<double>(Nm) * Nm * Nm);
+      for (int l = 0; l <= (levels ? nf : 0); ++l) rho_level(l);
+      level0_mean();
       if (std::getenv("RADRAY_PM_LEVEL_DEBUG")) {
         // the mass of every level's deposits (density x cell volume): the
         // total on level 0 must be the particles' (DM + stars)
@@ -1589,7 +1698,9 @@ struct PMLevel {
 
   // ---- calc_gravity_field: the Poisson solve --------------------------------
 
-  void gravity(double scalefactor) {
+  // levels: also the refined levels' solves (the sub-cycled step's level-0
+  // kick and its boundary-value solves do without them)
+  void gravity(double scalefactor, bool levels = true) {
     const double t0 = now();
     const int NN = Nm;
     const double Ak = 2 * pc::pi / static_cast<double>(Nm);
@@ -1622,7 +1733,8 @@ struct PMLevel {
     }
     pot.FillBoundary(period);
     T.fft += now() - t0;
-    for (int l = 1; l <= finest(); ++l) solve_level(l, scalefactor);
+    if (levels)
+      for (int l = 1; l <= finest(); ++l) solve_level(l, scalefactor);
   }
 
   // ---- pm_level_solve: the Poisson solve of a refined level ------------------
@@ -1639,13 +1751,17 @@ struct PMLevel {
   // potential's ghost cells outside the level take the parent's potential
   // interpolated (the 4-point gradient of the boundary cells and the force
   // of the ghost layer the kicks read).
-  void solve_level(int l, double scalefactor) {
+  // parent (pm_level_subcycle): the parent's potential to use (its valid
+  // cells; the parent's own by default)
+  void solve_level(int l, double scalefactor, const FFab* parent = nullptr) {
     const double t0 = now();
     FineMesh& M = fm[static_cast<std::size_t>(l) - 1];
     const int lp = l - 1;
-    FFab pc2(ax::coarsen(M.ba, 2), M.dm, 1, 3);
+    const FFab& PP = parent ? *parent : POT(lp);
+    const int npg = npar();
+    FFab pc2(ax::coarsen(M.ba, 2), M.dm, 1, npg);
     pc2.setVal(0.0f);
-    pc2.ParallelCopy(POT(lp), 0, 0, 1, 0, 3, PER(lp));
+    pc2.ParallelCopy(PP, 0, 0, 1, 0, npg, PER(lp));
     ax::MultiFab sol(M.ba, M.dm, 1, 1), rhs(M.ba, M.dm, 1, 0);
     sol.setVal(0.0);
     const double c = 2 * scalefactor / 3;  // -Aphi
@@ -1662,7 +1778,6 @@ struct PMLevel {
     }
     ax::MultiFab phic(BA(lp), DM(lp), 1, 0);
     {
-      const FFab& PP = POT(lp);
       for (ax::MFIter mfi(phic); mfi.isValid(); ++mfi) {
         auto d = phic.array(mfi);
         auto p = PP.const_array(mfi);
@@ -1719,7 +1834,7 @@ struct PMLevel {
       auto p = M.pot.array(mfi);
       auto q = pc2.const_array(mfi);
       auto cv = M.cov.const_array(mfi);
-      ax::ParallelForOMP(ax::grow(mfi.validbox(), 3), [=](int i, int j, int k) {
+      ax::ParallelForOMP(ax::grow(mfi.validbox(), M.pot.nGrow()), [=](int i, int j, int k) {
         if (cv(i, j, k) == 0) p(i, j, k) = static_cast<float>(interp_parent_quad(q, i, j, k));
       });
     }
@@ -1736,10 +1851,11 @@ struct PMLevel {
     FFab& Fr = FRC(l);
     const FFab& P = POT(l);
     const float scale = static_cast<float>(1 << l);
+    const int ng = Fr.nGrow();  // (the potential carries ng + 2 ghost layers)
     for (ax::MFIter mfi(Fr); mfi.isValid(); ++mfi) {
       auto f = Fr.array(mfi);
       auto p = P.const_array(mfi);
-      ax::ParallelForOMP(ax::grow(mfi.validbox(), 1), [=](int i, int j, int k) {
+      ax::ParallelForOMP(ax::grow(mfi.validbox(), ng), [=](int i, int j, int k) {
         double F[3];
         rpk::force_stencil(
             NN, i + 1, j + 1, k + 1,
@@ -1768,13 +1884,17 @@ struct PMLevel {
 
   // The particles of level l kicked by its mesh force (the CIC at the
   // level's resolution); the statistics accumulated into the sums and maxima
-  void kick_dm_level(int l, double dt_sim, i128& s_a, i128& s_v, double& mx_a, double& mx_v, Long& bad) {
+  // (pk: the momentum the kick adds, for the sub-cycled momentum check)
+  void kick_dm_level(int l, double dt_sim, i128& s_a, i128& s_v, double& mx_a, double& mx_v, Long& bad,
+                     double* pk = nullptr, double mass = 0) {
     const int NN = Nm << l;
     const double xdg = x_dm_m;
     const rpk::MeshGeom g = l == 0 ? mg : mesh_geom(l);
     const FFab& Fr = FRC(l);
+    const int ng = Fr.nGrow();
     for (ax::MFIter mfi(Fr); mfi.isValid(); ++mfi) {
-      const ax::Box gbx = ax::grow(mfi.validbox(), 1);
+      const ax::Box bx = mfi.validbox();
+      const ax::Box gbx = ax::grow(bx, ng);
       const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx);
       auto fa = Fr.const_array(mfi);
       auto& pt = tile(l, mfi);
@@ -1782,16 +1902,21 @@ struct PMLevel {
       const PTD pd = pt.getParticleTileData();
       const int nt = nthreads_max();
       std::vector<i128> ta(nt, 0), tv(nt, 0);
-      std::vector<double> tma(nt, 0.0), tmv(nt, 0.0);
+      std::vector<double> tma(nt, 0.0), tmv(nt, 0.0), tp(3 * static_cast<std::size_t>(nt), 0.0);
 #pragma omp parallel reduction(+ : bad)
       {
         const int t = thread_id();
         i128 la = 0, lv = 0;
         double lma = 0, lmv = 0;
+        double lp[3] = {0, 0, 0};
 #pragma omp for schedule(static)
         for (int n = 0; n < np; ++n) {
           const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
-          const int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
+          int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
+          if (ng > 1) {
+            const float pos[3] = {pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n]};
+            home_near(pos, l, bx, NN, h);
+          }
           const rpk::Cic c = rpk::cic_weights(g, x);
           double fv[3];
           rpk::particle_force(
@@ -1811,6 +1936,10 @@ struct PMLevel {
           float v[3];
           for (int m = 0; m < 3; ++m) {
             v[m] = static_cast<float>(static_cast<double>(pd.m_rdata[kV + m][n]) + (fv[m] / xdg) * dt_sim);
+            if (pk) {
+              const double mp = pd.m_idata[kType][n] == 0 ? mass : static_cast<double>(pd.m_rdata[kM][n]);
+              lp[m] += mp * x_dm_gas * (static_cast<double>(v[m]) - pd.m_rdata[kV + m][n]);
+            }
             pd.m_rdata[kV + m][n] = v[m];
           }
           if (pd.m_idata[kType][n] != 0) continue;  // the statistics are the dark matter's
@@ -1828,12 +1957,15 @@ struct PMLevel {
         tv[t] = lv;
         tma[t] = lma;
         tmv[t] = lmv;
+        for (int m = 0; m < 3; ++m) tp[3 * static_cast<std::size_t>(t) + m] = lp[m];
       }
       for (int t = 0; t < nt; ++t) {
         s_a += ta[t];
         s_v += tv[t];
         mx_a = f::max(mx_a, tma[t]);
         mx_v = f::max(mx_v, tmv[t]);
+        if (pk)
+          for (int m = 0; m < 3; ++m) pk[m] += tp[3 * static_cast<std::size_t>(t) + m];
       }
     }
   }
@@ -2098,6 +2230,564 @@ struct PMLevel {
     if (levels) *levels = lv;
   }
 
+  // ---- pm_level_subcycle: the refined levels' gravity in their substeps -------
+  //
+  // docs/stage_g.md section 6. Within a hydro call (times from its start):
+  // level l >= 1 kicks its gas and particles by g_l(t) h/2, the hydro
+  // advances it by h, its particles drift by h, it is solved at t + h
+  // (deposits at t + h, the parent's potential interpolated in time as the
+  // boundary values) and kicked by g_l(t + h) h/2, then its children run;
+  // level 0 is solved after each of its hydro substeps for level 1's
+  // boundary values only (its gas and particles are kicked once per base
+  // step, by step()). Particles reassigned at the end of the parent's
+  // substep (regroup).
+
+  double a_at(double t) const { return dt_call > 0 ? a_call0 + (a_call1 - a_call0) * (t / dt_call) : a_call0; }
+  double dm_mass = 0;  // the dark-matter particle mass (step()'s mass), set per call
+
+  // A particle record (every SoA component), to move particles between tiles
+  struct PRec {
+    float rd[kNR];
+    int id[1];
+    std::uint64_t idcpu;
+  };
+  static PRec take(const PTD& pd, int n) {
+    PRec p;
+    for (int c = 0; c < kNR; ++c) p.rd[c] = pd.m_rdata[c][n];
+    p.id[0] = pd.m_idata[kType][n];
+    p.idcpu = pd.m_idcpu[n];
+    return p;
+  }
+  static void put(const PTD& pd, int n, const PRec& p) {
+    for (int c = 0; c < kNR; ++c) pd.m_rdata[c][n] = p.rd[c];
+    pd.m_idata[kType][n] = p.id[0];
+    pd.m_idcpu[n] = p.idcpu;
+  }
+  // Remove the particles of a tile for which pick(n) is true (their
+  // records into out; the tile's order changes); returns the count
+  template <class F>
+  static int remove_if(PC::ParticleTileType& pt, F&& pick, std::vector<PRec>& out) {
+    int np = static_cast<int>(pt.numParticles());
+    const PTD pd = pt.getParticleTileData();
+    int removed = 0;
+    for (int n = 0; n < np;) {
+      if (!pick(pd, n)) {
+        ++n;
+        continue;
+      }
+      out.push_back(take(pd, n));
+      if (n != np - 1) put(pd, n, take(pd, np - 1));
+      --np;
+      ++removed;
+    }
+    pt.resize(static_cast<std::size_t>(np));
+    return removed;
+  }
+  static void append(PC::ParticleTileType& pt, const std::vector<PRec>& in) {
+    if (in.empty()) return;
+    const std::size_t n0 = pt.numParticles();
+    pt.resize(n0 + in.size());
+    const PTD pd = pt.getParticleTileData();
+    for (std::size_t q = 0; q < in.size(); ++q) put(pd, static_cast<int>(n0 + q), in[q]);
+  }
+
+  // The mesh force of level l (CIC at its resolution) on particle n of the
+  // tile of box bx, in level-0 mesh units (kick_dm_level's interpolation)
+  void force_on(int l, const ax::Box& bx, ax::Array4<const float> const& fa, const PTD& pd, int n, double fv[3]) const {
+    const int NN = Nm << l;
+    const int ng = FRC_ng(l);
+    const ax::Box gbx = ax::grow(bx, ng);
+    const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx);
+    const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
+    const float pos[3] = {pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n]};
+    int h[3];
+    home_near(pos, l, bx, NN, h);
+    const rpk::Cic c = rpk::cic_weights(l == 0 ? mg : mesh_geom(l), x);
+    bool bad = false;
+    rpk::particle_force(
+        c,
+        [&](int ii, int jj, int kk, double F[3]) {
+          const int i = near_image(ii - 1, h[0], NN), j = near_image(jj - 1, h[1], NN), k = near_image(kk - 1, h[2], NN);
+          if (i < glo.x || i > ghi.x || j < glo.y || j > ghi.y || k < glo.z || k > ghi.z) {
+            bad = true;
+            F[0] = F[1] = F[2] = 0;
+            return;
+          }
+          for (int m = 0; m < 3; ++m) F[m] = fa(i, j, k, m);
+        },
+        fv);
+    if (bad) throw std::runtime_error("pm_level_subcycle: a CIC corner of a level change fell outside the ghost layer");
+  }
+  int FRC_ng(int l) const { return l == 0 ? frc.nGrow() : fm[static_cast<std::size_t>(l) - 1].frc.nGrow(); }
+
+  // The finest level of the gas state's boxes (after the hydro's regrid)
+  // holding a particle's home cell
+  int target_level(const float pos[3]) const {
+    for (int l = state->finest; l >= 1; --l) {
+      const ax::IntVect h(home_l(pos[0], l), home_l(pos[1], l), home_l(pos[2], l));
+      if (state->fine[static_cast<std::size_t>(l) - 1].ba.contains(h)) return l;
+    }
+    return 0;
+  }
+
+  // A particle of level q (synchronous at call time tk, its level's force
+  // g = f / x_dm_m) becomes a level-0 particle, which a call stores at the
+  // call's start with the velocity of its drifts (level 0's drift-kick-
+  // drift): in the first call (before level 0's kick g0 dt_sim, between its
+  // two drifts) v' = v - g tk, x' = x - v tk + g tk dt_call, so that the kick
+  // makes v + g0 dt_sim - g tk ~ v + g (dt_sim - tk) and the first drift
+  // puts it at x + v (dt_call - tk) + O(g dt^2); in the second call (after
+  // the kick, before the deferred drift by dt_call) v' = v + g (dt_call -
+  // tk), x' = x - v' tk: it reaches x + v' (dt_call - tk) at the step's end
+  void to_level0(PRec& p, const double fv[3], double tk) const {
+    for (int c = 0; c < 3; ++c) {
+      const double g = fv[c] / x_dm_m;
+      const double v = p.rd[kV + c], x = p.rd[kX + c];
+      double v2, x2;
+      if (call_half == 0) {
+        v2 = v - g * tk;
+        x2 = x - v * tk + g * tk * dt_call;
+      } else {
+        v2 = v + g * (dt_call - tk);
+        x2 = x - v2 * tk;
+      }
+      const float xf = static_cast<float>(f::mod(x2 + ndmr, ndmr));
+      p.rd[kV + c] = static_cast<float>(v2);
+      p.rd[kX + c] = xf;
+      p.rd[c] = fpos(xf);
+    }
+  }
+
+  // Level l's gas density from the hydro's state (rounded to float once)
+  void gas_from(int l, const ax::MultiFab& U) {
+    FFab& G = GAS(l);
+    for (ax::MFIter mfi(G); mfi.isValid(); ++mfi) {
+      auto g = G.array(mfi);
+      auto u = U.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) { g(i, j, k, 0) = static_cast<float>(u(i, j, k, 0)); });
+    }
+  }
+
+  // The parent level's potential at call time t on its valid cells: linear
+  // between its last two solves (the parent is ahead: t lies in between)
+  void parent_at(int lp, double t, FFab& out) {
+    out.define(BA(lp), DM(lp), 1, 0);
+    const double t0 = t_old[static_cast<std::size_t>(lp)], t1 = t_new[static_cast<std::size_t>(lp)];
+    double w = t1 > t0 ? (t - t0) / (t1 - t0) : 1.0;
+    w = std::min(1.0, std::max(0.0, w));
+    const FFab& P1 = POT(lp);
+    const FFab& P0 = pot_old[static_cast<std::size_t>(lp)];
+    for (ax::MFIter mfi(out); mfi.isValid(); ++mfi) {
+      auto o = out.array(mfi);
+      auto p1 = P1.const_array(mfi);
+      auto p0 = P0.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        o(i, j, k) = w == 1.0   ? p1(i, j, k)
+                     : w == 0.0 ? p0(i, j, k)
+                                : static_cast<float>((1 - w) * static_cast<double>(p0(i, j, k)) +
+                                                     w * static_cast<double>(p1(i, j, k)));
+      });
+    }
+  }
+
+  // The deposits of level l's solve at call time t: the particles of the
+  // levels l - 1 (its own deposit, prolonged into level l) to the finest,
+  // each where its level's drift would put it at t, the finer levels'
+  // totals restricted onto level l. Collective.
+  void sub_density(int l, double t) {
+    const double t0 = now();
+    const int nf = finest();
+    Long bad = 0;
+    for (int q = std::max(l - 1, 0); q <= nf; ++q) {
+      if (q > 0 && dm_mass * std::ldexp(1.0, 3 * q) > std::ldexp(1.0, 62 - BITS(q)))
+        throw std::runtime_error("pm_level_solve: the particle mass overflows level " + std::to_string(q) +
+                                 "'s fixed point (lighter particles or fewer levels)");
+      deposit_level(q, dm_mass, bad, t - t_part[static_cast<std::size_t>(q)]);
+    }
+    if (bad) throw std::runtime_error("pm_level_subcycle: a CIC corner fell outside the ghost layer");
+    if (l > 0) ax::Copy(OWN(l - 1), ACC(l - 1), 0, 0, 1, 0);
+    for (int q = l; q <= nf; ++q) ax::Copy(TOT(q), ACC(q), 0, 0, 1, 0);
+    for (int q = nf; q > l; --q) restrict_and_spill(q);
+    T.s_dep += now() - t0;
+  }
+
+  // Level l's potential at call time t (l >= 1: and its force)
+  void sub_solve(int l, double t, const ax::MultiFab& U) {
+    sub_density(l, t);
+    gas_from(l, U);
+    const double t0 = now();
+    const std::size_t L = static_cast<std::size_t>(l);
+    ax::Copy(pot_old[L], POT(l), 0, 0, 1, 0);  // the potential at the start of the substep ending at t
+    t_old[L] = t_new[L];
+    rho_level(l);
+    if (l == 0) {
+      level0_mean();
+      gravity(a_at(t), false);
+      T.s_fft += now() - t0;
+      T.s_fft_n += 1;
+    } else {
+      FFab par;
+      parent_at(l - 1, t, par);
+      solve_level(l, a_at(t), &par);
+      force_level(l);
+      T.s_solve += now() - t0;
+      T.s_solves += 1;
+    }
+    t_new[L] = t;
+  }
+
+  // Level l's gas (valid cells and ng ghost layers of the hydro's U) and
+  // particles kicked by its force over dt (kick_levels' arithmetic in
+  // double; kick_dm_level)
+  void sub_kick(int l, ax::MultiFab& U, int ng, double dt, double eta1, double Dmin) {
+    const double t0 = now();
+    const FFab& Fr = FRC(l);
+    std::unique_ptr<ax::iMultiFab> mask;
+    if (pcheck_sub && l < finest())
+      mask = std::make_unique<ax::iMultiFab>(ax::makeFineMask(U.boxArray(), U.DistributionMap(), BA(l + 1),
+                                                              ax::IntVect(2), 0, 1));
+    const double vol = std::ldexp(1.0, -3 * l);
+    for (ax::MFIter mfi(U); mfi.isValid(); ++mfi) {
+      auto u = U.array(mfi);
+      auto fa = Fr.const_array(mfi);
+      if (pcheck_sub) {  // (the momentum diagnostic: the uncovered valid cells, before the kick)
+        ax::Array4<int const> mk;
+        if (mask) mk = mask->const_array(mfi);
+        ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+          if (mask && mk(i, j, k)) return;
+          const double rho = f::max(u(i, j, k, 0), Dmin);
+          for (int m = 0; m < 3; ++m) {
+            const double dp = rho * static_cast<double>(fa(i, j, k, m)) * dt * vol;
+            pk_sum[m] += dp;
+            pk_abs += std::fabs(dp);
+          }
+        });
+      }
+      ax::ParallelForOMP(ax::grow(mfi.validbox(), ng), [=](int i, int j, int k) {
+        double Uc[5];
+        for (int m = 0; m < 5; ++m) Uc[m] = u(i, j, k, m);
+        const double eth = rrh::thermal_energy(Uc, u(i, j, k, 5), eta1);
+        const double rho = f::max(Uc[0], Dmin);
+        for (int m = 0; m < 3; ++m) Uc[1 + m] = Uc[1 + m] + rho * static_cast<double>(fa(i, j, k, m)) * dt;
+        Uc[4] = rrh::kinetic_energy(Uc) + eth;
+        for (int m = 1; m < 5; ++m) u(i, j, k, m) = Uc[m];
+      });
+    }
+    KStat k;
+    Long bad = 0;
+    kick_dm_level(l, dt, k.a, k.v, k.ma, k.mv, bad, pcheck_sub ? pk_sum : nullptr, dm_mass);
+    if (bad) throw std::runtime_error("pm_level_subcycle: a CIC corner of a kick fell outside the ghost layer");
+    kstat[static_cast<std::size_t>(l)] = k;  // the level's last kick
+    T.s_kick += now() - t0;
+  }
+
+  // Level l's particles drifted by h from call time t0 (x + v h, the drift's
+  // arithmetic; reassigned at the parent's substep end)
+  void sub_drift(int l, double t0, double h) {
+    const double tt = now();
+    const double nd = ndmr;
+    for (ax::MFIter mfi(POT(l)); mfi.isValid(); ++mfi) {
+      auto& pt = tile(l, mfi);
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+#pragma omp parallel for schedule(static)
+      for (int n = 0; n < np; ++n)
+        for (int c = 0; c < 3; ++c) {
+          const double t = static_cast<double>(pd.m_rdata[kX + c][n]) + static_cast<double>(pd.m_rdata[kV + c][n]) * h + nd;
+          const float x = static_cast<float>(f::mod(t, nd));
+          pd.m_rdata[kX + c][n] = x;
+          pd.m_rdata[c][n] = fpos(x);
+        }
+    }
+    t_part[static_cast<std::size_t>(l)] = t0 + h;
+    T.s_drift += now() - tt;
+  }
+
+  // The end of a level-l substep (l >= 1): its particles that left its boxes
+  // stay on it (orphans, at most kOrphan cells out: one more drift keeps
+  // their CIC clouds in the ghost layers) until the parent's substep ends;
+  // the rest of levels l..finest go to the finest of them holding their
+  // home cell. l = 0 (the end of a level-0 substep): the particles of the
+  // refined levels outside level 1 become level-0 particles (to_level0),
+  // the rest are reassigned among the refined levels. Collective.
+  void sub_regroup(int l) {
+    const int nf = finest();
+    if (nf == 0) return;
+    const double t0 = now();
+    if (l == 0) {
+      const double tk = t_part[1];
+      const ax::BoxArray& B1 = BA(1);
+      std::vector<PRec> moved;
+      for (int q = 1; q <= nf; ++q)
+        for (ax::MFIter mfi(POT(q)); mfi.isValid(); ++mfi) {
+          auto& pt = tile(q, mfi);
+          const ax::Box bx = mfi.validbox();
+          auto fa = FRC(q).const_array(mfi);
+          const std::size_t n0 = moved.size();
+          remove_if(pt, [&](const PTD& pd, int n) {
+            const ax::IntVect h(home_l(pd.m_rdata[0][n], 1), home_l(pd.m_rdata[1][n], 1), home_l(pd.m_rdata[2][n], 1));
+            if (B1.contains(h)) return false;
+            double fv[3];
+            force_on(q, bx, fa, pd, n, fv);
+            PRec p = take(pd, n);
+            to_level0(p, fv, tk);
+            put(pd, n, p);  // (taken again by remove_if)
+            return true;
+          }, moved);
+          (void)n0;
+        }
+      T.s_to0 += static_cast<Long>(moved.size());
+      {
+        ax::MFIter m0(pot);  // (closed before the Redistribute's own MFIters)
+        if (m0.isValid()) {
+          append(tile(0, m0), moved);
+        } else if (!moved.empty()) {
+          append(pc->DefineAndReturnParticleTile(0, 0, 0), moved);  // (a rank without level-0 boxes)
+        }
+      }
+      pc->Redistribute(0, 0);
+      pc->Redistribute(1, nf);
+      T.s_regroup += now() - t0;
+      return;
+    }
+    const ax::BoxArray& B = BA(l);
+    const int NN = Nm << l;
+    std::vector<std::vector<PRec>> orphans;
+    std::vector<int> grid, tidx;
+    for (int q = l; q <= nf; ++q)
+      for (ax::MFIter mfi(POT(q)); mfi.isValid(); ++mfi) {
+        auto& pt = tile(q, mfi);
+        const ax::Box bx = mfi.validbox();
+        std::vector<PRec> out;
+        remove_if(pt, [&](const PTD& pd, int n) {
+          const ax::IntVect h(home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l));
+          if (B.contains(h)) return false;
+          if (q != l)
+            throw std::runtime_error("pm_level_subcycle: a level-" + std::to_string(q) + " particle left level " +
+                                     std::to_string(l) + " within one of its substeps (faster than a cell per substep)");
+          const float pos[3] = {pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n]};
+          int hn[3];
+          home_near(pos, l, bx, NN, hn);
+          if (!ax::grow(bx, kOrphan).contains(ax::IntVect(hn[0], hn[1], hn[2])))
+            throw std::runtime_error("pm_level_subcycle: a level-" + std::to_string(l) + " particle moved more than " +
+                                     std::to_string(kOrphan) + " cells outside its level within its parent's substep "
+                                     "(faster than a cell per substep)");
+          return true;
+        }, out);
+        if (!out.empty()) {
+          orphans.push_back(std::move(out));
+          grid.push_back(mfi.index());
+          tidx.push_back(mfi.LocalTileIndex());
+        }
+      }
+    pc->Redistribute(l, nf);
+    for (std::size_t g = 0; g < orphans.size(); ++g)
+      append(pc->DefineAndReturnParticleTile(l, grid[g], tidx[g]), orphans[g]);
+    T.s_regroup += now() - t0;
+  }
+
+  // The start of a hydro call (after its push-down and regrid): in the
+  // second call the particles that change between level 0 and the refined
+  // levels get the half of level 0's kick they must not (or must) have;
+  // the PM levels from the gas state's, every particle onto the finest level
+  // holding it, every level solved at t = 0 (U: the hydro's levels).
+  // Collective.
+  void sub_open(const ax::Vector<ax::MultiFab*>& U) {
+    const double t0 = now();
+    if (call_half == 1) {
+      // (the old boxes' tiles and forces, the new boxes from the gas state)
+      for_tiles([&](int q, const ax::MFIter& mfi) {
+        auto& pt = tile(q, mfi);
+        const int np = static_cast<int>(pt.numParticles());
+        const PTD pd = pt.getParticleTileData();
+        const ax::Box bx = mfi.validbox();
+        auto fa = FRC(q).const_array(mfi);
+        for (int n = 0; n < np; ++n) {
+          const float pos[3] = {pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n]};
+          const int tl = target_level(pos);
+          if ((q == 0) == (tl == 0)) continue;
+          double fv[3];
+          force_on(q, bx, fa, pd, n, fv);
+          if (q == 0) {  // into the hierarchy: it got g0 dt_sim at the base step's middle, keep g0 dt_call
+            for (int c = 0; c < 3; ++c)
+              pd.m_rdata[kV + c][n] = static_cast<float>(static_cast<double>(pd.m_rdata[kV + c][n]) - fv[c] / x_dm_m * dt_call);
+          } else {  // out of it, at tk = 0
+            PRec p = take(pd, n);
+            to_level0(p, fv, 0.0);
+            put(pd, n, p);
+            T.s_to0 += 1;
+          }
+        }
+      });
+    }
+    sync_levels();
+    pc->Redistribute();
+    const int nf = finest();
+    const std::size_t NL = static_cast<std::size_t>(nf) + 1;
+    t_part.assign(NL, 0.0);
+    t_old.assign(NL, 0.0);
+    t_new.assign(NL, 0.0);
+    kstat.resize(std::max(kstat.size(), NL));
+    if (call_half == 0) kstat.assign(kstat.size(), KStat());
+    if (call_half == 0 && pcheck_sub) {
+      momentum(P0_sub, dm_mass);
+      pk_sum[0] = pk_sum[1] = pk_sum[2] = pk_abs = 0;
+    }
+    pot_old.resize(NL);
+    for (int l = 0; l <= nf; ++l) pot_old[static_cast<std::size_t>(l)].define(BA(l), DM(l), 1, 0);
+    if (nf > 0)
+      for (int l = 0; l <= nf; ++l) sub_solve(l, 0.0, *U[static_cast<std::size_t>(l)]);
+    for (int l = 0; l <= nf; ++l) {
+      ax::Copy(pot_old[static_cast<std::size_t>(l)], POT(l), 0, 0, 1, 0);
+      t_old[static_cast<std::size_t>(l)] = t_new[static_cast<std::size_t>(l)] = 0.0;
+    }
+    T.s_open += now() - t0;
+  }
+
+  // Level 0's drifts of the sub-cycled step (the drift's arithmetic):
+  // before its kick (then reassigned within level 0 only: the refined
+  // levels are at the base step's middle already) and, deferred, after the
+  // second hydro call
+  void drift0(double dt_sim) {
+    const double t0 = now();
+    const double nd = ndmr;
+    for (ax::MFIter mfi(pot); mfi.isValid(); ++mfi) {
+      auto& pt = tile(0, mfi);
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+#pragma omp parallel for schedule(static)
+      for (int n = 0; n < np; ++n)
+        for (int c = 0; c < 3; ++c) {
+          const double t = static_cast<double>(pd.m_rdata[kX + c][n]) +
+                           static_cast<double>(pd.m_rdata[kV + c][n]) * dt_sim / 2 + nd;
+          const float x = static_cast<float>(f::mod(t, nd));
+          pd.m_rdata[kX + c][n] = x;
+          pd.m_rdata[c][n] = fpos(x);
+        }
+    }
+    T.drift += now() - t0;
+  }
+
+  // The total momentum of the particles and of level 0's gas (the
+  // composite) as momentum() and the step's kick sums (the momentum check)
+  double P0_sub[6] = {0, 0, 0, 0, 0, 0};
+
+  // The end of the base step (after the second hydro call): level 0's
+  // deferred drift, every particle onto its level, the kick statistics into
+  // clk (amax and arms over level 0's kick and every refined level's last
+  // kick; vmax and vrms over every particle's velocity now). Collective.
+  void sub_finish(pm::PMState& s, SimClock& clk) {
+    if (!drift_pending) return;
+    drift0(clk.dt_sim);
+    drift_pending = false;
+    sync_levels();
+    pc->Redistribute();
+    i128 sa = 0, sv = 0;
+    double ma = 0, mv = 0;
+    for (const KStat& k : kstat) {
+      sa += k.a;
+      ma = f::max(ma, k.ma);
+    }
+    for_tiles([&](int l, const ax::MFIter& mfi) {
+      auto& pt = tile(l, mfi);
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+      for (int n = 0; n < np; ++n) {
+        if (pd.m_idata[kType][n] != 0) continue;
+        const float v[3] = {pd.m_rdata[kV][n], pd.m_rdata[kV + 1][n], pd.m_rdata[kV + 2][n]};
+        const float vs = ((0.0f + v[0] * v[0]) + v[1] * v[1]) + v[2] * v[2];
+        sv += to_fx128(static_cast<double>(vs), kStatBits);
+        const float va = f::max(f::max(std::fabs(v[0]), std::fabs(v[1])), std::fabs(v[2]));
+        mv = f::max(mv, static_cast<double>(va));
+      }
+    });
+    i128 sums[2] = {sa, sv};
+    allreduce_i128(sums, 2);
+    ax::ParallelDescriptor::ReduceRealMax(ma);
+    ax::ParallelDescriptor::ReduceRealMax(mv);
+    const double npart = static_cast<double>(s.pc.Npart);
+    clk.amax_dm = ma;
+    clk.arms_dm = std::sqrt(from_fx128(sums[0], kStatBits) / npart);
+    clk.vmax_dm = mv;
+    clk.vrms_dm = std::sqrt(from_fx128(sums[1], kStatBits) / npart);
+    if (pcheck_sub) {
+      double P1[6], loc[4] = {pk_sum[0], pk_sum[1], pk_sum[2], pk_abs};
+      momentum(P1, dm_mass);
+      ax::ParallelDescriptor::ReduceRealSum(loc, 4);
+      double rel = 0, relt = 0;
+      for (int m = 0; m < 3; ++m) {
+        rel = std::max(rel, loc[3] > 0 ? std::fabs(loc[m]) / loc[3] : 0.0);
+        const double d = (P1[m] - P0_sub[m]) + (P1[3 + m] - P0_sub[3 + m]);
+        relt = std::max(relt, loc[3] > 0 ? std::fabs(d) / loc[3] : 0.0);
+      }
+      if (ax::ParallelDescriptor::IOProcessor())
+        std::fprintf(stderr,
+                     "PM momentum check (sub-cycled): levels %d, |sum dP of the kicks| / sum|dp_gas| = %.3e, "
+                     "|dP_dm + dP_gas| over the step / sum|dp_gas| = %.3e (sum|dp_gas| %.6e)\n",
+                     finest(), rel, relt, loc[3]);
+    }
+  }
+
+  // The sub-cycled base step's PM step (docs/stage_g.md section 6): level
+  // 0's density (every level's particles and gas at the base step's
+  // middle), its FFT, force and kick of its particles and gas over dt_sim;
+  // the refined levels' gas is not kicked (the average-down restores level
+  // 0's covered cells), their particles are not touched (they are kicked
+  // in their substeps), level 0's second drift is deferred to the end of
+  // the step (sub_finish)
+  void step_level0(pm::PMState& s, float* u_gas, float* v_gas, const float* e_gas, int kind, double eta1,
+                   SimClock& clk, const Units& u, double mass) {
+    prep(s, u_gas, v_gas, e_gas, kind);
+    density(mass, false);
+    gravity(clk.scalefactor, false);
+    const double t0 = now();
+    force_level(0);
+    T.force += now() - t0;
+    if (pcheck_sub) {  // (the momentum diagnostic: the level-0 cells not covered by level 1)
+      std::unique_ptr<ax::iMultiFab> mask;
+      if (finest() > 0) mask = std::make_unique<ax::iMultiFab>(ax::makeFineMask(bag, dm, BA(1), ax::IntVect(2), 0, 1));
+      for (ax::MFIter mfi(gas); mfi.isValid(); ++mfi) {
+        auto g = gas.const_array(mfi);
+        auto fa = frc.const_array(mfi);
+        ax::Array4<int const> mk;
+        if (mask) mk = mask->const_array(mfi);
+        ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+          if (mask && mk(i, j, k)) return;
+          const double rho = f::max(static_cast<double>(g(i, j, k, 0)), u.Dgas_min);
+          for (int m = 0; m < 3; ++m) {
+            const double dp = rho * static_cast<double>(fa(i, j, k, m)) * clk.dt_sim;
+            pk_sum[m] += dp;
+            pk_abs += std::fabs(dp);
+          }
+        });
+      }
+    }
+    const double t1 = now();
+    KStat k;
+    Long bad = 0;
+    kick_dm_level(0, clk.dt_sim, k.a, k.v, k.ma, k.mv, bad, pcheck_sub ? pk_sum : nullptr, mass);
+    if (bad) throw std::runtime_error("pm_backend = amrex: a CIC corner of the kick fell outside the ghost layer");
+    if (kstat.empty()) kstat.resize(1);
+    kstat[0] = k;
+    T.kick_dm += now() - t1;
+    kick_gas(kind, clk.dt_sim, u, eta1);
+    gather(s, u_gas, v_gas, kind);
+    average_down_momenta();  // the covered level-0 cells back to the refined levels' (and level 0 is current)
+    // set_kick_globals with level 0's particles (sub_finish adds the rest)
+    i128 sums[2] = {k.a, k.v};
+    double ma = k.ma, mv = k.mv;
+    allreduce_i128(sums, 2);
+    ax::ParallelDescriptor::ReduceRealMax(ma);
+    ax::ParallelDescriptor::ReduceRealMax(mv);
+    const double npart = static_cast<double>(s.pc.Npart);
+    clk.amax_dm = ma;
+    clk.arms_dm = std::sqrt(from_fx128(sums[0], kStatBits) / npart);
+    clk.vmax_dm = mv;
+    clk.vrms_dm = std::sqrt(from_fx128(sums[1], kStatBits) / npart);
+    drift_pending = true;
+    T.steps += 1;
+  }
+
   // ---- one PM step ------------------------------------------------------------
 
   // kind: 0 MF, 1 non-MF, 2 unsplit (e_gas may be null: dual_energy = 0)
@@ -2112,6 +2802,10 @@ struct PMLevel {
       momentum(P0, mass);
       before.define(state->ba, state->dm, 3, 0);
       before.ParallelCopy(state->G, gs::kU + 1, 0, 3);
+    }
+    if (subcycle) {
+      step_level0(s, u_gas, v_gas, e_gas, kind, eta1, clk, u, mass);
+      return;
     }
     prep(s, u_gas, v_gas, e_gas, kind);
     density(mass);
@@ -2163,6 +2857,16 @@ struct PMLevel {
       std::snprintf(b2, sizeof b2, "; level solve: sync %.3f deposit %.3f solve %.3f force %.3f kick %.3f; levels %d",
                     T.sync, T.d_lev, T.solve, T.f_lev, T.k_lev, finest());
       std::string out = std::string(buf) + b2;
+      if (subcycle) {
+        char b4[320];
+        std::snprintf(b4, sizeof b4,
+                      "; sub-cycled: open %.3f deposit %.3f level-0 fft %.3f (%lld) solve %.3f (%lld) kick %.3f "
+                      "drift %.3f regroup %.3f, to level 0 %lld, unpredicted %lld",
+                      T.s_open, T.s_dep, T.s_fft, static_cast<long long>(T.s_fft_n), T.s_solve,
+                      static_cast<long long>(T.s_solves), T.s_kick, T.s_drift, T.s_regroup,
+                      static_cast<long long>(T.s_to0), static_cast<long long>(T.s_unpred));
+        out += b4;
+      }
       for (const FineMesh& M : fm) {
         char b3[128];
         std::snprintf(b3, sizeof b3,  " [%d: %lld cells, mg depth %d, bottom %d, sweeps %d, %d iters, resid %.2e%s]", M.lev,
@@ -2227,5 +2931,44 @@ void amrex_pm_gather_particles(pm::PMState& s) { level_of(s).gather_particles(s)
 void amrex_pm_drift(pm::PMState& s, double dt_sim) { level_of(s).drift(dt_sim, s.pc.ndmr); }
 
 std::string amrex_pm_timers(const pm::PMState& s) { return s.amrex ? s.amrex->level->timers() : ""; }
+
+// ---- pm_level_subcycle (docs/stage_g.md section 6) ----------------------------
+
+namespace {
+PMLevel* g_sub = nullptr;  // the level of the hydro call in progress (amrex_pm_subcycle_call)
+}
+
+bool amrex_pm_subcycled(const pm::PMState& s) { return s.pc.subcycle; }
+
+void amrex_pm_subcycle_call(pm::PMState& s, const SimClock& clk) {
+  if (!s.pc.subcycle) return;
+  PMLevel& L = level_of(s);
+  L.call_half = L.drift_pending ? 1 : 0;  // after the PM step: the second call
+  L.dt_call = clk.dt_sim / 2;
+  L.a_call0 = clk.scalefactor;
+  L.a_call1 = clk.scalefactor + clk.da_sim / 2;
+  L.dm_mass = (1 - s.pc.cosmo.omegab / s.pc.cosmo.omegam) * s.pc.dm_mass_ratio;
+  L.armed = true;
+  g_sub = &L;
+}
+
+void amrex_pm_subcycle_finish(pm::PMState& s, SimClock& clk) {
+  if (!s.pc.subcycle) return;
+  level_of(s).sub_finish(s, clk);
+}
+
+namespace pmsub {
+bool active() { return g_sub && g_sub->armed; }
+void open(const amrex::Vector<amrex::MultiFab*>& U, int) { g_sub->sub_open(U); }
+void solve(int l, double t, const amrex::MultiFab& U) { g_sub->sub_solve(l, t, U); }
+void kick(int l, amrex::MultiFab& U, int ng, double dt, double eta1, double rho_min) {
+  g_sub->sub_kick(l, U, ng, dt, eta1, rho_min);
+}
+void drift(int l, double t0, double h) { g_sub->sub_drift(l, t0, h); }
+void regroup(int l) { g_sub->sub_regroup(l); }
+void done() {
+  if (g_sub) g_sub->armed = false;
+}
+}  // namespace pmsub
 
 }  // namespace radray

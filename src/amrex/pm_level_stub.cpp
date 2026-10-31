@@ -25,5 +25,8 @@ std::int64_t amrex_pm_gather_stars(pm::PMState&) { no_amrex(); }
 void amrex_pm_load_stars(pm::PMState&) { no_amrex(); }
 void amrex_pm_gather_particles(pm::PMState&) { no_amrex(); }
 void amrex_pm_drift(pm::PMState&, double) { no_amrex(); }
+bool amrex_pm_subcycled(const pm::PMState&) { return false; }
+void amrex_pm_subcycle_call(pm::PMState&, const SimClock&) { no_amrex(); }
+void amrex_pm_subcycle_finish(pm::PMState&, SimClock&) { no_amrex(); }
 
 }  // namespace radray

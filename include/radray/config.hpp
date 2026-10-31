@@ -406,6 +406,14 @@ struct Config {
   //   pm_mlmg_bottom_scale: the width^2 rule above is ceil(scale * width^2)
   //                (default 1);
   //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
+  //   pm_level_subcycle: with pm_level_solve (and refinement) every refined
+  //                level gets its gravity on its own time step
+  //                (docs/stage_g.md section 6): its particles and gas are
+  //                kicked, drifted and solved for inside its hydro substeps
+  //                (kick-drift-kick, the boundary values from the parent's
+  //                potential interpolated in time), level 0 keeps its one
+  //                kick per base step. 0 (default): every level is kicked
+  //                once per base step. Needs pm_refine = 1.
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
@@ -416,6 +424,7 @@ struct Config {
   int pm_mlmg_bottom_sweeps = 8;
   double pm_mlmg_bottom_scale = 1.0;
   int pm_mlmg_verbose = 0;
+  int pm_level_subcycle = 0;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in
