@@ -265,7 +265,11 @@ code's growing mode at z = 300 and the gas lags (0.74× at k = 50 h/Mpc,
   Lagrangian region through its bulk flow, the pad of each level is the
   particles' own spread, and a coarse particle inside the finest region
   is the standard contamination diagnostic (count and report it every
-  step). `amrex_refine_box` stays for the tests; density tagging stays
+  step). **Each level is the bounding box of its tags** (plus the
+  nesting buffer; user decision 2026-10-31, `docs/PLAN.md`): one
+  rectangle per level, so the level solve's multigrid coarsens to a few
+  cells and no irregular level arises, at the price of the cells between
+  the region and its box. `amrex_refine_box` stays for the tests; density tagging stays
   available in addition (off by default inside the zoom: the finest level
   must be uniform for the turbulence measurement, as in C26).
 * **Proper nesting:** `amrex_n_error_buf` and AMReX's `n_proper` give the
