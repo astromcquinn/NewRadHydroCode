@@ -337,6 +337,22 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
         }
       }
     }
+    // plane_couple_courant > 0 (config.hpp; docs/plane_parallel.md): every
+    // step from the turn-on on is at most plane_couple_courant dx / c_hot,
+    // the coupling interval of the RT heating and cooling with the hydro as
+    // a fraction of the hot gas's cell crossing (dx = x_unit, so dt_sim =
+    // C / c_hot in code units). A function of a only (restarts repeat it).
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_couple_courant > 0 && u != nullptr &&
+        mode != TimestepMode::Fixed) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (a >= a_re * (1 - 1e-9)) {
+        const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
+        const double c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
+        double da_c = 0, dty = 0;
+        calc_da_from_dt(cfg.cosmo, a, da_c, cfg.plane_couple_courant / c_hot, dty);
+        if (da_c < da_cap) da_cap = da_c;
+      }
+    }
     if (da_cap < clk.da_sim) {
       clk.da_sim = da_cap;
       calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);

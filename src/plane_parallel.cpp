@@ -205,6 +205,12 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
       throw std::runtime_error("plane_turnon_courant must be in (0, 1]");
     return true;
   }
+  if (key == "plane_couple_courant") {
+    c.plane_couple_courant = std::stod(val);
+    if (!(c.plane_couple_courant >= 0 && c.plane_couple_courant <= 1))
+      throw std::runtime_error("plane_couple_courant must be in [0, 1] (0 = off)");
+    return true;
+  }
   if (key == "land_outputs") {
     if (val == "0")
       c.land_outputs = false;
@@ -232,6 +238,7 @@ void copy_plane_param(const Config& from, Config& to) {
   to.plane_turnon_cfl = from.plane_turnon_cfl;
   to.plane_turnon_temp = from.plane_turnon_temp;
   to.plane_turnon_courant = from.plane_turnon_courant;
+  to.plane_couple_courant = from.plane_couple_courant;
 }
 
 void check_plane_param(const Config& c) {
@@ -286,6 +293,7 @@ std::string plane_summary(const Config& c) {
   else if (c.plane_turnon_temp != 2e4 || c.plane_turnon_courant != 0.05)
     s += ", plane_turnon_temp = " + std::to_string(c.plane_turnon_temp) +
          ", plane_turnon_courant = " + std::to_string(c.plane_turnon_courant);
+  if (c.plane_couple_courant > 0) s += ", plane_couple_courant = " + std::to_string(c.plane_couple_courant);
   return s;
 }
 

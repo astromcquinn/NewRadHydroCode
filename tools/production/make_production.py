@@ -245,6 +245,10 @@ def main():
                     help="Gamma_HI in the source cells in 1e-12 s^-1 (default 0.3, C26)")
     ap.add_argument("--plane-z-re", type=float, default=7.0, help="the turn-on redshift (default 7)")
     ap.add_argument("--plane-alpha", type=float, default=1.5, help="J_nu ~ nu^-alpha (default 1.5)")
+    ap.add_argument("--plane-couple-courant", type=float, default=0.15,
+                    help="with --plane-parallel: every step from the turn-on is at most this fraction of "
+                         "the cell crossing of 2e4 K gas (plane_couple_courant; default 0.15, user "
+                         "decision 2026-10-30; 0: off)")
     ap.add_argument("--dt-max-myr", type=float, default=0.0,
                     help="cap on the hydro step in Myr from the turn-on (0: off; the T4 test)")
     ap.add_argument("--rt-substeps-max", type=int, default=0,
@@ -410,6 +414,9 @@ def main():
                   "land_outputs = 1"]
         if a.plane_alpha != 1.5:
             lines.append(f"plane_alpha = {a.plane_alpha:g}")
+        if a.plane_couple_courant > 0:
+            lines += ["# every step from the turn-on at most this fraction of the hot gas's cell crossing",
+                      f"plane_couple_courant = {a.plane_couple_courant:g}"]
     if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
         lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
     if a.dt_max_myr > 0:

@@ -320,6 +320,16 @@ def main():
     check(len(rt) > 0 and max(s["nstep_rt"][0] for s in rt) <= 50, f"rt_substeps_max = 50: {len(rt)} RT steps, at most {max(s['nstep_rt'][0] for s in rt):.0f} substeps")
     check(sum(1 for s in rt if s["nstep_rt"][0] == 50) > len(rt) // 2, "most RT steps hold exactly 50 substeps")
     check(matched(st, ss, z_re) < 0.05, f"rt_substeps_max: T_M(z) and x_HII,V(z) within 5 per cent of the uncapped run after the turn-on ({matched(st, ss, z_re):.3f})")
+    # plane_couple_courant = C: every step from z_re on is at most C dx / c_hot(2e4 K), i.e.
+    # dt_sim c_hot = C in code units (vel_unit at the start of the step) where it binds
+    cc = 0.3
+    sc = steps(run(a.exe, prob, os.path.join(a.work, "couple"), a.set + [f"plane_couple_courant={cc:g}"]))
+    after = [s for s in sc if s["redshift"][0] < z_re - 1e-9]
+    r = [s["dt_sim"][0] * c_hot_kms(2e4) / vel_unit_kms(1 / (1 + s["redshift"][0]) - s["da_sim"][0], 0.25, N) for s in after]
+    check(len(r) > 0 and max(r) <= cc * (1 + 1e-6), f"plane_couple_courant = {cc}: {len(r)} steps after z_re, dt_sim c_hot at most {max(r):.7f}")
+    check(sum(1 for x in r if abs(x / cc - 1) < 1e-6) > len(r) // 2, "most steps after z_re are the coupling cap")
+    check(all(sc[i]["dt_yr"][0] == st[i]["dt_yr"][0] for i in range(len(sc) - len(after))), "the steps up to z_re are those of the default run, bit for bit")
+    check(matched(st, sc, z_re) < 0.05, f"plane_couple_courant: T_M(z) and x_HII,V(z) within 5 per cent of the uncapped run after the turn-on ({matched(st, sc, z_re):.3f})")
 
     if a.amrex:
         print("the AMReX backend against the serial RT")
