@@ -103,12 +103,6 @@ inline int pm_fft_threads(const PMConfig& pc) {
   return pc.refine > 1 ? std::min(par::max_threads(), 32) : 1;
 }
 
-// general_tools.f90: sinc
-inline double sinc(double x) {
-  if (std::fabs(x) > 1e-6) return std::sin(x) / x;
-  return 1 - f::pow2(x) / 6;
-}
-
 }  // namespace
 
 PMConfig PMConfig::make(int Ngas, int Ndm, bool mf, int refine) {
@@ -630,7 +624,7 @@ void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconv
         if (kr > 0) {
           double wcic;
           if (deconvolve)
-            wcic = f::pow2(sinc(kx / 2) * sinc(ky / 2) * sinc(kz / 2));
+            wcic = f::pow2(pk_sinc(kx / 2) * pk_sinc(ky / 2) * pk_sinc(kz / 2));
           else
             wcic = 1;
           const float* fp = field + (i - 1) + ld * ((j - 1) + static_cast<std::int64_t>(nc) * (k - 1));
@@ -649,22 +643,9 @@ void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconv
       }
     }
   }
-  Dk.assign(5 * static_cast<std::size_t>(nc), 0.0);
-  for (int k = 1; k <= nc; ++k) {
-    if (P(1, k) > 0) {
-      for (int c = 2; c <= 5; ++c) P(c, k) = P(c, k) / P(1, k);
-      P(3, k) = f::max((P(3, k) - f::pow2(P(2, k))) / f::max(P(1, k) - 1, 1.0), 0.0);
-      P(3, k) = std::sqrt(P(3, k));
-      P(5, k) = f::max((P(5, k) - f::pow2(P(4, k))) / f::max(P(1, k) - 1, 1.0), 0.0);
-      P(5, k) = std::sqrt(P(5, k));
-    } else {
-      for (int c = 2; c <= 5; ++c) P(c, k) = 0;
-    }
-    const double km1 = k - 1.0;
-    Dk[(k - 1) * 5 + 0] = 2 * pi * km1 / box;
-    for (int c = 2; c <= 5; ++c) Dk[(k - 1) * 5 + (c - 1)] = 4 * pi * f::pow3(km1) * P(c, k);
-  }
+  calc_pk_finish(nc, pk, Dk, box);
 }
+
 
 // pm_tools.f90: calc_power_spectrum (computation; file name/IO in the caller)
 // pm_refine > 1: the DM power on the mesh (rows k = 1..Nm of pk_dm), the gas

@@ -160,6 +160,7 @@ struct Timers {
   double prep = 0, drift = 0, deposit = 0, sumbnd = 0, fft = 0, force = 0, kick_dm = 0, kick_gas = 0, gather = 0;
   double d_fine = 0, k_fine = 0;  // pm_gas_levels: the refined levels' deposit and kick (+ average-down)
   double sync = 0, d_lev = 0, solve = 0, f_lev = 0, k_lev = 0;  // pm_level_solve: the refined levels
+  double pk = 0;  // amrex_pk = level
   double g_vwrite = 0, g_vred = 0, g_vcopy = 0, g_gas = 0, g_pot = 0, p_locate = 0, p_fill = 0;
   Long steps = 0;
 };
@@ -245,6 +246,42 @@ struct PencilFFT {
           }
         }
       }
+    }
+  }
+
+  // The forward transform of in only: visit(i, j, k, c) on every spectral
+  // coefficient (global indices; c unnormalised, as MKL/FFTW), e.g. for a
+  // power spectrum (amrex_pk = level)
+  template <class F>
+  void forward_visit(const FFab& in, F&& visit) {
+    rz.ParallelCopy(in, 0, 0, 1);
+    for (ax::MFIter mfi(rz); mfi.isValid(); ++mfi) {
+      const ax::Box bx = mfi.validbox();
+      auto r = rz.array(mfi);
+      auto c = cz.array(mfi);
+      const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+      const int ny = hi.y - lo.y + 1, nz = hi.z - lo.z + 1;
+      const Long nl = static_cast<Long>(ny) * nz;
+#pragma omp parallel
+      {
+        std::vector<float> rb(static_cast<std::size_t>(N));
+        std::vector<ax::GpuComplex<float>> cb(static_cast<std::size_t>(H) + 1);
+#pragma omp for schedule(static)
+        for (Long l = 0; l < nl; ++l) {
+          const int j = lo.y + static_cast<int>(l % ny), k = lo.z + static_cast<int>(l / ny);
+          for (int i = 0; i < N; ++i) rb[i] = r(i, j, k);
+          fftwf_execute_dft_r2c(p_r2c, rb.data(), reinterpret_cast<fftwf_complex*>(cb.data()));
+          for (int i = 0; i <= H; ++i) c(i, j, k) = cb[i];
+        }
+      }
+    }
+    c2c_lines(cz, 1, p_fwd);  // y
+    cy.ParallelCopy(cz, 0, 0, 1);
+    c2c_lines(cy, 2, p_fwd);  // z
+    for (ax::MFIter mfi(cy); mfi.isValid(); ++mfi) {
+      const ax::Box bx = mfi.validbox();
+      auto a = cy.const_array(mfi);
+      ax::ParallelForOMP(bx, [=](int i, int j, int k) { visit(i, j, k, a(i, j, k)); });
     }
   }
 
@@ -355,6 +392,101 @@ inline int bits_of(int l) { return std::max(26, kDensBits - 3 * std::max(0, l - 
 // k), which sits at (i + 1/2)/2 - 1/2 in parent index space: 1/4 past the
 // parent cell's centre for an odd i, 1/4 before it for an even i.
 // Trilinear (the initial guess of the level solve; 2 parent ghosts):
+// ---------------------------------------------------------------------------
+// amrex_pk = level: calc_pk_3d (src/pm.cpp) on the spectrum of a pencil FFT.
+// The same per-mode values (k from the global indices, the CIC
+// deconvolution, p = (Re/n^3)^2 + (Im/n^3)^2), binned at 1 + nint(|k|/k_f);
+// the bin sums are exact: 128-bit fixed point with a scale per bin and
+// column set by a first pass (the bin's mode count and largest value), so
+// they are independent of the rank and thread layout. Two forward
+// transforms (the spectrum is not stored). Returns Dk(5, nc) as calc_pk_3d.
+// ---------------------------------------------------------------------------
+std::vector<double> pk_bins_level(PencilFFT& fft, const FFab& field, int nc, bool deconvolve, double box) {
+  const int hc = nc / 2;
+  const double ncr = nc;
+  const double ncube = static_cast<double>(nc) * nc * nc;
+  const int nt = nthreads_max();
+  const std::size_t nb = static_cast<std::size_t>(nc) + 1;  // bins 1..nc (index kk), 0 unused
+  // the mode's bin and its two values, as calc_pk_3d
+  auto mode = [=](int i, int j, int k, const ax::GpuComplex<float>& c, int& kk, double& p, double& pcor) {
+    const double kz = (k <= hc) ? 2 * pc::pi / ncr * k : 2 * pc::pi / ncr * (k - nc);
+    const double ky = (j <= hc) ? 2 * pc::pi / ncr * j : 2 * pc::pi / ncr * (j - nc);
+    const double kx = 2 * pc::pi / ncr * i;
+    double kr = std::sqrt(f::pow2(kx) + f::pow2(ky) + f::pow2(kz));
+    if (!(kr > 0)) return false;
+    double wcic = 1;
+    if (deconvolve) wcic = f::pow2(pm::pk_sinc(kx / 2) * pm::pk_sinc(ky / 2) * pm::pk_sinc(kz / 2));
+    const double a0 = static_cast<double>(c.m_real) / ncube;
+    const double a1 = static_cast<double>(c.m_imag) / ncube;
+    p = (0.0 + a0 * a0) + a1 * a1;
+    pcor = p / f::pow2(wcic);
+    kr = kr / (2 * pc::pi / ncr);
+    kk = 1 + f::nint(kr);
+    return true;
+  };
+  // pass 1: counts and maxima per bin (thread-private, then reduced)
+  std::vector<Long> cnt(static_cast<std::size_t>(nt) * nb, 0);
+  std::vector<double> mx(static_cast<std::size_t>(nt) * nb * 4, 0.0);  // max of p, p^2, pcor, pcor^2
+  fft.forward_visit(field, [&](int i, int j, int k, const ax::GpuComplex<float>& c) {
+    int kk;
+    double p, pc_;
+    if (!mode(i, j, k, c, kk, p, pc_)) return;
+    if (kk < 1 || kk > nc) return;
+    const std::size_t t = static_cast<std::size_t>(thread_id());
+    cnt[t * nb + kk] += 1;
+    double* m = &mx[(t * nb + kk) * 4];
+    m[0] = std::max(m[0], p);
+    m[1] = std::max(m[1], p * p);
+    m[2] = std::max(m[2], pc_);
+    m[3] = std::max(m[3], pc_ * pc_);
+  });
+  std::vector<Long> n(nb, 0);
+  std::vector<double> big(nb * 4, 0.0);
+  for (int t = 0; t < nt; ++t)
+    for (std::size_t b = 0; b < nb; ++b) {
+      n[b] += cnt[static_cast<std::size_t>(t) * nb + b];
+      for (int q = 0; q < 4; ++q) big[b * 4 + q] = std::max(big[b * 4 + q], mx[(static_cast<std::size_t>(t) * nb + b) * 4 + q]);
+    }
+  ax::ParallelDescriptor::ReduceLongSum(n.data(), static_cast<int>(nb));
+  ax::ParallelDescriptor::ReduceRealMax(big.data(), static_cast<int>(big.size()));
+  // the scales: a bin's sum stays below 2^125 (|i128| < 2^127)
+  std::vector<int> bits(nb * 4, 0);
+  for (std::size_t b = 0; b < nb; ++b)
+    for (int q = 0; q < 4; ++q) {
+      const double bound = big[b * 4 + q] * static_cast<double>(std::max<Long>(n[b], 1));
+      bits[b * 4 + q] = bound > 0 ? 124 - std::ilogb(bound) : 0;
+    }
+  // pass 2: the sums
+  std::vector<i128> S(static_cast<std::size_t>(nt) * nb * 4, 0);
+  fft.forward_visit(field, [&](int i, int j, int k, const ax::GpuComplex<float>& c) {
+    int kk;
+    double p, pc_;
+    if (!mode(i, j, k, c, kk, p, pc_)) return;
+    if (kk < 1 || kk > nc) return;
+    i128* s = &S[(static_cast<std::size_t>(thread_id()) * nb + kk) * 4];
+    const int* bb = &bits[static_cast<std::size_t>(kk) * 4];
+    s[0] += to_fx128(p, bb[0]);
+    s[1] += to_fx128(p * p, bb[1]);
+    s[2] += to_fx128(pc_, bb[2]);
+    s[3] += to_fx128(pc_ * pc_, bb[3]);
+  });
+  std::vector<i128> tot(nb * 4, 0);
+  for (int t = 0; t < nt; ++t)
+    for (std::size_t q = 0; q < nb * 4; ++q) tot[q] += S[static_cast<std::size_t>(t) * nb * 4 + q];
+  allreduce_i128(tot.data(), static_cast<int>(tot.size()));
+  // calc_pk_3d's normalisation of the sums
+  std::vector<double> pk(5 * static_cast<std::size_t>(nc), 0.0);
+  auto P = [&](int c, int k) -> double& { return pk[(k - 1) * 5 + (c - 1)]; };
+  for (int k = 1; k <= nc; ++k) {
+    const std::size_t b = static_cast<std::size_t>(k);
+    P(1, k) = static_cast<double>(n[b]);
+    for (int q = 0; q < 4; ++q) P(2 + q, k) = from_fx128(tot[b * 4 + q], bits[b * 4 + q]);
+  }
+  std::vector<double> Dk;
+  pm::calc_pk_finish(nc, pk, Dk, box);
+  return Dk;
+}
+
 AMREX_FORCE_INLINE double interp_parent(const ax::Array4<const float>& q, int i, int j, int k) {
   const int i0 = (i >> 1) - (1 - (i & 1)), j0 = (j >> 1) - (1 - (j & 1)), k0 = (k >> 1) - (1 - (k & 1));
   const double wx = (i & 1) ? 0.25 : 0.75, wy = (j & 1) ? 0.25 : 0.75, wz = (k & 1) ? 0.25 : 0.75;
@@ -1962,6 +2094,89 @@ struct PMLevel {
 
   // ---- the fields for the tests: potential and mesh force onto the host -------
 
+  // amrex_pk = level (amrex_pm_power_spectrum, docs/rank0_streaming.md step
+  // 11): calc_power_spectrum on the levels. The dark matter's CIC density on
+  // the mesh is level 0's deposit without the stars (exact, as density());
+  // the gas density is the gas state's. Each goes through a pencil FFT of
+  // its own size (made and freed here) and pk_bins_level. Collective.
+  void power_spectrum(const pm::PMState& s, double box, std::vector<double>& pk_dm, std::vector<double>& pk_gas) {
+    if (!state || !loaded) throw std::runtime_error("amrex_pk = level needs amrex_state = 1");
+    if (finest() > 0) throw std::runtime_error("amrex_pk = level: not implemented with refined PM levels (pm_level_solve)");
+    const double t0 = now();
+    const double fb = s.pc.cosmo.omegab / s.pc.cosmo.omegam;
+    const double fd = 1 - fb;
+    const double mass = (1 - fb) * s.pc.dm_mass_ratio;  // dm_mass of src/pm.cpp, as step()
+    LFab dacc(ba, dm, 1, 1);
+    dacc.setVal(0);
+    Long bad = 0;
+    for (ax::MFIter mfi(dacc); mfi.isValid(); ++mfi) {
+      const ax::Box gbx = ax::grow(mfi.validbox(), 1);
+      const auto glo = ax::lbound(gbx), ghi = ax::ubound(gbx), glen = ax::length(gbx);
+      const Long ngc = gbx.numPts();
+      auto& pt = tile(0, mfi);
+      const int np = static_cast<int>(pt.numParticles());
+      const PTD pd = pt.getParticleTileData();
+      const int nt = nthreads_max();
+      std::vector<Long> buf(static_cast<std::size_t>(nt) * ngc, 0);
+      auto a = dacc.array(mfi);
+#pragma omp parallel reduction(+ : bad)
+      {
+        Long* mine = buf.data() + static_cast<std::size_t>(thread_id()) * ngc;
+#pragma omp for schedule(static)
+        for (int n = 0; n < np; ++n) {
+          if (pd.m_idata[kType][n] != 0) continue;  // the stars: not in the DM spectrum
+          const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
+          const int h[3] = {home_l(pd.m_rdata[0][n], 0), home_l(pd.m_rdata[1][n], 0), home_l(pd.m_rdata[2][n], 0)};
+          const rpk::Cic c = rpk::cic_weights(mg, x);
+          rpk::cic_corners(c, [&](int i, int j, int k, double w) {
+            const int ii = near_image(i - 1, h[0], Nm), jj = near_image(j - 1, h[1], Nm),
+                      kk = near_image(k - 1, h[2], Nm);
+            if (ii < glo.x || ii > ghi.x || jj < glo.y || jj > ghi.y || kk < glo.z || kk > ghi.z) {
+              bad += 1;
+              return;
+            }
+            mine[(ii - glo.x) + glen.x * ((jj - glo.y) + static_cast<Long>(glen.y) * (kk - glo.z))] +=
+                to_fx(w * mass, kDensBits);
+          });
+        }
+      }
+      ax::ParallelForOMP(gbx, [=, &buf](int i, int j, int k) {
+        const Long idx = (i - glo.x) + glen.x * ((j - glo.y) + static_cast<Long>(glen.y) * (k - glo.z));
+        Long sum = 0;
+        for (int t = 0; t < nt; ++t) sum += buf[static_cast<std::size_t>(t) * ngc + idx];
+        a(i, j, k) += sum;
+      });
+    }
+    ax::ParallelDescriptor::ReduceLongSum(bad);
+    if (bad) throw std::runtime_error("amrex_pk = level: a CIC corner fell outside the ghost layer");
+    dacc.SumBoundary(period);
+    FFab d(ba, dm, 1, 0);
+    for (ax::MFIter mfi(d); mfi.isValid(); ++mfi) {
+      auto o = d.array(mfi);
+      auto a = dacc.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        o(i, j, k) = static_cast<float>(std::ldexp(static_cast<double>(a(i, j, k)), -kDensBits) / fd - 1);
+      });
+    }
+    {
+      PencilFFT f(Nm);
+      pk_dm = pk_bins_level(f, d, Nm, true, box);
+    }
+    FFab g(state->ba, state->dm, 1, 0);
+    for (ax::MFIter mfi(g); mfi.isValid(); ++mfi) {
+      auto o = g.array(mfi);
+      auto ga = state->G.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=](int i, int j, int k) {
+        o(i, j, k) = static_cast<float>(static_cast<double>(ga(i, j, k, gs::kU)) / fb - 1);
+      });
+    }
+    {
+      PencilFFT f(Ng);
+      pk_gas = pk_bins_level(f, g, Ng, false, box);
+    }
+    T.pk += now() - t0;
+  }
+
   void fields(pm::PMState& s, const float* u_gas, double scalefactor) {
     const double mass = (1 - s.pc.cosmo.omegab / s.pc.cosmo.omegam) * s.pc.dm_mass_ratio;
     if (state) {
@@ -2172,6 +2387,9 @@ void amrex_pm_force_at(pm::PMState& s, const std::vector<float>& xs, std::vector
 }
 
 void amrex_pm_load_particles(pm::PMState& s) { level_of(s).load_particles(s); }
+void amrex_pm_power_spectrum(pm::PMState& s, double box, std::vector<double>& pk_dm, std::vector<double>& pk_gas) {
+  level_of(s).power_spectrum(s, box, pk_dm, pk_gas);
+}
 std::int64_t amrex_pm_add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form) {
   return level_of(s).add_stars(s, ev, a_form);
 }

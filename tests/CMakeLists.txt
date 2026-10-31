@@ -1885,6 +1885,25 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;moments;amrex_moments;full" ENVIRONMENT OMP_NUM_THREADS=${nt}
                            PROCESSORS ${np})
     endforeach()
+    # amrex_pk = level (docs/rank0_streaming.md step 11): the power spectrum
+    # on the levels against the host's (Pk/ at round-off, everything else
+    # byte-identical) and rank independent
+    foreach(pr "1 3 2" "2 2 1")
+      separate_arguments(pr)
+      list(GET pr 0 refine)
+      list(GET pr 1 np)
+      list(GET pr 2 nt)
+      add_test(NAME amrex_pk_level_r${refine}_np${np}
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pk_level_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} ${np}
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${amrex_runs}/pk_level_r${refine}_np${np} --quiet --set legacy_rt=0 --set legacy_physics=0
+                       --set rt_backend=amrex --set hydro_scheme=unsplit --set hydro_backend=amrex
+                       --set amrex_hydro_max_grid_size=0 --set pm_backend=amrex --set amrex_state=1
+                       --set pm_refine=${refine} --set restart_every=0)
+      set_tests_properties(amrex_pk_level_r${refine}_np${np} PROPERTIES TIMEOUT 1800
+                           LABELS "amrex;amrex_state;amrex_pm" ENVIRONMENT OMP_NUM_THREADS=${nt} PROCESSORS ${np})
+    endforeach()
     # the moment RT on the level through a checkpoint (rank 0 streams the
     # moment and recombination blocks slab by slab): bit-identical restarts
     foreach(rc "m1 2 4" "split 1 0" "conerecomb 3 4")

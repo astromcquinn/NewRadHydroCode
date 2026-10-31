@@ -17,10 +17,13 @@
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
+#include <cmath>
 #include <string>
 #include <vector>
 
 #include "radray/config.hpp"
+#include "radray/constants.hpp"
+#include "radray/fortran.hpp"
 #include "radray/cosmology.hpp"
 #include "radray/simulation.hpp"
 
@@ -220,6 +223,33 @@ void write_power_spectrum(const std::string& path, const PMState& s,
 // after a forward fft_3d; Dk(5,nc); box in Mpc/h.
 void calc_pk_3d(int nc, const float* field, std::vector<double>& Dk, bool deconvolve,
                 double box);
+// Its normalisation of the bin sums pk(5, nc) (count, sums of p, p^2, pcor,
+// pcor^2; overwritten) into Dk, shared with the power spectrum on the
+// levels (amrex_pk = level, pm_backend.hpp)
+inline void calc_pk_finish(int nc, std::vector<double>& pk, std::vector<double>& Dk, double box) {
+  auto P = [&](int c, int k) -> double& { return pk[(k - 1) * 5 + (c - 1)]; };
+  Dk.assign(5 * static_cast<std::size_t>(nc), 0.0);
+  for (int k = 1; k <= nc; ++k) {
+    if (P(1, k) > 0) {
+      for (int c = 2; c <= 5; ++c) P(c, k) = P(c, k) / P(1, k);
+      P(3, k) = f::max((P(3, k) - f::pow2(P(2, k))) / f::max(P(1, k) - 1, 1.0), 0.0);
+      P(3, k) = std::sqrt(P(3, k));
+      P(5, k) = f::max((P(5, k) - f::pow2(P(4, k))) / f::max(P(1, k) - 1, 1.0), 0.0);
+      P(5, k) = std::sqrt(P(5, k));
+    } else {
+      for (int c = 2; c <= 5; ++c) P(c, k) = 0;
+    }
+    const double km1 = k - 1.0;
+    Dk[(k - 1) * 5 + 0] = 2 * pc::pi * km1 / box;
+    for (int c = 2; c <= 5; ++c) Dk[(k - 1) * 5 + (c - 1)] = 4 * pc::pi * f::pow3(km1) * P(c, k);
+  }
+}
+
+// general_tools.f90: sinc (the CIC window of calc_pk_3d)
+inline double pk_sinc(double x) {
+  if (std::fabs(x) > 1e-6) return std::sin(x) / x;
+  return 1 - (x * x) / 6;
+}
 
 // pm_tools.f90: summarize_dm. Returns the reductions (x in DM cells, v in
 // km/s) and prints the original's summary to *out if non-null.

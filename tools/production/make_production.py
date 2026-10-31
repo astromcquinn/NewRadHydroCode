@@ -334,6 +334,9 @@ def main():
             "amrex_hydro_max_grid_size = 0",
             "amrex_state = 1",
             "amrex_balance = 1",
+            # the power spectrum on the levels: rank 0 keeps no host PM mesh
+            # (docs/rank0_streaming.md step 11)
+            "amrex_pk = level",
         ]
     lines += [
         f"movie_dz = {a.movie_dz:g}",
