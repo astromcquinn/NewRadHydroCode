@@ -1589,6 +1589,14 @@ be designed); `recomb_rad` on the backend (block emission and
     own step, Enzo/RAMSES style) is a new work item for WP3 before Z2.
     Cost: up to about the hydro's again at the finest level (~3 × 10⁴
     core-hours at Z3 if solved at every finest-level step).
+* **Follow-up built (2026-10-31, branch `stage-g-subcycle`):**
+  `pm_level_subcycle` (`docs/stage_g.md` §6). Implementer's choices for
+  review (§6.7): kick–drift–kick per refined substep (Strang with the
+  hydro, one solve per substep); level 0 solved by FFT after each of its
+  hydro substeps for level 1's boundary values (4 FFTs per base step; its
+  kick still once); the parent's closing solve with its children's mass
+  predicted by a virtual drift, no corrector; level-0 particles enter the
+  hierarchy only at the hydro calls' starts; orphans up to 2 cells.
 * **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
   levels for now.** Each zoom level is the bounding box of its tagged
   region (the cells holding particles of a finer mass class) plus the

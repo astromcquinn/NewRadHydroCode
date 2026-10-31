@@ -318,6 +318,18 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   the fine levels need gravity on their own, finer timescale. Next in
   WP3: the PM sub-cycled per level (each level solves and kicks at its
   own step, as its hydro sub-cycles), before Z2.
+* **Gap closed 2026-10-31 (`pm_level_subcycle = 1`, `docs/stage_g.md`
+  §6):** every refined level kick–drift–kicks in each of its hydro
+  substeps, solving at its own times with the parent's potential
+  interpolated in time; particles change level at the end of the parent's
+  substep; level 0 keeps one kick per base step. An orbit inside level 2
+  conserves energy 73× better; a collapsing halo's profile matches the
+  uniform fine run to 0.8 % (8.8 % with one kick per base step); T1's
+  inner-region error halves. Cost at Z1/Z2 to be measured (the klone
+  128³ profile first). Phase 2, each level's substep count from its own
+  CFL limit instead of always 2 (at Z3 ~100× fewer finest substeps when
+  the base step is short), needs no change on the gravity side and waits
+  for the user.
 
 ### 4.4 WP4: the RT into the zoom
 

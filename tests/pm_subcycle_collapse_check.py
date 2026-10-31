@@ -26,7 +26,7 @@ falls to 200 times the mean) and its spherically averaged density profile
 0.25 fine cells of A's, its M200 within 5 % of A's, its profile within 5 %
 rms (log) of A's, B1 is not worse than B0 in centre and mass (by a margin
 of 10 % of B0's error or 1e-3) and its profile error is at most half B0's.
-2026-10-31 (4-core VM, 2 ranks x 2 threads, ~25 min): A's halo 544
+2026-10-31 (4-core VM, 2 ranks x 2 threads, ~6 min): A's halo 544
 particles; B0 centre 0.025 cells, M200 +7.5 %, profile 8.8 %; B1 0.008
 cells, M200 0, profile 0.8 %.
 """

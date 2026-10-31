@@ -1717,7 +1717,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       # Nightly (~10 min each): the same through the smoke problem's RT steps
       # 13-15 (1 and 3 ranks; a restart from step 13), the collapse of a
       # spherical overdensity on two levels against the uniform fine run with
-      # a short step (pm_subcycle_collapse_check.py), and T1 with the flag
+      # a short step (pm_subcycle_collapse_check.py, ~6 min), and T1 with the flag
       add_test(NAME amrex_pm_subcycle_rt_ranks
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
                        ${amrex_runs}/pm_subcycle_rt_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"

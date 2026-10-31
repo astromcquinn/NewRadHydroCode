@@ -717,6 +717,127 @@ momentum the kicks of a whole base step add against their summed |Δp|.
    (each level's substep count from its own CFL limit) needs no change on
    the gravity side.
 
+### 6.8 Without the flag
+
+`pm_level_subcycle = 0` leaves every code path as it was: the new ghost
+widths, the deposit's prediction and the per-tile skip are taken only with
+the flag (the shared routines reduce to the old arithmetic: one ghost
+layer, offset 0). The fast suite's stored references, the `level_solve`
+tests and the Fortran comparisons pass unchanged (§6.9). With the flag and
+no refined level in use, the step is byte-identical to the flag off
+(`amrex_pm_subcycle_identity_smoke`: level 0's deferred drift is the same
+arithmetic).
+
+### 6.9 Validation (`ctest -L subcycle`)
+
+All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
+2026-10-31).
+
+1. **An orbit inside level 2** (`amrex_pm_subcycle_orbit`,
+   `tests/test_amrex_pm_subcycle.cpp`, 86 s on 2 ranks × 2 threads): a light
+   particle on a circular orbit 6 level-2 cells around a clump of 511
+   particles at one point (the clump at the centre of level 2 of a 32³
+   base; a static universe; a cold, light gas), radhydro's base step at a
+   fixed base step of 1/64 of the period, one orbit; the energy relative
+   to the clump against a sub-cycled run at half the base step (the
+   energy's swing of a few per cent around the orbit, the mesh's angular
+   anisotropy against the direction-averaged Φ, is common to all runs and
+   cancels):
+
+   | | max \|E − E_ref\| / (v²/2) |
+   |---|---|
+   | `pm_level_subcycle = 0` (level 2 kicked once per base step) | 3.62e-3 |
+   | `pm_level_subcycle = 1` (8 times: 2 hydro calls × 4 level-2 substeps) | 4.93e-5 |
+   | ratio | 73 (expected (2·2²)² = 64; the request's (2^l)² = 16 counted one hydro call per base step) |
+
+   At 16 base steps per orbit the cold gas falling onto the clump makes the
+   hydro take 4 substeps per call (both runs), so the sub-cycled run has
+   32 level-2 kicks per base step and the error ratio is 217; the test uses
+   64 steps per orbit, where the hydro takes one substep per call. Checked:
+   ratio ≥ 16.
+2. **A collapsing overdensity** (nightly `amrex_pm_subcycle_collapse`,
+   `tests/pm_subcycle_collapse_check.py`, ~6 min on 2 × 2): 64³ particles
+   in 4 Mpc/h with one spherical Gaussian Zel'dovich displacement (σ = 5
+   cells, linear central overdensity 1.686 at z = 15), uniform gas, z = 100
+   → 6; B0/B1: 16³ base with levels 1 and 2 over the central half (level 2
+   at 64³ resolution), A: uniform 64³ with its step capped at 1/8 of B1's
+   median base step (level 2's substep; 348 steps against 26). The halo
+   at z = 6 (A: M200 = 544 particles):
+
+   | | centre offset [fine cells] | M200 / A's − 1 | profile, rms log difference (0.5–12 cells) |
+   |---|---|---|---|
+   | B0 (`pm_level_subcycle = 0`) | 0.025 | +0.075 | 0.088 |
+   | B1 (`pm_level_subcycle = 1`) | 0.008 | 0.000 | 0.008 |
+
+   With gravity once per base step the halo's core is 11 % too dense and
+   the next shell 20 % too thin; sub-cycled, the profile is A's to 1 % in
+   every shell. (A smaller halo, σ = 3, z_c = 12 → 7, M200 = 54: profile
+   0.044 against 0.028, M200 −9 % against −6 %.)
+3. **Ranks and restarts:** the smoke problem with two levels over half the
+   box to z = 28 (12 gravity-only steps; `amrex_pm_subcycle_ranks_smoke`,
+   `amrex_pm_subcycle_restart_smoke`): 1, 2 and 3 ranks byte-identical
+   (every field, movie frame and checkpoint), a restart from step 9
+   bit-identical; nightly the same through the RT steps 13–15
+   (`amrex_pm_subcycle_rt_ranks`, `amrex_pm_subcycle_rt_restart`; not run
+   here, ~10 min each).
+4. **Momentum** (`amrex_pm_subcycle_momentum`,
+   `tests/pm_subcycle_check.py`, `RADRAY_PM_MOMENTUM_CHECK=1`, the smoke
+   problem, 6 steps): the momentum all kicks of a base step add against
+   their summed gas |Δp|, with `pm_level_subcycle = 0`'s per-PM-step value
+   next to it:
+
+   | levels over | `= 0` | `= 1` |
+   |---|---|---|
+   | the whole box (periodic solves) | 2.0e-8 | 2.4e-8 (< 1e-5 required) |
+   | half the box (Dirichlet boundary) | 2.4e-5 | 2.4e-5 (< 2e-2 required) |
+
+   The level crossing's time offsets (§6.4) add nothing measurable here.
+5. **T1** (`tests/pm_zoom_t1_check.py --subcycle`, nightly
+   `amrex_pm_zoom_t1_subcycle`; §4's problem with run D = B with the
+   flag), inside the region:
+
+   | | B (§4) | D (`pm_level_subcycle = 1`) | C (uniform fine mesh) |
+   |---|---|---|---|
+   | displacement from A, rms [fine cells]: inner half / whole region / outside | 0.137 / 0.298 / 0.84 | 0.074 / 0.262 / 0.84 | 0.002 / 0.006 / 0.07 |
+   | by distance from the centre (half-widths 0–0.25 / 0.5–0.75 / 0.75–1 / 1–1.25) | 0.165 / 0.135 / 0.379 / 0.487 | 0.068 / 0.073 / 0.343 / 0.454 | 0.001 / 0.002 / 0.009 / 0.029 |
+   | velocities, rms difference / rms | 5.0e-2 | 4.4e-2 | 2.0e-3 |
+   | density, rms difference / rms | 0.329 | 0.297 | 0.011 |
+   | A's 12 halos ≥ 128 particles: within 2 cells / within 40 % in mass | 12 / 11 | 12 / 10 | 12 / 12 |
+   | their mass ratios | 0.64–1.17 | 0.67–1.59 | 0.88–1.01 |
+
+   Sub-cycling halves the inner region's displacement error (0.14 → 0.07
+   fine cells); what is left there and at the region's edge is the coarse
+   base's error carried in by the inflow (§4), which the flag does not
+   touch. One halo at the region's edge came out 1.59× A's mass (0.79× in
+   B: fed from the base, it scatters either way). Passes B's criteria.
+6. **Cost.** The extra work is particle-bound (every solve deposits the
+   particles of the levels l − 1 to the finest, the reassignments) and
+   cell-bound (the solves). Per base step, two levels, 2 ranks × 2 threads:
+
+   | problem | `= 0` step [s] | `= 1` step [s] | of which: deposits (level 0's particles) / solves / openings / reassignments / kicks [s] | solves, FFTs per step |
+   |---|---|---|---|---|
+   | smoke, 16³ base, 512 particles | 0.75 | 2.0 | 0.16 / 1.17 / 0.30 / 0.002 / 0.03 | 16, 4 (against 2, 1) |
+   | collapse, 16³ base, 262 K particles | 0.27 | 1.21 | 0.32 / 0.32 / 0.23 / 0.18 / 0.12 | 16, 4 |
+   | T1, 32³ base, 2.1 M particles | 1.40 | 6.2 | 2.08 (0.80) / 0.90 / 1.28 / 0.88 / 0.57 | 16, 4 |
+
+   (The openings include their own deposits and solves.) In these small
+   tests the hydro is cheap and most particles sit on level 0, whose
+   extra deposits (the openings and the boundary solves, §6.7 item 1) are
+   0.8 s of T1's 4.8 s; in a zoom the finest level holds most cells and
+   particles, its own substeps are the cost (one solve, one deposit of
+   its particles, two kicks and one reassignment per substep, against
+   the hydro's two fills, predictor, fluxes and update), and the coarser
+   levels add about one more deposit of the finest particles per finest
+   substep. The klone profile of §5 with the flag on measures it at 128³:
+
+   ```
+   CONFIGS="level_solve level_subcycle" LOCAL=1 sbatch tools/hyak/pm_level_solve_profile.slurm
+   python3 tools/hyak/pm_level_solve_table.py $RUNS/pm_level_solve_128 level_solve level_subcycle
+   ```
+7. **Not affected by the flag** (§6.8): the fast suite (every stored
+   reference bitwise, the Fortran comparisons), `-L level_solve` and
+   `-L amr`.
+
 ## 7. How to run
 
 ```
