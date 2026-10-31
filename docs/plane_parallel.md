@@ -427,8 +427,47 @@ the dual-energy rules alone. E(k) at 0.05 < k < 0.4 h/kpc moves by
 Hence `plane_couple_courant = 0.15` (above).
 
 **The ladder with `sn_heating = 0` and `plane_couple_courant = 0.15`**
-(relaunched 2026-10-30 21:25): results below when the rungs finish.
+(relaunched 2026-10-30 21:25; 512³ on 2026-10-31):
 
 | N | Δx [kpc/h] | threads | wall | peak RSS | RT substeps | steps |
 |---|---|---|---|---|---|---|
 | 64 | 3.9 | 16 | 10.0 min | 0.29 GB | 2 844 | 179 |
+| 128 | 1.95 | 32 | 2 h 39 | 2.1 GB | 5 424 | 366 |
+| 256 | 0.98 | 96 | 5 h 40 | 15.7 GB | 10 625 | 938 |
+
+At 256³ the hydro takes 40 % of the time (the late hot cells below).
+
+**Late hot cells, and the serial sink.** With the cap the 64³ rung stays
+clean to z = 4, but 128³ has an episode from z ≈ 4.15 (cmax_gas 52 →
+2 200, vmax_gas 25 → 420, ~40 small steps) and 256³ from z ≈ 4.9 (vmax_gas
+up to 9 400). Each time a near-empty cell (Δ ≈ 0.01, T ~ 10⁸ K) sits next
+to a clump that cools without limit (Δ up to 10⁴ at 128³), the same
+pathology as above at higher density. The ladder therefore ends at z = 5
+for now (user decision, option 2), and the sink was tried alongside (option 3).
+
+`sf_overdensity > 0` now works on the serial unsplit hydro too (before,
+only on `hydro_backend = amrex`; `src/hydro_unsplit.cpp`, `serial_sink`).
+After each hydro step every cell above `sf_overdensity` × the mean gas
+density loses the fraction f = min(1, `sf_efficiency` dt / t_ff) of its
+mass, momentum, internal and kinetic energy and species, with
+t_ff = (3π/4) / √(a Δ) in code units. The removed mass is not turned into
+particles (no gravity from it; the PM still sees the DM and the remaining
+gas). Sums are per k-plane, so the result does not depend on the thread
+count. The removed total goes to `timing.txt` (`# serial_sink events …
+mass … gas_fraction`). The default (0) is byte-identical to before.
+
+128³ to z = 4 (runs `sink_N128_sf<threshold>`, `sf_efficiency` = 1):
+
+| threshold | peak cmax / vmax for z < 5.2 | gas removed by z = 4 | T_V(z = 4) | wall |
+|---|---|---|---|---|
+| none | 2 228 / 420 | — | 7 207 K | 2 h 39 |
+| 3 000× | 74 / 33 | 2.0 % (285 events) | 7 197 K | 2 h 28 |
+| 1 000× | 58 / 29 | 3.1 % (1 587 events) | 7 189 K | 2 h 33 |
+
+Both thresholds remove the episode, as well as the smaller bumps at
+z ≈ 5.1 and 4.7 in the run without a sink. x_HII,V and T_V change by
+≤ 0.25 %. E(k) at k < 2 h/kpc changes by ≤ 0.1 % (3 000×) or 1.2 % (1 000×) at z = 6, ≤ 1.5 % (3 000×)
+or 2.7 % (1 000×) at z = 5 and ≤ 5 % at z = 4.5. At z = 4 the 7 % difference
+is the run without a sink's hot-cell episode
+(`runs/c1_c26/post_sink`). 3 000× is the less invasive choice; whether the
+threshold should scale with resolution (Δ_max grows with N) is open.
