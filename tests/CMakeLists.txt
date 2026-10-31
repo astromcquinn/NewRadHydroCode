@@ -2071,6 +2071,19 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(amrex_pm_levels_unit_r${np} PROPERTIES LABELS "amrex_pm;pm;amr;level_solve"
                            ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 1800 PROCESSORS ${np})
     endforeach()
+    # pm_level_subcycle (docs/stage_g.md section 6): a particle orbiting a
+    # clump inside the finest of two refined levels, through radhydro's base
+    # step: the energy error with the refined levels' gravity sub-cycled
+    # against once per base step (about 64x smaller expected, at least 16x
+    # checked; ~4 min on 2 ranks x 2 threads)
+    add_executable(test_amrex_pm_subcycle test_amrex_pm_subcycle.cpp)
+    target_link_libraries(test_amrex_pm_subcycle PRIVATE radray_pm ${RADRAY_RT_BACKEND_LIB})
+    set_target_properties(test_amrex_pm_subcycle PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME amrex_pm_subcycle_orbit
+             COMMAND ${RADRAY_MPIEXEC} ${RADRAY_MPIEXEC_FLAGS} ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:test_amrex_pm_subcycle> --mgs 8)
+    set_tests_properties(amrex_pm_subcycle_orbit PROPERTIES LABELS "amrex_pm;pm;amr;level_solve;subcycle"
+                         ENVIRONMENT OMP_NUM_THREADS=2 TIMEOUT 3600 PROCESSORS 4)
     # round-off against the serial pm_driver on the PM problems (fixtures of
     # the pm label), 2 ranks x 2 threads: every value within 1e-4 relative or
     # 1e-5 of the field's maximum (the serial float CIC sum and 3-D FFTW plan
