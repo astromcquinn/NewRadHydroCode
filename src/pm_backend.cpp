@@ -31,6 +31,15 @@ bool set_pm_backend_param(Config& c, const std::string& key, const std::string& 
       throw std::runtime_error("amrex_pm_fft must be pencil or amrex");
     return true;
   }
+  if (key == "amrex_pk") {
+    if (val == "host")
+      c.amrex_pk = 0;
+    else if (val == "level")
+      c.amrex_pk = 1;
+    else
+      throw std::runtime_error("amrex_pk must be host or level");
+    return true;
+  }
   if (key == "pm_gas_levels") {
     c.pm_gas_levels = std::stoi(val);
     if (c.pm_gas_levels != 0 && c.pm_gas_levels != 1) throw std::runtime_error("pm_gas_levels must be 0 or 1");
@@ -67,6 +76,7 @@ void copy_pm_backend_param(const Config& from, Config& to) {
   to.pm_backend = from.pm_backend;
   to.amrex_pm_max_grid_size = from.amrex_pm_max_grid_size;
   to.amrex_pm_fft = from.amrex_pm_fft;
+  to.amrex_pk = from.amrex_pk;
   to.pm_gas_levels = from.pm_gas_levels;
   to.pm_level_solve = from.pm_level_solve;
   to.pm_mlmg_iters = from.pm_mlmg_iters;

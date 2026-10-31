@@ -406,6 +406,12 @@ struct Config {
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
+  //   amrex_pk: the power spectrum of the data1 outputs (Pk/) with
+  //   amrex_state = 1: host (default; rank 0's host PM mesh and serial FFTs,
+  //   as before) or level (on the PM and gas levels with the pencil FFT and
+  //   exact bin sums: rank- and thread-independent, the host's at round-off;
+  //   rank 0 then frees its host PM mesh, docs/rank0_streaming.md step 11)
+  int amrex_pk = 0;
   int pm_gas_levels = 1;
   int pm_level_solve = 0;
   int pm_mlmg_iters = 20;

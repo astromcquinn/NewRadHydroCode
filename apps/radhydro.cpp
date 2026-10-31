@@ -852,7 +852,12 @@ int main(int argc, char** argv) {
     // with 1024^3 particles they are 45 GB per rank)
     const bool on_level = use_amrex_state(cfg);
     init_hydro(cfg, s.gas, hs);                        // init_hydro
-    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && !io));  // init_pm
+    // amrex_pk = level: the power spectrum on the levels, so rank 0 keeps
+    // only the particles of the host PM arrays (the halo finder's)
+    const bool pk_level = on_level && cfg.amrex_pk == 1;
+    if (cfg.amrex_pk == 1 && !on_level) throw std::runtime_error("amrex_pk = level needs amrex_state = 1");
+    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && (!io || pk_level)));  // init_pm
+    if (pk_level && io) pm.xv.assign(static_cast<std::size_t>(6 * pm.pc.Npart), 0.0f);
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
     plane_init(s);                                     // plane_parallel = 1: the face sources
@@ -909,7 +914,7 @@ int main(int argc, char** argv) {
     int& idata2 = dst.idata2;
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
-    if (!(on_level && !io)) fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
+    if (!(on_level && (!io || pk_level))) fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     if (on_level && !io) {
       // amrex_state = 1: the particles live on the level; rank 0 keeps the
       // host PM arrays as the mirror (the halo finder, P(k), the outputs)
@@ -1903,10 +1908,13 @@ int main(int argc, char** argv) {
         // (amrex_state = 1: the host P(k) on rank 0's PM mesh; its FFT and
         // the DM linking are the host's, redundant until Stage E's P(k) on
         // the level)
-        if (on_level) {
+        if (pk_level) {
+          // on the PM and gas levels (every rank gets the result)
+          amrex_pm_power_spectrum(pm, cfg.box, pk_dm, pk_gas);
+        } else if (on_level) {
           // the gas density streamed onto rank 0 (its only grid array here;
-          // the DM part still uses rank 0's host PM mesh,
-          // docs/rank0_streaming.md step 11)
+          // the DM part uses rank 0's host PM mesh; amrex_pk = level moves
+          // it onto the levels, docs/rank0_streaming.md step 11)
           sync_xv();
           std::vector<float> rho(io ? static_cast<std::size_t>(cfg.Ncell) : 0);
           amrex_state_stream_gas(s, kStreamGasU, 1, [&](const StreamSlab& sl) {
