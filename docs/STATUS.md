@@ -24,8 +24,20 @@ The open item of `stage-g-subcycle` below (`docs/stage_g.md` §6.9 item 3;
   over the old one's TF (valid cells; 0 in newly refined cells as
   before), its split thresholds and counters, and keeps the rays whose
   cells the new grids hold as they are; only the others go to the parent.
-- **Checks** (4-core VM, the `subcyc_sets` configuration of the nightly
-  tests): 1 and 3 ranks byte-identical to step 15 (346 files).
+- **Checks** (4-core VM, OpenMPI 4.1.6, AMReX 26.10; the `subcyc_sets`
+  configuration of the nightly tests, the smoke problem to step 15):
+  - before the fix, checkpoint 14 of the 1-rank run restarted for one step
+    on 3 ranks: 19 of 38 files differ from the uninterrupted run (on 1
+    rank: none);
+  - with the fix, checkpoints 13 and 14 restarted on 3 ranks: identical
+    to the uninterrupted 1-rank run (66 and 38 files); uninterrupted 1, 2
+    and 3 ranks byte-identical (347 files with the checkpoints);
+  - uninterrupted 1 and 3 ranks were byte-identical to step 15 before the
+    fix as well here (no regrid rechopped a level differently): what the
+    fix removes is the rebuild that rechopped grids cause, which a restart
+    on another rank count always triggers;
+  - the fix changes nothing in these runs otherwise: the 1-rank run with
+    `pm_level_subcycle` 1 and 0 byte-identical to the binary before it.
 - **Tests:** the nightly `amrex_pm_subcycle_rt_ranks` runs to step 15 again;
   new nightly `amrex_pm_subcycle_rt_restart_ranks` (the 1-rank run's
   checkpoint 13 restarted on 3 ranks; `restart_check.py --restart-np`).

@@ -785,7 +785,8 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
    bit-identical. Nightly, through the RT steps: a restart from step 13
    (the first RT step) to 15 bit-identical (`amrex_pm_subcycle_rt_restart`,
    7 min), 1, 2 and 3 ranks byte-identical to step 15
-   (`amrex_pm_subcycle_rt_ranks`; to step 14 until the RT fix below), and
+   (`amrex_pm_subcycle_rt_ranks`; it stopped after step 14 until the RT
+   fix below), and
    the 1-rank run's checkpoint 13 restarted on 3 ranks bit-identical to it
    (`amrex_pm_subcycle_rt_restart_ranks`). Two things found on the way:
    - *The restriction's rounding* (`restrict_and_spill`, §1 item 3): a
@@ -814,7 +815,11 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
      reset to 0, the rays' dr recomputed on a round trip through level
      0); on 1 rank the grids were the checkpoint's and nothing was
      rebuilt. A rebuilt RT level now takes over the old one's fgam and
-     keeps its rays as they are.
+     keeps its rays as they are: checkpoints 13 and 14 restarted on 3
+     ranks reproduce the 1-rank run byte for byte (19 of step 15's 38
+     files differed before). Uninterrupted, 1 and 3 ranks were in fact
+     byte-identical to step 15 before the fix as well on the VM; the
+     rank test now runs to step 15 again.
 4. **Momentum** (`amrex_pm_subcycle_momentum`,
    `tests/pm_subcycle_check.py`, `RADRAY_PM_MOMENTUM_CHECK=1`, the smoke
    problem, 6 steps): the momentum all kicks of a base step add against
