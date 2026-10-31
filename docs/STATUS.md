@@ -29,7 +29,9 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   region's displacement error halved (0.14 → 0.07 fine cells), the rest is
   the coarse base's inflow; momentum as before (2e-8 whole box, 2e-5 half
   box); 1/2/3 ranks byte-identical, bit-identical restarts; byte-identical
-  to 0 without a refined level; the fast suite unchanged with the flag off.
+  to 0 without a refined level; the fast suite (488 tests, the stored
+  references bitwise; no live Fortran comparisons here: no submodule)
+  unchanged with the flag off.
 - **Cost:** 16 solves and 4 FFTs per step with two levels (2 and 1
   before); the small tests run 3–5× slower per step (particle deposits,
   most of their particles on level 0); the klone 128³ profile is to be run

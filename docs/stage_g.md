@@ -722,8 +722,8 @@ momentum the kicks of a whole base step add against their summed |Δp|.
 `pm_level_subcycle = 0` leaves every code path as it was: the new ghost
 widths, the deposit's prediction and the per-tile skip are taken only with
 the flag (the shared routines reduce to the old arithmetic: one ghost
-layer, offset 0). The fast suite's stored references, the `level_solve`
-tests and the Fortran comparisons pass unchanged (§6.9). With the flag and
+layer, offset 0). The fast suite (its stored references bitwise) and the
+`level_solve` tests pass unchanged (§6.9). With the flag and
 no refined level in use, the step is byte-identical to the flag off
 (`amrex_pm_subcycle_identity_smoke`: level 0's deferred drift is the same
 arithmetic).
@@ -834,9 +834,10 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
    CONFIGS="level_solve level_subcycle" LOCAL=1 sbatch tools/hyak/pm_level_solve_profile.slurm
    python3 tools/hyak/pm_level_solve_table.py $RUNS/pm_level_solve_128 level_solve level_subcycle
    ```
-7. **Not affected by the flag** (§6.8): the fast suite (every stored
-   reference bitwise, the Fortran comparisons), `-L level_solve` and
-   `-L amr`.
+7. **Not affected by the flag** (§6.8): the fast suite
+   (`ctest -LE "long|nightly"`, 488 tests with the new ones, all passing,
+   every stored reference bitwise; the live Fortran comparisons are not
+   built here, the private submodule being absent) and `-L level_solve`.
 
 ## 7. How to run
 
