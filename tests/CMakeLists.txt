@@ -1631,6 +1631,33 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
         set_tests_properties(amrex_pm_level_solve_restart_smoke_r${r} PROPERTIES TIMEOUT 1800
                              LABELS "amrex;amrex_pm;amr;level_solve;restart" ENVIRONMENT OMP_NUM_THREADS=1)
       endforeach()
+      # The same through the smoke problem's RT steps (13-15; ~10 min each on
+      # 2-3 ranks, nightly): the checkpoints of 1 and 3 ranks byte-identical
+      # (the refined levels' rays in a layout-independent order) and a
+      # bit-identical restart from the first RT step (the refined levels' rays
+      # with their dr, the levels' fgam; docs/stage_g.md section 3)
+      set(levsolve_rt_sets --set legacy_rt=0 --set legacy_physics=0 --set fields_every=1 --set rt_backend=amrex
+                           --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                           --set pm_backend=amrex --set amrex_state=1 --set amrex_max_grid_size=8
+                           --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=0,0,0,7,7,7
+                           --set pm_level_solve=1 --set pm_refine=1 --set movie_dz=0.5 --set movie_z0=25)
+      add_test(NAME amrex_pm_level_solve_rt_ranks
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                       ${amrex_runs}/pm_level_solve_rt_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                       ${RADRAY_MPIEXEC_NP} "1 3" $<TARGET_FILE:radhydro>
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${levsolve_rt_sets}
+                       --set restart_every=1 --set restart_keep_latest=0)
+      set_tests_properties(amrex_pm_level_solve_rt_ranks PROPERTIES TIMEOUT 3600
+                           LABELS "amrex;amrex_pm;amr;level_solve;nightly" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE
+                           DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+      add_test(NAME amrex_pm_level_solve_rt_restart
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${amrex_runs}/pm_level_solve_rt_restart 13 ${levsolve_rt_sets})
+      set_tests_properties(amrex_pm_level_solve_rt_restart PROPERTIES TIMEOUT 3600
+                           LABELS "amrex;amrex_pm;amr;level_solve;restart;nightly" ENVIRONMENT OMP_NUM_THREADS=1
+                           PROCESSORS 2 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
       # T1 of the zoom ladder (docs/zoom_turbulence.md section 5, docs/stage_g.md
       # section 4; nightly, ~15 min on 2 ranks): 32^3 base with two levels over
       # the central eighth and the level solve, and the same hierarchy with the

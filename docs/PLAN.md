@@ -1576,6 +1576,19 @@ be designed); `recomb_rad` on the backend (block emission and
   of 4e-6 of the force at one cell near a boundary (`docs/stage_g.md`
   §1.1, §3), to be revisited only if the zoom runs show the region's
   boundary doing something unphysical.
+* **Decisions (user, 2026-10-29), from the zoom cost discussion:**
+  - **About 10 rays per fine cell** in the zoom levels: the per-level ray
+    budget stays at `nray_max_factor` × the level's cells (production 15;
+    the 512³ run held ~11 per base cell). The Z3 RT estimate is therefore
+    its upper case, ~2.5 × 10⁵ core-hours (`docs/zoom_turbulence.md` §4.4,
+    §7); the beams at the zoom boundary remain the fallback if the
+    measured cost at Z1/Z2 demands it.
+  - **The fine levels need gravity on a finer timescale than the base
+    step.** Today (Stage G) every level is kicked once per base step;
+    sub-cycling the PM per level (a level solve and kick at each level's
+    own step, Enzo/RAMSES style) is a new work item for WP3 before Z2.
+    Cost: up to about the hydro's again at the finest level (~3 × 10⁴
+    core-hours at Z3 if solved at every finest-level step).
 
 ## Zoom-in turbulence programme (2026-10-22)
 

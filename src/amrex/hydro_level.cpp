@@ -1169,6 +1169,14 @@ class HydroLevel {
         ax::VisMF::Write(L.U, dir + "/Level_" + std::to_string(lev) + "_U");
       }
     }
+    // The push-down reference (level 0 as the fine levels last saw it): the
+    // changes made to level 0 after it was taken (the summaries' clamps,
+    // the halo metals of a step without RT) are pushed down to the fine
+    // cells at the next hydro call. A restart that dropped it skipped that
+    // push-down, so a restart through such a step was not bit-identical
+    // (docs/stage_g.md section 3). Its values are floats (as written out),
+    // stored as VisMF doubles: exact.
+    if (finest > 0 && have_prev0) ax::VisMF::Write(prev0, dir + "/Level_0_prev");
   }
 
   void read_levels(const std::string& dir) {
@@ -1199,7 +1207,18 @@ class HydroLevel {
       state->finest = nf;
     }
     mesh->SetFinestLevel(finest);
-    have_prev0 = false;  // the level-0 state of the checkpoint is what the fine levels saw
+    // the push-down reference of the checkpoint (write_levels); checkpoints
+    // without it (before 2026-10-29) restart as before, without the
+    // pending push-down
+    have_prev0 = false;
+    if (nf > 0 && ax::VisMF::Exist(dir + "/Level_0_prev")) {
+      ax::MultiFab p;
+      ax::VisMF::Read(p, dir + "/Level_0_prev");
+      if (p.nComp() != NC || !(p.boxArray().minimalBox() == prev0.boxArray().minimalBox()))
+        throw std::runtime_error("amrex_hydro_read_levels: the checkpoint's level-0 reference does not match");
+      prev0.ParallelCopy(p, 0, 0, NC);
+      have_prev0 = true;
+    }
   }
 
   std::string timers() const {

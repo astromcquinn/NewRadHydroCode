@@ -309,6 +309,11 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   zoom (32³ base, 2 levels) against the uniform 128³ run: halo masses
   and positions inside the region, gas density profiles; momentum
   conservation.
+* **Done (Stage G, `docs/stage_g.md`), with one gap (user decision
+  2026-10-29):** the level solve kicks every level once per base step;
+  the fine levels need gravity on their own, finer timescale. Next in
+  WP3: the PM sub-cycled per level (each level solves and kicks at its
+  own step, as its hydro sub-cycles), before Z2.
 
 ### 4.4 WP4: the RT into the zoom
 
@@ -327,6 +332,10 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   the region is being ionized, at 140 B (or less with `rstruct`) and 2 µs
   per ray-substep: 10²–10³ core-s per substep, tens of GB. Measured at
   Z1 and Z2 before Z3. After overlap the merge criterion thins them.
+  **User (2026-10-29): about 10 rays per fine cell** (the per-level ray
+  budget `nray_max_factor` × cells, as the 512³ runs held ~11 per base
+  cell): the cost is then the upper estimate, every fine cell crossed by
+  ~10 rays per substep at ~0.25 µs per cell crossed.
 * **If that is too many: beams at the zoom boundary.** Rays entering a
   chosen level are binned per face cell and direction and re-emitted as
   non-splitting parallel rays, which is exactly C26's RT-domain scheme

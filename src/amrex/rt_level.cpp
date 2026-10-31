@@ -61,6 +61,8 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Particles.H>
 #include <AMReX_Reduce.H>
+#include <AMReX_Utility.H>
+#include <AMReX_VisMF.H>
 #include <AMReX_Scan.H>
 #ifdef AMREX_USE_OMP
 #include <omp.h>
@@ -342,7 +344,12 @@ struct Level : LevelBase {
         ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) { c(i, j, k) = RTCell{}; });
       }
     }
+    // TF (tau, fgam per frequency group) is defined before its first use:
+    // a substep's exchange_deposits reads the parent's fgam of the previous
+    // substep, which a new level has not computed yet (it read undefined
+    // memory there; 0 is the thick-gas weight, docs/stage_g.md section 3)
     TF.define(ba, dm, 10, ng);
+    TF.setVal(0.0f);
     A.define(ba, dm, rrk::kNdep, ng);
     plane_sweep = cfg.plane_parallel && cfg.plane_transport == 1;
     if (plane_sweep) {
@@ -381,11 +388,15 @@ struct Level : LevelBase {
   // scale with the cell size, dr = rmax(nside) - r (ray_kernels.hpp)
   // follows, and the photons, which the kernels keep per <nH> and RT cell
   // volume (ray_source: ngam / vol_rt / nH_avg), scale with the cell volume
-  // (f^3: 8 going down, 1/8 going up)
-  static RayP rescaled(RayP r, double f) {
+  // (f^3: 8 going down, 1/8 going up). keep_dr: dr as it is, for the
+  // checkpoint's round trip of a refined level's rays (Hierarchy::
+  // gather_rays_chunks, restore_levels): the kernel advances dr by the path
+  // length, so it drifts from rmax - r by round-off, and recomputing it on
+  // the way up and down changed the rays of a restart
+  static RayP rescaled(RayP r, double f, bool keep_dr = false) {
     for (int d = 0; d < 3; ++d) r.x[d] = static_cast<float>(r.x[d] * f);
     r.r = static_cast<float>(r.r * f);
-    r.dr = static_cast<float>(rrk::rmax_from_nside(r.nside) - static_cast<double>(r.r));
+    if (!keep_dr) r.dr = static_cast<float>(rrk::rmax_from_nside(r.nside) - static_cast<double>(r.r));
     const double f3 = f * f * f;
     for (int m = 0; m < rrk::NF; ++m) r.ngam[m] = static_cast<float>(r.ngam[m] * f3);
     return r;
@@ -401,8 +412,8 @@ struct Level : LevelBase {
   }
   // Rays whose home cell is covered by the finer level, taken out of the
   // tiles (invalidated; the next Redistribute drops them) and returned in
-  // the finer level's units
-  void collect_down(std::vector<RayP>& out) {
+  // the finer level's units (keep_dr: see rescaled)
+  void collect_down(std::vector<RayP>& out, bool keep_dr = false) {
     if (!covered) return;
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -414,7 +425,7 @@ struct Level : LevelBase {
         const int i = static_cast<int>(p.m_rdata[0][n]), j = static_cast<int>(p.m_rdata[1][n]),
                   k = static_cast<int>(p.m_rdata[2][n]);
         if (!cov(i, j, k)) continue;
-        out.push_back(rescaled(Enc::load(p, n, ectx), 2.0));
+        out.push_back(rescaled(Enc::load(p, n, ectx), 2.0, keep_dr));
         ax::ParticleIDWrapper(p.m_idcpu[n]).make_invalid();
       }
     }
@@ -1725,8 +1736,15 @@ struct Level : LevelBase {
       });
     }
     C = std::move(C2);
+    // TF follows its cells (the previous substep's fgam, read by the next
+    // substep's exchange_deposits; it was undefined after a remap)
+    {
+      FFab TF2(ba, dm2, 10, ng);
+      TF2.setVal(0.0f);
+      TF2.ParallelCopy(TF, 0, 0, 10, ng, ng);
+      TF = std::move(TF2);
+    }
     dm = dm2;
-    TF.define(ba, dm, 10, ng);
     A.define(ba, dm, rrk::kNdep, ng);
     if (plane_sweep) {  // the packets in flight follow their cells
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
@@ -1951,6 +1969,100 @@ struct Level : LevelBase {
     }
   }
 
+  // The rays of a refined level in a layout-independent order (the
+  // hierarchy's checkpoint): a refined level's own boxes are chopped by
+  // AMReX according to the rank count, so visiting them box by box, as
+  // gather_rays_chunks does, made the checkpoints of 1, 2 and 3 ranks list
+  // the same rays in different orders. Here the rays are visited by the
+  // boxes of `order` (the base level's boxes refined to this level and
+  // chopped, kept where they meet the level: layout-independent), each
+  // order box's rays sorted by home cell and then by their bytes (a total
+  // order). Every rank contributes the rays of its tiles whose home cell
+  // lies in the order box; rank 0 receives them, sorts the union and hands
+  // it to sink in chunks. Collective. Throws if a ray lies in no order box.
+  void gather_rays_ordered(const ax::BoxArray& order,
+                           const std::function<void(const std::vector<RayP>&)>& sink) const {
+    typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
+    const int nranks = ax::ParallelDescriptor::NProcs();
+    const int root = ax::ParallelDescriptor::IOProcessorNumber();
+    const bool io = ax::ParallelDescriptor::IOProcessor();
+    const int NN = N;
+    auto cell_index = [NN](const RayP& r) {
+      return rrk::cell_of(r.x[0], NN) +
+             static_cast<std::int64_t>(NN) * (rrk::cell_of(r.x[1], NN) +
+                                              static_cast<std::int64_t>(NN) * rrk::cell_of(r.x[2], NN));
+    };
+    auto key_less = [&](const RayP& a, const RayP& b) {
+      const std::int64_t ca = cell_index(a), cb = cell_index(b);
+      if (ca != cb) return ca < cb;
+      return std::memcmp(&a, &b, sizeof(RayP)) < 0;
+    };
+    std::vector<RayP> mine, all, chunk;
+    Long ngathered = 0;
+#ifdef AMREX_USE_MPI
+    const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
+#endif
+    for (int b = 0; b < static_cast<int>(order.size()); ++b) {
+      const ax::Box ob = order[b];
+      mine.clear();
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        if (!mfi.validbox().intersects(ob)) continue;
+        auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+        const int np = static_cast<int>(pt.numParticles());
+        const PTD p = pt.getParticleTileData();
+        for (int n = 0; n < np; ++n) {
+          const RayP r = Enc::load(p, n, ectx);
+          const ax::IntVect iv(rrk::cell_of(r.x[0], NN), rrk::cell_of(r.x[1], NN), rrk::cell_of(r.x[2], NN));
+          if (ob.contains(iv)) mine.push_back(r);
+        }
+      }
+      ngathered += static_cast<Long>(mine.size());
+      all.clear();
+      if (nranks == 1) {
+        all.swap(mine);
+      } else {
+#ifdef AMREX_USE_MPI
+        long long cnt = static_cast<long long>(mine.size());
+        std::vector<long long> counts(static_cast<std::size_t>(nranks), 0);
+        MPI_Gather(&cnt, 1, MPI_LONG_LONG, counts.data(), 1, MPI_LONG_LONG, root, comm);
+        if (io) {
+          all.insert(all.end(), mine.begin(), mine.end());
+          for (int r = 0; r < nranks; ++r) {
+            if (r == root || counts[static_cast<std::size_t>(r)] == 0) continue;
+            const std::size_t total = static_cast<std::size_t>(counts[static_cast<std::size_t>(r)]);
+            const std::size_t n0 = all.size();
+            all.resize(n0 + total);
+            for (std::size_t off = 0; off < total; off += kGatherChunk) {
+              const int n = static_cast<int>(std::min(kGatherChunk, total - off));
+              MPI_Recv(all.data() + n0 + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, r, 13, comm,
+                       MPI_STATUS_IGNORE);
+            }
+          }
+        } else if (cnt > 0) {
+          for (std::size_t off = 0; off < mine.size(); off += kGatherChunk) {
+            const int n = static_cast<int>(std::min(kGatherChunk, mine.size() - off));
+            MPI_Send(mine.data() + off, n * static_cast<int>(sizeof(RayP)), MPI_BYTE, root, 13, comm);
+          }
+        }
+#endif
+      }
+      if (!io || all.empty()) continue;
+      std::sort(all.begin(), all.end(), key_less);
+      for (std::size_t off = 0; off < all.size(); off += kGatherChunk) {
+        const std::size_t n = std::min(kGatherChunk, all.size() - off);
+        chunk.assign(all.begin() + off, all.begin() + off + n);
+        sink(chunk);
+      }
+    }
+    // every ray of the level in exactly one order box (a ray's home cell
+    // lies in the level's grids, which the order boxes cover, and the order
+    // boxes are disjoint)
+    ax::ParallelDescriptor::ReduceLongSum(ngathered);
+    if (ngathered != static_cast<Long>(nrays()))
+      throw std::runtime_error("checkpoint: level " + std::to_string(lev) + " has " + std::to_string(nrays()) +
+                               " rays but the ordered gather found " + std::to_string(ngathered));
+  }
+
   // Rank 0 holds the whole list (a checkpoint): the rays go to their owners
   // in chunks of kScatterChunk, each written into rank 0's first tile and
   // redistributed, so rank 0's peak holds one chunk of particles and its
@@ -2039,8 +2151,9 @@ struct Hierarchy : LevelBase {
 
   // The levels follow the gas state's: a refined level whose grids changed
   // (a regrid) is rebuilt, its rays parked on the parent meanwhile; then
-  // the coverage masks and a full migration. Collective.
-  void sync() {
+  // the coverage masks and a full migration (keep_dr: restore_levels).
+  // Collective.
+  void sync(bool keep_dr = false) {
     const int nf = state->finest;
     for (int l = 1; l <= nf; ++l) {
       const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
@@ -2067,7 +2180,66 @@ struct Hierarchy : LevelBase {
     finest = nf;
     for (int l = 0; l <= finest; ++l)
       levels[static_cast<std::size_t>(l)]->set_covered(l < finest ? &levels[static_cast<std::size_t>(l) + 1]->ba : nullptr);
-    migrate();
+    migrate(keep_dr);
+  }
+
+  // A restart: the levels of the checkpoint (the gas state's, just read)
+  // built at once, and the rays of the checkpoint, scattered onto the base
+  // level, moved down to them with the dr they had there (keep_dr, a
+  // checkpoint of version >= 9; rescaled). Every ray under a refined level
+  // here was on that level when the checkpoint was written (each substep
+  // ends with a migration), so the rays are those of the uninterrupted
+  // run; the first prep then regrids, if the hydro step did, as the
+  // uninterrupted run does. Collective.
+  // The parents' fgam of the last substep (TF components 5-9), which the
+  // next substep's exchange_deposits weighs the deposits beyond a level
+  // with, come from the checkpoint's level directory (write_levels; a
+  // checkpoint without them leaves them 0), and the ghosts are filled as at
+  // the end of a substep.
+  void restore_levels(bool keep_dr, const std::string& dir) override {
+    sync(keep_dr);
+    if (finest == 0 || dir.empty()) return;
+    for (int l = 0; l <= finest; ++l)
+      if (!ax::VisMF::Exist(dir + "/RT_fgam_" + std::to_string(l))) return;
+    for (int l = 0; l <= finest; ++l) {
+      L& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::MultiFab p;
+      ax::VisMF::Read(p, dir + "/RT_fgam_" + std::to_string(l));
+      if (p.nComp() != 5 || !(p.boxArray().minimalBox() == Ll.ba.minimalBox()))
+        throw std::runtime_error("amrex_rt_restore_levels: the checkpoint's fgam of level " + std::to_string(l) +
+                                 " does not match the level");
+      ax::MultiFab q(Ll.ba, Ll.dm, 5, 0);
+      q.ParallelCopy(p, 0, 0, 5);
+      for (ax::MFIter mfi(q); mfi.isValid(); ++mfi) {
+        auto tf = Ll.TF.array(mfi);
+        auto a = q.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          tf(i, j, k, 5 + m) = static_cast<float>(a(i, j, k, m));
+        });
+      }
+      Ll.TF.FillBoundary(5, 5, Ll.period);
+    }
+    for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 5, 5);
+  }
+  // The checkpoint's part of the levels next to the hydro's (the
+  // directory amrex_hydro_write_levels made): every level's TF fgam, as
+  // doubles (VisMF; exact). Collective.
+  void write_levels(const std::string& dir) const override {
+    if (finest == 0) return;
+    if (ax::ParallelDescriptor::IOProcessor()) ax::UtilCreateDirectory(dir, 0755);
+    ax::ParallelDescriptor::Barrier();
+    for (int l = 0; l <= finest; ++l) {
+      const L& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::MultiFab t(Ll.ba, Ll.dm, 5, 0);
+      for (ax::MFIter mfi(t); mfi.isValid(); ++mfi) {
+        auto a = t.array(mfi);
+        auto tf = Ll.TF.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          a(i, j, k, m) = tf(i, j, k, 5 + m);
+        });
+      }
+      ax::VisMF::Write(t, dir + "/RT_fgam_" + std::to_string(l));
+    }
   }
 
   // Rays (in level-l units) onto level l, or, where level l has no grid
@@ -2135,8 +2307,9 @@ struct Hierarchy : LevelBase {
   }
 
   // Rays that left a refined level go up, rays under a finer level go down
-  // (collective: every level's add_rays is a Redistribute)
-  void migrate() {
+  // (collective: every level's add_rays is a Redistribute; keep_dr:
+  // restore_levels)
+  void migrate(bool keep_dr = false) {
     for (int l = finest; l >= 1; --l) {
       L& Ll = *levels[static_cast<std::size_t>(l)];
       std::vector<RayP> up;
@@ -2145,7 +2318,7 @@ struct Hierarchy : LevelBase {
     }
     for (int l = 0; l < finest; ++l) {
       std::vector<RayP> down;
-      levels[static_cast<std::size_t>(l)]->collect_down(down);
+      levels[static_cast<std::size_t>(l)]->collect_down(down, keep_dr);
       levels[static_cast<std::size_t>(l)]->pc->Redistribute();  // drops the invalidated rays
       if (cfg.amrex_split_on_entry) {
         split_on_entry(*levels[static_cast<std::size_t>(l) + 1], down);
@@ -2533,21 +2706,31 @@ struct Hierarchy : LevelBase {
   }
   int bytes_per_ray() const override { return base_c().bytes_per_ray(); }
   // the checkpoint: every level's rays in the base level's units (a restart
-  // scatters them onto the base level; the first prep moves them down)
+  // scatters them onto the base level; the first prep moves them down).
+  // Level 0 box by box (its boxes are fixed); a refined level by the order
+  // boxes of gather_rays_ordered: the base boxes refined to the level,
+  // chopped to kOrderBox cells, where they meet the level, so the file does
+  // not depend on how AMReX chopped the refined grids (the rank count)
   void gather_rays(std::vector<RayP>& out) const override {
     out.clear();
     gather_rays_chunks([&](const std::vector<RayP>& chunk) { out.insert(out.end(), chunk.begin(), chunk.end()); });
   }
+  static constexpr int kOrderBox = 32;
   void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>& sink) const override {
-    for (int l = 0; l <= finest; ++l) {
+    levels[0]->gather_rays_chunks(sink);
+    for (int l = 1; l <= finest; ++l) {
+      const L& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::BoxArray fine0 = levels[0]->ba;
+      fine0.refine(1 << l);
+      fine0.maxSize(kOrderBox);
+      ax::BoxList kept;
+      for (int b = 0; b < static_cast<int>(fine0.size()); ++b)
+        if (Ll.ba.intersects(fine0[b])) kept.push_back(fine0[b]);
+      const ax::BoxArray order(kept);
       const double f = std::ldexp(1.0, -l);
-      levels[static_cast<std::size_t>(l)]->gather_rays_chunks([&](const std::vector<RayP>& chunk) {
-        if (l == 0) {
-          sink(chunk);
-          return;
-        }
+      Ll.gather_rays_ordered(order, [&](const std::vector<RayP>& chunk) {
         std::vector<RayP> c2(chunk.size());
-        for (std::size_t n = 0; n < chunk.size(); ++n) c2[n] = L::rescaled(chunk[n], f);
+        for (std::size_t n = 0; n < chunk.size(); ++n) c2[n] = L::rescaled(chunk[n], f, true);
         sink(c2);
       });
     }
@@ -2703,6 +2886,10 @@ void amrex_rt_level_slice(Simulation& s, int axis, int base_index, std::vector<f
 void rt_box_ray_counts(Simulation& s, amrex::Vector<amrex::Real>& count) { level_of(s).box_ray_counts(count); }
 void rt_remap(Simulation& s, const amrex::DistributionMapping& dm) { level_of(s).remap(dm); }
 void amrex_state_scatter_rt(Simulation& s) { level_of(s).scatter_fields(s); }
+void amrex_rt_restore_levels(Simulation& s, bool keep_dr, const std::string& dir) {
+  level_of(s).restore_levels(keep_dr, dir);
+}
+void amrex_rt_write_levels(Simulation& s, const std::string& dir) { level_of(s).write_levels(dir); }
 
 void amrex_rt_prep(Simulation& s) { level_of(s).prep(s); }
 void amrex_rt_substep(Simulation& s) { level_of(s).substep(s); }

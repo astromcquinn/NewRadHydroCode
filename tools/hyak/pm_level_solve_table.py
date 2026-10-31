@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """The table of tools/hyak/pm_level_solve_profile.slurm (and of a local run of
 the same configurations): per configuration the mean wall-clock per step of
-the PM, the hydro and the whole step from <run>/timing.txt, and the PM
-backend's cumulative phase timers of the last step (the "step NNNN timers"
-line of <run>.log) divided by the step count.
+the PM, the hydro, the I/O and the whole step from <run>/timing.txt, the
+step without the I/O (on /gscratch the per-step stats.txt and its step
+directory have cost up to 3.5 s on a bad minute, docs/stage_g.md section 5.1),
+and the PM backend's cumulative phase timers of the last step (the "step NNNN
+timers" line of <run>.log) divided by the step count.
 
 usage: pm_level_solve_table.py OUT [config ...]
 """
@@ -13,7 +15,7 @@ import sys
 
 
 def timing(path):
-    """timing.txt (radhydro): the columns t_hydro, t_pm, t_total (seconds per step), mean over the steps"""
+    """timing.txt (radhydro): the columns t_hydro, t_pm, t_io, t_total (seconds per step), mean over the steps"""
     cols, rows = None, []
     for line in open(path):
         if line.startswith("#"):
@@ -33,7 +35,8 @@ def timing(path):
 def main():
     out = sys.argv[1]
     cfgs = sys.argv[2:] or ["level_solve", "gas_levels", "uniform"]
-    print(f"{'config':12s} {'steps':>5s} {'step [s]':>9s} {'PM [s]':>8s} {'hydro [s]':>9s}  PM backend phases per step [s]")
+    print(f"{'config':12s} {'steps':>5s} {'step [s]':>9s} {'no io [s]':>9s} {'io [s]':>7s} {'PM [s]':>8s} {'hydro [s]':>9s}"
+          f"  PM backend phases per step [s]")
     for c in cfgs:
         run = os.path.join(out, c)
         log = run + ".log"
@@ -54,7 +57,8 @@ def main():
                 if mm:
                     parts.append(f"{key} {float(mm.group(1)) / nst:.3f}")
             ph = " ".join(parts)
-            ls = re.search(r"level solve: (.*?); levels (\d+)(.*)", last)
+            # the levels block ends at the "; " before the hydro's timers (or the line)
+            ls = re.search(r"level solve: (.*?); levels (\d+)(.*?)(?:; AMReX hydro timers|$)", last.strip())
             if ls:
                 lp = []
                 for key in ("sync", "deposit", "solve", "force", "kick"):
@@ -72,10 +76,12 @@ def main():
                 ph += " | gas levels: " + " ".join(lp)
         if t:
             tt, n = t
-            print(f"{c:12s} {n:5d} {tt.get('t_total', float('nan')):9.2f} {tt.get('t_pm', float('nan')):8.3f} "
-                  f"{tt.get('t_hydro', float('nan')):9.2f}  {ph}")
+            nan = float("nan")
+            tot, tio = tt.get("t_total", nan), tt.get("t_io", nan)
+            print(f"{c:12s} {n:5d} {tot:9.2f} {tot - tio:9.2f} {tio:7.3f} {tt.get('t_pm', nan):8.3f} "
+                  f"{tt.get('t_hydro', nan):9.2f}  {ph}")
         else:
-            print(f"{c:12s} {nst:5d} {'':9s} {'':8s} {'':9s}  {ph}")
+            print(f"{c:12s} {nst:5d} {'':9s} {'':9s} {'':7s} {'':8s} {'':9s}  {ph}")
 
 
 if __name__ == "__main__":
