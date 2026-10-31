@@ -34,7 +34,7 @@ def timing(path):
 
 def main():
     out = sys.argv[1]
-    cfgs = sys.argv[2:] or ["level_solve", "gas_levels", "uniform"]
+    cfgs = sys.argv[2:] or ["level_solve", "level_subcycle", "gas_levels", "uniform"]
     print(f"{'config':12s} {'steps':>5s} {'step [s]':>9s} {'no io [s]':>9s} {'io [s]':>7s} {'PM [s]':>8s} {'hydro [s]':>9s}"
           f"  PM backend phases per step [s]")
     for c in cfgs:
@@ -65,7 +65,19 @@ def main():
                     mm = re.search(key + r" ([0-9.]+)", ls.group(1))
                     if mm:
                         lp.append(f"{key} {float(mm.group(1)) / nst:.3f}")
-                ph += " | levels: " + " ".join(lp) + " " + ls.group(3).strip()
+                rest = ls.group(3).strip()
+                # pm_level_subcycle: the refined levels' gravity inside the hydro calls (t_hydro holds it)
+                sc = re.search(r"; sub-cycled: (.*?), to level 0 (\d+), unpredicted (\d+)", rest)
+                if sc:
+                    sp = []
+                    for key in ("open", "deposit", "level-0 fft", "solve", "kick", "drift", "regroup"):
+                        mm = re.search(key + r" ([0-9.]+)(?: \((\d+)\))?", sc.group(1))
+                        if mm:
+                            sp.append(f"{key} {float(mm.group(1)) / nst:.3f}" +
+                                      (f" ({int(mm.group(2)) / nst:.0f}/step)" if mm.group(2) else ""))
+                    rest = rest.replace(sc.group(0), "")
+                    ph += " | sub-cycled (in the hydro): " + " ".join(sp)
+                ph += " | levels: " + " ".join(lp) + " " + rest
             gl = re.search(r"gas levels: (.*?)$", last.strip())
             if gl:
                 lp = []
