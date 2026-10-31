@@ -1589,6 +1589,16 @@ be designed); `recomb_rad` on the backend (block emission and
     own step, Enzo/RAMSES style) is a new work item for WP3 before Z2.
     Cost: up to about the hydro's again at the finest level (~3 × 10⁴
     core-hours at Z3 if solved at every finest-level step).
+* **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
+  levels for now.** Each zoom level is the bounding box of its tagged
+  region (the cells holding particles of a finer mass class) plus the
+  nesting buffer: one rectangle per level that follows the region's bulk
+  flow, so the level solve's multigrid always coarsens to a few cells.
+  The cost is the cells between the Lagrangian region and its box
+  (estimated 1.5–3× per level, not measured). Irregular levels (tight
+  Lagrangian levels, or `pm_level_solve` in density-tagged runs) would
+  need the gravity mesh padded to the bounding box (`docs/stage_g.md`
+  §5.1); not built until needed.
 
 ## Zoom-in turbulence programme (2026-10-22)
 
