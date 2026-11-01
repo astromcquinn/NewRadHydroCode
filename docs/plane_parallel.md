@@ -434,8 +434,79 @@ Hence `plane_couple_courant = 0.15` (above).
 | 64 | 3.9 | 16 | 10.0 min | 0.29 GB | 2 844 | 179 |
 | 128 | 1.95 | 32 | 2 h 39 | 2.1 GB | 5 424 | 366 |
 | 256 | 0.98 | 96 | 5 h 40 | 15.7 GB | 10 625 | 938 |
+| 512 (to z = 5) | 0.49 | 192 | 22 h 13 | 110 GB | 12 562 | 1 006 |
 
-At 256³ the hydro takes 40 % of the time (the late hot cells below).
+64³–256³ ran to z = 4, 512³ was stopped at z = 5. To z = 5 the RT took
+0.20, 1.7, 1.0 and 4.5 s per substep (16, 32, 96, 192 threads) and 96 %
+(128³) to 72 % (512³) of the time. At 256³ the hydro takes 40 % of the time
+to z = 4 (the late hot cells below); 512³ spends 14 % in the hydro, 6 % in
+the PM. After z_re the 512³ steps are 0.71–0.79 Myr (the coupling cap),
+with 9 RT substeps each.
+
+**1024³ (extrapolated, not run).** The cost per RT substep scales as N³
+at a fixed thread count, and the cap halves dt, so 1024³ needs ~16× the
+512³ run: ~350 h on one 192-core node, and ~0.9 TB of memory, more than
+a node. It needs the distributed path (`amrex_state = 1` over several
+nodes; the recfast Compton step is not yet ported there) and a cure for
+the hot cells (below).
+
+**Thermal history** (`docs/data/plane/c1_c26_history.txt`, every step
+from z_re). x_HII,V = 0.9998 at z = 6.9 and > 0.99995 from z = 6.2 in
+every rung (`plane_front.png`: the fronts sit at the domain edge from the
+first step). T_V and T_M converge:
+
+| z | T_V 64 / 128 / 256 / 512 [K] | T_M 64 / 128 / 256 / 512 [K] |
+|---|---|---|
+| 6.9 | 19 135 / 19 081 / 19 036 / 18 997 | 18 837 / 17 971 / 16 932 / 16 270 |
+| 6.6 | 16 661 / 16 533 / 16 521 / 16 623 | 15 933 / 15 448 / 15 257 / 15 180 |
+| 6.2 | 13 989 / 14 031 / 14 195 / 14 370 | 14 004 / 14 038 / 14 122 / 14 170 |
+| 6.0 | 12 927 / 13 050 / 13 243 / 13 415 | 13 191 / 13 270 / 13 474 / 13 513 |
+| 5.5 | 10 822 / 11 031 / 11 232 / 11 373 | 11 427 / 11 470 / 11 618 / 11 730 |
+| 5.0 | 9 243 / 9 454 / 9 631 / 9 739 | 9 966 / 10 028 / 10 163 / 10 257 |
+
+From z = 6.2 T rises by 1–1.5 % per doubling, not yet converging (probably shock
+heating of the better-resolved small-scale flows). At z = 6.9 T_M falls with N (−14 % from 64³ to 512³),
+probably because more of the mass sits in resolved dense gas that cools fast.
+
+**E(k) ladder** (`docs/figures/plane_c1_c26_ek.png`,
+`docs/data/plane/c1_c26_ek.{json,txt}`). ⟨v²⟩ [(km/s)²]:
+
+| z | 64 | 128 | 256 | 512 |
+|---|---|---|---|---|
+| 6.9 | 20.0 | 29.3 | 39.9 | 48.0 |
+| 6.6 | 47.1 | 61.7 | 70.3 | 75.4 |
+| 6.2 | 49.9 | 60.8 | 67.9 | 72.6 |
+| 6.0 | 48.2 | 58.2 | 64.6 | 69.0 |
+| 5.5 | 43.1 | 50.9 | 56.2 | 60.2 |
+| 5.0 | 38.6 | 44.9 | 49.5 | 53.1 |
+
+The increments per doubling shrink by ~0.65 (10, 6.4, 4.4 at z = 6), so
+the converged ⟨v²⟩ is ~8 (km/s)² above 512³. Local slopes d ln E / d ln k
+(least squares in each band, z ≤ 6.2):
+
+| N | 0.25–0.5 h/kpc | 0.5–1 | 1–2 | 2–4 |
+|---|---|---|---|---|
+| 64 | −3.7 … −4.3 | −4.7 … −5.0 | — | — |
+| 128 | −2.4 … −2.75 | −3.8 … −4.0 | −5.1 | — |
+| 256 | −1.7 … −2.0 | −2.5 … −2.7 | −3.8 … −4.1 | −5.1 |
+| 512 | −1.5 … −1.7 | −1.85 … −1.95 | −2.6 … −2.8 | −3.8 … −4.15 |
+
+**At 512³ a k^−5/3 range appears**: slopes −1.5 to −1.95 from 0.25 to
+1 h/kpc (wavelengths 25–6 kpc/h, 51–13 cells), for z = 6.2 to 5. Each
+doubling moves the steep (−4 to −5) dissipation range up by a factor 2 in
+k, so the cutoff is numerical, at ~10 cells per wavelength. The inertial range is a factor
+~4 in k at 512³, and its slope at 0.25–0.5 h/kpc is still changing
+(−1.8 → −1.6 from 256³). Below 0.25 h/kpc E(k) is the domain-scale
+forcing (flat or rising at z = 6.9, then ≈ −1 … −3 with the domain
+harmonics, 2π/31.25 kpc/h).
+
+512³ developed the hot cells before z = 5: a spike at z ≈ 5.5 (cmax_gas
+290 → 560) and from z ≈ 5.1 an episode with cmax_gas up to 4 400,
+vmax_gas 880 and 0.1–0.35 Myr steps (144 steps with cmax_gas > 500),
+still running at z = 5. Its z = 5 E(k) shows no break at high k
+(slope −4.15 at 2–4 h/kpc against −4.0 at z = 5.5), and ⟨v²⟩ follows the
+other rungs, so the episode stays in a few cells; ending at z = 5 does
+not avoid it at 512³, though.
 
 **Late hot cells, and the serial sink.** With the cap the 64³ rung stays
 clean to z = 4, but 128³ has an episode from z ≈ 4.15 (cmax_gas 52 →
@@ -470,4 +541,5 @@ z ≈ 5.1 and 4.7 in the run without a sink. x_HII,V and T_V change by
 or 2.7 % (1 000×) at z = 5 and ≤ 5 % at z = 4.5. At z = 4 the 7 % difference
 is the run without a sink's hot-cell episode
 (`runs/c1_c26/post_sink`). 3 000× is the less invasive choice; whether the
-threshold should scale with resolution (Δ_max grows with N) is open.
+threshold should scale with resolution (Δ_max grows with N) is open;
+256³ and 512³ with the sink are not run yet.
