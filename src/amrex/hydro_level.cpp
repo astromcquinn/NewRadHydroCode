@@ -992,6 +992,7 @@ class HydroLevel {
       ax::average_down(F.U, L.U, geom_of(lev + 1), geom_of(lev), 0, NC, kRef);
       check(lev, "after average_down", false);
       T.reflux += now() - t1;
+      if (sub) pmsub::check_corrector(lev, t + dt, L.U);  // (RADRAY_PM_CORRECTOR_CHECK only)
     }
     if (lev > 0) {
       // this level's fluxes into the register with its parent: dtdx / 8 per

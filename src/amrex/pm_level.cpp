@@ -2748,6 +2748,150 @@ struct PMLevel {
     T.s_open += now() - t0;
   }
 
+  // ---- RADRAY_PM_CORRECTOR_CHECK: the closing solve's prediction ------------
+  //
+  // A level with children is solved at the end of its substep before they
+  // run, with their particles moved there virtually and its own coarse gas
+  // over them (sub_density); no corrector solve follows (user decision
+  // 2026-11-02, docs/PLAN.md, docs/stage_g.md section 6.7). With
+  // RADRAY_PM_CORRECTOR_CHECK=1 that corrector is computed after the
+  // children (their particles where they are, the parent's gas averaged
+  // down from them), compared with the predicted solution and discarded,
+  // so the run's results are unchanged (every array and counter it touches
+  // is restored). Reported per level, as maxima over the substeps:
+  //   near  max |F_corr - F_pred| over the uncovered cells within kNear of
+  //         the children (the force the parent's own particles and gas
+  //         get next to the refined region), over max |F_pred| of the
+  //         uncovered cells (levels >= 1; level 0 is never kicked by it);
+  //   far   the same over the other uncovered cells;
+  //   bnd   max |phi_corr - phi_pred| over the cells within kNear of the
+  //         children's boundary on either side (the children's boundary
+  //         values come from there), over the range of phi on the level.
+  // Collective; costs one more solve per substep of every level with
+  // children.
+  static constexpr int kNear = 4;
+  bool corr_check = std::getenv("RADRAY_PM_CORRECTOR_CHECK") != nullptr;
+  struct CorrStat {
+    double near = 0, far = 0, bnd = 0;
+    Long n = 0;
+  };
+  std::vector<CorrStat> corr_step, corr_run;  // per level: this base step, the run
+  double t_corr = 0;
+
+  void sub_corrector_check(int p, double t, const ax::MultiFab& U) {
+    if (!corr_check || p >= finest()) return;
+    const double t0 = now();
+    const std::size_t P = static_cast<std::size_t>(p);
+    // what the solve overwrites and the run reads later
+    FFab& Pp = POT(p);
+    FFab& Fp = FRC(p);
+    FFab pot_s(BA(p), DM(p), 1, Pp.nGrow()), frc_s(BA(p), DM(p), 3, Fp.nGrow()), old_s(BA(p), DM(p), 1, 0);
+    ax::Copy(pot_s, Pp, 0, 0, 1, Pp.nGrow());
+    ax::Copy(frc_s, Fp, 0, 0, 3, Fp.nGrow());
+    ax::Copy(old_s, pot_old[P], 0, 0, 1, 0);
+    const double to = t_old[P], tn = t_new[P], rm = rho_mean;
+    const Timers Ts = T;
+    int m_iters = 0, m_sweeps = 0;
+    double m_resid = 0;
+    Long m_capped = 0;
+    if (p >= 1) {
+      const FineMesh& M = fm[P - 1];
+      m_iters = M.iters;
+      m_sweeps = M.sweeps;
+      m_resid = M.resid;
+      m_capped = M.capped;
+    }
+    // the corrector: the same solve with the children done
+    sub_solve(p, t, U);
+    // the cells: 1 covered by the children, and their neighbourhoods
+    ax::iMultiFab cv(BA(p), DM(p), 1, kNear);
+    cv.setVal(0);
+    {
+      const ax::iMultiFab fmask = ax::makeFineMask(BA(p), DM(p), BA(p + 1), ax::IntVect(2), 0, 1);
+      ax::iMultiFab::Copy(cv, fmask, 0, 0, 1, 0);
+    }
+    cv.FillBoundary(PER(p));
+    double fmax = 0, dnear = 0, dfar = 0, dbnd = 0, pmin = 1e300, pmax = -1e300;
+    for (ax::MFIter mfi(Pp); mfi.isValid(); ++mfi) {
+      auto pc = Pp.const_array(mfi);
+      auto ps = pot_s.const_array(mfi);
+      auto fc = Fp.const_array(mfi);
+      auto fs = frc_s.const_array(mfi);
+      auto c = cv.const_array(mfi);
+      ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+        bool any_cov = false, any_unc = false;
+        for (int dk = -kNear; dk <= kNear; ++dk)
+          for (int dj = -kNear; dj <= kNear; ++dj)
+            for (int di = -kNear; di <= kNear; ++di) (c(i + di, j + dj, k + dk) ? any_cov : any_unc) = true;
+        const double ph = ps(i, j, k);
+        pmin = std::min(pmin, ph);
+        pmax = std::max(pmax, ph);
+        if (any_cov && any_unc) dbnd = std::max(dbnd, std::fabs(static_cast<double>(pc(i, j, k)) - ph));
+        if (p == 0 || c(i, j, k)) return;
+        double d2 = 0, f2 = 0;
+        for (int m = 0; m < 3; ++m) {
+          const double a = fs(i, j, k, m), b = fc(i, j, k, m);
+          d2 += (b - a) * (b - a);
+          f2 += a * a;
+        }
+        fmax = std::max(fmax, std::sqrt(f2));
+        (any_cov ? dnear : dfar) = std::max(any_cov ? dnear : dfar, std::sqrt(d2));
+      });
+    }
+    double mx[5] = {fmax, dnear, dfar, dbnd, pmax};
+    ax::ParallelDescriptor::ReduceRealMax(mx, 5);
+    ax::ParallelDescriptor::ReduceRealMin(pmin);
+    // restore
+    ax::Copy(Pp, pot_s, 0, 0, 1, Pp.nGrow());
+    ax::Copy(Fp, frc_s, 0, 0, 3, Fp.nGrow());
+    ax::Copy(pot_old[P], old_s, 0, 0, 1, 0);
+    t_old[P] = to;
+    t_new[P] = tn;
+    rho_mean = rm;
+    if (p >= 1) {
+      FineMesh& M = fm[P - 1];
+      M.iters = m_iters;
+      M.sweeps = m_sweeps;
+      M.resid = m_resid;
+      M.capped = m_capped;
+    }
+    T = Ts;
+    if (corr_step.size() <= P) corr_step.resize(P + 1);
+    if (corr_run.size() <= P) corr_run.resize(P + 1);
+    const double range = mx[4] - pmin;
+    CorrStat cs;
+    cs.near = mx[0] > 0 ? mx[1] / mx[0] : 0;
+    cs.far = mx[0] > 0 ? mx[2] / mx[0] : 0;
+    cs.bnd = range > 0 ? mx[3] / range : 0;
+    for (std::vector<CorrStat>* v : {&corr_step, &corr_run}) {
+      CorrStat& s = (*v)[P];
+      s.near = std::max(s.near, cs.near);
+      s.far = std::max(s.far, cs.far);
+      s.bnd = std::max(s.bnd, cs.bnd);
+      s.n += 1;
+    }
+    t_corr += now() - t0;
+  }
+
+  // The base step's maxima (rank 0, after sub_finish), then reset
+  void corrector_report() {
+    if (!corr_check) return;
+    if (ax::ParallelDescriptor::IOProcessor())
+      for (std::size_t p = 0; p < corr_step.size(); ++p) {
+        const CorrStat& s = corr_step[p];
+        if (s.n == 0) continue;
+        if (p == 0)
+          std::fprintf(stderr, "PM corrector check: level 0 (%lld solves): boundary potential %.3e of its range\n",
+                       static_cast<long long>(s.n), s.bnd);
+        else
+          std::fprintf(stderr,
+                       "PM corrector check: level %d (%lld solves): force near the children %.3e, far %.3e of "
+                       "max |F|; boundary potential %.3e of its range\n",
+                       static_cast<int>(p), static_cast<long long>(s.n), s.near, s.far, s.bnd);
+      }
+    corr_step.assign(corr_step.size(), CorrStat());
+  }
+
   // Level 0's drifts of the sub-cycled step (the drift's arithmetic):
   // before its kick (then reassigned within level 0 only: the refined
   // levels are at the base step's middle already) and, deferred, after the
@@ -2849,6 +2993,7 @@ struct PMLevel {
                      "|dP_dm + dP_gas| over the step / sum|dp_gas| = %.3e (sum|dp_gas| %.6e)\n",
                      finest(), rel, relt, loc[3]);
     }
+    corrector_report();
   }
 
   // The sub-cycled base step's PM step (docs/stage_g.md section 6): level
@@ -2989,6 +3134,16 @@ struct PMLevel {
                       static_cast<long long>(T.s_solves), T.s_kick, T.s_drift, T.s_regroup,
                       static_cast<long long>(T.s_to0), static_cast<long long>(T.s_unpred));
         out += b4;
+        if (corr_check) {
+          out += "; corrector check (run maxima, " + std::to_string(t_corr).substr(0, 6) + " s):";
+          for (std::size_t p = 0; p < corr_run.size(); ++p) {
+            if (corr_run[p].n == 0) continue;
+            char b5[160];
+            std::snprintf(b5, sizeof b5, " [%d: near %.2e far %.2e bnd %.2e]", static_cast<int>(p), corr_run[p].near,
+                          corr_run[p].far, corr_run[p].bnd);
+            out += b5;
+          }
+        }
       }
       for (const FineMesh& M : fm) {
         char b3[128];
@@ -3089,6 +3244,7 @@ void kick(int l, amrex::MultiFab& U, int ng, double dt, double eta1, double rho_
 }
 void drift(int l, double t0, double h) { g_sub->sub_drift(l, t0, h); }
 void regroup(int l) { g_sub->sub_regroup(l); }
+void check_corrector(int l, double t, const amrex::MultiFab& U) { g_sub->sub_corrector_check(l, t, U); }
 void done() {
   if (g_sub) g_sub->armed = false;
 }

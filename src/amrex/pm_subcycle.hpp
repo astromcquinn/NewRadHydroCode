@@ -41,5 +41,10 @@ void drift(int l, double t0, double h);
 // reassigned among them (l = 0: those of levels >= 1 that left level 1
 // go to level 0). Collective.
 void regroup(int l);
+// RADRAY_PM_CORRECTOR_CHECK=1: after level l's children are done (l below
+// the finest), the corrector of its closing solve at t computed, compared
+// with the predicted one and discarded (docs/stage_g.md section 6.7); a
+// no-op otherwise. Collective.
+void check_corrector(int l, double t, const amrex::MultiFab& U);
 
 }  // namespace radray::pmsub

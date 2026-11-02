@@ -710,11 +710,44 @@ momentum the kicks of a whole base step add against their summed |Δp|.
    The alternative, level 0's potential held constant over each half step
    (the opening's, then the PM step's), saves 2·nsub FFTs and their
    deposits per step and is first order in time at level 1's boundary.
+   **Accepted by the user (2026-11-02, `docs/PLAN.md`).**
 2. **No corrector solve** after the children (built: the parent's closing
    solve uses its children's predicted mass). A corrector would make the
    parent's K2 and its children's last boundary values exact at the cost of
-   one more solve per substep on every level that has children (~2× on the
-   intermediate levels of a zoom).
+   one more solve per substep on every level that has children (in a zoom
+   of rectangular levels, whose coarser levels are shells around the finest
+   solved half as often each, roughly 10–20 % more gravity work, plus the
+   deposits; in the two-level tests here ~50 %). **User decision
+   (2026-11-02): no corrector for now, revisit at Z1** with the diagnostic
+   `RADRAY_PM_CORRECTOR_CHECK=1` (`sub_corrector_check`): after a level's
+   children are done it computes the corrector (their particles where they
+   are, the level's gas averaged down from them), compares it with the
+   prediction and discards it, restoring every array and counter, so the
+   results are byte-identical (checked by `amrex_pm_subcycle_momentum`). It
+   prints per base step and level, as maxima over the substeps:
+   - *near*: max |F_corr − F_pred| over the level's uncovered cells within
+     4 cells of its children, over max |F_pred| of its uncovered cells (the
+     force its own particles and gas get next to the refined region);
+   - *far*: the same over its other uncovered cells;
+   - *boundary potential*: max |φ_corr − φ_pred| over the cells within 4
+     cells of the children's boundary on either side (where their boundary
+     values come from), over the range of φ on the level; also for level 0.
+
+   The run maxima go into the PM timers line (`corrector check`). Measured
+   (2 levels, 4-core VM):
+
+   | problem | level 1: near / far / boundary potential | level 0: boundary potential | check's cost |
+   |---|---|---|---|
+   | T1 (§4 with the flag, z = 100 → 5) | 8.7e-4 / 1.1e-4 / 5.4e-4 (growing towards z = 5) | 2.5e-3 (z = 5), 5e-4 before z ≈ 10 | +50 % of the step |
+   | collapse (§6.9 item 2, z = 100 → 6) | 1.0e-2 (z ≈ 50–30, the linear era's small forces) falling to 1.2e-3 at z = 6 / 3e-4 / 2.8e-4 | 2.8e-3 (step 1), below the float density's rounding after it | |
+   | smoke (half box) | 4.8e-4 / 0 / 1.9e-3 | (level 1 covers level 0) | |
+
+   For scale: the level solve's own force error next to a level boundary is
+   0.6 % of the force there (§3, the Ewald test at 8 cells), so in these
+   tests the prediction's error is below the boundary's own except in the
+   collapse's linear era, where both are small in absolute terms. What would
+   argue for the corrector at Z1: a *near* value of a few per cent that grows
+   with the flow through the boundary.
 3. **Level 0's particles enter the hierarchy only at the call openings**
    (built); fine particles leave to level 0 at every level-0 substep end.
 4. **The substep ratio:** everything follows the hydro's substeps and their
@@ -884,6 +917,7 @@ RADRAY_PM_LEVEL_DEBUG=1 ...   # the mass of every level's deposits after each PM
 mpirun -np 4 build-amrex/radhydro RUN out ... --set pm_level_solve=1 --set pm_level_subcycle=1
 ctest --test-dir build-amrex -L subcycle     # (the nightly ones with -DRADRAY_NIGHTLY_TESTS=ON)
 RADRAY_PM_MOMENTUM_CHECK=1 ...   # the momentum the kicks of each base step add
+RADRAY_PM_CORRECTOR_CHECK=1 ...  # the corrector solve against the prediction (section 6.7), results unchanged
 # klone: the 128^3 two-level profile with and without the flag (section 6.9)
 CONFIGS="level_solve level_subcycle" LOCAL=1 sbatch tools/hyak/pm_level_solve_profile.slurm
 ```

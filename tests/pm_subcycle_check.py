@@ -15,6 +15,9 @@ level and the particles), against the summed |dp| of the gas kicks:
   * over half the box (the Dirichlet boundary, and with sub-cycling the
     levels' mass and kicks at different times): below 2e-2, and reported
     next to pm_level_subcycle = 0's.
+Then the corrector diagnostic (RADRAY_PM_CORRECTOR_CHECK=1, docs/stage_g.md
+section 6.7) on the half-box run: it reports, and the outputs are
+byte-identical to the run without it.
 """
 import os
 import re
@@ -76,6 +79,37 @@ def main():
                 fails.append(f"{tag}, pm_level_subcycle = {sub}: no step with two levels")
         if not worst[1] < lim:
             fails.append(f"{tag}: sub-cycled momentum change {worst[1]:.3e} >= {lim:g}")
+    # the corrector diagnostic (RADRAY_PM_CORRECTOR_CHECK=1) reports and
+    # changes nothing: the half-box sub-cycled run with and without it
+    outs = {}
+    for chk in (0, 1):
+        o = os.path.join(work, f"corr{chk}")
+        e = dict(os.environ)
+        e.pop("RADRAY_PM_CORRECTOR_CHECK", None)
+        if chk:
+            e["RADRAY_PM_CORRECTOR_CHECK"] = "1"
+        run(mpi + [exe, prob, o] + BASE + sets("run_steps=6", "pm_refine=1", "amrex_max_level=2", "amrex_refine_mass=1e9",
+                                               "amrex_refine_box=0,0,0,7,7,7", "pm_level_solve=1",
+                                               "pm_level_subcycle=1", "fields_every=1"), o + ".log", e)
+        outs[chk] = o
+    rep = [float(m.group(1)) for m in
+           re.finditer(r"PM corrector check: level \d+ .*? force near the children (\S+),", open(outs[1] + ".log").read())]
+    print(f"corrector check: {len(rep)} reports, force near the children at most "
+          f"{max(rep) if rep else float('nan'):.3e} of max |F|")
+    if not rep or not all(0 <= v < 1 for v in rep):
+        fails.append("corrector check: no or bad reports")
+    ndiff = 0
+    for root, _, names in os.walk(outs[0]):
+        for nm in names:
+            if nm == "timing.txt":
+                continue
+            a = os.path.join(root, nm)
+            b = os.path.join(outs[1], os.path.relpath(a, outs[0]))
+            if not os.path.isfile(b) or open(a, "rb").read() != open(b, "rb").read():
+                ndiff += 1
+    print(f"corrector check: {ndiff} files differ from the run without it")
+    if ndiff:
+        fails.append(f"corrector check changed {ndiff} output files")
     if fails:
         print("FAIL:\n  " + "\n  ".join(fails))
         sys.exit(1)
