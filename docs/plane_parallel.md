@@ -322,6 +322,7 @@ slowed down.
 | `plane_rt` (`tests/plane_check.py`, RT-only driver, uniform gas built per check) | Γ_HI normalisation to 5e-8 in the source cells and to the attenuation elsewhere, for 1, 2 and 4 cells per substep; the bins and the optical depths; slab attenuation per bin = Π(1 − τ_j) to 4e-4 and e^−τ to 2 %; one front across the whole box against the photon budget (thin gas: 0.5 %; 100× the mean density with recombinations: the column = (photons − the code's recombinations)/n_H and α_eff against case B); the light-limited front at ĉ; photon conservation (3e-5); 2³ domains ionising identically (1e-6) with no ray crossing a domain edge; 1 vs 2 threads byte-identical |
 | `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 4e4`, `plane_turnon_courant = 0.5`, as the default does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 0.5, dt ≤ 0.5 Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 37.1 Myr); `plane_couple_courant = 0.3`: dt_sim c_hot = 0.3 where it binds (most steps after z_re), at most 0.3 in all of them, the steps before z_re bit for bit, T_M(z) and x_HII,V(z) of the uncapped run to 0.5 % |
 | `plane_diag` (`tests/plane_diag_check.py`, `radhydro`, 32³ Zel'dovich box, C26 cosmology) | `diag_dz = 0.2`: E(k) at the first step below each of z = 9, 8.8, …, 8 and at the zdata1 steps, none above z = 9; E(k), the mass-weighted E(k) and ⟨v²⟩ agree with `velocity_power.py` on the steps' `u_gas.bin` to 6 × 10⁻⁷; the T–Δ histogram holds N³ cells and mass N³ and its mass-weighted ⟨log T⟩ matches the fields; `movie_fields vmag` writes |v| slabs; every step's stats and the last step's fields byte-identical to the run without the diagnostics |
+| `plane_xray` (`tests/plane_xray_check.py`, `radhydro`, 16³ Zel'dovich box) | `xray_heating = 1` before z_re = 9 at log L_X/SFR = 40.5: mass-weighted T 200 K at z_re; `plane_xray_substeps = 10`: 10 substeps per step before z_re, mass-weighted T and x_HII at z_re within 3 % of the light-crossing count (−1.6 %), T_V, T_M, x_HII,V at the end within 2 % |
 | `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
 | `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step: the steps to it bit for bit those of the serial run (the later CFL steps to 4e-8) |
 
@@ -353,6 +354,30 @@ outputs then hold only P(k) (`Pk/`). `make_production.py --diag-dz
 DIAG_DZ, MOVIE_DZ, CHAT_AFTER. Readers: `tools/analysis/plane_ek_panels.py`
 for E(k) json; `snapshot_slices.py` turns saved snapshots into a slide show
 (for the 512³ rung, which had `movie_dz = 0`).
+
+### X-ray preheating before the turn-on (`plane_xray_substeps`, 2026-11-01)
+
+`xray_heating = 1` (`docs/xray_heating.md`) works in the plane-parallel
+mode: before `plane_z_re` the RT runs every hydro step for the uniform
+X-ray background alone (no face sources), processing every cell. Its
+substep count is still the light crossing at `c_reduced` (~7 700 per step
+at 1024³), although there are no rays to move. `plane_xray_substeps = n`
+(default 0 = the light crossings) gives those steps n substeps instead;
+the steps from z_re on are unchanged. The error is first order in the
+substep length, ~0.35 % in T per Myr of substep (`plane_xray`, 16³ at
+log L_X/SFR = 40.5, ~200 K by z_re = 9; 30–100 Myr hydro steps):
+
+| substeps per step | 1 | 3 | 10 | 30 | light crossings (50–1200) |
+|---|---|---|---|---|---|
+| mass-weighted T at z_re [K] | 167.0 | 189.0 | 197.1 | 199.4 | 200.2 |
+
+The C1 X-ray run (1024³, hydro steps of 1–3 Myr) uses n = 2 and
+log L_X/SFR = 39.9, tuned with `xray_bkg` in the C26 cosmology so the
+mean-density gas reaches 100 K at z ≈ 7.1 (T_CMB crossed at z ≈ 9.5;
+43 K at z = 8.6, 72 K at 7.6), with the production abundance matching
+(`data/uv_lf/am_params_st_fof.txt`) for the star formation. Near-empty
+cells (Δ < 10⁻³, from the 16³ Zel'dovich ICs here) reach 10⁵ K under the
+X-rays and dominate T_V; use mass-weighted temperatures before z_re.
 
 ### Tools
 

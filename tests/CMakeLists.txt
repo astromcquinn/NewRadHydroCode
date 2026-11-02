@@ -944,6 +944,11 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_diag_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_diag)
     set_tests_properties(plane_diag PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # X-ray preheating before the turn-on and plane_xray_substeps
+    add_test(NAME plane_xray
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_xray_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_xray)
+    set_tests_properties(plane_xray PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
     # the scaled-down DM20 problem (0.256 Mpc/h, 32^3, z_re = 8, Gamma_-12 =
     # 0.3, cooling on): the post-front temperature and the clumping factor
     # (~ minutes: label nightly)

@@ -392,6 +392,12 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
                  clk.nstep_rt, dl_c / dl_rt * cscale, cscale, cfg.rt_cells_per_substep);
     clk.nstep_rt = 1;
   }
+  // plane_xray_substeps > 0 (plane mode, before plane_z_re): the X-ray-only
+  // RT steps take a fixed count (no rays to carry); the carry above is kept
+  // for the steps after the turn-on
+  if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_xray_substeps > 0 &&
+      a < 1 / (1 + cfg.plane_z_re) * (1 - 1e-9))
+    clk.nstep_rt = cfg.plane_xray_substeps;
   clk.dt_rt = clk.dt_sim / clk.nstep_rt;
   clk.dtyr_rt = clk.dt_yr * (clk.dt_rt / clk.dt_sim);
   clk.dtsec_rt = clk.dt_sec * (clk.dt_rt / clk.dt_sim);

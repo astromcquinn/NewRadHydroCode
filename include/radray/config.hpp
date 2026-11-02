@@ -615,6 +615,12 @@ struct Config {
   // dt_max_myr. 0 (default) = off; make_production.py --plane-parallel
   // writes 0.15.
   double plane_couple_courant = 0;
+  // params.txt plane_xray_substeps (set_plane_param; docs/plane_parallel.md):
+  // plane-parallel mode with xray_heating only. Before plane_z_re the RT
+  // runs only for the uniform X-ray background (no rays), so each hydro step
+  // takes this many RT substeps instead of the light crossings at c_reduced.
+  // 0 (default): the light crossings, the original count.
+  int plane_xray_substeps = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);
