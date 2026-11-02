@@ -313,6 +313,15 @@ Also run here: the `amrex_pm` label (the Stage E tests, `pm_level_solve`
 off: 76 tests, all passing, the stored references bitwise) after the
 particle-mass change (`dm_mass_ratio`).
 
+**The exact restriction (2026-11-02, §1 item 3):** `ctest -L level_solve`
+with `RADRAY_NIGHTLY_TESTS=ON` (22 tests, the nightly
+`amrex_pm_level_solve_rt_ranks`, `_rt_restart` and `amrex_pm_zoom_t1`
+included) passes. Against the truncating restriction, of the numbers
+above only the unit test's change (level 1 everywhere against the uniform
+mesh 3.7e-7 → 3.2e-7; momentum with levels 1 and 2 everywhere 2e-9 →
+5e-9, level 1 everywhere 5.4e-10 → 5.2e-10); `pm_level_solve_check` and
+T1 (§4) print the same digits.
+
 ## 4. T1: the zoom ladder's first rung
 
 `tests/pm_zoom_t1_check.py` (nightly `amrex_pm_zoom_t1`, 2 ranks, 3.2
@@ -349,7 +358,8 @@ two (0.64, 0.75: halos at the region's edge, fed from the coarse base).
 The test passes when B's inner-half particles stay within 0.3 fine cells
 rms of A's, 90 % of those halos are found within 2 cells and 75 % of
 them within 40 % in mass, and the density PDF fractions agree with A's to
-25 % where A has ≥ 100 cells above the threshold.
+25 % where A has ≥ 100 cells above the threshold. (With the exact
+restriction, 2026-11-02, every number printed is unchanged.)
 
 ## 5. Timing
 
