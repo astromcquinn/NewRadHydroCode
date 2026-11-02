@@ -4,7 +4,9 @@
 usage: photon_conserve_check.py RT_DRIVER LOGNORMAL_PROBLEM_DIR WORKDIR
 
 Runs rt_driver on lognormal_16src (legacy_rt = legacy_physics = 0,
-rt_substep_carry = 1, 20 steps) and compares the ionised hydrogen at the
+rt_substep_carry = 1, 20 steps; photon_consume_dense = 0, the original
+rho_source factor, as when the numbers of docs/rt_multicell.md 2.1 were
+measured, before P11 joined legacy_physics = 0) and compares the ionised hydrogen at the
 end, x_HII,M = sum rho x_HII / sum rho, with the counted net ionisations
 per H atom of rt_stats.txt (photo-ionisations - recombinations +
 collisional ionisations of HI, cumulative over the run). The difference
@@ -42,7 +44,8 @@ def leak(driver, prob, out, k, pc):
     with open(out + ".stdout", "w") as log:
         subprocess.run([driver, prob, out, "--nsteps", str(NSTEPS), "--set", "legacy_rt=0",
                         "--set", "legacy_physics=0", "--set", "rt_substep_carry=1",
-                        "--set", f"rt_cells_per_substep={k}", "--set", f"photon_conserve={pc}"],
+                        "--set", f"rt_cells_per_substep={k}", "--set", f"photon_conserve={pc}",
+                        "--set", "photon_consume_dense=0"],
                        check=True, stdout=log, stderr=subprocess.STDOUT)
     sd = os.path.join(out, f"step_{NSTEPS:04d}")
     fHI = np.fromfile(os.path.join(sd, "fHI.bin"), dtype=np.float32).astype(np.float64)

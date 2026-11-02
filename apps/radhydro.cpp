@@ -128,12 +128,16 @@ struct RunParams {
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
   int photon_conserve = -1;       // Config::photon_conserve (B17 fix): -1 = !legacy_physics, else 0 | 1
+  int photon_consume_dense = -1;  // Config::photon_consume_dense (P11 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
   // thermal_init = floor | recfast (Config::thermal_init, docs/thermal_history.md)
   // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
   int thermal_init = 0;
   double thermal_floor = -1;
+  // recfast_table = FILE: the RECFAST table of a non-original cosmology
+  // (tools/thermal/make_recfast_table.py --out FILE; thermal_history.hpp)
+  std::string recfast_table;
   // Restart (docs/production_run.md): checkpoint every n steps (0: never),
   // keep only the latest one (1) or all (0)
   int restart_every = 0;
@@ -255,6 +259,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
       P.thermal_init = 1;
     else
       throw std::runtime_error("thermal_init must be floor or recfast");
+  } else if (key == "recfast_table") {
+    P.recfast_table = val;
   } else if (key == "thermal_floor") {
     P.thermal_floor = to_double(val);
     if (!(P.thermal_floor > 0)) throw std::runtime_error("thermal_floor must be > 0 (K)");
@@ -262,6 +268,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_conserve < -1 || P.photon_conserve > 1)
       throw std::runtime_error("photon_conserve must be 0 or 1");
+  }
+  else if (key == "photon_consume_dense") {
+    P.photon_consume_dense = std::stoi(val);  // -1: follow legacy_physics (the default)
+    if (P.photon_consume_dense < -1 || P.photon_consume_dense > 1)
+      throw std::runtime_error("photon_consume_dense must be 0 or 1");
   }
   else if (key == "redshift_per_distance") {
     P.redshift_per_distance = std::stoi(val);
@@ -735,6 +746,8 @@ int main(int argc, char** argv) {
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17
+    s.cfg.photon_consume_dense =
+        Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
@@ -798,12 +811,14 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "thermal_init = recfast is implemented for the host gas grid only (amrex_state = 0, no refined "
           "hydro levels)");
-    // The RECFAST table (recfast_table.inc) was computed for the original
-    // cosmology; another cosmology needs its own table
-    if (cfg.thermal_init == 1 && !cfg.cosmo.is_original())
+    // The compiled RECFAST table (recfast_table.inc) is for the original
+    // cosmology; another cosmology reads its own (recfast_table = FILE)
+    if (cfg.thermal_init == 1 && !P.recfast_table.empty()) load_recfast_table(P.recfast_table, cfg.cosmo);
+    if (cfg.thermal_init == 1 && !recfast_table_matches(cfg.cosmo))
       throw std::runtime_error(
-          "thermal_init = recfast: the RECFAST table is for the original cosmology (omegam 0.27, omegab "
-          "0.045, hubble0 0.70), not " + cfg.cosmo.summary());
+          "thermal_init = recfast: the compiled RECFAST table is for the original cosmology (omegam 0.27, "
+          "omegab 0.045, hubble0 0.70), not " + cfg.cosmo.summary() +
+          "; give recfast_table = FILE (tools/thermal/make_recfast_table.py --out FILE --omegam ..)");
     std::unique_ptr<XrayBackground> xbg;
     std::ofstream xraylog;
     if (P.xray.on) {
@@ -993,6 +1008,10 @@ int main(int argc, char** argv) {
            << (P.photon_conserve >= 0 ? ", photon_conserve = " + std::to_string(P.photon_conserve) +
                                             (P.photon_conserve == int(!cfg.legacy_physics) ? "" : " (set explicitly)")
                                       : std::string())
+           << (P.photon_consume_dense >= 0
+                   ? ", photon_consume_dense = " + std::to_string(P.photon_consume_dense) +
+                         (P.photon_consume_dense == int(!cfg.legacy_physics) ? "" : " (set explicitly)")
+                   : std::string())
            << (P.ray_deposit ? ", ray_deposit = exposure" : "")
            << (P.cool_suppress_overdensity != 200.0
                    ? ", cool_suppress_overdensity = " + std::to_string(P.cool_suppress_overdensity)
@@ -1727,7 +1746,7 @@ int main(int argc, char** argv) {
 
     // Restart: the complete state of the end of a step (checkpoint.hpp)
     if (!restart_from.empty()) {
-      read_checkpoint(restart_from, s, hs, pm, dst);
+      const int ckpt_version = read_checkpoint(restart_from, s, hs, pm, dst);
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
@@ -1738,8 +1757,12 @@ int main(int argc, char** argv) {
       }
       // Stage F: the refined hydro levels of the checkpoint (a checkpoint
       // without them starts with level 0 only and regrids at the first step)
-      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr"))
+      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr")) {
         amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
+        // the RT's levels, their rays and fgam as they were (version 9
+        // keeps the refined levels' dr, checkpoint.cpp)
+        if (use_amrex(cfg)) amrex_rt_restore_levels(s, ckpt_version >= 9, restart_from + ".amr");
+      }
       update_sched_x();  // the checkpoint's RT grid: the last step's x_HII,V
     } else {
       // Summarize the initial state
@@ -1783,7 +1806,7 @@ int main(int argc, char** argv) {
       const TimestepInfo ti =
           calc_timestep(cfg, s.units, TimestepMode::Original, 0.0, s.clk, out);
       // Set IO flags (calc_timestep)
-      if (ti.a2 >= adata1[idata1 - 1]) data1_out = true;
+      if (idata1 <= Ndata1 && ti.a2 >= adata1[idata1 - 1]) data1_out = true;
       if (idata2 <= Ndata2)
         if (ti.a2 >= adata2[idata2 - 1]) data2_out = true;
 
@@ -1791,6 +1814,10 @@ int main(int argc, char** argv) {
       // or one unsplit step over dt_sim/2 (hydro_scheme = unsplit)
       auto th = Clock::now();
       nstar_step = 0;
+      // pm_level_subcycle: the refined levels' gravity inside the hydro calls
+      // (docs/stage_g.md section 6)
+      const bool pm_sub = use_amrex_pm(cfg) && amrex_pm_subcycled(pm);
+      if (pm_sub) amrex_pm_subcycle_call(pm, s.clk);
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::First, s.gas, hs);
       sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
@@ -1813,7 +1840,13 @@ int main(int argc, char** argv) {
       // Reverse hydro step with transposes in between (legacy), or the
       // second unsplit step over dt_sim/2
       th = Clock::now();
+      if (pm_sub) amrex_pm_subcycle_call(pm, s.clk);
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::Second, s.gas, hs);
+      if (pm_sub) {  // level 0's second drift, the particles onto their levels (before this call's stars)
+        const auto tp = Clock::now();
+        amrex_pm_subcycle_finish(pm, s.clk);
+        T.pm += std::chrono::duration<double>(Clock::now() - tp).count();
+      }
       sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 
@@ -1945,7 +1978,10 @@ int main(int argc, char** argv) {
           tensor_diag_write(s, d, io);
         }
       }
-      const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
+      // land_outputs = 1: the clock's two half steps can leave the redshift a few
+      // ulp above the last output it landed on; the run ends once that output
+      // is written
+      const bool last = s.clk.redshift <= zdata1[Ndata1 - 1] || (cfg.land_outputs && idata1 > Ndata1);
       write_stats(d);
       update_sched_x();
       if (fields || last) {
@@ -1998,7 +2034,10 @@ int main(int argc, char** argv) {
           std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
         write_checkpoint(odir + name, s, hs, pm, dst);
         // Stage F: the refined hydro levels next to it (docs/stage_f.md)
-        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) amrex_hydro_write_levels(odir + name + ".amr");
+        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) {
+          amrex_hydro_write_levels(odir + name + ".amr");
+          if (use_amrex(cfg)) amrex_rt_write_levels(s, odir + name + ".amr");  // the RT levels' fgam
+        }
         if (P.restart_keep > 0 && io) {
           // keep the newest restart_keep numbered checkpoints (names sort by step)
           std::vector<std::string> ck;

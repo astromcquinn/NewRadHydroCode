@@ -86,8 +86,13 @@ struct PMConfig {
   int blocking_factor = 8;
   int mlmg_iters = 20;
   double mlmg_tol = 1e-10;
-  int mlmg_bottom_sweeps = 64;
+  int mlmg_bottom_sweeps = 8;
+  double mlmg_bottom_scale = 1.0;
   int mlmg_verbose = 0;
+  // pm_level_subcycle with level_solve (config.hpp, docs/stage_g.md section
+  // 6): the refined levels kicked, drifted and solved inside their hydro
+  // substeps (the hydro hierarchy calls the PM); level 0 kicked once per step
+  bool subcycle = false;
 
   static PMConfig make(int Ngas, int Ndm, bool mf = true, int refine = 1);
   static PMConfig make(const Config& cfg, bool mf = true) {
@@ -105,7 +110,9 @@ struct PMConfig {
     c.mlmg_iters = cfg.pm_mlmg_iters;
     c.mlmg_tol = cfg.pm_mlmg_tol;
     c.mlmg_bottom_sweeps = cfg.pm_mlmg_bottom_sweeps;
+    c.mlmg_bottom_scale = cfg.pm_mlmg_bottom_scale;
     c.mlmg_verbose = cfg.pm_mlmg_verbose;
+    c.subcycle = c.level_solve && cfg.pm_level_subcycle != 0;
     if (cfg.amrex_state && cfg.amrex_pm_max_grid_size == 0)
       c.amrex_max_grid_size = cfg.pm_refine * cfg.amrex_max_grid_size;
     return c;

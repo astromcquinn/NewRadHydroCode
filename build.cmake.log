@@ -1,0 +1,17 @@
+-- The CXX compiler identification is GNU 13.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /sw/gcc/13.2.0/bin/g++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Fortran reference: /gscratch/astro/mcquinn/radhydro/worktrees/music-growth/reference/fortran
+-- AMReX RT backend: disabled (RADRAY_AMREX=OFF)
+-- Found OpenMP_CXX: -fopenmp (found version "4.5")
+-- Found OpenMP: TRUE (found version "4.5")
+-- OpenMP: enabled
+-- Threaded FFTW (pm_refine > 1): /gscratch/astro/mcquinn/sw/fftw-3.3.10-float-omp/lib/libfftw3f_omp.a
+-- PM gravity and hydro: enabled (FFTW3f: /gscratch/astro/mcquinn/sw/fftw-3.3.10-float-omp/lib/libfftw3f.a)
+-- Found Python3: /gscratch/astro/mcquinn/sw/conda-envs/radray/bin/python3.12 (found version "3.12.15") found components: Interpreter
+-- Configuring done (5.1s)
+-- Generating done (0.5s)
+-- Build files have been written to: /gscratch/astro/mcquinn/radhydro/worktrees/music-growth/build

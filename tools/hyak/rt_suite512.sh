@@ -134,7 +134,8 @@ check_ics() {
 
 make_params() {  # make_params DIR <size args>: the suite's params.txt (the defaults: the schedule,
   # unsplit hydro, redshift per distance, moment_inject = 1, ray_rotate = 3,
-  # photon_conserve from legacy_physics = 0) plus the size arguments given
+  # photon_conserve and, since 2026-10-28, photon_consume_dense from legacy_physics = 0)
+  # plus the size arguments given
   local dir="$1"; shift
   python3 tools/production/make_production.py "$dir" "$@" --no-ics \
     --nray-max-factor 15 --am-params "$AM_PARAMS" --f-esc-beta "$BETA" --f-esc-z0 6 \
@@ -149,7 +150,7 @@ make_base() {  # the base's params.txt (fresh; an old run of the name needs OVER
   local tmp; tmp="$(mktemp -d)"
   # (the defaults: the schedule, unsplit hydro, redshift per distance,
   # case A + RR with onspot = 1, moment_inject = 1, ray_rotate = 3,
-  # photon_conserve from legacy_physics = 0)
+  # photon_conserve and, since 2026-10-28, photon_consume_dense from legacy_physics = 0)
   # (1024^3 particles on the 2048^3 mesh: --ndm, make_production.py since PR #43)
   make_params "$tmp" --N 512 --box 40 --pm-refine 4 --ndm 1024 --f-esc "$F6" --movie-dz 0.025
   grep -Eq '^Ndm = 1024$' "$tmp/params.txt" || { echo "Ndm = 1024 missing (make_production.py --ndm needs main after PR #43)"; exit 1; }

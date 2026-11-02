@@ -2,9 +2,9 @@
 """T4: how short must the RT-hydro coupling interval be while a plane-parallel
 front crosses the box (docs/zoom_turbulence.md section 4.4)?
 
-usage: t4_coupling.py make    ROOT [--N 64 --box 0.25 --z-re 7 --gamma12 0.3 --seed 7]
+usage: t4_coupling.py make    ROOT [--N 64 --box 0.25 --z-re 7 --gamma12 0.3 --seed 7] [--transport rays|sweep]
        t4_coupling.py run     ROOT --exe build/radhydro [--threads 4] [--variants base,dt100,...]
-       t4_coupling.py analyse ROOT [--outdir ROOT/t4] [--ref sub]
+       t4_coupling.py analyse ROOT [--outdir ROOT/t4] [--ref sub] [--variants ...]
 
 The problem: the C1 set-up of docs/zoom_turbulence.md section 3b at N^3
 (tools/production/make_production.py --plane-parallel: 0.25 Mpc/h, 8^3 RT
@@ -15,14 +15,29 @@ state (u_gas) written at the outputs z_re, and 25, 50, 100, 200 and 400 Myr
 after it.
 
 The variants, the same problem with one params.txt override each:
-  base    the hydro step as it is: ra_max (da/a <= 1/9) and the CFL, so the
-          RT runs its 10^3-10^4 substeps inside hydro steps of 50-100 Myr and
-          the gas feels the heating once per step;
+  base    the hydro step as it was before 2026-10-28 (plane_turnon_cfl = 0):
+          ra_max (da/a <= 1/9) and the CFL, so the RT runs its 10^3-10^4
+          substeps inside hydro steps of 50-100 Myr and the gas feels the
+          heating once per step; the step that starts at z_re (25 Myr at 64^3)
+          is sized by the cold gas;
+  turnon  plane_turnon_courant = 1: as base, but the step that starts at
+          z_re is the CFL step with the sound speed of ionised gas at 2e4 K
+          added (the rule as first requested, docs/plane_parallel.md);
   dt100, dt10, dt1, dt0.1   dt_max_myr = 100, 10, 1, 0.1: the heating is
           coupled to the hydro every that many Myr;
   sub     rt_substeps_max = 1: the hydro step is one RT substep, the light
           crossing of a cell at c_hat (0.02 Myr at 0.1 c, 0.2 Myr at 0.01 c
-          here): coupling every substep, as C26's uniform boxes.
+          here): coupling every substep, as C26's uniform boxes;
+  turnon1 a diagnostic: plane_turnon_temp = 2e7 K, so that the turn-on step
+          is ~1 Myr at 64^3 (the following steps as turnon): whether a short
+          first step alone removes the lag;
+  turnon0.05  plane_turnon_courant = 0.05, the default (user decision
+          2026-10-28): the turn-on step 1/20 of the CFL step with c_hot
+          (~1 Myr at 64^3), the following steps as turnon;
+  dt0.1_pert, ..._pert   a variant on the perturbed initial conditions of
+          ROOT/prob_pert (`make` writes them: the gas of cell (1,1,1), its
+          density, momentum and kinetic energy, times 1 + 1e-6, float32): the
+          chaotic decorrelation floor of the E(k) metric.
 
 analyse: the folded front profiles (tools/analysis/plane_front.py) and the
 kinetic energy spectra E(k) (tools/analysis/velocity_power.py) at every
@@ -44,7 +59,10 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 VARIANTS = {
-    "base": [],
+    "base": ["plane_turnon_cfl=0"],
+    "turnon": ["plane_turnon_courant=1"],
+    "turnon1": ["plane_turnon_temp=2e7"],
+    "turnon0.05": ["plane_turnon_courant=0.05"],  # the default since 2026-10-28
     "dt100": ["dt_max_myr=100"],
     "dt10": ["dt_max_myr=10"],
     "dt1": ["dt_max_myr=1"],
@@ -85,20 +103,33 @@ def make(a):
            "--plane-parallel", "--plane-ndom", str(a.ndom), "--plane-z-re", str(a.z_re),
            "--plane-gamma12", str(a.gamma12), "--zdata1", zdata_after(a.z_re),
            "--fields", "fHI,temp,rhog,u_gas", "--data-files", "gas", "--movie-dz", "0",
-           "--restart-every", "0", "--nray-max-factor", "8"]
+           "--restart-every", "0", "--nray-max-factor", "8", "--plane-transport", a.transport]
     subprocess.check_call(cmd)
     print("problem in", prob, "outputs at z =", zdata_after(a.z_re))
+    # the perturbed copy (the *_pert variants): cell (1,1,1)'s u_gas (5 float32,
+    # Fortran order u_gas(5,N,N,N)) times 1 + 1e-6: its mass, at the same velocity
+    pert = os.path.join(a.root, "prob_pert")
+    os.makedirs(os.path.join(pert, "ics"), exist_ok=True)
+    for fn in ("params.txt", os.path.join("ics", "xv_dm.init"), os.path.join("ics", "ics_info.txt")):
+        dst = os.path.join(pert, fn)
+        if not os.path.exists(dst):
+            os.symlink(os.path.relpath(os.path.join(prob, fn), os.path.dirname(dst)), dst)
+    u = np.fromfile(os.path.join(prob, "ics", "u_gas.init"), dtype="<f4")
+    u[:5] = (u[:5].astype(np.float64) * (1 + 1e-6)).astype(np.float32)
+    u.tofile(os.path.join(pert, "ics", "u_gas.init"))
+    print("perturbed problem in", pert, "(cell (1,1,1) x (1 + 1e-6))")
 
 
 def run(a):
-    prob = os.path.join(a.root, "prob")
     for v in a.variants.split(","):
+        pert = v.endswith("_pert")
+        prob = os.path.join(a.root, "prob_pert" if pert else "prob")
         out = os.path.join(a.root, v)
         if os.path.exists(os.path.join(out, "DONE")) and not a.force:
             print(v, "done")
             continue
         cmd = [a.exe, prob, out, "--quiet", "--set", f"threads={a.threads}"]
-        for kv in VARIANTS[v]:
+        for kv in VARIANTS[v[:-5] if pert else v]:
             cmd += ["--set", kv]
         print("running", v, "...", flush=True)
         with open(out + ".log", "w") as log:
@@ -156,13 +187,16 @@ def analyse(a):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        import matplotlib.ticker
     except ImportError:
         return
-    # the outputs 25, 100 and 400 Myr after the turn-on (the 2nd, 4th and last)
-    zall = sorted(set(round(r["z"], 2) for r in ek), reverse=True)
+    # the outputs 25, 100 and 400 Myr after the turn-on (the 2nd, 4th and last
+    # of the reference run)
+    zall = sorted(set(round(r["z"], 2) for r in ek if r["label"] == ref), reverse=True)
     zs = [z for i, z in enumerate(zall) if i in (1, 3, len(zall) - 1)]
     fig, axs = plt.subplots(2, len(zs), figsize=(5 * len(zs), 8), squeeze=False)
-    styles = {"base": "-", "dt100": "--", "dt10": "-.", "dt1": ":", "dt0.1": (0, (5, 1)), "sub": "-"}
+    styles = {"base": "-", "turnon": "--", "dt100": "--", "dt10": "-.", "dt1": ":", "dt0.1": (0, (5, 1)),
+              "dt0.1_pert": (0, (1, 2)), "turnon1": (0, (3, 1, 1, 1)), "turnon0.05": (0, (3, 1, 1, 1)), "sub": "-"}
     for j, z in enumerate(zs):
         for v in variants:
             rr = [r for r in ek if r["label"] == v and abs(r["z"] - z) < 0.05]
@@ -173,6 +207,7 @@ def analyse(a):
             if pp:
                 axs[1, j].semilogy(np.maximum(pp[0]["T"], 1), ls=styles.get(v, "-"), lw=2 if v == ref else 1, label=v)
         axs[0, j].set_title(f"z = {z}")
+        axs[0, j].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
         axs[0, j].set_xticks([0.1, 0.3, 1.0][:1 + int(axs[0, j].get_xlim()[1] > 0.3) + int(axs[0, j].get_xlim()[1] > 1.0)])
         axs[0, j].set_xlabel("k [h/kpc]")
         axs[0, j].set_ylabel("E(k) [(km/s)^2 kpc/h]")
@@ -196,6 +231,8 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--exe", default=os.path.join(ROOT, "build", "radhydro"))
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--transport", default="rays", choices=("rays", "sweep"),
+                    help="plane_transport of the problem (rays: as the 2026-10-27 T4 table)")
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--outdir", default=None)

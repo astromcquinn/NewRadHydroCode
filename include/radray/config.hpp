@@ -396,13 +396,24 @@ struct Config {
   //                the solve is rank-independent; it stops early when the
   //                residual is below pm_mlmg_tol times the initial one);
   //   pm_mlmg_tol:   that relative residual target (0 = always the full count);
-  //   pm_mlmg_bottom_sweeps: the Gauss-Seidel sweeps of the bottom solve
-  //                (the coarsest multigrid level; a level whose width has
-  //                an odd factor, e.g. 144 = 16 x 9 cells, coarsens only a
-  //                few times and its bottom grid is large: 64 sweeps keep
-  //                the V-cycles converging there, at no cost on a deep
-  //                hierarchy);
+  //   pm_mlmg_bottom_sweeps: the minimum Gauss-Seidel sweeps of the bottom
+  //                solve (the coarsest multigrid level; default 8, AMReX's);
+  //                a rectangular level gets at least the square of its
+  //                bottom grid's width (a level whose width has an odd
+  //                factor, e.g. 144 = 16 x 9 cells, coarsens only to 9^3: 81
+  //                sweeps); a solve ending at pm_mlmg_iters above 1e-6 is
+  //                reported;
+  //   pm_mlmg_bottom_scale: the width^2 rule above is ceil(scale * width^2)
+  //                (default 1);
   //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
+  //   pm_level_subcycle: with pm_level_solve (and refinement) every refined
+  //                level gets its gravity on its own time step
+  //                (docs/stage_g.md section 6): its particles and gas are
+  //                kicked, drifted and solved for inside its hydro substeps
+  //                (kick-drift-kick, the boundary values from the parent's
+  //                potential interpolated in time), level 0 keeps its one
+  //                kick per base step. 0 (default): every level is kicked
+  //                once per base step. Needs pm_refine = 1.
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
@@ -416,8 +427,10 @@ struct Config {
   int pm_level_solve = 0;
   int pm_mlmg_iters = 20;
   double pm_mlmg_tol = 1e-10;
-  int pm_mlmg_bottom_sweeps = 64;
+  int pm_mlmg_bottom_sweeps = 8;
+  double pm_mlmg_bottom_scale = 1.0;
   int pm_mlmg_verbose = 0;
+  int pm_level_subcycle = 0;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in
@@ -561,15 +574,22 @@ struct Config {
   //                    every substep).
   double dt_max_myr = 0;
   int rt_substeps_max = 0;
-  // params.txt photon_consume_dense (set_plane_param; docs/port_notes.md
-  // "rho_source"): 0 (default) = the original: a cell denser than
-  // rho_source = 50 times the mean removes only the fraction
-  // exp(-(delta - 50)/50) of the photons its photoionisations used from the
-  // radiation, so dense gas is ionised without consuming photons (no
-  // self-shielding of dense cells); 1 = every photoionisation consumes its
-  // photon. Not tied to legacy_physics (a new flag; the plane-parallel
-  // problems and tools/production/make_production.py --plane-parallel use 1).
+  // P11 (docs/port_notes.md 5b; photo_cell's rho_source factor): false =
+  // the original: a cell denser than rho_source = 50 times the mean removes
+  // only the fraction exp(-(delta - 50)/50) of the photons its
+  // photoionisations used from the radiation, so dense gas is ionised
+  // without consuming photons (no self-shielding of dense cells); true =
+  // every photoionisation consumes its photon. Part of legacy_physics = 0
+  // since 2026-10-28 (user decision); not mirrored in the Fortran harnesses
+  // (a new flag), so the Fortran comparisons of legacy_physics = 0 set
+  // photon_consume_dense = 0. Rays (serial, sweep, AMReX) and the moment RT.
   bool photon_consume_dense = false;
+  // The params.txt key photon_consume_dense: -1 (default) follows
+  // legacy_physics (P11 is part of legacy_physics = 0 since 2026-10-28),
+  // 0 | 1 override in either mode.
+  static bool photon_consume_dense_effective(int key, bool legacy_physics) {
+    return key < 0 ? !legacy_physics : key == 1;
+  }
   // params.txt land_outputs (set_plane_param): 1 = the hydro step before a
   // zdata1 output ends exactly on it (apps/radhydro sets land_a to the next
   // output's scale factor before every step; timestep_core clips da to it),
@@ -577,6 +597,24 @@ struct Config {
   // time. 0 (default) = the original: the first step past the redshift.
   bool land_outputs = false;
   double land_a = 0;  // the next landing scale factor (0 = none); set per step by the driver
+  // params.txt plane_turnon_cfl, plane_turnon_temp (set_plane_param;
+  // docs/plane_parallel.md "Turn-on and the step caps"; user request
+  // 2026-10-28). Plane-parallel mode only (plane_parallel = 1 with
+  // plane_z_re >= 0; nothing changes otherwise). The hydro step runs before
+  // the RT of the same interval, so the RT heating reaches the hydro only
+  // at the next step, and the step starting at the turn-on is sized by the
+  // cold gas's signal speed. plane_turnon_cfl = 1 (default): the step that
+  // starts at plane_z_re (the first with the RT on) is at most the CFL step
+  // 2 dt_gas_factor / (cmax_gas + c_hot), c_hot the sound speed of fully
+  // ionised gas at plane_turnon_temp (K, default 2e4), times
+  // plane_turnon_courant (default 0.05, user decision 2026-10-28: the T4
+  // test at 64^3 needs a turn-on step of ~1 Myr to remove the lag, which 1,
+  // the CFL step with c_hot alone, does not: docs/plane_parallel.md);
+  // plane_turnon_cfl = 0 = the uncapped step (the behaviour before
+  // 2026-10-28).
+  int plane_turnon_cfl = 1;
+  double plane_turnon_temp = 2e4;
+  double plane_turnon_courant = 0.05;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

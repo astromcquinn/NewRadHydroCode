@@ -1576,6 +1576,49 @@ be designed); `recomb_rad` on the backend (block emission and
   of 4e-6 of the force at one cell near a boundary (`docs/stage_g.md`
   §1.1, §3), to be revisited only if the zoom runs show the region's
   boundary doing something unphysical.
+* **Decisions (user, 2026-10-29), from the zoom cost discussion:**
+  - **About 10 rays per fine cell** in the zoom levels: the per-level ray
+    budget stays at `nray_max_factor` × the level's cells (production 15;
+    the 512³ run held ~11 per base cell). The Z3 RT estimate is therefore
+    its upper case, ~2.5 × 10⁵ core-hours (`docs/zoom_turbulence.md` §4.4,
+    §7); the beams at the zoom boundary remain the fallback if the
+    measured cost at Z1/Z2 demands it.
+  - **The fine levels need gravity on a finer timescale than the base
+    step.** Today (Stage G) every level is kicked once per base step;
+    sub-cycling the PM per level (a level solve and kick at each level's
+    own step, Enzo/RAMSES style) is a new work item for WP3 before Z2.
+    Cost: up to about the hydro's again at the finest level (~3 × 10⁴
+    core-hours at Z3 if solved at every finest-level step).
+* **Follow-up built (2026-10-31, branch `stage-g-subcycle`):**
+  `pm_level_subcycle` (`docs/stage_g.md` §6). Implementer's choices for
+  review (§6.7): kick–drift–kick per refined substep (Strang with the
+  hydro, one solve per substep); level 0 solved by FFT after each of its
+  hydro substeps for level 1's boundary values (4 FFTs per base step; its
+  kick still once); the parent's closing solve with its children's mass
+  predicted by a virtual drift, no corrector; level-0 particles enter the
+  hierarchy only at the hydro calls' starts; orphans up to 2 cells.
+* **Decisions (user, 2026-11-02), on `pm_level_subcycle`'s open choices
+  (`docs/stage_g.md` §6.7):**
+  - **Level 0's 4 FFTs per base step are accepted:** level 0 is solved
+    after each of its hydro substeps (and at each hydro call's start) for
+    level 1's time-interpolated boundary values; its kick stays once per
+    base step. (The alternative, level 0's potential held constant over
+    each half step, is not built.)
+  - **No corrector solve for now; revisit at Z1.** A level's closing solve
+    keeps using its children's predicted mass. The diagnostic
+    `RADRAY_PM_CORRECTOR_CHECK=1` computes the corrector, reports its
+    difference from the prediction near each level boundary and discards
+    it (results unchanged), so Z1 can decide whether it is needed.
+* **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
+  levels for now.** Each zoom level is the bounding box of its tagged
+  region (the cells holding particles of a finer mass class) plus the
+  nesting buffer: one rectangle per level that follows the region's bulk
+  flow, so the level solve's multigrid always coarsens to a few cells.
+  The cost is the cells between the Lagrangian region and its box
+  (estimated 1.5–3× per level, not measured). Irregular levels (tight
+  Lagrangian levels, or `pm_level_solve` in density-tagged runs) would
+  need the gravity mesh padded to the bounding box (`docs/stage_g.md`
+  §5.1); not built until needed.
 
 ## Zoom-in turbulence programme (2026-10-22)
 
@@ -1747,8 +1790,11 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
   (user decision, 2026-10-29):** the original lets cells denser than 50×
   the mean ionise without consuming photons (`rho_source` in
   `docs/port_notes.md`); the plane-parallel problems and
-  `make_production.py --plane-parallel` set 1 so dense gas self-shields;
-  the code default stays 0, the original.
+  `make_production.py --plane-parallel` set 1 so dense gas self-shields.
+  **With P11 (user decision 2026-10-28, below)** `photon_consume_dense`
+  follows `legacy_physics`, so `legacy_physics = 0` turns it on and
+  `make_production.py` no longer writes the explicit line; with
+  `legacy_physics = 1` the default stays the original.
 * **The default floor of the plane-parallel problems (user decision,
   2026-10-29):** no preheating floor by default (`T_min = 0`), and the
   original's 1 K floor lowered to 0.1 K in the plane-parallel problems
@@ -1777,6 +1823,54 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **The step caps (the T4 test of `docs/zoom_turbulence.md` §4.4):**
   `dt_max_myr` and `rt_substeps_max`, default off; in plane mode they act
   from the turn-on, otherwise always.
+* **The turn-on step (user request, 2026-10-28: "could we just make sure
+  the first step after turn on of RT is small in plane parallel
+  cases?"):** `plane_turnon_cfl` (default 1 in plane mode, 0 = the step
+  before 2026-10-28) and `plane_turnon_temp` (default 2e4 K). The hydro
+  step runs before the RT of the same interval, so the step that starts
+  at z_re is sized by the cold gas (25 Myr at 64³ in the T4 problem) and
+  the photoheated gas waits that long for its first hydro response. That
+  one step is now at most the CFL step 2 dt_gas_factor / (cmax_gas +
+  c_hot), c_hot the sound speed of fully ionised gas at 2e4 K; the steps
+  after it are unchanged (their cmax_gas already holds the hot gas).
+  Implementation choices (this thread; `docs/plane_parallel.md`, "Turn-on
+  and the step caps"): μ of H II + He III (2X + 3Y/4 particles per m_H,
+  the code's own X, Y, γ, k, m_H); the cap applied after the other caps
+  so that it changes nothing when it does not bind; a function of a only
+  (a = a_re to 1e-9), so a restart at z_re repeats it bit for bit.
+  `make_production.py --plane-parallel` needs nothing (the default is on).
+  Added in this thread: `plane_turnon_courant` (default 1), because the
+  T4 runs at 64³ show the requested CFL step with c_hot (20 Myr) does not
+  remove the lag while a ~1 Myr turn-on step (0.05) does.
+* **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
+  default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
+  64³, one extra hydro step).
+
+## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
+
+* **User decision:** dense gas must consume photons by default in
+  production. Following the ground rules (the original stays the
+  default; corrections go behind `legacy_physics`), the key
+  `photon_consume_dense` now works like `photon_conserve` (B17): −1 (the
+  default) follows `legacy_physics`, so it is on with `legacy_physics = 0`
+  and off (the original `rho_source` factor of `photo_cell`) with
+  `legacy_physics = 1`; an explicit 0 or 1 overrides in either mode. ID
+  **P11** (`docs/port_notes.md` §5b).
+* **Scope:** only the photon-consumption factor of `photo_cell`. The other
+  two uses of `rho_source` stay as they are in both modes: the SN heating
+  above 50× the mean (a subgrid feedback term, not photon bookkeeping)
+  and the `rho_source`-weighted clumping factor of the gas summary (an
+  output diagnostic compared with the Fortran full harness).
+* **No Fortran mirror** (user decision 2026-10-08: new flags need none),
+  so every comparison of a `legacy_physics = 0` run with the Fortran
+  harnesses or their stored outputs sets `photon_consume_dense = 0`.
+* **Production:** `make_production.py` (`legacy_physics = 0`) gets it
+  without a line; `--photon-consume-dense 0` restores the original. It
+  lowers the effective escape fraction, so the f_esc(z) calibration
+  (`docs/production_run.md` §8, already pending for the ĉ schedule) must
+  be redone with it. A run already in progress keeps the old behaviour
+  only if `photon_consume_dense = 0` is added to its `params.txt` before
+  it is restarted with a binary that has P11.
 
 ## The unsplit hydro's over-cooled cells, U7 (2026-10-27)
 

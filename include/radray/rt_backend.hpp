@@ -87,6 +87,19 @@ void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in);
 void amrex_rt_gather_rays_chunks(const Simulation& s,
                                  const std::function<void(const std::vector<rrk::RayP>&)>& sink);
 void amrex_rt_scatter_rays(Simulation& s, const std::vector<rrk::RayP>& in, bool first);
+// A restart with refined levels (amrex_max_level > 0): after the gas
+// state's levels are read (amrex_hydro_read_levels), the RT's levels built
+// to match, the checkpoint's rays, scattered onto the base level, moved
+// down to them as they were, and the levels' fgam of the last substep read
+// from the checkpoint's level directory dir (amrex_rt_write_levels; 0 if
+// absent). keep_dr: the checkpoint kept the refined levels' dr (version >=
+// 9); else dr is recomputed from r on the way down, as before. Collective;
+// nothing on a single level.
+void amrex_rt_restore_levels(Simulation& s, bool keep_dr, const std::string& dir);
+// The checkpoint's RT part of the level directory dir (after
+// amrex_hydro_write_levels): every level's fgam of the last substep.
+// Collective; nothing on a single level.
+void amrex_rt_write_levels(Simulation& s, const std::string& dir);
 // One line of the backend's phase timers
 std::string amrex_rt_timers(const Simulation& s);
 // rt_method = m1 | otvet on the level (checkpoint.cpp): the checkpoint's

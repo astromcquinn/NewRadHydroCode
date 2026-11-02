@@ -42,7 +42,8 @@ At the start of a session, read:
    - `legacy_rt = 1` and `legacy_physics = 1` (the defaults) give the
      original behaviour.
    - `= 0` turns on the RT bookkeeping fixes B1–B4, B8, B9 and the physics
-     fixes P1–P10 plus B17 (`photon_conserve`, under `legacy_physics`;
+     fixes P1–P11 plus B17 (`photon_conserve`; P11 is
+     `photon_consume_dense`; both under `legacy_physics`;
      `docs/port_notes.md` §5a/§5b).
    - Every new correction to original behaviour goes behind a flag. Use
      `legacy_physics` for physics and `legacy_rt` for RT bookkeeping, unless

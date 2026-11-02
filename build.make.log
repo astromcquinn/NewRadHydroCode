@@ -1,0 +1,302 @@
+[  0%] Building CXX object CMakeFiles/radray.dir/src/cosmo_params.cpp.o
+[  1%] Building CXX object CMakeFiles/radray.dir/src/rt_rates.cpp.o
+[  1%] Building CXX object CMakeFiles/radray.dir/src/healpix.cpp.o
+[  1%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/amrex_state.cpp.o
+[  1%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/abundance_matching.cpp.o
+[  2%] Building CXX object CMakeFiles/radray.dir/src/plane_sweep.cpp.o
+[  3%] Generating halo_catalog_ref
+[  4%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/apps/radhydro.cpp.o
+[  4%] Building CXX object CMakeFiles/radray.dir/src/ray_tracing.cpp.o
+[  4%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/apps/hydro_driver.cpp.o
+[  5%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/abundance_matching.cpp.o
+[  5%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/amrex_state.cpp.o
+[  5%] Building CXX object CMakeFiles/radray.dir/src/rt_tools.cpp.o
+[  6%] Building CXX object CMakeFiles/radray.dir/src/cosmology.cpp.o
+[  6%] Building CXX object CMakeFiles/radray.dir/src/plane_parallel.cpp.o
+[  7%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/apps/rt_driver.cpp.o
+[  7%] Built target halo_catalog_ref_build
+[  8%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/checkpoint.cpp.o
+[  9%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/checkpoint.cpp.o
+[  9%] Building CXX object CMakeFiles/radray.dir/src/ray_dump.cpp.o
+[  9%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/cosmo_params.cpp.o
+[ 10%] Building CXX object CMakeFiles/radray.dir/src/ray_quant.cpp.o
+[ 10%] Building CXX object CMakeFiles/radray.dir/src/rt_moments.cpp.o
+[ 11%] Building CXX object CMakeFiles/radray.dir/src/rt_tensor_diag.cpp.o
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp: In function ‘void radray::write_checkpoint(const std::string&, const Simulation&, const HydroState&, const pm::PMState&, const DriverState&)’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:186:16: warning: ‘void* memset(void*, int, size_t)’ clearing an object of non-trivial type ‘struct radray::DriverState’; use assignment or value-initialization instead [-Wclass-memaccess]
+  186 |     std::memset(&dz, 0, sizeof dz);
+      |     ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+In file included from /gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:2:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/include/radray/checkpoint.hpp:22:8: note: ‘struct radray::DriverState’ declared here
+   22 | struct DriverState {
+      |        ^~~~~~~~~~~
+[ 11%] Building CXX object CMakeFiles/radray.dir/src/rt_moments_fft.cpp.o
+[ 11%] Building CXX object CMakeFiles/radray.dir/src/otvet_closure.cpp.o
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp: In function ‘void radray::write_checkpoint(const std::string&, const Simulation&, const HydroState&, const pm::PMState&, const DriverState&)’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:186:16: warning: ‘void* memset(void*, int, size_t)’ clearing an object of non-trivial type ‘struct radray::DriverState’; use assignment or value-initialization instead [-Wclass-memaccess]
+  186 |     std::memset(&dz, 0, sizeof dz);
+      |     ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+In file included from /gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:2:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/include/radray/checkpoint.hpp:22:8: note: ‘struct radray::DriverState’ declared here
+   22 | struct DriverState {
+      |        ^~~~~~~~~~~
+[ 12%] Building CXX object CMakeFiles/radray.dir/src/recomb_rad.cpp.o
+[ 13%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/cosmology.cpp.o
+[ 13%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/cosmo_params.cpp.o
+[ 13%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/abundance_matching.cpp.o
+[ 13%] Building CXX object CMakeFiles/radray.dir/src/rt_backend.cpp.o
+[ 14%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/cosmology.cpp.o
+[ 14%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/domain_gas.cpp.o
+[ 15%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/fft.cpp.o
+[ 15%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/domain_gas.cpp.o
+[ 16%] Building CXX object CMakeFiles/radray.dir/src/pm_backend.cpp.o
+[ 16%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/halo_capi.cpp.o
+[ 16%] Building CXX object CMakeFiles/radray.dir/src/hydro_backend.cpp.o
+[ 17%] Building CXX object CMakeFiles/radray.dir/src/amrex_state.cpp.o
+[ 18%] Building CXX object CMakeFiles/radray.dir/src/thermal_history.cpp.o
+[ 18%] Building CXX object CMakeFiles/radray.dir/src/io.cpp.o
+[ 19%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/fft.cpp.o
+[ 20%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/halo_sources.cpp.o
+[ 20%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/halos.cpp.o
+[ 20%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/halo_capi.cpp.o
+[ 20%] Building CXX object CMakeFiles/radray.dir/src/amrex/rt_level_stub.cpp.o
+[ 21%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/halo_sources.cpp.o
+[ 21%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/halos.cpp.o
+[ 22%] Building CXX object CMakeFiles/radray.dir/src/amrex/pm_level_stub.cpp.o
+[ 22%] Building CXX object CMakeFiles/radray.dir/src/amrex/hydro_level_stub.cpp.o
+[ 23%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/healpix.cpp.o
+[ 23%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/hydro.cpp.o
+[ 24%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/hydro_backend.cpp.o
+[ 24%] Building CXX object CMakeFiles/radray.dir/src/amrex/gas_state_stub.cpp.o
+[ 24%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/hydro_unsplit.cpp.o
+[ 25%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/healpix.cpp.o
+[ 25%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/hydro.cpp.o
+[ 25%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/io.cpp.o
+[ 26%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/mass_function.cpp.o
+[ 27%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/amrex_state.cpp.o
+[ 27%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/checkpoint.cpp.o
+[ 28%] Linking CXX static library libradray.a
+[ 29%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/hydro_backend.cpp.o
+[ 29%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/otvet_closure.cpp.o
+[ 30%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/plane_parallel.cpp.o
+[ 30%] Built target radray
+[ 30%] Building CXX object CMakeFiles/radray_halos.dir/src/halos.cpp.o
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp: In function ‘void radray::write_checkpoint(const std::string&, const Simulation&, const HydroState&, const pm::PMState&, const DriverState&)’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:186:16: warning: ‘void* memset(void*, int, size_t)’ clearing an object of non-trivial type ‘struct radray::DriverState’; use assignment or value-initialization instead [-Wclass-memaccess]
+  186 |     std::memset(&dz, 0, sizeof dz);
+      |     ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+In file included from /gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:2:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/include/radray/checkpoint.hpp:22:8: note: ‘struct radray::DriverState’ declared here
+   22 | struct DriverState {
+      |        ^~~~~~~~~~~
+[ 31%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/cosmo_params.cpp.o
+[ 31%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/cosmology.cpp.o
+[ 31%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/plane_sweep.cpp.o
+[ 32%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/pm.cpp.o
+[ 32%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/hydro_unsplit.cpp.o
+[ 33%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/domain_gas.cpp.o
+[ 33%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/pm_backend.cpp.o
+[ 34%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/ray_dump.cpp.o
+[ 34%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/ray_quant.cpp.o
+[ 35%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/ray_tracing.cpp.o
+[ 36%] Building CXX object CMakeFiles/radray_halos.dir/src/halo_sources.cpp.o
+[ 36%] Building CXX object CMakeFiles/radray_halos.dir/src/halo_capi.cpp.o
+[ 36%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/recomb_rad.cpp.o
+[ 36%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/rt_backend.cpp.o
+[ 37%] Building CXX object CMakeFiles/radray_halos.dir/src/mass_function.cpp.o
+[ 38%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/rt_moments.cpp.o
+[ 38%] Building CXX object CMakeFiles/radray_halos.dir/src/abundance_matching.cpp.o
+[ 38%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/rt_moments_fft.cpp.o
+[ 39%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/rt_rates.cpp.o
+[ 40%] Building CXX object CMakeFiles/radray_halos.dir/src/xray_background.cpp.o
+[ 40%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/rt_tensor_diag.cpp.o
+[ 41%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/rt_tools.cpp.o
+[ 41%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/thermal_history.cpp.o
+[ 42%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/xray_background.cpp.o
+[ 42%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/amrex/rt_level_stub.cpp.o
+[ 43%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/amrex/pm_level_stub.cpp.o
+[ 43%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/amrex/hydro_level_stub.cpp.o
+[ 43%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/io.cpp.o
+[ 43%] Linking CXX static library libradray_halos.a
+[ 44%] Building CXX object tests/CMakeFiles/rt_driver_asan.dir/__/src/amrex/gas_state_stub.cpp.o
+[ 44%] Built target radray_halos
+[ 44%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/fft.cpp.o
+[ 45%] Building CXX object CMakeFiles/rt_driver.dir/apps/rt_driver.cpp.o
+[ 46%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/halo_capi.cpp.o
+[ 46%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/halo_sources.cpp.o
+[ 47%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/halos.cpp.o
+[ 47%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/healpix.cpp.o
+[ 48%] Building CXX object CMakeFiles/otvet_tensor.dir/apps/otvet_tensor.cpp.o
+[ 49%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/hydro.cpp.o
+[ 50%] Building CXX object CMakeFiles/ray_codec.dir/tools/ray_compression/ray_codec.cpp.o
+[ 50%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/hydro_backend.cpp.o
+[ 50%] Building CXX object CMakeFiles/radray_fft.dir/src/fft.cpp.o
+[ 50%] Building CXX object CMakeFiles/am_fit.dir/apps/am_fit.cpp.o
+[ 51%] Linking CXX static library libradray_fft.a
+[ 51%] Building CXX object CMakeFiles/hmf_table.dir/apps/hmf_table.cpp.o
+[ 51%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/hydro_unsplit.cpp.o
+[ 51%] Building CXX object CMakeFiles/xray_bkg.dir/apps/xray_bkg.cpp.o
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp: In instantiation of ‘void {anonymous}::code_ray(IO&, Models&, QRay&, const radray::RayDumpRecord&, long long int, int, BlockState&, const Geometry&, int) [with IO = CountIO]’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp:954:15:   required from here
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp:667:64: warning: unused parameter ‘ctx_rec’ [-Wunused-parameter]
+  667 | void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long long cell,
+      |                                           ~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp: In instantiation of ‘void {anonymous}::code_ray(IO&, Models&, QRay&, const radray::RayDumpRecord&, long long int, int, BlockState&, const Geometry&, int) [with IO = EncIO]’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp:1011:15:   required from here
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp:667:64: warning: unused parameter ‘ctx_rec’ [-Wunused-parameter]
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp: In instantiation of ‘void {anonymous}::code_ray(IO&, Models&, QRay&, const radray::RayDumpRecord&, long long int, int, BlockState&, const Geometry&, int) [with IO = DecIO]’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp:1049:17:   required from here
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tools/ray_compression/ray_codec.cpp:667:64: warning: unused parameter ‘ctx_rec’ [-Wunused-parameter]
+[ 51%] Linking CXX executable otvet_tensor
+[ 51%] Linking CXX executable rt_driver
+[ 51%] Built target radray_fft
+[ 52%] Building CXX object tests/CMakeFiles/test_fortran_semantics.dir/test_fortran_semantics.cpp.o
+[ 52%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/mass_function.cpp.o
+[ 52%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/otvet_closure.cpp.o
+[ 53%] Building CXX object tests/CMakeFiles/test_healpix.dir/test_healpix.cpp.o
+[ 54%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/io.cpp.o
+[ 54%] Built target rt_driver
+[ 54%] Built target otvet_tensor
+[ 55%] Linking CXX executable hmf_table
+[ 56%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/plane_parallel.cpp.o
+[ 56%] Building CXX object tests/CMakeFiles/test_rays.dir/test_rays.cpp.o
+[ 56%] Building CXX object tests/CMakeFiles/healpix_tool.dir/healpix_tool.cpp.o
+[ 57%] Linking CXX executable xray_bkg
+[ 57%] Built target hmf_table
+[ 57%] Linking CXX executable test_healpix
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/tests/test_rays.cpp:430:5: warning: floating constant exceeds range of ‘float’ [-Woverflow]
+  430 |     t.rt.Luv[c] = 1e50f;
+      |     ^
+[ 57%] Building CXX object tests/CMakeFiles/test_ray_encoding.dir/test_ray_encoding.cpp.o
+[ 57%] Built target test_healpix
+[ 58%] Building CXX object tests/CMakeFiles/test_moments.dir/test_moments.cpp.o
+[ 58%] Built target xray_bkg
+[ 58%] Building CXX object tests/CMakeFiles/test_redshift_distance.dir/test_redshift_distance.cpp.o
+[ 59%] Linking CXX executable test_fortran_semantics
+[ 59%] Built target test_fortran_semantics
+[ 59%] Building CXX object tests/CMakeFiles/test_halos.dir/test_halos.cpp.o
+[ 59%] Linking CXX executable am_fit
+[ 60%] Linking CXX executable healpix_tool
+[ 60%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/mass_function.cpp.o
+[ 60%] Built target am_fit
+[ 60%] Building CXX object tests/CMakeFiles/test_abundance_matching.dir/test_abundance_matching.cpp.o
+[ 60%] Built target healpix_tool
+[ 60%] Building CXX object tests/CMakeFiles/test_xray.dir/test_xray.cpp.o
+[ 61%] Linking CXX executable test_rays
+[ 62%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/otvet_closure.cpp.o
+[ 63%] Linking CXX executable test_ray_encoding
+[ 63%] Built target test_rays
+[ 63%] Building CXX object tests/CMakeFiles/test_thermal.dir/test_thermal.cpp.o
+[ 63%] Built target test_ray_encoding
+[ 63%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/plane_parallel.cpp.o
+[ 64%] Building CXX object tests/CMakeFiles/test_halo_catalog.dir/test_halo_catalog.cpp.o
+[ 64%] Linking CXX executable test_redshift_distance
+[ 64%] Linking CXX executable ray_codec
+[ 64%] Linking CXX executable test_halos
+[ 64%] Built target test_redshift_distance
+[ 64%] Built target ray_codec
+[ 65%] Building CXX object tests/CMakeFiles/test_rates.dir/test_rates.cpp.o
+[ 66%] Building CXX object tests/CMakeFiles/test_otvet_fft_threads.dir/test_otvet_fft_threads.cpp.o
+[ 67%] Building CXX object tests/CMakeFiles/test_fft_threads.dir/test_fft_threads.cpp.o
+[ 67%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/plane_sweep.cpp.o
+[ 68%] Linking CXX executable test_thermal
+[ 68%] Linking CXX executable test_moments
+[ 69%] Linking CXX executable test_abundance_matching
+[ 69%] Built target test_halos
+[ 70%] Linking CXX executable test_xray
+[ 70%] Built target test_thermal
+[ 70%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/pm.cpp.o
+[ 70%] Built target test_moments
+[ 71%] Building CXX object CMakeFiles/find_halos.dir/apps/find_halos.cpp.o
+[ 71%] Built target test_abundance_matching
+[ 71%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/plane_sweep.cpp.o
+[ 72%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/pm_backend.cpp.o
+[ 73%] Building CXX object CMakeFiles/radray_hydro.dir/src/hydro.cpp.o
+[ 73%] Built target test_xray
+[ 73%] Building CXX object CMakeFiles/radray_hydro.dir/src/hydro_unsplit.cpp.o
+[ 73%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/ray_dump.cpp.o
+[ 74%] Linking CXX executable rt_driver_asan
+[ 74%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/ray_quant.cpp.o
+[ 75%] Linking CXX executable test_fft_threads
+[ 75%] Built target test_fft_threads
+[ 75%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/ray_tracing.cpp.o
+[ 75%] Linking CXX executable test_rates
+[ 76%] Linking CXX executable test_halo_catalog
+[ 76%] Linking CXX executable test_otvet_fft_threads
+[ 76%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/recomb_rad.cpp.o
+[ 76%] Built target rt_driver_asan
+[ 77%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/rt_backend.cpp.o
+[ 77%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/rt_moments.cpp.o
+[ 77%] Built target test_rates
+[ 78%] Built target test_halo_catalog
+[ 78%] Built target test_otvet_fft_threads
+[ 78%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/pm.cpp.o
+[ 78%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/pm_backend.cpp.o
+[ 79%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/rt_moments_fft.cpp.o
+[ 79%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/rt_rates.cpp.o
+[ 80%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/rt_tensor_diag.cpp.o
+[ 81%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/ray_dump.cpp.o
+[ 81%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/rt_tools.cpp.o
+[ 82%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/thermal_history.cpp.o
+[ 82%] Linking CXX executable find_halos
+[ 82%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/ray_quant.cpp.o
+[ 82%] Built target find_halos
+[ 83%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/ray_tracing.cpp.o
+[ 83%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/xray_background.cpp.o
+[ 83%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/recomb_rad.cpp.o
+[ 84%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/amrex/rt_level_stub.cpp.o
+[ 84%] Building CXX object CMakeFiles/radray_hydro.dir/src/domain_gas.cpp.o
+[ 84%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/amrex/pm_level_stub.cpp.o
+[ 85%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/rt_backend.cpp.o
+[ 85%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/amrex/hydro_level_stub.cpp.o
+[ 85%] Building CXX object tests/CMakeFiles/hydro_driver_asan.dir/__/src/amrex/gas_state_stub.cpp.o
+[ 86%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/rt_moments.cpp.o
+[ 86%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/rt_moments_fft.cpp.o
+[ 87%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/rt_rates.cpp.o
+[ 88%] Linking CXX static library libradray_hydro.a
+[ 88%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/rt_tensor_diag.cpp.o
+[ 88%] Built target radray_hydro
+[ 88%] Building CXX object CMakeFiles/hydro_driver.dir/apps/hydro_driver.cpp.o
+[ 89%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/rt_tools.cpp.o
+[ 89%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/thermal_history.cpp.o
+[ 90%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/xray_background.cpp.o
+[ 90%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/amrex/rt_level_stub.cpp.o
+[ 91%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/amrex/hydro_level_stub.cpp.o
+[ 91%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/amrex/pm_level_stub.cpp.o
+[ 91%] Building CXX object CMakeFiles/radray_pm.dir/src/pm.cpp.o
+[ 92%] Building CXX object tests/CMakeFiles/radhydro_asan.dir/__/src/amrex/gas_state_stub.cpp.o
+[ 93%] Building CXX object CMakeFiles/radray_pm.dir/src/checkpoint.cpp.o
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp: In function ‘void radray::write_checkpoint(const std::string&, const Simulation&, const HydroState&, const pm::PMState&, const DriverState&)’:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:186:16: warning: ‘void* memset(void*, int, size_t)’ clearing an object of non-trivial type ‘struct radray::DriverState’; use assignment or value-initialization instead [-Wclass-memaccess]
+  186 |     std::memset(&dz, 0, sizeof dz);
+      |     ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+In file included from /gscratch/astro/mcquinn/radhydro/worktrees/music-growth/src/checkpoint.cpp:2:
+/gscratch/astro/mcquinn/radhydro/worktrees/music-growth/include/radray/checkpoint.hpp:22:8: note: ‘struct radray::DriverState’ declared here
+   22 | struct DriverState {
+      |        ^~~~~~~~~~~
+[ 94%] Linking CXX executable hydro_driver
+[ 94%] Built target hydro_driver
+[ 94%] Linking CXX static library libradray_pm.a
+[ 94%] Built target radray_pm
+[ 95%] Building CXX object CMakeFiles/pm_driver.dir/apps/pm_driver.cpp.o
+[ 96%] Building CXX object CMakeFiles/radhydro.dir/apps/radhydro.cpp.o
+[ 96%] Building CXX object tests/CMakeFiles/test_cosmology_runtime.dir/test_cosmology_runtime.cpp.o
+[ 97%] Building CXX object tests/CMakeFiles/test_pm_refine.dir/test_pm_refine.cpp.o
+[ 98%] Building CXX object tests/hydro_suite/CMakeFiles/hydro_suite_driver.dir/suite_driver.cpp.o
+[ 99%] Building CXX object tests/CMakeFiles/test_pm.dir/test_pm.cpp.o
+[ 99%] Linking CXX executable test_pm
+[ 99%] Built target test_pm
+[100%] Linking CXX executable test_cosmology_runtime
+[100%] Linking CXX executable hydro_driver_asan
+[100%] Linking CXX executable test_pm_refine
+[100%] Linking CXX executable pm_driver
+[100%] Linking CXX executable hydro_suite_driver
+[100%] Built target test_cosmology_runtime
+[100%] Built target test_pm_refine
+[100%] Built target hydro_suite_driver
+[100%] Built target pm_driver
+[100%] Built target hydro_driver_asan
+[100%] Linking CXX executable radhydro_asan
+[100%] Built target radhydro_asan
+[100%] Linking CXX executable radhydro
+[100%] Built target radhydro

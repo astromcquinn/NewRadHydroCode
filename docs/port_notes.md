@@ -561,6 +561,7 @@ and 54.42 eV), as the existing fits do. These differ from HG97's 157807,
 | P8 | bremsstrahlung `coef_cool(13)` used a constant Gaunt factor 1.3 | `1.42e-27 T^0.5 g_ff`, `g_ff = 1.1 + 0.34 exp(−(5.5 − log10 T)²/3)` | Katz, Weinberg & Hernquist (1996, ApJS 105, 19), Table 1 (from Spitzer 1978; also Cen 1992) |
 | P9 | rates looked up at the nearest table node (`iT = 1 + nint(...)`, up to ±0.005 dex in T) | every tabulated rate and cooling coefficient interpolated linearly in ln R vs log T between the two enclosing nodes; edge node outside the table | numerical; see below |
 | B17 | `photo_cell`'s photon limit stops with `ne`, so photon-starved front cells ionise without the photons (§5, B17) | the limit iterated to convergence (`photon_conserve`, since 2026-10-14; the key overrides in either mode) | bookkeeping; `docs/rt_multicell.md` §2.1 |
+| P11 | `photo_cell` removes only exp(−(δ − 50)/50) of the photons its photoionisations use from a cell denser than `rho_source` = 50× the mean, so dense gas ionises without consuming photons and does not self-shield | every photoionisation consumes its photon (`photon_consume_dense`, since 2026-10-28; the key overrides in either mode; no Fortran mirror) | modelling; P11 below |
 
 Reasoning for the less obvious choices:
 
@@ -689,7 +690,9 @@ It is checked by both `compare.py --rtol 0 --atol-frac 0` and
 `tests/compare_reference.py`. It holds for the -O2 builds, for the
 `-fcheck=all` harness, which runs clean, and for the ASan/UBSan C++ build,
 which is also clean. With `legacy_physics = 1`, the harness outputs equal
-`reference/harness/outputs` and `outputs_legacy_rt0` exactly.
+`reference/harness/outputs` and `outputs_legacy_rt0` exactly. Since
+2026-10-28 the `legacy_physics = 0` comparisons set
+`photon_consume_dense = 0` (P11, not mirrored in the harnesses).
 
 ### Physics impact
 
@@ -791,6 +794,51 @@ by 0.1 K, and per-cell T by at most 1.8×10⁻⁴. The gas there stays near
 ionised gas at 3–10×10⁴ K where HeI survives, i.e. shocks, once hydro is
 coupled.
 
+### P11: dense gas consumes its photons (`photon_consume_dense`)
+
+In `photo_cell` the photons a cell's photoionisations use are removed from
+the radiation with the factor x = min(exp(−(δ − 50)/50), 1), δ = ρ/ρ̄
+(`rho_source` = 50). Below 50× the mean x = 1; above it the cell ionises
+with only the fraction x of the photons taken out (x = 0.37 at δ = 100,
+0.02 at δ = 250). Dense gas, which includes every source cell, therefore
+neither consumes nor shields the radiation: a subgrid escape-fraction
+choice of the original rather than an error, kept as the default.
+
+**Key `photon_consume_dense`** (params.txt / `--set`, `radhydro`,
+`rt_driver`; the serial rays, the plane-parallel rays and sweep, the
+moment RT and the AMReX backends, which all share `rrk::photo_gas_cell`):
+1 sets x = 1, so every photoionisation consumes its photon; 0 is the
+original. It began as a plane-parallel key (2026-10-26). **Since
+2026-10-28 (user decision: dense gas must consume photons by default in
+production) it is part of `legacy_physics = 0`:** the default (−1)
+follows `legacy_physics` like `photon_conserve` (B17), and an explicit 0 or
+1 overrides it in either mode (`Config::photon_consume_dense_effective`).
+With `legacy_physics = 1` nothing changes.
+
+The Fortran harnesses do not mirror it (user decision 2026-10-08: new flags
+need no mirror), so every test that compares a `legacy_physics = 0` run
+with the harnesses or their stored outputs sets `photon_consume_dense = 0`
+(`ref_fixed_*`, `ray_dump_fixed_*`, `ref_c01_*`, `FULL_SET_rt0` of the
+full-loop tests, the spike case `amrex_bitwise_ln16p0_*`).
+
+Only this use of `rho_source` changes. The other two stay in both modes:
+the SN heating above 50× the mean (subgrid feedback, not photon
+bookkeeping; "Other suspected physics issues" below) and the weight
+exp(−(δ − 50)/50) of the fifth clumping factor in the gas summary
+(`summarize_gas`, an output diagnostic compared with the Fortran full
+harness; with P11 on, the all-cell clumping factor is the one that matches
+the photon consumption).
+
+Impact (`rt_driver`, N = 32, `legacy_rt = legacy_physics = 0`, 10 steps,
+P11 on against `photon_consume_dense = 0`): none on the uniform problems
+(δ = 1, x = 1 exactly; bitwise identical). On `lognormal_16src`, whose six
+cells above 50× the mean hold the dense sources, the counted HI
+photoionisations at step 10 fall by 2.1 %, ⟨x_HII⟩_M by 2.0 % and ⟨x_HII⟩_V
+by 1.3 % (0 at step 1, −1.1 % and −0.7 % at step 5); `smallbuf` the same.
+In the reionisation runs the dense cells are the source cells, so P11
+lowers the effective escape fraction: an f_esc(z) calibrated without it
+(`docs/production_run.md` §8) must be redone.
+
 ### The thermal update `eth/(1+log(1-net*dt/eth))` (analysed, not changed)
 
 For `net < 0` the update is eth' = eth/(1 + ln(1 + y)), where
@@ -839,7 +887,7 @@ modelling change to be made together with the full radhydro loop.
 ### Other suspected physics issues (not changed)
 
 These are deliberate modelling or numerical choices and stay as they are
-in both modes:
+in both modes (except the one marked P11):
 
 * Some terms are ad hoc subgrid choices, not rate errors:
   * cooling and SN heating are suppressed above 200 × the mean density
@@ -847,7 +895,9 @@ in both modes:
     200 = the original, 0 = off; Stage F, `docs/stage_f.md` §2: dense gas
     is allowed to cool under AMR, with the star-formation sink as the
     guard);
-  * the photon consumption factor applies above `rho_source`;
+  * the photon consumption factor applies above `rho_source` (with
+    `legacy_physics = 0` since 2026-10-28 it is off: P11,
+    `photon_consume_dense`);
   * SN heating itself.
 * Recombination radiation stays disabled (`if (.false.)`).
 * The rates are looked up at `tmp` from before the ionisation update, and
