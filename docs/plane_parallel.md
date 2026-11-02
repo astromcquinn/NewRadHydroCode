@@ -468,7 +468,7 @@ From z = 6.2 T rises by 1–1.5 % per doubling, not yet converging (probably sho
 heating of the better-resolved small-scale flows). At z = 6.9 T_M falls with N (−14 % from 64³ to 512³),
 probably because more of the mass sits in resolved dense gas that cools fast.
 
-**E(k) ladder** (`docs/figures/plane_c1_c26_ek.png`,
+**E(k) ladder** (`docs/figures/plane_c1_c26_ek.png`; by redshift with k^5/3 E(k): `docs/figures/plane_c1_c26_ek_panels.png`, `tools/analysis/plane_ek_panels.py`;
 `docs/data/plane/c1_c26_ek.{json,txt}`). ⟨v²⟩ [(km/s)²]:
 
 | z | 64 | 128 | 256 | 512 |
