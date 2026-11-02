@@ -74,7 +74,50 @@ written as zeros without being stored.
   stored Fortran references, must stay byte-identical.
 - Rank 0's peak memory measured before and after, at 256³ on klone.
 
-## 5. Status (2026-10-29): steps 1–10 done
+## 5. Step 11 (2026-10-30, branch `pk-on-level`): the power spectrum on the levels
+
+`amrex_pk = level` (`config.hpp`; default `host`, the previous behaviour;
+`make_production.py --backend amrex` writes `level`) computes the `Pk/`
+files of the data1 outputs on the levels (`amrex_pm_power_spectrum`,
+`pm_level.cpp`):
+
+- **Dark matter:** level 0's CIC deposit of the DM particles alone (no
+  stars), exact in fixed point as the gravity's, then δ = ρ/(1 − f_b) − 1
+  on the PM mesh.
+- **Gas:** ρ/f_b − 1 from the gas state on the gas grid.
+- **Transform:** each field goes through a pencil FFT of its own size
+  (`PencilFFT::forward_visit`: the same 1-D FFTW line transforms whatever
+  the layout).
+- **Binning:** `pk_bins_level` uses the per-mode values and binning of
+  `calc_pk_3d`. The bin sums are exact: 128-bit fixed point, with a scale
+  per bin and column taken from a first pass (the bin's count and largest
+  value), so two forward transforms per field. The normalisation
+  `pm::calc_pk_finish` is shared with `calc_pk_3d`.
+- The result is rank- and thread-independent. Rank 0 then allocates only
+  the particle array of the host PM arrays (no density mesh, linked list,
+  head-of-chain arrays or FFT plan): about 70–100 GB less on rank 0 at
+  1024³ with `pm_refine` 2.
+- **Not with refined PM levels:** with `pm_level_solve`, particles live on
+  refined levels, and `amrex_pk = level` refuses to run.
+- **Against the host spectrum:** the 16³ smoke problem, `pm_refine` 1 and
+  2. The DM columns agree within 1.1e-6 relative; the gas columns are
+  identical. Every other file is byte-identical. `Pk/` is byte-identical on
+  1 and on 2–3 ranks (`tests/pk_level_check.py`, tests `amrex_pk_level_*`).
+- Peak memory: 256³ gas, `pm_refine` 2 (a 512³ PM mesh), OTVET cone,
+  4 ranks × 8 threads, 12 steps with two power spectra.
+
+  | Peak RSS | `amrex_pk = host` | `amrex_pk = level` |
+  |---|---|---|
+  | rank 0 | 10.53 GB | 9.13 GB |
+  | ranks 1–3 | 7.46–7.57 GB | 7.66–7.77 GB |
+
+  Rank 0 saves the host density mesh and linked list of the 512³ mesh
+  (1.4 GB; at 1024³ with `pm_refine` 2, the 2048³ mesh, about 80–110 GB).
+  The other ranks gain about 0.2 GB: the pencil FFT's buffers, freed after
+  each spectrum (about 20 B per mesh cell over the ranks, 2.7 GB per rank
+  at a 2048³ mesh on 64 ranks).
+
+## 6. Status (2026-10-29): steps 1–10 done
 
 - Primitives (`amrex_state.hpp`):
   - `amrex_state_stream_rt` (a component range or any list of the

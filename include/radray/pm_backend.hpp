@@ -49,6 +49,13 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
 // potential, as calc_gravity_field leaves it) and s.fmesh (fmesh_valid =
 // true), so the host's force_at and gas_force read the backend's mesh.
 void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor);
+// amrex_pk = level (docs/rank0_streaming.md step 11): calc_power_spectrum on
+// the levels: the dark matter's CIC density on the PM mesh (Nm) and the gas
+// density of the gas state (Ngas), each through the pencil FFT, binned as
+// calc_pk_3d (pk_dm deconvolved, pk_gas not) with exact (fixed-point) sums.
+// Collective; every rank gets the result. Needs amrex_state = 1 and the
+// particles on level 0 only (no pm_level_solve).
+void amrex_pm_power_spectrum(pm::PMState& s, double box, std::vector<double>& pk_dm, std::vector<double>& pk_gas);
 // pm_level_solve tests (docs/stage_g.md): after amrex_pm_fields, the force
 // a particle at each position of xs (DM-grid units, 3 per point) would
 // receive from the finest level covering it, in level-0 mesh units (what
