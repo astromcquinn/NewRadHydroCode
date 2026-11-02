@@ -351,6 +351,7 @@ struct Level : LevelBase {
     TF.define(ba, dm, 10, ng);
     TF.setVal(0.0f);
     A.define(ba, dm, rrk::kNdep, ng);
+    A.setVal(0);  // (each substep's cast zeroes it; defined for RADRAY_RT_LEVEL_DEBUG before the first)
     plane_sweep = cfg.plane_parallel && cfg.plane_transport == 1;
     if (plane_sweep) {
       pfaces = plane_face_list(cfg.plane_faces);
@@ -489,16 +490,44 @@ struct Level : LevelBase {
     pc->Redistribute();
   }
   // Every ray of this level, in the parent's units (a level about to be
-  // rebuilt at a regrid); the tiles are emptied
+  // removed); the tiles are emptied
   void take_all(std::vector<RayP>& out) {
+    std::vector<RayP> own;
+    take_own(own);
+    out.reserve(out.size() + own.size());
+    for (const RayP& r : own) out.push_back(rescaled(r, 0.5));
+  }
+  // Every ray of this level as it is, in this level's units (a level about
+  // to be rebuilt at a regrid); the tiles are emptied
+  void take_own(std::vector<RayP>& out) {
     typename Enc::Ctx ectx = Enc::make_ctx(N, substep_count);
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
       const int np = static_cast<int>(pt.numParticles());
       const PTD p = pt.getParticleTileData();
-      for (int n = 0; n < np; ++n) out.push_back(rescaled(Enc::load(p, n, ectx), 0.5));
+      for (int n = 0; n < np; ++n) out.push_back(Enc::load(p, n, ectx));
       pt.resize(0);
     }
+  }
+  // A rebuilt level (a regrid changed its grids or their mapping) takes over
+  // from the old one what a level carries from one substep to the next: its
+  // fgam (TF components 5-9, which the next substep's exchange_deposits
+  // weighs the deposits beyond the finer level with) where the old grids
+  // had cells (0 elsewhere, a newly refined cell, as before), the split
+  // thresholds of its last substep (amrex_split_on_entry) and the counters.
+  // The cells' radiation fields need nothing: calc_rt_1 resets them. So a
+  // rebuild that only rechops the same region (AmrMesh chops the refined
+  // grids by the rank count; a restart on another rank count) changes
+  // nothing. Collective.
+  void inherit(const Level& old) {
+    TF.ParallelCopy(old.TF, 0, 0, TF.nComp(), 0, 0);  // the valid cells (TF was set to 0)
+    TF.FillBoundary(5, 5, period);
+    last_P = old.last_P;
+    have_last_P = old.have_last_P;
+    nsplit_entry = old.nsplit_entry;
+    nsplit_entry_total = old.nsplit_entry_total;
+    T = old.T;
+    ray_substeps = old.ray_substeps;
   }
 
   // RADRAY_RT_DEBUG: the first cell of the level with a non-finite gas,
@@ -2135,6 +2164,7 @@ struct Level : LevelBase {
 template <class Enc>
 struct Hierarchy : LevelBase {
   using L = Level<Enc>;
+  using PTD = typename L::PTD;
   Config cfg;
   bool with_e = false;
   gs::GasState* state = nullptr;
@@ -2161,14 +2191,32 @@ struct Hierarchy : LevelBase {
       if (have && levels[static_cast<std::size_t>(l)]->ba == F.ba && levels[static_cast<std::size_t>(l)]->dm == F.dm)
         continue;
       std::vector<RayP> parked;
-      if (have) levels[static_cast<std::size_t>(l)]->take_all(parked);
       auto nl = std::make_unique<L>(cfg, with_e, l, F.ba, F.dm);
       nl->in_hierarchy = true;
       nl->substep_count = base().substep_count;
-      if (have)
+      if (have) {
+        // the old level's state carried over, its rays kept as they are
+        // where the new grids hold their cells (a round trip through the
+        // parent recomputed their dr and split them on entry again, so the
+        // result depended on whether AmrMesh rechopped the region, i.e. on
+        // the rank count), parked on the parent elsewhere
+        L& old = *levels[static_cast<std::size_t>(l)];
+        nl->inherit(old);
+        std::vector<RayP> own, stay;
+        old.take_own(own);
+        const int Nl = nl->N;
+        for (const RayP& r : own) {
+          const ax::IntVect iv(rrk::cell_of(r.x[0], Nl), rrk::cell_of(r.x[1], Nl), rrk::cell_of(r.x[2], Nl));
+          if (nl->ba.contains(iv))
+            stay.push_back(r);
+          else
+            parked.push_back(L::rescaled(r, 0.5));
+        }
         levels[static_cast<std::size_t>(l)] = std::move(nl);
-      else
+        levels[static_cast<std::size_t>(l)]->add_rays(stay);  // collective
+      } else {
         levels.push_back(std::move(nl));
+      }
       place_rays(l - 1, parked);  // (empty on most ranks: collective)
     }
     while (static_cast<int>(levels.size()) > nf + 1) {
@@ -2622,19 +2670,114 @@ struct Hierarchy : LevelBase {
       }
     }
   }
+  // RADRAY_RT_LEVEL_DEBUG=N: order- and layout-independent checksums of
+  // every level's cells, optical depths and fgam (TF), deposits (A; valid
+  // cells only) and rays, printed by the I/O rank after each phase of a
+  // substep (the first divergence between two rank counts). Collective.
+  static std::uint64_t mix64(std::uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+  }
+  // (=N: from the global substep N on)
+  const char* level_debug = std::getenv("RADRAY_RT_LEVEL_DEBUG");
+  void debug_sums(const char* where) {
+    if (!level_debug || base().substep_count < std::atoll(level_debug)) return;
+    for (int l = 0; l <= finest; ++l) {
+      L& Ll = *levels[static_cast<std::size_t>(l)];
+      unsigned long long cs[5] = {0, 0, 0, 0, 0};
+      const std::uint64_t NN = static_cast<std::uint64_t>(Ll.N);
+      typename Enc::Ctx ectx = Enc::make_ctx(Ll.N, Ll.substep_count);
+      for (ax::MFIter mfi(Ll.C); mfi.isValid(); ++mfi) {
+        auto c = Ll.C.const_array(mfi);
+        auto tf = Ll.TF.const_array(mfi);
+        auto a = Ll.A.const_array(mfi);
+        ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+          const std::uint64_t cell =
+              static_cast<std::uint64_t>(i) + NN * (static_cast<std::uint64_t>(j) + NN * static_cast<std::uint64_t>(k));
+          std::uint32_t w[NC];
+          std::memcpy(w, &c(i, j, k), sizeof w);
+          for (int m = 0; m < NC; ++m) cs[0] += mix64((cell * 64 + static_cast<std::uint64_t>(m)) * 0x100000000ULL + w[m]);
+          for (int m = 0; m < 10; ++m) {
+            std::uint32_t b;
+            const float v = tf(i, j, k, m);
+            std::memcpy(&b, &v, 4);
+            cs[1] += mix64((cell * 64 + static_cast<std::uint64_t>(m)) * 0x100000000ULL + b);
+          }
+          for (int m = 0; m < rrk::kNdep; ++m)
+            cs[2] += mix64(cell * 64 + static_cast<std::uint64_t>(m) + mix64(static_cast<std::uint64_t>(a(i, j, k, m))));
+        });
+        auto hray = [&](const RayP& r) {
+          std::uint64_t w[10];
+          std::memcpy(w, &r, sizeof w);
+          std::uint64_t h = 0;
+          for (int m = 0; m < 10; ++m) h = mix64(h ^ w[m]);
+          cs[3] += h;
+          cs[4] += 1;
+        };
+        auto& pt = Ll.pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+        const PTD p = pt.getParticleTileData();
+        for (int n = 0; n < static_cast<int>(pt.numParticles()); ++n) {
+          if (!ax::ParticleIDWrapper(p.m_idcpu[n]).is_valid()) continue;
+          hray(Enc::load(p, n, ectx));
+        }
+        // between the cast and the write-back the rays live in the scratch
+        const BoxScratch& S = Ll.scratch[static_cast<std::size_t>(mfi.LocalIndex())];
+        for (Long n = 0; n < static_cast<Long>(S.out.size()); ++n) hray(S.out[static_cast<std::size_t>(n)]);
+      }
+      if (const char* dd = std::getenv("RADRAY_RT_LEVEL_DUMP"); dd && Ll.substep_count == std::atoll(dd)) {
+        // the level's TF and rays, one file per rank (sort and compare offline)
+        const std::string fn = std::string("rtlev_") + where + "_l" + std::to_string(l) + "_r" +
+                               std::to_string(ax::ParallelDescriptor::MyProc()) + ".txt";
+        FILE* f = std::fopen(fn.c_str(), "w");
+        for (ax::MFIter mfi(Ll.C); mfi.isValid(); ++mfi) {
+          auto tf = Ll.TF.const_array(mfi);
+          ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+            std::fprintf(f, "TF %d %d %d", i, j, k);
+            for (int m = 0; m < 10; ++m) std::fprintf(f, " %a", static_cast<double>(tf(i, j, k, m)));
+            std::fprintf(f, "\n");
+          });
+          auto& pt = Ll.pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
+          const PTD p = pt.getParticleTileData();
+          for (int n = 0; n < static_cast<int>(pt.numParticles()); ++n) {
+            if (!ax::ParticleIDWrapper(p.m_idcpu[n]).is_valid()) continue;
+            const RayP r = Enc::load(p, n, ectx);
+            std::fprintf(f, "RAY %d %d %a %a %a %a %a %a %a %a", r.nside, r.ipix, r.r, r.dr, r.x[0], r.x[1], r.x[2],
+                         r.dx[0], r.dx[1], r.dx[2]);
+            for (int m = 0; m < 5; ++m) std::fprintf(f, " %a %a", r.nu[m], r.ngam[m]);
+            std::fprintf(f, "\n");
+          }
+        }
+        std::fclose(f);
+      }
+      ax::ParallelDescriptor::ReduceLongSum(reinterpret_cast<Long*>(cs), 5);
+      if (ax::ParallelDescriptor::IOProcessor())
+        std::fprintf(stderr, "RTLEV %lld %s l%d C %llx TF %llx A %llx rays %llx n %llu\n",
+                     static_cast<long long>(Ll.substep_count), where, l, cs[0], cs[1], cs[2], cs[3], cs[4]);
+    }
+  }
   void substep(Simulation& s) override {
+    debug_sums("start");
     for (auto& l : levels) l->check_cells("before tau");
     for (auto& l : levels) l->substep_tau(s);
     for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 0, 5);  // the parent's tau in the ghosts outside the level
+    debug_sums("tau");
     for (auto& l : levels) l->check_cells("after tau");
     for (auto& l : levels) l->substep_cast(s);
+    debug_sums("cast");
     for (int l = finest; l >= 1; --l) exchange_deposits(l);
+    debug_sums("exchange");
     for (auto& l : levels) l->substep_phys(s);
+    debug_sums("phys");
     for (auto& l : levels) l->check_cells("after phys");
     for (int l = finest; l >= 1; --l) fill_covered_fgam(l);  // the children's fgam under a level
     for (int l = 1; l <= finest; ++l) fill_ghost_tf(l, 5, 5);  // the parent's fgam likewise
+    debug_sums("fgam");
     for (auto& l : levels) l->substep_advance(s);
+    debug_sums("advance");
     migrate();
+    debug_sums("migrate");
     Long sv[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0}, cmax[3] = {0, 0, 0};
     i128 stats[kSNstat] = {};
     for (auto& l : levels) {

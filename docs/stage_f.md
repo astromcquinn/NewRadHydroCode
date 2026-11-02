@@ -227,8 +227,9 @@ parameters, a coverage mask (the cells under the finer level: no
 emission, no physics, no statistics), an in-patch mask (where a ray
 leaves the level) and the rays leaving it; the substep is split into
 four phases (tau, cast, phys, advance), and `Hierarchy` (one `Level`
-per level of the gas state, rebuilt at a regrid with its rays parked on
-the parent) interleaves the levels' phases: after the tau phase a
+per level of the gas state, rebuilt at a regrid: its rays parked on the
+parent, since 2026-10-31 only those outside the new grids, the others kept
+as they are together with the level's fgam) interleaves the levels' phases: after the tau phase a
 refined level's ghost cells outside its grids take the parent's tau
 (halved) and after the physics the parent's fgam (1 − √(1 − f)); after
 the casts the deposits cross the boundary both ways (a level's ghost
@@ -504,6 +505,33 @@ per parent cell over the fine boxes in exact int64, and only then divided
 fine box's partial sum, as before, made two-level runs depend on the fine
 box layout and so on the rank count (relative 1e-10 from about step 8).
 Test: `amrex_rt_amr_layout`.
+
+**Regrids that only rechop a level (2026-10-31).** AmrMesh chops the
+refined grids by the rank count, so a regrid can change a level's boxes
+on one rank count and not on another (and a restart on another rank
+count rebuilds every refined level at its first regrid, the checkpoint's
+grids being chopped for the writing run). A rebuilt RT level used to
+start from TF = 0 (the fgam of its last substep, which the next
+substep's `exchange_deposits` weighs the deposits beyond the finer level
+with: `conserve`), and its rays went to the parent and back, which
+recomputed their dr (rmax − r, which the kernel's dr has drifted from by
+round-off) and split them on entry again. From the smoke problem's
+checkpoint 14 with two levels (`docs/stage_g.md` §6.9 item 3), 3 ranks
+rebuilt level 1 and 1 rank did not, and step 15's RT differed (photons
+in flight in a few cells, 9e-23 against 0). Now a rebuilt level takes
+over the old level's TF where the old grids had cells (0 in newly refined
+cells, as before), the split thresholds of its last substep and its
+counters, and keeps the rays whose cells the new grids hold as they are
+(the others are parked on the parent as before): a rebuild that only
+rechops a region changes nothing. Runs whose regrids change a refined
+level's grids change in the last digits (the round trip's dr and splits,
+the fgam of the cells kept). Nightly tests: `amrex_pm_subcycle_rt_ranks`
+(1, 2 and 3 ranks to step 15) and `amrex_pm_subcycle_rt_restart_ranks`
+(the 1-rank run's checkpoint 13 restarted on 3 ranks). `RADRAY_RT_LEVEL_DEBUG=N` prints
+order- and layout-independent checksums of every level's cells, TF,
+deposits and rays after each phase of every substep from the global
+substep N on (`RADRAY_RT_LEVEL_DUMP=N`: the TF and rays of substep N, one
+file per rank).
 
 **F3b, as designed: rays on the levels.** Each level has its own RT cells (`RTCell`
 FabArray), deposit and optical-depth FabArrays with their ghost layers,

@@ -596,7 +596,9 @@ void particle_mesh_unsplit(PMState& s, float* u_gas, const float* e_gas, double 
     // (pm_backend.hpp); the drifts there too
     amrex_pm_drift(s, clk.dt_sim);
     amrex_pm_step_unsplit(s, u_gas, e_gas, eta1, clk, u);
-    amrex_pm_drift(s, clk.dt_sim);
+    // pm_level_subcycle: the second drift at the end of the base step
+    // (amrex_pm_subcycle_finish, docs/stage_g.md section 6)
+    if (!amrex_pm_subcycled(s)) amrex_pm_drift(s, clk.dt_sim);
     return;
   }
   calc_drift(s, clk.dt_sim);

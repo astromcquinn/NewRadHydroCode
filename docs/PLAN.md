@@ -1589,6 +1589,26 @@ be designed); `recomb_rad` on the backend (block emission and
     own step, Enzo/RAMSES style) is a new work item for WP3 before Z2.
     Cost: up to about the hydro's again at the finest level (~3 × 10⁴
     core-hours at Z3 if solved at every finest-level step).
+* **Follow-up built (2026-10-31, branch `stage-g-subcycle`):**
+  `pm_level_subcycle` (`docs/stage_g.md` §6). Implementer's choices for
+  review (§6.7): kick–drift–kick per refined substep (Strang with the
+  hydro, one solve per substep); level 0 solved by FFT after each of its
+  hydro substeps for level 1's boundary values (4 FFTs per base step; its
+  kick still once); the parent's closing solve with its children's mass
+  predicted by a virtual drift, no corrector; level-0 particles enter the
+  hierarchy only at the hydro calls' starts; orphans up to 2 cells.
+* **Decisions (user, 2026-11-02), on `pm_level_subcycle`'s open choices
+  (`docs/stage_g.md` §6.7):**
+  - **Level 0's 4 FFTs per base step are accepted:** level 0 is solved
+    after each of its hydro substeps (and at each hydro call's start) for
+    level 1's time-interpolated boundary values; its kick stays once per
+    base step. (The alternative, level 0's potential held constant over
+    each half step, is not built.)
+  - **No corrector solve for now; revisit at Z1.** A level's closing solve
+    keeps using its children's predicted mass. The diagnostic
+    `RADRAY_PM_CORRECTOR_CHECK=1` computes the corrector, reports its
+    difference from the prediction near each level boundary and discards
+    it (results unchanged), so Z1 can decide whether it is needed.
 * **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
   levels for now.** Each zoom level is the bounding box of its tagged
   region (the cells holding particles of a finer mass class) plus the

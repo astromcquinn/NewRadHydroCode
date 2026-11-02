@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Bit-identical restart of apps/radhydro.
 
-usage: restart_check.py [--launch LAUNCHER FLAGS NPFLAG NP] RADHYDRO PROBLEM WORKDIR STEP
+usage: restart_check.py [--launch LAUNCHER FLAGS NPFLAG NP [--restart-np NPB]] RADHYDRO PROBLEM WORKDIR STEP
                         [--set key=value ...]
 
 (--launch: both runs under the MPI launcher; FLAGS a ;-separated list, as
-CMake passes it.)
+CMake passes it. --restart-np: the restart on NPB ranks instead of NP, a
+checkpoint read on another rank count.)
 
 Run A writes a checkpoint after every step (restart_every = 1,
 restart_keep_latest = 0) and all fields every step. Run B restarts from A's
@@ -31,11 +32,15 @@ def run(cmd, log):
 
 def main():
     args = sys.argv[1:]
-    launch = []
+    launch = launch_b = []
     if args and args[0] == "--launch":
         launcher, flags, npflag, np = args[1:5]
         launch = [launcher] + [f for f in flags.split(";") if f] + [npflag, np]
+        launch_b = launch
         args = args[5:]
+        if args and args[0] == "--restart-np":
+            launch_b = launch[:-1] + [args[1]]
+            args = args[2:]
     exe, prob, work, step = args[0], args[1], args[2], int(args[3])
     sets = args[4:]
     a, b = os.path.join(work, "A"), os.path.join(work, "B")
@@ -47,7 +52,7 @@ def main():
     run(launch + [exe, prob, a, "--quiet", "--set", "restart_every=1", "--set", "restart_keep_latest=0"]
         + common, a + ".log")
     ck = os.path.join(a, "restart", f"checkpoint_{step:04d}.bin")
-    run(launch + [exe, prob, b, "--quiet", "--restart", ck] + common, b + ".log")
+    run(launch_b + [exe, prob, b, "--quiet", "--restart", ck] + common, b + ".log")
 
     bad, n = [], 0
     for f in sorted(glob.glob(os.path.join(b, "**", "*"), recursive=True)):
@@ -71,7 +76,8 @@ def main():
         if hb and ha[-len(hb):] != hb:
             bad.append(f"{rel}: differs from the tail of the uninterrupted run")
     nsteps = len(glob.glob(os.path.join(b, "step_*")))
-    print(f"restart from step {step}: {nsteps} steps, {n} files compared")
+    ranks = f" ({launch[-1]} ranks, the restart on {launch_b[-1]})" if launch_b != launch else ""
+    print(f"restart from step {step}{ranks}: {nsteps} steps, {n} files compared")
     for x in bad[:20]:
         print("  DIFF", x)
     if nsteps == 0:

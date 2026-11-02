@@ -6,6 +6,10 @@
 # levels:
 #   level_solve   pm_level_solve = 1 (pm_refine = 1: level 0 on the 128^3
 #                 mesh by the FFT, level 1 and 2 on their own meshes by MLMG)
+#   level_subcycle  the same with pm_level_subcycle = 1 (docs/stage_g.md
+#                 section 6: levels 1 and 2 solved and kicked in their own
+#                 hydro substeps; their gravity is timed inside t_hydro, the
+#                 table shows it from the PM timers' "sub-cycled" block)
 #   gas_levels    pm_gas_levels = 1, pm_refine = 4 (the uniform 512^3 mesh fed
 #                 by the levels: Stage F's coupling, the comparison)
 #   uniform       no refinement, pm_refine = 1 (the base cost)
@@ -16,6 +20,7 @@
 # with --nodes/--ntasks.
 #
 #   sbatch tools/hyak/pm_level_solve_profile.slurm
+#   CONFIGS="level_solve level_subcycle" LOCAL=1 sbatch tools/hyak/pm_level_solve_profile.slurm
 #   sbatch --nodes=2 --ntasks=48 tools/hyak/pm_level_solve_profile.slurm
 #
 # Environment:
@@ -28,7 +33,7 @@
 #             tens of GB for the hydro hierarchy; a 15 GB VM needs the
 #             central quarter width, 48,48,48,79,79,79)
 #   STEPS     hydro steps (default 10)
-#   CONFIGS   "level_solve gas_levels uniform" (default all three)
+#   CONFIGS   "level_solve level_subcycle gas_levels uniform" (default all four)
 #   MLMG_ITERS, MLMG_TOL, MLMG_BOTTOM   pm_mlmg_iters (20), pm_mlmg_tol (1e-10),
 #             pm_mlmg_bottom_sweeps (8; a rectangular level gets at least its bottom width squared)
 #   EXTRA     extra radhydro arguments for every configuration, e.g.
@@ -67,7 +72,7 @@ ZEND="${ZEND:-6}"
 q=$((N / 4))
 REGION="${REGION:-$q,$q,$q,$((3 * q - 1)),$((3 * q - 1)),$((3 * q - 1))}"
 STEPS="${STEPS:-10}"
-CONFIGS="${CONFIGS:-level_solve gas_levels uniform}"
+CONFIGS="${CONFIGS:-level_solve level_subcycle gas_levels uniform}"
 MLMG_ITERS="${MLMG_ITERS:-20}"
 MLMG_TOL="${MLMG_TOL:-1e-10}"
 MLMG_BOTTOM="${MLMG_BOTTOM:-8}"
@@ -110,6 +115,7 @@ levels=(--set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_b
 for cfg in $CONFIGS; do
   case "$cfg" in
     level_solve) extra=("${levels[@]}" --set pm_level_solve=1 --set pm_refine=1 --set pm_mlmg_iters="$MLMG_ITERS" --set pm_mlmg_tol="$MLMG_TOL" --set pm_mlmg_bottom_sweeps="$MLMG_BOTTOM") ;;
+    level_subcycle) extra=("${levels[@]}" --set pm_level_solve=1 --set pm_level_subcycle=1 --set pm_refine=1 --set pm_mlmg_iters="$MLMG_ITERS" --set pm_mlmg_tol="$MLMG_TOL" --set pm_mlmg_bottom_sweeps="$MLMG_BOTTOM") ;;
     gas_levels)  extra=("${levels[@]}" --set pm_level_solve=0 --set pm_gas_levels=1 --set pm_refine=4) ;;
     uniform)     extra=(--set amrex_max_level=0 --set pm_refine=1) ;;
     *) echo "unknown config $cfg"; exit 1 ;;
