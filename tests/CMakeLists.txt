@@ -1715,18 +1715,17 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(amrex_pm_subcycle_identity_smoke PROPERTIES TIMEOUT 1800
                            LABELS "amrex;amrex_pm;level_solve;subcycle" ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
       # Nightly (~10 min each): the same through the smoke problem's RT steps
-      # 13-15 (1 and 3 ranks; a restart from step 13), the collapse of a
-      # spherical overdensity on two levels against the uniform fine run with
-      # a short step (pm_subcycle_collapse_check.py, ~6 min), and T1 with the flag
-      # (the rank test stops after step 14, the second RT step: at step 15 the
-      # RT across the levels differs between 1 and 3 ranks from identical
-      # gas and particles, with pm_level_subcycle = 0 as well from the same
-      # checkpoint: an RT issue, docs/stage_g.md section 6.9)
+      # 13-15 (1, 2 and 3 ranks; a restart from step 13; a restart of the
+      # 1-rank run's checkpoint on 3 ranks, whose first regrid rechops the
+      # refined levels: the RT levels rebuilt, docs/stage_f.md section 3,
+      # "Regrids that only rechop a level"), the collapse of a spherical
+      # overdensity on two levels against the uniform fine run with a short
+      # step (pm_subcycle_collapse_check.py, ~6 min), and T1 with the flag
       add_test(NAME amrex_pm_subcycle_rt_ranks
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
                        ${amrex_runs}/pm_subcycle_rt_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
                        ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
-                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${subcyc_sets} --set run_steps=14
+                       ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${subcyc_sets}
                        --set restart_every=1 --set restart_keep_latest=0)
       set_tests_properties(amrex_pm_subcycle_rt_ranks PROPERTIES TIMEOUT 3600
                            LABELS "amrex;amrex_pm;amr;level_solve;subcycle;nightly" ENVIRONMENT OMP_NUM_THREADS=1
@@ -1739,6 +1738,14 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       set_tests_properties(amrex_pm_subcycle_rt_restart PROPERTIES TIMEOUT 3600
                            LABELS "amrex;amrex_pm;amr;level_solve;subcycle;restart;nightly"
                            ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
+      add_test(NAME amrex_pm_subcycle_rt_restart_ranks
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 1 --restart-np 3
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${amrex_runs}/pm_subcycle_rt_restart_ranks 13 ${subcyc_sets})
+      set_tests_properties(amrex_pm_subcycle_rt_restart_ranks PROPERTIES TIMEOUT 3600
+                           LABELS "amrex;amrex_pm;amr;level_solve;subcycle;restart;nightly"
+                           ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 3 DISABLED $<NOT:$<BOOL:${RADRAY_NIGHTLY_TESTS}>>)
       add_test(NAME amrex_pm_subcycle_collapse
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/pm_subcycle_collapse_check.py
                        ${amrex_runs}/pm_subcycle_collapse "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
