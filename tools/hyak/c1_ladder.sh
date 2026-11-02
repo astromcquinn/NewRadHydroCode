@@ -45,8 +45,11 @@
 # HUBBLE0 (0.68), SIGMA8 (0.82), NS (0.9667), MUSIC ($RADRAY_SW/music/MUSIC),
 # GAMMA12 (0.3), ZRE (7), NDOM (8), PREHEAT (0), EXE (build/radhydro), EXE_AMREX
 # (build-amrex/radhydro), THREADS (192), RANKS_512 (12: MPI ranks of a 512^3
-# backend job, 16 threads each), BACKEND_512, SBATCH_ARGS, MAKE_SBATCH=1 (make
-# submits itself as a job), DRYRUN=1 (print the commands).
+# backend job, 16 threads each), BACKEND_512, SBATCH_ARGS, CHAT_AFTER (0.01: the
+# reduced c after overlap), MOVIE_DZ (0.01), DIAG_DZ (0.05: Diag/ek.*, tdelta.*),
+# SNAPSHOTS (1; 0: no field snapshots), MAKE_SBATCH=1 (make
+# submits itself as a job; MAKE_MEM its memory, 200G; 1024^3 needs more), DRYRUN=1
+# (print the commands).
 #
 # Outputs per run (RUNS/c1_N<N>/run): the gas state u_gas, fHI, temp and
 # rhog at z = 7 (the turn-on), 6.9, 6.8, 6.6, 6.4, 6.2, 6, 5.5, 5, 4.5 and 4
@@ -79,7 +82,11 @@ THREADS=${THREADS:-192}
 RANKS_512=${RANKS_512:-12}
 SBATCH_ARGS=${SBATCH_ARGS:---exclusive --cpus-per-task=192 --mem=256G --time=2-00:00:00}
 T4_N=${T4_N:-128}
-ZDATA="7 6.9 6.8 6.6 6.4 6.2 6 5.5 5 4.5 4"
+CHAT_AFTER=${CHAT_AFTER:-0.01}  # c_reduced after x_HII,V = 0.99 (DM20: 0.01; 1024^3: 0.0025, user 2026-11-01)
+MOVIE_DZ=${MOVIE_DZ:-0.01}      # movie slabs (x_HI, T, rho, |v|) every dz from the first zdata1
+DIAG_DZ=${DIAG_DZ:-0.05}        # on-the-fly E(k) and T-Delta every dz (Diag/)
+SNAPSHOTS=${SNAPSHOTS:-1}       # 0: no field snapshots at zdata1 (P(k), Diag/, movie, checkpoints only)
+ZDATA=${ZDATA:-"7 6.9 6.8 6.6 6.4 6.2 6 5.5 5 4.5 4"}  # the run ends at the last one
 phase=${1:-}
 shift || true
 sizes=${*:-64 128 256 512}
@@ -92,11 +99,16 @@ make_problem() {
   local N=$1 dir=$RUNS/c1_N$N backend
   backend=$(backend_of "$N")
   mkdir -p "$RUNS"
+  # Nray_max must stay below 2^31 (int32 ray links); the sweep transport needs no pool
+  local nrf=8; [ "$N" -ge 1024 ] && nrf=1
+  local out=(--fields fHI,temp,rhog,u_gas --data-files gas)
+  [ "$SNAPSHOTS" = 0 ] && out=(--fields fHI,temp,rhog --data-files none --fields-at-data1 0)
   local common=(--N "$N" --ndm "$N" --box 0.25 --z-init "$ZINIT" --seed "$SEED"
     --plane-parallel --plane-ndom "$NDOM" --plane-z-re "$ZRE" --plane-gamma12 "$GAMMA12"
-    --zdata1 "$ZDATA" --fields fHI,temp,rhog,u_gas --data-files gas --movie-dz 0
-    --restart-every 20 --restart-keep 1 --nray-max-factor 8 --backend "$backend"
-    --T-min "$PREHEAT" --z-floor 15)
+    --zdata1 "$ZDATA" --movie-dz "$MOVIE_DZ" --movie-fields fHI,temp,rhog,vmag --diag-dz "$DIAG_DZ"
+    --c-schedule "0.1,0.99,$CHAT_AFTER"
+    --restart-every 20 --restart-keep 1 --nray-max-factor "$nrf" --backend "$backend"
+    --T-min "$PREHEAT" --z-floor 15 "${out[@]}")
   if [ "$ICS" = zeldovich ]; then
     run_cmd python3 "$here/tools/production/make_production.py" "$dir" "${common[@]}"
     return
@@ -156,7 +168,7 @@ make_problem() {
 case "$phase" in
   make)
     if [ "${MAKE_SBATCH:-0}" = 1 ]; then
-      run_cmd sbatch --account=astro --partition=cpu-g2 --cpus-per-task=32 --mem=200G --time=06:00:00 \
+      run_cmd sbatch --account=astro --partition=cpu-g2 --cpus-per-task=32 --mem=${MAKE_MEM:-200G} --time=06:00:00 \
         --job-name=c1_make --export=ALL,MAKE_SBATCH=0 \
         --wrap "cd $here && source tools/hyak/env.sh && tools/hyak/c1_ladder.sh make $sizes"
     else
