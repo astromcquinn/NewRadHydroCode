@@ -135,7 +135,13 @@ def main():
                          "after the transport, so they are absorbed in their own cell first "
                          "(moment_inject; default 1, docs/rt_moments.md); 0: before, the original "
                          "order, which leaves dense source cells neutral")
-    ap.add_argument("--data-files", default="nodm", choices=("all", "norays", "nodm", "dm", "gas"),
+    ap.add_argument("--diag-dz", type=float, default=0.0,
+                    help="on-the-fly E(k) of the gas velocity and the T-Delta histogram every dz "
+                         "(diag_dz, Diag/; plane-parallel unsplit runs on the host grids; 0: off)")
+    ap.add_argument("--fields-at-data1", type=int, default=1, choices=(0, 1),
+                    help="0: no step_NNNN field files at the zdata1 outputs (P(k), the "
+                         "diagnostics and the movie only; fields still at the last step)")
+    ap.add_argument("--data-files", default="nodm", choices=("all", "norays", "nodm", "dm", "gas", "none"),
                     help="files of the zdata1 snapshots besides the fields: nodm (default, user "
                          "decision 2026-10-18: Gas and RT/rt_grid, no particles; they stay in "
                          "the checkpoints), norays (DM, Gas, RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
@@ -353,10 +359,10 @@ def main():
     lines += [
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",
-    ] + ([f"movie_slab = {a.movie_slab}"] if a.movie_slab > 0 else []) + [
+    ] + ([f"diag_dz = {a.diag_dz:g}"] if a.diag_dz > 0 else []) + ([f"movie_slab = {a.movie_slab}"] if a.movie_slab > 0 else []) + [
         f"restart_every = {a.restart_every}",
     ] + ([f"restart_keep = {a.restart_keep}"] if a.restart_keep > 0 else []) + [
-        "fields_at_data1 = 1",
+        f"fields_at_data1 = {a.fields_at_data1}",
         f"fields = {a.fields}",
         f"data_files = {a.data_files}",
         f"recomb_case = {a.recomb_case}",

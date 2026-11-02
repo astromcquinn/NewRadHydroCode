@@ -939,6 +939,11 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_full)
     set_tests_properties(plane_full PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # on-the-fly E(k) and T-Delta (diag_dz) and the movie's |v|
+    add_test(NAME plane_diag
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_diag_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_diag)
+    set_tests_properties(plane_diag PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
     # the scaled-down DM20 problem (0.256 Mpc/h, 32^3, z_re = 8, Gamma_-12 =
     # 0.3, cooling on): the post-front temperature and the clumping factor
     # (~ minutes: label nightly)

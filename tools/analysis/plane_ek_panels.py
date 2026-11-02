@@ -30,7 +30,7 @@ for j, z in enumerate(zs):
     b.set_xlabel("k  [h kpc$^{-1}$]")
 ax[0, 0].set_ylabel("E(k)  [(km/s)$^2$ kpc/h]")
 ax[1, 0].set_ylabel("k$^{5/3}$ E(k)  (flat = Kolmogorov)")
-ax[0, 0].set_ylim(1e-3, 3e3); ax[1, 0].set_ylim(0, 12)
+ax[0, 0].set_ylim(1e-3, 3e3); ax[1, 0].set_ylim(0, 14)
 ax[0, -1].legend(frameon=False, title="grid", fontsize=8, title_fontsize=8, loc="lower left")
 fig.suptitle("Gas velocity power, C1 ladder from C26 ICs (Γ$_{-12}$ = 0.3, z$_{re}$ = 7, 0.25 Mpc/h); shaded: 0.25–1 h/kpc",
              color=ink, fontsize=10)

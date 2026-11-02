@@ -86,7 +86,7 @@
     (2026-10-31): 64³ 10 min / 0.29 GB, 128³ 2 h 39 / 2.1 GB, 256³
     5 h 40 / 15.7 GB (to z = 4), 512³ 22 h 13 / 110 GB on 192 threads
     (stopped at z = 5). T_V, T_M converge to 1–1.5 % per doubling;
-    ⟨v²⟩ at z = 6: 48, 58, 65, 69 (km/s)². **512³ shows a k^−5/3
+    ⟨v²⟩ at z = 6: 54, 66, 73, 78 (km/s)² (after the 2026-11-01 cosmology fix of `velocity_power.py`). **512³ shows a k^−5/3
     range**: slopes −1.5 … −1.95 at 0.25–1 h/kpc for z = 6.2–5; the
     dissipation cutoff is numerical (~10 cells per wavelength). 1024³
     extrapolates to ~350 h on one 192-core node and ~0.9 TB (fits one

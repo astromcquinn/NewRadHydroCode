@@ -321,10 +321,38 @@ slowed down.
 |---|---|
 | `plane_rt` (`tests/plane_check.py`, RT-only driver, uniform gas built per check) | Γ_HI normalisation to 5e-8 in the source cells and to the attenuation elsewhere, for 1, 2 and 4 cells per substep; the bins and the optical depths; slab attenuation per bin = Π(1 − τ_j) to 4e-4 and e^−τ to 2 %; one front across the whole box against the photon budget (thin gas: 0.5 %; 100× the mean density with recombinations: the column = (photons − the code's recombinations)/n_H and α_eff against case B); the light-limited front at ĉ; photon conservation (3e-5); 2³ domains ionising identically (1e-6) with no ray crossing a domain edge; 1 vs 2 threads byte-identical |
 | `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 4e4`, `plane_turnon_courant = 0.5`, as the default does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 0.5, dt ≤ 0.5 Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 37.1 Myr); `plane_couple_courant = 0.3`: dt_sim c_hot = 0.3 where it binds (most steps after z_re), at most 0.3 in all of them, the steps before z_re bit for bit, T_M(z) and x_HII,V(z) of the uncapped run to 0.5 % |
+| `plane_diag` (`tests/plane_diag_check.py`, `radhydro`, 32³ Zel'dovich box, C26 cosmology) | `diag_dz = 0.2`: E(k) at the first step below each of z = 9, 8.8, …, 8 and at the zdata1 steps, none above z = 9; E(k), the mass-weighted E(k) and ⟨v²⟩ agree with `velocity_power.py` on the steps' `u_gas.bin` to 6 × 10⁻⁷; the T–Δ histogram holds N³ cells and mass N³ and its mass-weighted ⟨log T⟩ matches the fields; `movie_fields vmag` writes |v| slabs; every step's stats and the last step's fields byte-identical to the run without the diagnostics |
 | `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
 | `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step: the steps to it bit for bit those of the serial run (the later CFL steps to 4e-8) |
 
 The bitwise suite is untouched: every new flag defaults to the original.
+
+### On-the-fly diagnostics (`diag_dz`, 2026-11-01)
+
+For runs without snapshots (user decision 2026-11-01: the 1024³ rung
+saves movies and statistics only). `diag_dz > 0` writes, every `diag_dz`
+in redshift from `diag_z0` (default the first zdata1 redshift) and at the
+zdata1 outputs, at the end of the hydro step that reaches it:
+
+* `Diag/ek.<ztag>`: E(k) of the gas velocity with `velocity_power.py`'s
+  conventions (proper peculiar km/s, `diag_nbins` = 32 logarithmic bins
+  from k_f to k_Nyquist in h/kpc, Σ E dk = ⟨v²⟩/2), volume-weighted and
+  mass-weighted (√(ρ/⟨ρ⟩) v) columns, ⟨v²⟩ of both in the header.
+* `Diag/tdelta.<ztag>`: cells and mass in bins of 0.05 in log Δ (from −2,
+  120 bins) and log T (from 0, 160 bins), non-empty bins only; T from the
+  RT grid, so not at the landing step of z_re.
+
+Six FFTs per output on FFTW's threads (capped at 32, byte-identical for
+every count) and per-plane sums, so the files do not depend on the thread
+count; the run itself is unchanged (`plane_diag`). Needs the host grids,
+`Nrt = Ngas` and `hydro_scheme = unsplit` (its lab-frame momenta). The
+movie field `vmag` (|v|, km/s) has the same requirements. `data_files =
+none` writes no snapshot files; with `fields_at_data1 = 0` the zdata1
+outputs then hold only P(k) (`Pk/`). `make_production.py --diag-dz
+--data-files none --fields-at-data1 0`; `c1_ladder.sh` SNAPSHOTS=0,
+DIAG_DZ, MOVIE_DZ, CHAT_AFTER. Readers: `tools/analysis/plane_ek_panels.py`
+for E(k) json; `snapshot_slices.py` turns saved snapshots into a slide show
+(for the 512³ rung, which had `movie_dz = 0`).
 
 ### Tools
 
@@ -474,15 +502,24 @@ probably because more of the mass sits in resolved dense gas that cools fast.
 
 | z | 64 | 128 | 256 | 512 |
 |---|---|---|---|---|
-| 6.9 | 20.0 | 29.3 | 39.9 | 48.0 |
-| 6.6 | 47.1 | 61.7 | 70.3 | 75.4 |
-| 6.2 | 49.9 | 60.8 | 67.9 | 72.6 |
-| 6.0 | 48.2 | 58.2 | 64.6 | 69.0 |
-| 5.5 | 43.1 | 50.9 | 56.2 | 60.2 |
-| 5.0 | 38.6 | 44.9 | 49.5 | 53.1 |
+| 6.9 | 22.6 | 33.1 | 45.1 | 54.2 |
+| 6.6 | 53.2 | 69.7 | 79.5 | 85.2 |
+| 6.2 | 56.4 | 68.7 | 76.7 | 82.0 |
+| 6.0 | 54.4 | 65.7 | 72.9 | 77.9 |
+| 5.5 | 48.7 | 57.5 | 63.5 | 68.0 |
+| 5.0 | 43.6 | 50.7 | 55.9 | 59.9 |
 
-The increments per doubling shrink by ~0.65 (10, 6.4, 4.4 at z = 6), so
-the converged ⟨v²⟩ is ~8 (km/s)² above 512³. Local slopes d ln E / d ln k
+(Corrected 2026-11-01: `velocity_power.py` had converted the velocities
+with the original cosmology, Ω_m = 0.27, instead of the run's 0.305; it now
+reads `omegam` and `hubble0` from params.txt. The fix multiplies v by
+√(0.305/0.27) = 1.063 and E(k) and ⟨v²⟩ by 1.13; slopes and k are
+unchanged. The ⟨v²⟩ values quoted in "64³ checks" and in the sink tests
+predate the fix and are 13 % low for these runs; the old Zel'dovich rung
+used the original cosmology and is unaffected, so at 64³ the new rung's
+⟨v²⟩ is ~13 % above it from z ≈ 6.2, not equal.)
+
+The increments per doubling shrink by ~0.7 (11.3, 7.2, 5.0 at z = 6), so
+the converged ⟨v²⟩ is ~10 (km/s)² above 512³. Local slopes d ln E / d ln k
 (least squares in each band, z ≤ 6.2):
 
 | N | 0.25–0.5 h/kpc | 0.5–1 | 1–2 | 2–4 |
