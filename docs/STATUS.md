@@ -89,8 +89,8 @@
     ⟨v²⟩ at z = 6: 48, 58, 65, 69 (km/s)². **512³ shows a k^−5/3
     range**: slopes −1.5 … −1.95 at 0.25–1 h/kpc for z = 6.2–5; the
     dissipation cutoff is numerical (~10 cells per wavelength). 1024³
-    extrapolates to ~350 node-hours and ~0.9 TB (needs `amrex_state`
-    over nodes, with recfast ported). Data and figures:
+    extrapolates to ~350 h on one 192-core node and ~0.9 TB (fits one
+    1.5-TB cpu-g2 node with the serial build). Data and figures:
     `docs/data/plane/c1_c26_*`, `docs/figures/plane_c1_c26_*`.
   * **Found: late hot cells** (a near-empty 10⁸ K cell beside a clump
     cooling without limit): 128³ from z ≈ 4.15, 256³ from z ≈ 4.9,

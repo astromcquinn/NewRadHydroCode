@@ -445,10 +445,11 @@ with 9 RT substeps each.
 
 **1024³ (extrapolated, not run).** The cost per RT substep scales as N³
 at a fixed thread count, and the cap halves dt, so 1024³ needs ~16× the
-512³ run: ~350 h on one 192-core node, and ~0.9 TB of memory, more than
-a node. It needs the distributed path (`amrex_state = 1` over several
-nodes; the recfast Compton step is not yet ported there) and a cure for
-the hot cells (below).
+512³ run: ~350 h on one 192-core node. Memory ~0.9 TB fits one cpu-g2
+node (1.5 TB), so the serial build with `thermal_init = recfast` works
+(recfast is refused with `amrex_state = 1`). Disk ~0.6–0.8 TB (512³:
+~90 GB). The RT after overlap dominates: ~21 substeps per step at
+ĉ = 0.01c; a lower ĉ after overlap would cut it most.
 
 **Thermal history** (`docs/data/plane/c1_c26_history.txt`, every step
 from z_re). x_HII,V = 0.9998 at z = 6.9 and > 0.99995 from z = 6.2 in
