@@ -1609,6 +1609,13 @@ be designed); `recomb_rad` on the backend (block emission and
     `RADRAY_PM_CORRECTOR_CHECK=1` computes the corrector, reports its
     difference from the prediction near each level boundary and discards
     it (results unchanged), so Z1 can decide whether it is needed.
+* **Decision (user, 2026-11-02): `pm_level_solve`'s restriction exact
+  always, no flag.** `restrict_and_spill` divides the fine boxes' summed
+  partials once (floor quotient and remainder per box) instead of
+  truncating each box's partial, which made level 0's deposit depend on
+  the fine box layout (the rank count) by ~1e-13. `pm_level_solve` has no
+  Fortran original, so the old bits are not kept (`docs/stage_g.md` §1
+  item 3).
 * **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
   levels for now.** Each zoom level is the bounding box of its tagged
   region (the cells holding particles of a finer mass class) plus the
