@@ -457,10 +457,55 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
       }
 }
 
+// The star-formation sink on the serial unsplit hydro (docs/stage_f.md
+// section 2; the AMReX level's hydro_level.cpp sink without the star
+// particles): a cell with rho > sf_overdensity Dgas_avg loses
+// f = min(1, sf_efficiency dt/t_ff) of its mass at constant specific
+// quantities (rho, the momenta, e and the species scale by 1 - f; E loses
+// f (KE + e)), t_ff = (3 pi/4)/sqrt(a rho/Dgas_avg) in code time as on the
+// level. The mass leaves the gas and the gravity (the serial PM has no
+// star particles); hs.ucounters counts it. Per cell, so the result does
+// not depend on the thread count; the counters are summed per k-plane in
+// order.
+static void serial_sink(const Config& cfg, const Units& un, double dt, double a, GasGrid& gas, HydroState& hs) {
+  const int n = gas.N;
+  const double avg = un.Dgas_avg, thr = avg * cfg.sf_overdensity, eff = cfg.sf_efficiency;
+  std::vector<double> mk(n, 0.0);
+  std::vector<std::int64_t> ek(n, 0);
+  const bool par_ok = par::worth(static_cast<std::int64_t>(n) * n * n);
+#pragma omp parallel for schedule(static) if (par_ok)
+  for (int k = 0; k < n; ++k)
+    for (int j = 0; j < n; ++j)
+      for (int i = 0; i < n; ++i) {
+        const std::int64_t c = gas.cell(i + 1, j + 1, k + 1);
+        float* u = &gas.u[c * 5];
+        const double rho = u[0];
+        if (!(rho > thr)) continue;
+        const double tff = (3 * M_PI / 4) / std::sqrt(a * rho / avg);
+        const double f = std::min(1.0, eff * dt / tff);
+        if (!(f > 0)) continue;
+        const double keep = 1 - f;
+        const double ke = 0.5 * (double(u[1]) * u[1] + double(u[2]) * u[2] + double(u[3]) * u[3]) / rho;
+        u[4] = static_cast<float>(u[4] - f * (ke + double(gas.e[c])));
+        for (int m = 0; m < 4; ++m) u[m] = static_cast<float>(u[m] * keep);
+        gas.e[c] = static_cast<float>(gas.e[c] * keep);
+        float* w = &gas.w[c * 4];
+        for (int s = 0; s < 4; ++s) w[s] = static_cast<float>(w[s] * keep);
+        mk[k] += f * rho / avg;
+        ek[k] += 1;
+      }
+  for (int k = 0; k < n; ++k) {
+    hs.ucounters.sink_mass += mk[k];
+    hs.ucounters.sink_events += ek[k];
+  }
+}
+
 void hydro_half_step(const Config& cfg, const Units& un, const SimClock& clk, HydroHalf half,
                      GasGrid& gas, HydroState& hs) {
   if (cfg.hydro_scheme == HydroScheme::Unsplit) {
     hydro_step_unsplit(cfg, un, clk.dt_sim / 2, gas, hs, clk.scalefactor);
+    if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
+      serial_sink(cfg, un, clk.dt_sim / 2, clk.scalefactor, gas, hs);
     return;
   }
   if (half == HydroHalf::First) {

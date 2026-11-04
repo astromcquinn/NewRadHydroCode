@@ -106,6 +106,9 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   } else if (key == "cool_suppress_overdensity") {
     p.cool_suppress_overdensity = std::stod(val);
     if (!(p.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
+  } else if (key == "sn_heating") {
+    p.sn_heating = std::stoi(val);
+    if (p.sn_heating != 0 && p.sn_heating != 1) throw std::runtime_error("sn_heating must be 0 or 1");
   } else if (key == "photon_conserve") {
     p.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (p.photon_conserve < -1 || p.photon_conserve > 1)

@@ -191,6 +191,14 @@ struct Config {
   // legacy_physics; no Fortran mirror (a new flag).
   double cool_suppress_overdensity = 200.0;
 
+  // params.txt sn_heating: photo_cell's SN heating (T > 1e4 K and rho >
+  // rho_source = 50 times the mean: eSN eSF rho / t_dyn c^2, the original's
+  // sub-grid feedback, applied with or without sources). 1 (default) is the
+  // original; 0 switches it off (user decision 2026-10-30: no SN heating in
+  // any run; make_production.py writes 0; docs/plane_parallel.md). Not tied
+  // to legacy_physics; no Fortran mirror (a new flag).
+  bool sn_heating = true;
+
   // params.txt thermal_init = floor (default, the original) | recfast
   // (docs/thermal_history.md, quirk T1 of docs/port_notes.md 5b). floor:
   // the gas starts at temp_min and neutral gas never couples to the CMB.
@@ -615,6 +623,23 @@ struct Config {
   int plane_turnon_cfl = 1;
   double plane_turnon_temp = 2e4;
   double plane_turnon_courant = 0.05;
+  // params.txt plane_couple_courant (set_plane_param; docs/plane_parallel.md
+  // "Turn-on and the step caps"; user decision 2026-10-30). Plane-parallel
+  // mode only. Every step from plane_z_re on is at most plane_couple_courant
+  // dx / c_hot (dx the proper cell, c_hot as for the turn-on step): the RT
+  // heating and cooling meet the hydro once per step, and with the CFL step
+  // (~0.45 dx / c_hot after the turn-on) gas next to a cooling clump can be
+  // drained and heated numerically within one coupling interval (the hot
+  // cells of the C1 ladder). A cap that scales with the cell, unlike
+  // dt_max_myr. 0 (default) = off; make_production.py --plane-parallel
+  // writes 0.15.
+  double plane_couple_courant = 0;
+  // params.txt plane_xray_substeps (set_plane_param; docs/plane_parallel.md):
+  // plane-parallel mode with xray_heating only. Before plane_z_re the RT
+  // runs only for the uniform X-ray background (no rays), so each hydro step
+  // takes this many RT substeps instead of the light crossings at c_reduced.
+  // 0 (default): the light crossings, the original count.
+  int plane_xray_substeps = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

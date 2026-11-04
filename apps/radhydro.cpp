@@ -68,6 +68,7 @@
 #include "radray/xray_background.hpp"
 #include "radray/rt_moments.hpp"
 #include "radray/rt_tensor_diag.hpp"
+#include "radray/igm_diag.hpp"
 #include "radray/simulation.hpp"
 
 namespace {
@@ -131,6 +132,7 @@ struct RunParams {
   int photon_consume_dense = -1;  // Config::photon_consume_dense (P11 fix): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;            // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
+  int sn_heating = 1;                        // Config::sn_heating (1 = original; 0 = off)
   // thermal_init = floor | recfast (Config::thermal_init, docs/thermal_history.md)
   // and thermal_floor in K (< 0: 1 K with floor, 0.1 K with recfast)
   int thermal_init = 0;
@@ -161,6 +163,13 @@ struct RunParams {
   // movie_every_substep = 1: a frame after every RT substep (movie_dz > 0
   // still turns the movie on; for the tests of the substep-averaged fields)
   int movie_every_substep = 0;
+  // On-the-fly diagnostics (igm_diag.hpp): Diag/ek.<ztag> (E(k) of the gas
+  // velocity) and Diag/tdelta.<ztag> (the T-Delta histogram) every diag_dz in
+  // redshift from diag_z0 (default: the first zdata1 redshift) and at the
+  // zdata1 outputs; 0: off. Host grids only (not amrex_state = 1), Nrt = N.
+  double diag_dz = 0;
+  double diag_z0 = -1;
+  int diag_nbins = 32;
   // Output volume: the step_* field files to write (comma list; empty: all
   // 16), and the write_data_1/2 files: all (F1 fix, default), norays
   // (without Ray/, which holds every ray: 96 B each), nodm (norays without
@@ -252,6 +261,10 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
     P.cool_suppress_overdensity = std::stod(val);
     if (!(P.cool_suppress_overdensity >= 0)) throw std::runtime_error("cool_suppress_overdensity must be >= 0 (0 = off)");
   }
+  else if (key == "sn_heating") {
+    P.sn_heating = std::stoi(val);
+    if (P.sn_heating != 0 && P.sn_heating != 1) throw std::runtime_error("sn_heating must be 0 or 1");
+  }
   else if (key == "thermal_init") {
     if (val == "floor")
       P.thermal_init = 0;
@@ -289,6 +302,12 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   }
   else if (key == "movie_dz")
     P.movie_dz = to_double(val);
+  else if (key == "diag_dz")
+    P.diag_dz = to_double(val);
+  else if (key == "diag_z0")
+    P.diag_z0 = to_double(val);
+  else if (key == "diag_nbins")
+    P.diag_nbins = std::stoi(val);
   else if (key == "movie_z0")
     P.movie_z0 = to_double(val);
   else if (key == "movie_fields")
@@ -309,8 +328,8 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "fields")
     P.fields = val;
   else if (key == "data_files") {
-    if (val != "all" && val != "norays" && val != "nodm" && val != "dm" && val != "gas")
-      throw std::runtime_error("data_files must be all, norays, nodm, dm or gas");
+    if (val != "all" && val != "norays" && val != "nodm" && val != "dm" && val != "gas" && val != "none")
+      throw std::runtime_error("data_files must be all, norays, nodm, dm, gas or none");
     P.data_files = val;
   }
   else if (key == "deterministic_parallel") {
@@ -587,6 +606,7 @@ void write_ray_files(const std::string& odir, const std::string& tag, const Simu
 void write_data_files(const std::string& odir, const std::string& tag, const Simulation& s,
                       const std::vector<float>& xv, const std::vector<float>& vgas, bool data1,
                       const std::string& which) {
+  if (which == "none") return;  // no snapshot files (P(k) and the diagnostics only)
   if (which == "gas") {  // only Gas/u_gas (the Lya forest velocities of igm_stats.py)
     std::filesystem::create_directories(odir + "/Gas");
     write_f32(odir + "/Gas/u_gas." + tag, s.gas.u.data(), s.gas.u.size());
@@ -750,6 +770,7 @@ int main(int argc, char** argv) {
         Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
+    s.cfg.sn_heating = P.sn_heating != 0;
     s.cfg.thermal_init = P.thermal_init;  // docs/thermal_history.md
     s.cfg.thermal_floor = P.thermal_floor > 0 ? P.thermal_floor : (P.thermal_init == 1 ? 0.1 : 1.0);
     copy_hydro_scheme(P.hydro, s.cfg);
@@ -866,6 +887,13 @@ int main(int argc, char** argv) {
     // never allocate the host PM arrays (at pm_refine = 2
     // with 1024^3 particles they are 45 GB per rank)
     const bool on_level = use_amrex_state(cfg);
+    // the diagnostics and the movie's |v| read the lab-frame momenta of the
+    // unsplit scheme (its grid velocity is folded in and zero)
+    const bool vmag_movie = ("," + P.movie_fields + ",").find(",vmag,") != std::string::npos;
+    if ((P.diag_dz > 0 || vmag_movie) && (on_level || cfg.Nrt != cfg.Ngas || P.diag_nbins < 1 ||
+                                          cfg.hydro_scheme != HydroScheme::Unsplit))
+      throw std::runtime_error("diag_dz > 0 and movie_fields vmag need the host grids (amrex_state = 0), "
+                               "Nrt = Ngas, hydro_scheme = unsplit and diag_nbins >= 1");
     init_hydro(cfg, s.gas, hs);                        // init_hydro
     // amrex_pk = level: the power spectrum on the levels, so rank 0 keeps
     // only the particles of the host PM arrays (the halo finder's)
@@ -876,8 +904,12 @@ int main(int argc, char** argv) {
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
     plane_init(s);                                     // plane_parallel = 1: the face sources
-    if (cfg.sf_overdensity > 0 && !on_level)
-      throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs amrex_state = 1 in radhydro");
+    // the star-formation sink: star particles on the PM level with the gas on
+    // the levels (amrex_state = 1); the serial unsplit hydro removes the mass
+    // instead (no star particles; hydro_unsplit.cpp serial_sink)
+    const bool pm_stars = cfg.sf_overdensity > 0 && on_level;
+    if (cfg.sf_overdensity > 0 && !on_level && use_amrex_hydro(cfg))
+      throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) with hydro_backend = amrex needs amrex_state = 1 in radhydro");
     if (on_level) {
       amrex_state_init(s);
       // the gas grid lives on the level; no rank keeps a host copy (rank 0
@@ -902,13 +934,13 @@ int main(int argc, char** argv) {
     auto sync_mirror = [&]() {
       if (!on_level) return;
       sync_xv();
-      if (cfg.sf_overdensity > 0) amrex_pm_gather_stars(pm);
+      if (pm_stars) amrex_pm_gather_stars(pm);
     };
     // the star-formation sink: the hydro's events of the last call become
     // star particles on the PM level (collective)
     std::int64_t nstar_step = 0;
     auto sink_to_stars = [&]() {
-      if (!(cfg.sf_overdensity > 0)) return;
+      if (!pm_stars) return;
       std::vector<SinkEvent> ev;
       amrex_hydro_take_sink_events(ev);
       nstar_step += amrex_pm_add_stars(pm, ev, s.clk.scalefactor);
@@ -1306,6 +1338,7 @@ int main(int argc, char** argv) {
     // rank 0's copy, the Ray files from the host rays; the same files in
     // the same order. Collective.
     auto write_data_files_streamed = [&](const std::string& tag, bool data1, const std::string& which) {
+      if (which == "none") return;
       auto SG = [&](const std::string& path, int c0, int nc) {
         F32Out f(path, io);
         amrex_state_stream_gas(s, c0, nc, [&](const StreamSlab& sl) { f.write(sl.data, sl.ncell() * nc); });
@@ -1485,7 +1518,7 @@ int main(int argc, char** argv) {
       write_f32(path, slabbuf.data(), slabbuf.size());
     };
     // gammaHI: the HI component of rt_grid%gamma alone (one float per cell)
-    std::vector<float> gammahi_buf, gion, gavg_buf;
+    std::vector<float> gammahi_buf, gion, gavg_buf, vmag_buf;
     auto gamma_hi = [&](const RTGrid& G) -> const std::vector<float>& {
       gammahi_buf.resize(static_cast<std::size_t>(G.ncell));
       for (std::int64_t c = 0; c < G.ncell; ++c) gammahi_buf[c] = G.gamma[c * 3];
@@ -1668,7 +1701,17 @@ int main(int argc, char** argv) {
         else if (fld == "ngam") v = &G.ngam;
         else if (fld == "gamma") v = &G.gamma;
         else if (fld == "gammaHI") v = &gamma_hi(G);
-        else if (fld == "gammaHI_avg") {  // the running substep average of this hydro step
+        else if (fld == "vmag") {  // |v| of the gas, proper peculiar km/s
+          vmag_buf.resize(static_cast<std::size_t>(G.ncell));
+          const double vk = ss.units.vel_unit / 1e5;
+          for (std::int64_t c = 0; c < G.ncell; ++c) {
+            const float* p = &ss.gas.u[static_cast<std::size_t>(c) * 5];
+            vmag_buf[c] = static_cast<float>(
+                std::sqrt(static_cast<double>(p[1]) * p[1] + static_cast<double>(p[2]) * p[2] +
+                          static_cast<double>(p[3]) * p[3]) / p[0] * vk);
+          }
+          v = &vmag_buf;
+        } else if (fld == "gammaHI_avg") {  // the running substep average of this hydro step
           if (!use_amrex(cfg)) gamma_avg_field(ss, gavg_buf);
           v = &gavg_buf;
         } else throw std::runtime_error("movie_fields: unknown field " + fld);
@@ -1753,7 +1796,7 @@ int main(int argc, char** argv) {
       if (on_level) {  // the grids from the file and rank 0's particles onto the levels
         read_checkpoint_grids(restart_from, s);
         amrex_pm_load_particles(pm);
-        if (cfg.sf_overdensity > 0) amrex_pm_load_stars(pm);  // the sink's stars (version 8)
+        if (pm_stars) amrex_pm_load_stars(pm);  // the sink's stars (version 8)
       }
       // Stage F: the refined hydro levels of the checkpoint (a checkpoint
       // without them starts with level 0 only and regrids at the first step)
@@ -1918,6 +1961,30 @@ int main(int argc, char** argv) {
       // Summarize variables
       summaries();
 
+      // On-the-fly diagnostics (diag_dz > 0, igm_diag.hpp): every diag_dz
+      // in redshift and at the zdata1 outputs
+      if (P.diag_dz > 0) {
+        const double z_prev = 1 / (s.clk.scalefactor - s.clk.da_sim) - 1;
+        const double z0 = P.diag_z0 > 0 ? P.diag_z0 : zdata1.front();
+        if (data1_out || diag_due(z0, P.diag_dz, z_prev, s.clk.redshift)) {
+          const auto tp = Clock::now();
+          const std::string tag = pm::ztag(s.clk.redshift);
+          std::filesystem::create_directories(odir + "/Diag");
+          VelocitySpectrum vs;
+          velocity_spectrum(s.gas.u.data(), cfg.Ngas, cfg.box, s.units.vel_unit / 1e5, P.diag_nbins,
+                            std::min(par::max_threads(), 32), vs);
+          write_velocity_spectrum(odir + "/Diag/ek." + tag, s.clk.redshift, cfg.Ngas, cfg.box, vs);
+          // T-Delta once the RT has set its temperatures (not at the
+          // landing step of z_re in the plane-parallel mode)
+          if (std::any_of(s.rt.temp.begin(), s.rt.temp.end(), [](float t) { return t > 0; })) {
+            TDeltaHist th;
+            tdelta_hist(s.gas.u.data(), s.rt.temp.data(), s.rt.ncell, cfg.Ngas, th);
+            write_tdelta(odir + "/Diag/tdelta." + tag, s.clk.redshift, th);
+          }
+          T.pk += std::chrono::duration<double>(Clock::now() - tp).count();
+        }
+      }
+
       // IO
       th = Clock::now();
       const std::string d = step_dir();
@@ -1928,7 +1995,7 @@ int main(int argc, char** argv) {
           write_data_files_streamed(pm::ztag(s.clk.redshift), false, P.data_files);
         else if (io)
           write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, false, P.data_files);
-        if (cfg.sf_overdensity > 0 && io) {
+        if (pm_stars && io) {
           write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
           write_sink_summary(odir + "/sink.txt", pm);
         }
@@ -1966,7 +2033,7 @@ int main(int argc, char** argv) {
           write_data_files_streamed(pm::ztag(s.clk.redshift), true, P.data_files);
         else if (io)
           write_data_files(odir, pm::ztag(s.clk.redshift), s, pm.xv, hs.v, true, P.data_files);
-        if (cfg.sf_overdensity > 0 && io) {
+        if (pm_stars && io) {
           write_stars(odir + "/DM/stars." + pm::ztag(s.clk.redshift), pm.stars);
           write_sink_summary(odir + "/sink.txt", pm);
         }
@@ -2061,7 +2128,7 @@ int main(int argc, char** argv) {
     }
 
     backend_barrier();
-    if (cfg.sf_overdensity > 0) {  // the sink's final count and mass (sink.txt)
+    if (pm_stars) {  // the sink's final count and mass (sink.txt)
       amrex_pm_gather_stars(pm);
       if (io) write_sink_summary(odir + "/sink.txt", pm);
     }
@@ -2097,10 +2164,16 @@ int main(int argc, char** argv) {
                   static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_reset),
                   static_cast<long long>(U.cells_synced), static_cast<long long>(U.floor_T),
                   static_cast<long long>(U.floor_rho));
+      if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
+        std::printf(" serial sink (mass removed): %lld events, %.6g mean-gas cell masses (%.4g of the gas)\n",
+                    static_cast<long long>(U.sink_events), U.sink_mass, U.sink_mass / static_cast<double>(cfg.Ncell));
       timing << "# unsplit calls " << U.calls << " substeps " << U.substeps << " max_substeps "
              << U.max_substeps << " cells_from_e " << U.cells_from_e << " cells_reset "
              << U.cells_reset << " cells_synced " << U.cells_synced << " floor_T " << U.floor_T
              << " floor_rho " << U.floor_rho << "\n";
+      if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
+        timing << "# serial_sink events " << U.sink_events << " mass " << std::setprecision(10) << U.sink_mass
+               << " gas_fraction " << U.sink_mass / static_cast<double>(cfg.Ncell) << "\n";
     }
     timing << "# " << format_rt_timers(s.timers) << "\n";
     if (use_amrex_hydro(cfg)) timing << "# " << amrex_hydro_timers() << "\n";

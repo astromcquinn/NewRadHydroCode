@@ -39,7 +39,8 @@ import sys
 
 import numpy as np
 
-# cosmo_parameters.f90 / physical_constants.f90 (include/radray/constants.hpp)
+# cosmo_parameters.f90 / physical_constants.f90 (include/radray/constants.hpp): the
+# default cosmology; a run's omegam and hubble0 from its params.txt replace them
 OM, H0 = float(np.float32(0.27)), float(np.float32(0.70))
 H0_CGS, MPC = 3.24086e-18, 3.08560e24
 
@@ -94,7 +95,7 @@ def outputs(run):
     return uniq
 
 
-def velocity(path, N, z, box, weight):
+def velocity(path, N, z, box, weight, om=OM, h0=H0):
     """v (km/s, proper peculiar), [3, N, N, N] in [k, j, i]; optionally
     weighted by sqrt(rho/<rho>)."""
     u = np.fromfile(path, dtype=np.float32)
@@ -102,8 +103,8 @@ def velocity(path, N, z, box, weight):
         sys.exit(f"{path}: {u.size} floats, not 5 N^3 with N = {N}")
     u = u.reshape(N, N, N, 5).astype(np.float64)
     a = 1 / (1 + z)
-    dl = a * box / H0 / N * MPC
-    time_unit = 2 / (3 * H0_CGS * H0 * np.sqrt(OM)) * a ** 2
+    dl = a * box / h0 / N * MPC
+    time_unit = 2 / (3 * H0_CGS * h0 * np.sqrt(om)) * a ** 2
     vel_unit = dl / time_unit / 1e5  # km/s per grid velocity
     rho = u[..., 0]
     v = u[..., 1:4] / rho[..., None] * vel_unit
@@ -161,12 +162,13 @@ def main():
         run = run_dir(path)
         P = params_of(run)
         N, box = int(P["N"]), float(P.get("box", 5))
+        om, h0 = (float(np.float32(P[k])) if k in P else d for k, d in (("omegam", OM), ("hubble0", H0)))
         label = label or os.path.basename(os.path.dirname(run.rstrip("/"))) or run
         outs = outputs(run)
         want = outs if a.z is None else [min(outs, key=lambda t: abs(t[0] - z)) for z in a.z]
         shells = Shells(N, box * 1e3, a.nbins)
         for z, ug in want:
-            E = shells.energy(velocity(ug, N, z, box, a.weight))
+            E = shells.energy(velocity(ug, N, z, box, a.weight, om, h0))
             v2 = 2 * np.sum(E * shells.dk)
             rows.append(dict(label=label, z=z, N=N, box=box, k=shells.k.tolist(), E=E.tolist(),
                              count=shells.cnt.tolist(), v2=float(v2)))

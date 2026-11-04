@@ -337,6 +337,22 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
         }
       }
     }
+    // plane_couple_courant > 0 (config.hpp; docs/plane_parallel.md): every
+    // step from the turn-on on is at most plane_couple_courant dx / c_hot,
+    // the coupling interval of the RT heating and cooling with the hydro as
+    // a fraction of the hot gas's cell crossing (dx = x_unit, so dt_sim =
+    // C / c_hot in code units). A function of a only (restarts repeat it).
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_couple_courant > 0 && u != nullptr &&
+        mode != TimestepMode::Fixed) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (a >= a_re * (1 - 1e-9)) {
+        const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
+        const double c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
+        double da_c = 0, dty = 0;
+        calc_da_from_dt(cfg.cosmo, a, da_c, cfg.plane_couple_courant / c_hot, dty);
+        if (da_c < da_cap) da_cap = da_c;
+      }
+    }
     if (da_cap < clk.da_sim) {
       clk.da_sim = da_cap;
       calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
@@ -376,6 +392,12 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
                  clk.nstep_rt, dl_c / dl_rt * cscale, cscale, cfg.rt_cells_per_substep);
     clk.nstep_rt = 1;
   }
+  // plane_xray_substeps > 0 (plane mode, before plane_z_re): the X-ray-only
+  // RT steps take a fixed count (no rays to carry); the carry above is kept
+  // for the steps after the turn-on
+  if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_xray_substeps > 0 &&
+      a < 1 / (1 + cfg.plane_z_re) * (1 - 1e-9))
+    clk.nstep_rt = cfg.plane_xray_substeps;
   clk.dt_rt = clk.dt_sim / clk.nstep_rt;
   clk.dtyr_rt = clk.dt_yr * (clk.dt_rt / clk.dt_sim);
   clk.dtsec_rt = clk.dt_sec * (clk.dt_rt / clk.dt_sim);
