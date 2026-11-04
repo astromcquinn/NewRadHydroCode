@@ -1576,6 +1576,49 @@ be designed); `recomb_rad` on the backend (block emission and
   of 4e-6 of the force at one cell near a boundary (`docs/stage_g.md`
   §1.1, §3), to be revisited only if the zoom runs show the region's
   boundary doing something unphysical.
+* **Decisions (user, 2026-10-29), from the zoom cost discussion:**
+  - **About 10 rays per fine cell** in the zoom levels: the per-level ray
+    budget stays at `nray_max_factor` × the level's cells (production 15;
+    the 512³ run held ~11 per base cell). The Z3 RT estimate is therefore
+    its upper case, ~2.5 × 10⁵ core-hours (`docs/zoom_turbulence.md` §4.4,
+    §7); the beams at the zoom boundary remain the fallback if the
+    measured cost at Z1/Z2 demands it.
+  - **The fine levels need gravity on a finer timescale than the base
+    step.** Today (Stage G) every level is kicked once per base step;
+    sub-cycling the PM per level (a level solve and kick at each level's
+    own step, Enzo/RAMSES style) is a new work item for WP3 before Z2.
+    Cost: up to about the hydro's again at the finest level (~3 × 10⁴
+    core-hours at Z3 if solved at every finest-level step).
+* **Follow-up built (2026-10-31, branch `stage-g-subcycle`):**
+  `pm_level_subcycle` (`docs/stage_g.md` §6). Implementer's choices for
+  review (§6.7): kick–drift–kick per refined substep (Strang with the
+  hydro, one solve per substep); level 0 solved by FFT after each of its
+  hydro substeps for level 1's boundary values (4 FFTs per base step; its
+  kick still once); the parent's closing solve with its children's mass
+  predicted by a virtual drift, no corrector; level-0 particles enter the
+  hierarchy only at the hydro calls' starts; orphans up to 2 cells.
+* **Decisions (user, 2026-11-02), on `pm_level_subcycle`'s open choices
+  (`docs/stage_g.md` §6.7):**
+  - **Level 0's 4 FFTs per base step are accepted:** level 0 is solved
+    after each of its hydro substeps (and at each hydro call's start) for
+    level 1's time-interpolated boundary values; its kick stays once per
+    base step. (The alternative, level 0's potential held constant over
+    each half step, is not built.)
+  - **No corrector solve for now; revisit at Z1.** A level's closing solve
+    keeps using its children's predicted mass. The diagnostic
+    `RADRAY_PM_CORRECTOR_CHECK=1` computes the corrector, reports its
+    difference from the prediction near each level boundary and discards
+    it (results unchanged), so Z1 can decide whether it is needed.
+* **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
+  levels for now.** Each zoom level is the bounding box of its tagged
+  region (the cells holding particles of a finer mass class) plus the
+  nesting buffer: one rectangle per level that follows the region's bulk
+  flow, so the level solve's multigrid always coarsens to a few cells.
+  The cost is the cells between the Lagrangian region and its box
+  (estimated 1.5–3× per level, not measured). Irregular levels (tight
+  Lagrangian levels, or `pm_level_solve` in density-tagged runs) would
+  need the gravity mesh padded to the bounding box (`docs/stage_g.md`
+  §5.1); not built until needed.
 
 ## Zoom-in turbulence programme (2026-10-22)
 

@@ -895,7 +895,12 @@ int main(int argc, char** argv) {
       throw std::runtime_error("diag_dz > 0 and movie_fields vmag need the host grids (amrex_state = 0), "
                                "Nrt = Ngas, hydro_scheme = unsplit and diag_nbins >= 1");
     init_hydro(cfg, s.gas, hs);                        // init_hydro
-    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && !io));  // init_pm
+    // amrex_pk = level: the power spectrum on the levels, so rank 0 keeps
+    // only the particles of the host PM arrays (the halo finder's)
+    const bool pk_level = on_level && cfg.amrex_pk == 1;
+    if (cfg.amrex_pk == 1 && !on_level) throw std::runtime_error("amrex_pk = level needs amrex_state = 1");
+    pm::init_pm(pm, pm::PMConfig::make(cfg), gdom, !(on_level && (!io || pk_level)));  // init_pm
+    if (pk_level && io) pm.xv.assign(static_cast<std::size_t>(6 * pm.pc.Npart), 0.0f);
     init_rt(s);                                        // init_rt (rates)
     init_ray_tracing(s);                               // init_ray_tracing
     plane_init(s);                                     // plane_parallel = 1: the face sources
@@ -956,7 +961,7 @@ int main(int argc, char** argv) {
     int& idata2 = dst.idata2;
     bool& data1_out = dst.data1_out;
     bool& data2_out = dst.data2_out;
-    if (!(on_level && !io)) fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
+    if (!(on_level && (!io || pk_level))) fft::fft_3d('f', pm.pc.Nm, pm.pc.Nm, pm.pc.Nm, pm.density.data());  // init_fft
     if (on_level && !io) {
       // amrex_state = 1: the particles live on the level; rank 0 keeps the
       // host PM arrays as the mirror (the halo finder, P(k), the outputs)
@@ -1784,7 +1789,7 @@ int main(int argc, char** argv) {
 
     // Restart: the complete state of the end of a step (checkpoint.hpp)
     if (!restart_from.empty()) {
-      read_checkpoint(restart_from, s, hs, pm, dst);
+      const int ckpt_version = read_checkpoint(restart_from, s, hs, pm, dst);
       if (out) *out << " radhydro: restarted from " << restart_from << " at step " << s.clk.istep << "\n";
       calc_sim_var(cfg, s.clk, s.units);
       init_unsplit_state(cfg, s.units, s.gas, hs);  // no-op unless a legacy checkpoint
@@ -1795,8 +1800,12 @@ int main(int argc, char** argv) {
       }
       // Stage F: the refined hydro levels of the checkpoint (a checkpoint
       // without them starts with level 0 only and regrids at the first step)
-      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr"))
+      if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0 && std::filesystem::is_directory(restart_from + ".amr")) {
         amrex_hydro_read_levels(cfg, cfg.Ngas, restart_from + ".amr");
+        // the RT's levels, their rays and fgam as they were (version 9
+        // keeps the refined levels' dr, checkpoint.cpp)
+        if (use_amrex(cfg)) amrex_rt_restore_levels(s, ckpt_version >= 9, restart_from + ".amr");
+      }
       update_sched_x();  // the checkpoint's RT grid: the last step's x_HII,V
     } else {
       // Summarize the initial state
@@ -1840,7 +1849,7 @@ int main(int argc, char** argv) {
       const TimestepInfo ti =
           calc_timestep(cfg, s.units, TimestepMode::Original, 0.0, s.clk, out);
       // Set IO flags (calc_timestep)
-      if (ti.a2 >= adata1[idata1 - 1]) data1_out = true;
+      if (idata1 <= Ndata1 && ti.a2 >= adata1[idata1 - 1]) data1_out = true;
       if (idata2 <= Ndata2)
         if (ti.a2 >= adata2[idata2 - 1]) data2_out = true;
 
@@ -1848,6 +1857,10 @@ int main(int argc, char** argv) {
       // or one unsplit step over dt_sim/2 (hydro_scheme = unsplit)
       auto th = Clock::now();
       nstar_step = 0;
+      // pm_level_subcycle: the refined levels' gravity inside the hydro calls
+      // (docs/stage_g.md section 6)
+      const bool pm_sub = use_amrex_pm(cfg) && amrex_pm_subcycled(pm);
+      if (pm_sub) amrex_pm_subcycle_call(pm, s.clk);
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::First, s.gas, hs);
       sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
@@ -1870,7 +1883,13 @@ int main(int argc, char** argv) {
       // Reverse hydro step with transposes in between (legacy), or the
       // second unsplit step over dt_sim/2
       th = Clock::now();
+      if (pm_sub) amrex_pm_subcycle_call(pm, s.clk);
       hydro_half_step(cfg, s.units, s.clk, HydroHalf::Second, s.gas, hs);
+      if (pm_sub) {  // level 0's second drift, the particles onto their levels (before this call's stars)
+        const auto tp = Clock::now();
+        amrex_pm_subcycle_finish(pm, s.clk);
+        T.pm += std::chrono::duration<double>(Clock::now() - tp).count();
+      }
       sink_to_stars();
       T.hydro += std::chrono::duration<double>(Clock::now() - th).count();
 
@@ -1989,10 +2008,13 @@ int main(int argc, char** argv) {
         // (amrex_state = 1: the host P(k) on rank 0's PM mesh; its FFT and
         // the DM linking are the host's, redundant until Stage E's P(k) on
         // the level)
-        if (on_level) {
+        if (pk_level) {
+          // on the PM and gas levels (every rank gets the result)
+          amrex_pm_power_spectrum(pm, cfg.box, pk_dm, pk_gas);
+        } else if (on_level) {
           // the gas density streamed onto rank 0 (its only grid array here;
-          // the DM part still uses rank 0's host PM mesh,
-          // docs/rank0_streaming.md step 11)
+          // the DM part uses rank 0's host PM mesh; amrex_pk = level moves
+          // it onto the levels, docs/rank0_streaming.md step 11)
           sync_xv();
           std::vector<float> rho(io ? static_cast<std::size_t>(cfg.Ncell) : 0);
           amrex_state_stream_gas(s, kStreamGasU, 1, [&](const StreamSlab& sl) {
@@ -2023,7 +2045,10 @@ int main(int argc, char** argv) {
           tensor_diag_write(s, d, io);
         }
       }
-      const bool last = s.clk.redshift <= zdata1[Ndata1 - 1];
+      // land_outputs = 1: the clock's two half steps can leave the redshift a few
+      // ulp above the last output it landed on; the run ends once that output
+      // is written
+      const bool last = s.clk.redshift <= zdata1[Ndata1 - 1] || (cfg.land_outputs && idata1 > Ndata1);
       write_stats(d);
       update_sched_x();
       if (fields || last) {
@@ -2076,7 +2101,10 @@ int main(int argc, char** argv) {
           std::snprintf(name, sizeof name, "/restart/checkpoint_%04d.bin", s.clk.istep);
         write_checkpoint(odir + name, s, hs, pm, dst);
         // Stage F: the refined hydro levels next to it (docs/stage_f.md)
-        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) amrex_hydro_write_levels(odir + name + ".amr");
+        if (use_amrex_hydro(cfg) && cfg.amrex_max_level > 0) {
+          amrex_hydro_write_levels(odir + name + ".amr");
+          if (use_amrex(cfg)) amrex_rt_write_levels(s, odir + name + ".amr");  // the RT levels' fgam
+        }
         if (P.restart_keep > 0 && io) {
           // keep the newest restart_keep numbered checkpoints (names sort by step)
           std::vector<std::string> ck;

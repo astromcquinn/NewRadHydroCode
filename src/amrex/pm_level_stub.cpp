@@ -17,6 +17,7 @@ void amrex_pm_step_unsplit(pm::PMState&, float*, const float*, double, SimClock&
   no_amrex();
 }
 void amrex_pm_fields(pm::PMState&, const float*, double) { no_amrex(); }
+void amrex_pm_power_spectrum(pm::PMState&, double, std::vector<double>&, std::vector<double>&) { no_amrex(); }
 void amrex_pm_force_at(pm::PMState&, const std::vector<float>&, std::vector<double>&, std::vector<int>*) { no_amrex(); }
 std::string amrex_pm_timers(const pm::PMState&) { return ""; }
 void amrex_pm_load_particles(pm::PMState&) { no_amrex(); }
@@ -25,5 +26,8 @@ std::int64_t amrex_pm_gather_stars(pm::PMState&) { no_amrex(); }
 void amrex_pm_load_stars(pm::PMState&) { no_amrex(); }
 void amrex_pm_gather_particles(pm::PMState&) { no_amrex(); }
 void amrex_pm_drift(pm::PMState&, double) { no_amrex(); }
+bool amrex_pm_subcycled(const pm::PMState&) { return false; }
+void amrex_pm_subcycle_call(pm::PMState&, const SimClock&) { no_amrex(); }
+void amrex_pm_subcycle_finish(pm::PMState&, SimClock&) { no_amrex(); }
 
 }  // namespace radray

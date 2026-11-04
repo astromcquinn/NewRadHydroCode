@@ -404,22 +404,41 @@ struct Config {
   //                the solve is rank-independent; it stops early when the
   //                residual is below pm_mlmg_tol times the initial one);
   //   pm_mlmg_tol:   that relative residual target (0 = always the full count);
-  //   pm_mlmg_bottom_sweeps: the Gauss-Seidel sweeps of the bottom solve
-  //                (the coarsest multigrid level; a level whose width has
-  //                an odd factor, e.g. 144 = 16 x 9 cells, coarsens only a
-  //                few times and its bottom grid is large: 64 sweeps keep
-  //                the V-cycles converging there, at no cost on a deep
-  //                hierarchy);
+  //   pm_mlmg_bottom_sweeps: the minimum Gauss-Seidel sweeps of the bottom
+  //                solve (the coarsest multigrid level; default 8, AMReX's);
+  //                a rectangular level gets at least the square of its
+  //                bottom grid's width (a level whose width has an odd
+  //                factor, e.g. 144 = 16 x 9 cells, coarsens only to 9^3: 81
+  //                sweeps); a solve ending at pm_mlmg_iters above 1e-6 is
+  //                reported;
+  //   pm_mlmg_bottom_scale: the width^2 rule above is ceil(scale * width^2)
+  //                (default 1);
   //   pm_mlmg_verbose: 1 prints the MLMG residuals (rank 0).
+  //   pm_level_subcycle: with pm_level_solve (and refinement) every refined
+  //                level gets its gravity on its own time step
+  //                (docs/stage_g.md section 6): its particles and gas are
+  //                kicked, drifted and solved for inside its hydro substeps
+  //                (kick-drift-kick, the boundary values from the parent's
+  //                potential interpolated in time), level 0 keeps its one
+  //                kick per base step. 0 (default): every level is kicked
+  //                once per base step. Needs pm_refine = 1.
   PMBackend pm_backend = PMBackend::Serial;
   int amrex_pm_max_grid_size = 0;
   int amrex_pm_fft = 0;
+  //   amrex_pk: the power spectrum of the data1 outputs (Pk/) with
+  //   amrex_state = 1: host (default; rank 0's host PM mesh and serial FFTs,
+  //   as before) or level (on the PM and gas levels with the pencil FFT and
+  //   exact bin sums: rank- and thread-independent, the host's at round-off;
+  //   rank 0 then frees its host PM mesh, docs/rank0_streaming.md step 11)
+  int amrex_pk = 0;
   int pm_gas_levels = 1;
   int pm_level_solve = 0;
   int pm_mlmg_iters = 20;
   double pm_mlmg_tol = 1e-10;
-  int pm_mlmg_bottom_sweeps = 64;
+  int pm_mlmg_bottom_sweeps = 8;
+  double pm_mlmg_bottom_scale = 1.0;
   int pm_mlmg_verbose = 0;
+  int pm_level_subcycle = 0;
   // params.txt hydro_backend = serial (default) | amrex (the unsplit step on
   // AMReX MultiFabs, MPI + OpenMP, bitwise identical to the serial unsplit
   // step; hydro_scheme = unsplit only; set_hydro_backend_param in

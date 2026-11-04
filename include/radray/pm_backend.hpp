@@ -49,6 +49,13 @@ void amrex_pm_step_unsplit(pm::PMState& s, float* u_gas, const float* e_gas, dou
 // potential, as calc_gravity_field leaves it) and s.fmesh (fmesh_valid =
 // true), so the host's force_at and gas_force read the backend's mesh.
 void amrex_pm_fields(pm::PMState& s, const float* u_gas, double scalefactor);
+// amrex_pk = level (docs/rank0_streaming.md step 11): calc_power_spectrum on
+// the levels: the dark matter's CIC density on the PM mesh (Nm) and the gas
+// density of the gas state (Ngas), each through the pencil FFT, binned as
+// calc_pk_3d (pk_dm deconvolved, pk_gas not) with exact (fixed-point) sums.
+// Collective; every rank gets the result. Needs amrex_state = 1 and the
+// particles on level 0 only (no pm_level_solve).
+void amrex_pm_power_spectrum(pm::PMState& s, double box, std::vector<double>& pk_dm, std::vector<double>& pk_gas);
 // pm_level_solve tests (docs/stage_g.md): after amrex_pm_fields, the force
 // a particle at each position of xs (DM-grid units, 3 per point) would
 // receive from the finest level covering it, in level-0 mesh units (what
@@ -74,6 +81,17 @@ void amrex_pm_drift(pm::PMState& s, double dt_sim);
 // a_form; gather: every star into rank 0's s.stars (collective; returns
 // the count on every rank); load: s.stars (the same list on every rank, a
 // checkpoint read) onto the level, each rank keeping its own.
+// pm_level_subcycle (docs/stage_g.md section 6; pm_level_solve with
+// refinement): subcycled is s.pc.subcycle; then the PM step (after the
+// first hydro call) kicks level 0's particles and gas only and defers
+// level 0's second drift, and the caller calls amrex_pm_subcycle_call before
+// each of the base step's two hydro calls (clk at that call's start: the
+// refined levels' gravity runs inside it) and amrex_pm_subcycle_finish after
+// the second (level 0's deferred drift, every particle onto its level, the
+// kick statistics into clk). Collective.
+bool amrex_pm_subcycled(const pm::PMState& s);
+void amrex_pm_subcycle_call(pm::PMState& s, const SimClock& clk);
+void amrex_pm_subcycle_finish(pm::PMState& s, SimClock& clk);
 std::int64_t amrex_pm_add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form);
 std::int64_t amrex_pm_gather_stars(pm::PMState& s);
 void amrex_pm_load_stars(pm::PMState& s);

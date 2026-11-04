@@ -265,7 +265,11 @@ code's growing mode at z = 300 and the gas lags (0.74× at k = 50 h/Mpc,
   Lagrangian region through its bulk flow, the pad of each level is the
   particles' own spread, and a coarse particle inside the finest region
   is the standard contamination diagnostic (count and report it every
-  step). `amrex_refine_box` stays for the tests; density tagging stays
+  step). **Each level is the bounding box of its tags** (plus the
+  nesting buffer; user decision 2026-10-31, `docs/PLAN.md`): one
+  rectangle per level, so the level solve's multigrid coarsens to a few
+  cells and no irregular level arises, at the price of the cells between
+  the region and its box. `amrex_refine_box` stays for the tests; density tagging stays
   available in addition (off by default inside the zoom: the finest level
   must be uniform for the turbulence measurement, as in C26).
 * **Proper nesting:** `amrex_n_error_buf` and AMReX's `n_proper` give the
@@ -309,6 +313,23 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   zoom (32³ base, 2 levels) against the uniform 128³ run: halo masses
   and positions inside the region, gas density profiles; momentum
   conservation.
+* **Done (Stage G, `docs/stage_g.md`), with one gap (user decision
+  2026-10-29):** the level solve kicks every level once per base step;
+  the fine levels need gravity on their own, finer timescale. Next in
+  WP3: the PM sub-cycled per level (each level solves and kicks at its
+  own step, as its hydro sub-cycles), before Z2.
+* **Gap closed 2026-10-31 (`pm_level_subcycle = 1`, `docs/stage_g.md`
+  §6):** every refined level kick–drift–kicks in each of its hydro
+  substeps, solving at its own times with the parent's potential
+  interpolated in time; particles change level at the end of the parent's
+  substep; level 0 keeps one kick per base step. An orbit inside level 2
+  conserves energy 77× better; a collapsing halo's profile matches the
+  uniform fine run to 0.8 % (8.8 % with one kick per base step); T1's
+  inner-region error halves. Cost at Z1/Z2 to be measured (the klone
+  128³ profile first). Phase 2, each level's substep count from its own
+  CFL limit instead of always 2 (at Z3 ~100× fewer finest substeps when
+  the base step is short), needs no change on the gravity side and waits
+  for the user.
 
 ### 4.4 WP4: the RT into the zoom
 
@@ -327,6 +348,10 @@ zoom needs the force at 0.3 kpc/h. The route in `docs/ROADMAP.md` §6:
   the region is being ionized, at 140 B (or less with `rstruct`) and 2 µs
   per ray-substep: 10²–10³ core-s per substep, tens of GB. Measured at
   Z1 and Z2 before Z3. After overlap the merge criterion thins them.
+  **User (2026-10-29): about 10 rays per fine cell** (the per-level ray
+  budget `nray_max_factor` × cells, as the 512³ runs held ~11 per base
+  cell): the cost is then the upper estimate, every fine cell crossed by
+  ~10 rays per substep at ~0.25 µs per cell crossed.
 * **If that is too many: beams at the zoom boundary.** Rays entering a
   chosen level are binned per face cell and direction and re-emitted as
   non-splitting parallel rays, which is exactly C26's RT-domain scheme

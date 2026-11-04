@@ -4,7 +4,7 @@ a coarse base with two refined levels over the central eighth, gravity
 with the level solve, against the uniform run at the finest resolution.
 
 usage: pm_zoom_t1_check.py WORKDIR LAUNCH "LAUNCH_FLAGS" NPFLAG NP RADHYDRO FIND_HALOS SRC
-                           [--base 32] [--fine 128] [--box 10] [--zend 5] [--max-steps 400]
+                           [--base 32] [--fine 128] [--box 10] [--zend 5] [--max-steps 400] [--subcycle]
 
 The same Zel'dovich particles (fine^3, seed 7, BOX Mpc/h, z = 100 to ZEND)
 and uniform gas in three runs (no RT):
@@ -13,7 +13,9 @@ and uniform gas in three runs (no RT):
      fine resolution there), pm_level_solve = 1 with pm_refine = 1: the
      base mesh outside the region by the FFT, the levels by MLMG;
   C  the same hierarchy with the uniform fine^3 PM mesh (pm_gas_levels = 1,
-     pm_refine = fine/base): the Stage F coupling, the comparison.
+     pm_refine = fine/base): the Stage F coupling, the comparison;
+  D  (--subcycle) B with pm_level_subcycle = 1: the refined levels' gravity
+     in their own substeps (docs/stage_g.md section 6).
 Inside the region (particles by index, the same ICs): the rms and maximum
 displacement of B's and C's particles from A's (fine cells; also by
 distance from the region's centre), the CIC density on the fine grid of
@@ -112,6 +114,8 @@ def main():
     ap.add_argument("--zend", type=float, default=5.0)
     ap.add_argument("--max-steps", type=int, default=400)
     ap.add_argument("--keep", action="store_true", help="reuse existing runs")
+    ap.add_argument("--subcycle", action="store_true",
+                    help="also D: B with pm_level_subcycle = 1 (docs/stage_g.md section 6), held to B's criteria")
     a = ap.parse_args(sys.argv[9:])
     for name, val in zip(pos, sys.argv[1:9]):
         setattr(a, name, val)
@@ -149,6 +153,9 @@ def main():
     runs = {"A": (f"p{nf}", sets("pm_refine=1", "amrex_max_level=0")),
             "B": (f"p{nb}", sets("pm_refine=1", "pm_level_solve=1") + levels),
             "C": (f"p{nb}", sets(f"pm_refine={nf // nb}", "pm_gas_levels=1", "pm_level_solve=0") + levels)}
+    if a.subcycle:
+        runs["D"] = (f"p{nb}", sets("pm_refine=1", "pm_level_solve=1", "pm_level_subcycle=1") + levels)
+    cmpn = [n for n in ("B", "C", "D") if n in runs]
     for name, (p, extra) in runs.items():
         o = os.path.join(work, name)
         if a.keep and glob.glob(os.path.join(o, "DM", "xv_dm*")):
@@ -168,7 +175,7 @@ def main():
     inner = rc < 0.75 * half
     print(f"region: fine cells [{lo}, {hi})^3, {inside.sum()} of {npart} particles of A inside, {inner.sum()} in its inner half")
     stats = {}
-    for name in ("B", "C"):
+    for name in cmpn:
         dx = xv[name][:, :3] - xa
         dx -= nf * np.round(dx / nf)
         d = np.sqrt((dx ** 2).sum(axis=1))
@@ -194,7 +201,7 @@ def main():
         fr = [float((rho > t).mean()) for t in (2, 11, 101)]
         pdf[name] = (rho, fr)
         print(f"{name}: region density: cells above overdensity 1 / 10 / 100: {fr[0]:.4f} / {fr[1]:.4f} / {fr[2]:.5f}")
-    for name in ("B", "C"):
+    for name in cmpn:
         d = pdf[name][0] - pdf["A"][0]
         print(f"{name} vs A: region density rms difference / rms {np.sqrt((d ** 2).mean()) / np.sqrt((pdf['A'][0] ** 2).mean()):.3e}")
     # the halos
@@ -213,7 +220,7 @@ def main():
     xa_h, na_h = cats["A"]
     big = na_h >= 4 * NMIN
     match = {}
-    for name in ("B", "C"):
+    for name in cmpn:
         xb, nbh = cats[name]
         npos, nmass, dm2, ratios = 0, 0, [], []
         for i in np.nonzero(big)[0]:
@@ -233,18 +240,19 @@ def main():
               f"within 2 fine cells ({npos / nb_:.3f}), {nmass} of those within 40 % in mass ({nmass / nb_:.3f}); "
               f"rms dlog10 M of the matched {np.sqrt(np.mean(dm2)) if dm2 else float('nan'):.3e}; mass ratios "
               + " ".join(f"{x:.2f}" for x in ratios))
-    # the criteria (B)
-    if not stats["B"][4] < 0.3:
-        fails.append(f"B particles in the inner half of the region: rms {stats['B'][4]:.3e} >= 0.3 fine cells")
-    if big.sum() >= 5:
-        if not match["B"][0] >= 0.9:
-            fails.append(f"B halos found within 2 cells {match['B'][0]:.3f} < 0.9")
-        if not match["B"][1] >= 0.75:
-            fails.append(f"B halos within 40 % in mass {match['B'][1]:.3f} < 0.75")
+    # the criteria (B, and D with --subcycle)
     ncell = float((hi - lo) ** 3)
-    for t, (fa, fb) in enumerate(zip(pdf["A"][1], pdf["B"][1])):
-        if fa * ncell >= 100 and not abs(fb / fa - 1) < 0.25:
-            fails.append(f"B density PDF fraction {t} {fb:.4g} vs A {fa:.4g}")
+    for nm in [n for n in ("B", "D") if n in runs]:
+        if not stats[nm][4] < 0.3:
+            fails.append(f"{nm} particles in the inner half of the region: rms {stats[nm][4]:.3e} >= 0.3 fine cells")
+        if big.sum() >= 5:
+            if not match[nm][0] >= 0.9:
+                fails.append(f"{nm} halos found within 2 cells {match[nm][0]:.3f} < 0.9")
+            if not match[nm][1] >= 0.75:
+                fails.append(f"{nm} halos within 40 % in mass {match[nm][1]:.3f} < 0.75")
+        for t, (fa, fb) in enumerate(zip(pdf["A"][1], pdf[nm][1])):
+            if fa * ncell >= 100 and not abs(fb / fa - 1) < 0.25:
+                fails.append(f"{nm} density PDF fraction {t} {fb:.4g} vs A {fa:.4g}")
     if fails:
         print("FAIL:\n  " + "\n  ".join(fails))
         sys.exit(1)
