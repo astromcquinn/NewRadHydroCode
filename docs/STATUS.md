@@ -104,6 +104,27 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   `_ranks_smoke`, `_restart_smoke`, `_identity_smoke`; nightly `_rt_ranks`,
   `_rt_restart`, `_collapse`, `amrex_pm_zoom_t1_subcycle`).
 
+## Done 2026-10-30: `land_outputs = 1` ends the run on its last output (branch `land-outputs-end`, PR #19)
+
+- **Symptom:** the nightly `plane_dm20` failed every night from its
+  addition (PR #9) to 2026-10-30 with "the run ended at z = 6.770"; the
+  same on klone, so not a platform or cosmology-merge effect.
+- **Cause:** the test did not set `land_outputs`, so its last step
+  crossed z = 7. With `land_outputs = 1` the step lands on the output, but
+  the clock adds `da_sim` in two halves and its redshift ends a few ulp
+  above it (7.0000000000000178). The exit test `redshift <= zdata1(Ndata1)`
+  missed it, the run took one more step, and that step's data1 trigger
+  read `adata1` one past its end and wrote an extra output (z = 6.755).
+  Any `land_outputs = 1` run (every `make_production.py --plane-parallel`
+  run) could do this, depending on how its last landing rounds; the
+  linear-growth runs were not affected.
+- **Fix** (`apps/radhydro.cpp`): with `land_outputs = 1` the run also ends
+  once every `zdata1` output is written, and the data1 trigger checks
+  `idata1 <= Ndata1`. `land_outputs = 0` (the default) is unchanged.
+- **Test:** `plane_full_check.py --dm20` uses `land_outputs = 1`, requires
+  |z - 7| < 1e-9 at the end and exactly the ten `zdata1` outputs. The
+  nightly on `main` has passed every day since (2026-10-31 to 2026-11-03).
+
 ## Done 2026-10-29: linear growth from MUSIC ICs (branch `music-linear-growth`)
 
 User request: "Have we tested linear growth for DM and gas with MUSIC ICs?"
