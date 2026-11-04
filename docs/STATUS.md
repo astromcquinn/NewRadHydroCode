@@ -113,7 +113,8 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   (`music-linear-growth`) → #11 (`claude/modest-mendel-8k29sb`); #6
   (`compare-movie-res`) merges on its own. Merged in this order, each PR
   merges cleanly; until its predecessors are on `main` its diff shows
-  theirs too. Besides the documents:
+  theirs too. (All five merged by 2026-11-02; #18 merged with
+  `main` on 2026-11-04.) Besides the documents:
   * #13 against the runtime cosmology of `main` (PR #8):
     `calc_da_from_dt` now takes the `Cosmology`; the turn-on cap passes
     `cfg.cosmo` (a compile error after the merge, no change of results).
