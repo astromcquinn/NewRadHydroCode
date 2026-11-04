@@ -79,7 +79,14 @@ per dimension in the periodic box, dx = 2^-l level-0 mesh cells.
    level's mass as its own CIC would, times one more half-fine-cell
    top-hat (a slightly softer source: the far field is the base mesh's).
    Mass is conserved; the spill goes through the same stencil into the
-   parent cells outside the level. Integer arithmetic throughout.
+   parent cells outside the level. Integer arithmetic throughout, and
+   exact: a parent cell whose stencil spans several of the level's boxes
+   gets one partial sum per box, each kept as its floor quotient by 512
+   and remainder, and divided once after the boxes' partials are added,
+   so the parent's total does not depend on how the level's boxes are cut
+   (AmrMesh chops them by the rank count). (Before 2026-11-02 each
+   partial was truncated before the sum, a rank dependence of ~1e-13 of
+   level 0's deposit; exact only under `pm_level_subcycle`, §6.9 item 3.)
 4. **Density.** Level l's density is its gas (the level's own cells,
    spread over the `pm_refine`³ mesh cells of each; level 0's gas is the
    composite the hydro averages down) + tot(l) + own(l − 1) prolonged
@@ -211,12 +218,12 @@ FFTW 3.3.10).
     one cell (< 1e-5 required).
   - *Against the uniform mesh.* Level 1 over the whole box on 16³ random
     particles: the forces at 2000 random points against the uniform
-    `pm_refine = 2` backend's, max |ΔF| / max |F| = 3.7e-7 (the MLMG
+    `pm_refine = 2` backend's, max |ΔF| / max |F| = 3.2e-7 (the MLMG
     solution to 1e-11 against the FFT's; < 1e-4 required): the same
     discrete problem.
   - *Momentum.* One unsplit step from rest with 16³ random particles and
     random gas: |ΔP_DM + ΔP_gas| / Σ|p| = 5e-10 (level 1 everywhere),
-    2e-9 (levels 1 and 2 everywhere; < 1e-6 required), 5.3e-4 and 6.4e-4
+    5e-9 (levels 1 and 2 everywhere; < 1e-6 required), 5.3e-4 and 6.4e-4
     with the regions (< 1e-2 required; the Dirichlet boundary, §1.1).
 - `amrex_pm_level_solve_check` (`pm_level_solve_check.py`, 2 ranks,
   34 s): the equivalence test of `pm_gas_levels_check.py` with the level
@@ -306,6 +313,15 @@ Also run here: the `amrex_pm` label (the Stage E tests, `pm_level_solve`
 off: 76 tests, all passing, the stored references bitwise) after the
 particle-mass change (`dm_mass_ratio`).
 
+**The exact restriction (2026-11-02, §1 item 3):** `ctest -L level_solve`
+with `RADRAY_NIGHTLY_TESTS=ON` (22 tests, the nightly
+`amrex_pm_level_solve_rt_ranks`, `_rt_restart` and `amrex_pm_zoom_t1`
+included) passes. Against the truncating restriction, of the numbers
+above only the unit test's change (level 1 everywhere against the uniform
+mesh 3.7e-7 → 3.2e-7; momentum with levels 1 and 2 everywhere 2e-9 →
+5e-9, level 1 everywhere 5.4e-10 → 5.2e-10); `pm_level_solve_check` and
+T1 (§4) print the same digits.
+
 ## 4. T1: the zoom ladder's first rung
 
 `tests/pm_zoom_t1_check.py` (nightly `amrex_pm_zoom_t1`, 2 ranks, 3.2
@@ -342,7 +358,8 @@ two (0.64, 0.75: halos at the region's edge, fed from the coarse base).
 The test passes when B's inner-half particles stay within 0.3 fine cells
 rms of A's, 90 % of those halos are found within 2 cells and 75 % of
 them within 40 % in mass, and the density PDF fractions agree with A's to
-25 % where A has ≥ 100 cells above the threshold.
+25 % where A has ≥ 100 cells above the threshold. (With the exact
+restriction, 2026-11-02, every number printed is unchanged.)
 
 ## 5. Timing
 
@@ -829,12 +846,11 @@ All on the 4-core VM (OpenMPI 4.1.6, AMReX 26.10 with the linear solvers,
      depended on how the level's boxes are cut, i.e. on the rank count
      (AmrMesh chops the refined grids by it): 1 and 3 ranks differed by
      ~1e-13 of TOT(0) at the smoke problem's step 15 and the particles
-     diverged. With the flag the partials carry their floor quotient and
-     remainder through the sum and are divided once (exact). Without the
-     flag the truncation is kept (byte-identity); it is a latent rank
-     dependence of `pm_level_solve` itself, harmless in the tests so far
-     (the float rounding of the density absorbs it) and left for a
-     separate fix.
+     diverged. The partials now carry their floor quotient and remainder
+     through the sum and are divided once (exact). This was first done
+     under the flag only (byte-identity of `pm_level_subcycle = 0`); since
+     2026-11-02 (user decision, `docs/PLAN.md`) it is the restriction of
+     `pm_level_solve` itself, flag or not.
    - *The RT at step 15*: with the gravity fixed, the gas of every level and
      the particles entering step 15's RT are identical on 1 and 3 ranks
      (checksums, `RADRAY_PM_SUB_DEBUG=1`), and the RT's fields still

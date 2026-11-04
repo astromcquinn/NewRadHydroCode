@@ -94,8 +94,9 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
 - **Found on the way** (`docs/stage_g.md` §6.9 item 3): `restrict_and_spill`
   truncated each fine box's partial sum before adding, a rank dependence
   (the refined grids are chopped by the rank count) of 1e-13 in level 0's
-  deposit; exact under the flag, kept without it (byte-identity), to fix
-  separately for `pm_level_solve`. From the smoke problem's checkpoint 14
+  deposit; exact under the flag at first, and since 2026-11-02 exact for
+  every `pm_level_solve` run (user decision, no flag; `docs/stage_g.md`
+  §1 item 3). From the smoke problem's checkpoint 14
   (two levels, the RT on) the RT of step 15 differed between 1 and 3
   ranks from identical gas and particles, with the flag off too: an
   RT-across-levels rank dependence, not the gravity's (fixed, above).
