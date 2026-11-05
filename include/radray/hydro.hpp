@@ -78,6 +78,9 @@ struct HydroState {
   std::array<double, 2> vmax_last{};  // hydro_step's local vmax (log only)
   HydroCounters counters;
   UnsplitCounters ucounters;  // hydro_scheme = unsplit only
+  // cell-substeps clamped by the temperature cap (Config::T_max; not
+  // checkpointed: counts since the start or the restart)
+  std::int64_t cap_T = 0;
 
   void allocate(int n) {
     N = n;

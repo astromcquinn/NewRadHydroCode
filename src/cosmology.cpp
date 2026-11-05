@@ -154,6 +154,11 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.Thydro_min = f::max(u.Thydro_min, cfg.T_min / u.temp1_unit);
   }
 
+  if (cfg.T_max > 0) {
+    u.temp_cap = cfg.T_max;
+    u.Thydro_max = cfg.T_max / u.temp2_unit;  // ionised gas: never below T_max there
+  }
+
   u.Tgas_min = u.temp_floor / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 
@@ -504,6 +509,12 @@ namespace radray {
 
 bool set_cosmology_param(Config& cfg, const std::string& key, const std::string& val) {
   if (set_cosmology_key(cfg.cosmo, key, val)) return true;
+  if (key == "T_max") {
+    const double v = std::stod(val);
+    if (!(v >= 0)) throw std::runtime_error("T_max must be >= 0 (kelvin; 0 = off)");
+    cfg.T_max = v;
+    return true;
+  }
   if (key == "T_min" || key == "z_floor") {
     std::size_t n = 0;
     const double v = std::stod(val, &n);
@@ -523,6 +534,7 @@ void copy_cosmology_param(const Config& from, Config& to) {
   to.cosmo.derive();
   to.T_min = from.T_min;
   to.z_floor = from.z_floor;
+  to.T_max = from.T_max;
   if (to.T_min > 0 && !(to.z_floor >= 0))
     throw std::runtime_error("T_min > 0 needs z_floor >= 0: the floor applies at z < z_floor");
 }
@@ -535,6 +547,11 @@ std::string cosmology_summary(const Config& cfg) {
     char buf[96];
     std::snprintf(buf, sizeof buf, "%sT_min = %g K at z < %g", s.empty() ? "" : "; ", cfg.T_min,
                   cfg.z_floor);
+    s += buf;
+  }
+  if (cfg.T_max > 0) {
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%sT_max = %g K", s.empty() ? "" : "; ", cfg.T_max);
     s += buf;
   }
   return s;

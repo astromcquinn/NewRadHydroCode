@@ -894,6 +894,10 @@ int main(int argc, char** argv) {
                                           cfg.hydro_scheme != HydroScheme::Unsplit))
       throw std::runtime_error("diag_dz > 0 and movie_fields vmag need the host grids (amrex_state = 0), "
                                "Nrt = Ngas, hydro_scheme = unsplit and diag_nbins >= 1");
+    if (cfg.T_max > 0 && (cfg.hydro_scheme != HydroScheme::Unsplit || use_amrex_hydro(cfg) ||
+                          !(cfg.T_max > cfg.T_min && cfg.T_max > cfg.thermal_floor)))
+      throw std::runtime_error("T_max > 0 needs the host unsplit hydro (hydro_scheme = unsplit, "
+                               "hydro_backend = host) and T_max above T_min and thermal_floor");
     init_hydro(cfg, s.gas, hs);                        // init_hydro
     // amrex_pk = level: the power spectrum on the levels, so rank 0 keeps
     // only the particles of the host PM arrays (the halo finder's)
@@ -2164,6 +2168,9 @@ int main(int argc, char** argv) {
                   static_cast<long long>(U.cells_from_e), static_cast<long long>(U.cells_reset),
                   static_cast<long long>(U.cells_synced), static_cast<long long>(U.floor_T),
                   static_cast<long long>(U.floor_rho));
+      if (cfg.T_max > 0)
+        std::printf(" temperature cap T_max = %g K: %lld cell-substeps clamped\n", cfg.T_max,
+                    static_cast<long long>(hs.cap_T));
       if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
         std::printf(" serial sink (mass removed): %lld events, %.6g mean-gas cell masses (%.4g of the gas)\n",
                     static_cast<long long>(U.sink_events), U.sink_mass, U.sink_mass / static_cast<double>(cfg.Ncell));
@@ -2171,6 +2178,7 @@ int main(int argc, char** argv) {
              << U.max_substeps << " cells_from_e " << U.cells_from_e << " cells_reset "
              << U.cells_reset << " cells_synced " << U.cells_synced << " floor_T " << U.floor_T
              << " floor_rho " << U.floor_rho << "\n";
+      if (cfg.T_max > 0) timing << "# cap_T " << hs.cap_T << "\n";
       if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
         timing << "# serial_sink events " << U.sink_events << " mass " << std::setprecision(10) << U.sink_mass
                << " gas_fraction " << U.sink_mass / static_cast<double>(cfg.Ncell) << "\n";

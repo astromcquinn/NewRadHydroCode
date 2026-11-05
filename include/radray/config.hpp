@@ -79,6 +79,17 @@ struct Config {
   // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
   double T_min = 0;
   double z_floor = -1;
+  // Temperature cap (params.txt T_max, kelvin; user decision 2026-11-04 for
+  // the C1 1024^3 reruns): the unsplit hydro clamps the thermal energy of
+  // every cell to T_max at the end of each CFL substep (both E - KE and the
+  // dual-energy e; the ionised gas's mean molecular weight, temp2_unit, so
+  // ~2 T_max in neutral gas), and the RT cell
+  // physics clamps its temperature to T_max after the heating. A handful of
+  // low-density cells at c_s ~ 10^4 km/s (~10^9 K) otherwise set the global
+  // step and the hydro substeps. T_max = 0 (default) is off and
+  // bit-identical; hydro_scheme = unsplit on the host grids only. No
+  // Fortran mirror (a new flag).
+  double T_max = 0;
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
 

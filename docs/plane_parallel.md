@@ -323,6 +323,7 @@ slowed down.
 | `plane_full` (`tests/plane_full_check.py`, `radhydro`, 16³ uniform box) | the landing on z_re, no photons before it, DM20's schedule switching once at x_HI,V = 1 % (substeps 1263 → 133), the caps (`dt_max_myr = 2`, `rt_substeps_max = 50`) with the T_M(z), x_HII,V(z) of the uncapped run to 0.6 %; the turn-on step (`plane_turnon_temp = 4e4`, `plane_turnon_courant = 0.5`, as the default does not bind in this cold uniform box: the `ra_max` step is shorter): dt_sim (cmax_gas + c_hot) = 0.5, dt ≤ 0.5 Δx_phys/(v_max + c_hot) up to the expansion over the step, the steps before z_re bit for bit those of the default run, and with `plane_turnon_cfl = 0` the old step (96.8 against 37.1 Myr); `plane_couple_courant = 0.3`: dt_sim c_hot = 0.3 where it binds (most steps after z_re), at most 0.3 in all of them, the steps before z_re bit for bit, T_M(z) and x_HII,V(z) of the uncapped run to 0.5 % |
 | `plane_diag` (`tests/plane_diag_check.py`, `radhydro`, 32³ Zel'dovich box, C26 cosmology) | `diag_dz = 0.2`: E(k) at the first step below each of z = 9, 8.8, …, 8 and at the zdata1 steps, none above z = 9; E(k), the mass-weighted E(k) and ⟨v²⟩ agree with `velocity_power.py` on the steps' `u_gas.bin` to 6 × 10⁻⁷; the T–Δ histogram holds N³ cells and mass N³ and its mass-weighted ⟨log T⟩ matches the fields; `movie_fields vmag` writes |v| slabs; every step's stats and the last step's fields byte-identical to the run without the diagnostics |
 | `plane_xray` (`tests/plane_xray_check.py`, `radhydro`, 16³ Zel'dovich box) | `xray_heating = 1` before z_re = 9 at log L_X/SFR = 40.5: mass-weighted T 200 K at z_re; `plane_xray_substeps = 10`: 10 substeps per step before z_re, mass-weighted T and x_HII at z_re within 3 % of the light-crossing count (−1.6 %), T_V, T_M, x_HII,V at the end within 2 % |
+| `plane_tcap` (`tests/plane_tcap_check.py`, `radhydro`, 16³ Zel'dovich box) | `T_max = 1e15` byte-identical to off (every step's stats and fields); `T_max = 1.2e4` binds: the hydro clamps 3664 cell-substeps, the RT temperature after z_re at most T_max (11 981 K against 84 420 K uncapped), still ionised (x_HII,V = 0.99999) |
 | `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
 | `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step: the steps to it bit for bit those of the serial run (the later CFL steps to 4e-8) |
 
@@ -378,6 +379,29 @@ mean-density gas reaches 100 K at z ≈ 7.1 (T_CMB crossed at z ≈ 9.5;
 (`data/uv_lf/am_params_st_fof.txt`) for the star formation. Near-empty
 cells (Δ < 10⁻³, from the 16³ Zel'dovich ICs here) reach 10⁵ K under the
 X-rays and dominate T_V; use mass-weighted temperatures before z_re.
+
+### Temperature cap (`T_max`, 2026-11-04)
+
+The C1 1024³ main and T_min = 100 runs (no floor, or a 100 K one) grew a
+few very hot cells right after z_re = 7: c_s up to 1.2–1.4 × 10⁴ km/s
+(~10⁹ K), v up to ~5000 km/s, at z ≈ 6.87–6.63 on and off. The T–Δ
+histograms put them at low density (Δ ≈ 0.01–5), 10–100 cells of 10⁹
+(3 × 10⁻⁸ of the mass). They set the global step (0.02–0.06 Myr instead
+of the 0.3 Myr coupling cap) and make the unsplit hydro take 15–30 CFL
+substeps of ~33 s each inside one step (t_hydro 400–1100 s instead of
+33–65 s). The T_min = 1000 run had none (c_s < 500 km/s); the X-ray run
+a milder episode (c_s ~ 1400 km/s at z ≈ 6.7). At 512³ they only appeared
+near z ≈ 5.1.
+
+`T_max` (kelvin; 0 = off, default, bit-identical) clamps the thermal
+energy at the end of every unsplit-hydro CFL substep (E − KE and the
+dual-energy e, converted with temp2_unit, the ionised gas's mean
+molecular weight, so the cap is T_max in ionised gas and ~2 T_max in
+neutral gas) and the RT cell physics' temperature after the heating and
+cooling. The hydro's count of clamped cell-substeps is printed at the end
+(stdout and timing.txt `# cap_T`). Host unsplit hydro only (refused for
+the split scheme and the AMReX hydro). The user's choice for the C1
+reruns: 3 × 10⁵ K, far above the photoheated gas.
 
 ### Tools
 

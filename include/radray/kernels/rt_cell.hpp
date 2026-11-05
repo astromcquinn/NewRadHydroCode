@@ -678,6 +678,10 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
     tmp = u.temp_floor;
     eth = neff * k_cgs * tmp / (g - 1);
   }
+  if (tmp > u.temp_cap) {  // the temperature cap (Config::T_max; infinite = off)
+    tmp = u.temp_cap;
+    eth = neff * k_cgs * tmp / (g - 1);
+  }
 
   // Update u_gas and w_gas
   uu[4] = static_cast<float>(kin + eth / u.eden_unit);
