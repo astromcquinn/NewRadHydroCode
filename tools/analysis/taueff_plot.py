@@ -58,9 +58,13 @@ def load(spec):
         e = {"z": s["z"], "xV": s.get("xHII_V"), "A": S.get("A", float("nan")),
              "F_mean": s["lya"]["F_mean"], "F_obs": s["lya"].get("F_obs", float("nan")),
              "seg": S["seg_mpch"], "box": S["box_mpch"]}
-        for k in ("F_box_raw", "F_box_A", "F_seg_raw", "F_seg_A"):
+        for k in ("F_box_raw", "F_box_A", "F_seg_raw", "F_seg_A",
+                  "Fug_box_A", "Fug_seg_A"):
             if k in S:
                 e[k] = np.asarray(S[k])
+        if "rho_mean" in S:
+            e["rho"] = np.asarray(S["rho_mean"], float)
+            e["gam"] = np.array([np.nan if g is None else g for g in S["gamma_ion_mean"]], float)
         snaps.append(e)
     snaps.sort(key=lambda e: -e["z"])
     return label or d["name"], snaps
@@ -127,6 +131,34 @@ def main():
                     t = np.sort(taueff(e[key]))
                     c = np.searchsorted(t, tgrid, side="right") / len(t)
                     f.write(f"{label} {e['z']:.4f} " + " ".join(f"{v:.4f}" for v in c) + "\n")
+
+    # ---- diagnostics (igm_stats.py --taueff since the per-skewer fields)
+    if any("rho" in e for _, sn in runs for e in sn):
+        def corr(x, y):
+            m = np.isfinite(x) & np.isfinite(y)
+            return float(np.corrcoef(x[m], y[m])[0, 1]) if m.sum() > 10 else float("nan")
+
+        with open(os.path.join(a.outdir, "taueff_diag.txt"), "w") as f:
+            f.write("# why the widths differ: per run and snapshot, the 84-16 % width of the rescaled "
+                    f"tau_eff ({a.seg}) with the run's Gamma and with a uniform Gamma (x_HI of the "
+                    "ionised cells scaled by Gamma / median; igm_stats.py --taueff), and over the "
+                    "box-length segments the Pearson correlation of tau_eff (rescaled) with ln <rho>, "
+                    "with ln <Gamma>_ion, and of ln <rho> with ln <Gamma>_ion; std of ln <Gamma>_ion\n")
+            f.write("# label z width width_uniformGamma corr(tau,lnrho) corr(tau,lnGamma) "
+                    "corr(lnrho,lnGamma) std(lnGamma)\n")
+            kA, kU = f"F_{a.seg}_A", f"Fug_{a.seg}_A"
+            for (label, sn) in runs:
+                for e in sn:
+                    if kA not in e or "rho" not in e:
+                        continue
+                    pa = np.percentile(taueff(e[kA]), (16, 84))
+                    pu = np.percentile(taueff(e[kU]), (16, 84)) if kU in e else [np.nan, np.nan]
+                    tb = taueff(e["F_box_A"])
+                    lr, lg = np.log(e["rho"]), np.log(e["gam"])
+                    tb = np.where(np.isfinite(tb), tb, np.nan)
+                    f.write(f"{label:14s} {e['z']:.4f} {pa[1] - pa[0]:.4g} {pu[1] - pu[0]:.4g} "
+                            f"{corr(tb, lr):.3f} {corr(tb, lg):.3f} {corr(lr, lg):.3f} "
+                            f"{np.nanstd(lg):.4g}\n")
 
     # ---- figure
     plt.rcParams.update({"font.size": 9, "axes.titlesize": 9, "axes.labelsize": 9,
