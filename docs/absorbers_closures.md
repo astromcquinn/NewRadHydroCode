@@ -286,7 +286,7 @@ suite's rule the photons those cells use are not removed. Wu+21's
 suite has none; whether it appears at a resolution where the absorbers
 exist is Phase 2.
 
-## 4. Phase 2: a controlled test (proposed, not run)
+## 4. Phase 2: the controlled tests (proposed 2026-11-06; (a) and (c) launched the same day on the user's decision, (b) not)
 
 Nothing below has been launched. Costs from `docs/rt_suite_512.md` §3 (one
 whole cpu-g2 node per run: the rays 24 h at 512³/40 Mpc/h, the moment
@@ -384,3 +384,84 @@ the closure together at the suite's resolution, since the suite's rule is
 what hid Wu's mechanism in the budget. (b) only if (a) shows the
 closure matters once the dense gas consumes photons, as a trend point
 before investing in the moment methods on the AMR levels.
+
+## 5. Phase 2 (c): one self-shielding absorber with every method (done 2026-11-06)
+
+`tools/analysis/absorber_single.py` and `tools/hyak/absorber_single.slurm`
+(outputs `$RUNS/absorbers_wu21/single/`, the last two steps of every run
+kept): an r⁻² absorber, δ = 100 inside r_c = 20 pkpc and 100 (r_c/r)²
+outside, cut at δ = 10 (r_t = 63 pkpc), neutral at 10⁴ K, at the centre
+of a periodic 5 Mpc/h box at z = 6 otherwise at the mean density, ionised
+(x_HI = 10⁻⁴) and at 10⁴ K; 64 equal sources on a 4³ lattice, the
+absorber equidistant (221 pkpc) from the 8 nearest; `apps/rt_driver`
+(the gas static, the RT physics as in production: `legacy_rt =
+legacy_physics = 0`, so P11 on, `ray_rotate = 3`, ĉ = c), 60 steps of
+1.01 Myr. The sources' Luv is set per resolution so that the rays give
+Γ_HI = 5×10⁻¹³ s⁻¹ (Wu+21's Γ(∞)) in the shell r_t < r ≤ 2 r_t of the
+same box without the absorber, read at the same step (in the periodic
+box the background keeps rising while the images within a mean free
+path, ≈ 8 box lengths, arrive, 3–4 % per step at step 60; both the
+calibration and the measurement are taken there). The absorber's
+recombinations if fully ionised would be about half the photons entering
+r_t, its core density 6.5×10⁻³ cm⁻³ is above the self-shielding density
+at this Γ, and its recombination time is 19 Myr. Three resolutions of the
+same physical absorber: N = 32, 64, 128 (31.9, 15.9, 8.0 pkpc cells; the
+suite's 78 kpc/h cell is the 16 pkpc one), r_t = 2, 4, 8 cells.
+
+![single absorber](figures/absorbers_single.png)
+
+*Shell-mean x_HI, Γ_HI and T against the distance from the absorber's
+centre at the last step; the vertical line is r_t. Black the rays, grey
+the rays under the suite's dense-gas rule (`photon_consume_dense = 0`),
+colours the moment methods.*
+
+| N (cell) | quantity | rays | M1 | OTVET | cone | split | screen |
+|---|---|---|---|---|---|---|---|
+| 32 (31.9 pkpc) | R(< r_t) / rays | 1 | **2.00** | 1.56 | 1.81 | 1.87 | 1.87 |
+| | M_HI(< r_t) / rays | 1 | 0.73 | 0.83 | 0.77 | 0.76 | 0.76 |
+| | r(x_HI = ½) [pkpc] | 45.8 | 36.5 | 40.0 | 37.8 | 37.4 | 37.4 |
+| | Γ at the rim [10⁻¹³] | 2.38 | 2.70 | 2.45 | 2.66 | 2.70 | 2.70 |
+| 64 (15.9 pkpc) | R(< r_t) / rays | 1 | **2.08** | 1.65 | 1.67 | 1.90 | 1.90 |
+| | M_HI(< r_t) / rays | 1 | 0.69 | 0.79 | 0.78 | 0.72 | 0.72 |
+| | r(x_HI = ½) [pkpc] | 48.7 | 39.2 | 43.6 | 43.5 | 41.3 | 41.4 |
+| | Γ at the rim [10⁻¹³] | 2.44 | 2.74 | 2.40 | 2.51 | 2.78 | 2.78 |
+| 128 (8.0 pkpc) | R(< r_t) / rays | 1 | **2.27** | 1.75 | **1.39** | 2.03 | 2.02 |
+| | M_HI(< r_t) / rays | 1 | 0.68 | 0.78 | 0.87 | 0.72 | 0.72 |
+| | r(x_HI = ½) [pkpc] | 48.7 | 38.6 | 41.5 | 45.4 | 39.7 | 39.8 |
+| | Γ at the rim [10⁻¹³] | 2.40 | 2.81 | 2.48 | 2.25 | 2.85 | 2.85 |
+
+*(R: the case-B recombination rate inside r_t; M_HI: the HI mass inside
+r_t; the rim: r_t < r ≤ r_t + 2 cells. The rays with the suite's rule
+(`photon_consume_dense = 0`) are identical to the rays with P11 in every
+number: the neutral core has no photoionisations to discount.)*
+
+- **Wu+21's mechanism is reproduced, and it is larger than their 1.3–1.4×
+  for this absorber.** The rays leave the inner 46–49 pkpc neutral with
+  Γ = 0 inside (a shadow: no photon reaches the core); every moment
+  method's Γ decays smoothly into the absorber instead (the middle row:
+  10⁻¹⁷–10⁻¹⁵ s⁻¹ at 20–40 pkpc against 0 for the rays), ionises it to
+  a smaller radius (37–45 pkpc) and recombines **2.0–2.3× (M1), 1.6–1.75×
+  (OTVET thin), 1.9–2.0× (split, screen) and 1.8 → 1.4× (cone)** as much
+  inside r_t, with 13–32 % less HI. The methods' Γ at the rim is also
+  higher than the rays' by 12–17 % (M1, split, screen): they do not cast
+  the shadow that halves the rays' Γ in the shell around the absorber
+  relative to the empty box (2.4 against 5×10⁻¹³).
+- **The resolution trend separates the closures.** From 2 to 8 cells
+  across r_t, M1's excess grows (2.0 → 2.27) as the ionised skin it
+  creates is resolved, thin OTVET's too (1.56 → 1.75), split and screen
+  stay at 1.9–2.0, and **the cone's falls from 1.81 to 1.39**: its
+  HI-attenuated tensor is the only closure that sees the absorber's
+  column and turns the flux away from it, and it converges toward the
+  rays as the absorber is resolved. At the suite's cell (16 pkpc, the
+  middle column) no closure is better than 1.65×.
+- **This is the effect the suite cannot show** (§3): it needs a
+  self-shielded core with an ionised skin, which the suite's cells never
+  contain. Where it would act, the recombinations of such absorbers, is
+  outside the simulation at 78 kpc/h.
+- The first try (`single_try1_summary/`: δ_c = 1000, r_c = 5 pkpc, ĉ =
+  0.3c, 40 Myr, the calibration on the centre cell without `ray_rotate`)
+  stayed neutral out to r_t at every resolution and had the rays of the
+  8 symmetric sources focusing on the centre cell (Γ there 2–6× the box
+  mean, growing with N: the B16 quirk); it is kept only as the record of
+  what was changed. Its ratios were of the same kind (M1 1.4–2.1×, the
+  cone 0.8× at N = 128).
