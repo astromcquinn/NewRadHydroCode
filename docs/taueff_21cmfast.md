@@ -218,6 +218,56 @@ skewers at the snapshots). Right: the ratio to the rays.* Numbers:
 
 ### A.6 Raw τ_eff against z and against λ_mfp
 
+**The figures to use: the full-box snapshots only** (the user,
+2026-11-06: connect the snapshot points and leave out the finely sampled
+slabs). `taueff_z.py --full taueff.txt` without `--slabs` plots the
+3 × 8192 random skewers of Figure 7 (redshift space, 50 Mpc/h segments)
+at the 6 snapshots between z = 6.2 and 5.0, connected by lines, with
+λ_mfp exact at each snapshot. Each run is compared with the rays
+interpolated in ln τ to its own snapshot z (extrapolated log-linearly
+from the two end points for Δz ≤ 0.03).
+
+![tau_eff at the snapshots, normalised](figures/taueff_21cmfast_z_snap_A.png)
+
+![lambda_mfp and width at the snapshots, normalised](figures/taueff_21cmfast_mfp_width_snap_A.png)
+
+![tau_eff at the snapshots, raw](figures/taueff_21cmfast_z_snap.png)
+
+Raw and normalised versions of both figures are in `figures/` (`_snap`,
+`_snap_A`); the numbers are in `figures/taueff_21cmfast_z_snap{,_A}.txt`.
+
+| at the run's snapshot | z ≈ 4.98 | 5.24 | 5.48 | 5.72 | 5.98 | 6.20 |
+|---|---|---|---|---|---|---|
+| raw median / rays: A + RR | 1.00 | 0.99 | 0.98 | 0.97 | 0.99 | 0.98 |
+| M1 | 0.96 | 0.97 | 0.97 | 1.00 | 0.98 | 0.98 |
+| OTVET (thin) | 1.00 | 1.02 | 1.02 | 1.04 | 1.09 | 1.08 |
+| split | 0.96 | 0.98 | 1.00 | 1.04 | 1.09 | 1.08 |
+| screen | 0.96 | 0.96 | 0.98 | 1.04 | 1.11 | 1.12 |
+| cone | 0.96 | 0.98 | 0.98 | 1.03 | 1.05 | 1.04 |
+| normalised width / rays: A + RR | 1.00 | 1.00 | 1.03 | 0.99 | 0.97 | – |
+| M1 | 1.05 | 1.04 | **1.24** | 1.05 | 1.11 | 1.14 |
+| OTVET (thin) | **0.88** | **0.86** | 1.02 | 0.97 | 0.91 | 0.89 |
+| split | 1.05 | 0.97 | 1.09 | 0.97 | 0.91 | 0.89 |
+| screen | 1.01 | 0.97 | 1.09 | 0.95 | 0.91 | 0.85 |
+| cone | 1.03 | 0.97 | 0.98 | 0.93 | 0.95 | 0.96 |
+
+* With the mean flux normalised, the medians agree within 2 %.
+* The widths show M1 broad at every snapshot: +24 % at z = 5.47, the
+  snapshot right after its overlap; +11–14 % before z ≈ 6.
+* Thin OTVET is 12–14 % narrow after overlap. The whole OTVET family is
+  9–15 % narrow at z ≥ 6.
+* The cone is within 7 % of the rays and A + RR within 3 %.
+* M1's end-of-reionization excess, a 0.45-wide bump in the slab curves
+  below, falls between the snapshots at 5.74 and 5.47. Only the z = 5.47
+  point catches it.
+* At fixed λ_mfp (raw), thin OTVET is 10–12 % more opaque than the rays
+  at every snapshot. Split and screen are 3–15 % more opaque, rising
+  toward high z; the cone is +3–6 % and M1 −2 to −5 %.
+
+The slab analysis below is kept for the record. Its raw level is offset
+from the full box (real against redshift space), and its M1 dip at z ≥ 6
+is slab sampling.
+
 The user's choice (2026-11-06): no observed distributions for now, and the
 methods should be compared **at the same mean free path** rather than at
 the same z. `taueff_z.py` draws the raw (unrescaled) slab τ_eff of A.5 with

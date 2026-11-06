@@ -52,6 +52,11 @@
   within 6 %). M1's bumps: after its earlier overlap Γ decorrelates from
   density (r = −0.10 at z = 5.47 against +0.6 for the others), so Γ
   fluctuations add to the τ scatter instead of cancelling it.
+* **The τ_eff figures to use** (user, 2026-11-06): the full-box
+  snapshots only, connected (`taueff_z.py --full` without `--slabs`;
+  `figures/taueff_21cmfast_*_snap*.png`). Normalised: medians within 2 %;
+  width M1 +24 % at z = 5.47 and +11–14 % at z ≥ 6, thin OTVET −12–14 %
+  after overlap, cone within 7 %.
 * **Deferred (user, 2026-11-06):** the observed τ_eff distributions
   (Bosman+22) and the reference check are on hold; the comparison
   between methods is to be made at the same mean free path. Optional:
