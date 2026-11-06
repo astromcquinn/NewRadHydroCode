@@ -49,11 +49,13 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <fftw3.h>
@@ -62,6 +64,9 @@
 #include <AMReX_BoxList.H>
 #include <AMReX_FArrayBox.H>
 #include <AMReX_MultiFab.H>
+#include <AMReX_MultiFabUtil.H>
+#include <AMReX_VisMF.H>
+#include <AMReX_iMultiFab.H>
 
 #include "exact_sum.hpp"
 #include "radray/constants.hpp"
@@ -155,11 +160,25 @@ struct MomentLevel : CellLevel {
   // the photon budget (MomentState's, rank 0's values on every rank)
   double injected = 0, absorbed = 0, lost = 0;
   double sig_init[3][5];
+  // docs/moment_amr.md: this level in a MomentHierarchy (lev of CellLevel):
+  // covered marks the cells under the finer level (no sources, no
+  // physics), in_patch (refined levels) is 1 on the level's cells and the
+  // ghosts its other boxes cover, 0 outside its grids (the parent's moments
+  // live there); the budgets are in base units (nrtcr_l = Nrt^3 8^lev);
+  // the physics sums of the last substep are kept for the hierarchy to add
+  bool in_hierarchy = false;
+  std::unique_ptr<ax::iMultiFab> covered, in_patch;
+  double nrtcr_l = 0;
+  double stat_v[kSNstat] = {};
+  Long stat_cnt[2] = {0, 0};
+  double inflight_last = 0;
+  static constexpr int kBudgetBits = 40;  // the fixed point of a refined level's budgets
 
   MomentLevel(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
     if (!cfg.amrex_slab)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
     stats_mode = cfg.amrex_moment_stats;
+    nrtcr_l = cfg.nrtcr;
     fft_threads_cfg = cfg.amrex_moment_fft_threads;
     // whole planes per box, and the ranks in z order (the chains)
     for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
@@ -196,6 +215,48 @@ struct MomentLevel : CellLevel {
     rrk::photoion_sigma(nu, sig_init);
   }
 
+  // A refined level of a MomentHierarchy on the gas state's grids of that
+  // level (docs/moment_amr.md): no slab assumption, the sums in fixed point
+  MomentLevel(const Config& cfg, bool with_e, int lev_, const ax::BoxArray& ba_, const ax::DistributionMapping& dm_)
+      : CellLevel(cfg, with_e, lev_, ba_, dm_) {
+    in_hierarchy = true;
+    stats_mode = 1;
+    fft_threads_cfg = cfg.amrex_moment_fft_threads;
+    nrtcr_l = cfg.nrtcr * std::ldexp(1.0, 3 * lev);
+    M.define(ba, dm, kMC, 1);
+    M.setVal(0.0f);
+    Wn.define(ba, dm, 5, 0);
+    const int nloc = static_cast<int>(C.local_size());
+    zorder.resize(nloc);
+    for (int l = 0; l < nloc; ++l) zorder[l] = l;
+    adds.assign(nloc, std::vector<std::vector<double>>(kSNstat));
+    if (cfg.recomb_rad)
+      throw std::runtime_error("recomb_rad = 1 is not implemented for the moment RT on refined levels (docs/moment_amr.md)");
+    if (cfg.rt_method == RTMethod::OTVET) {
+      H.define(ba, dm, 6, 1);
+      H.setVal(0.0f);
+      split = otvet_closure_params(cfg).split != 0;
+      if (split) {
+        Nd.define(ba, dm, 1, 1);
+        Nd.setVal(0.0f);
+      }
+    }
+    double nu[5];
+    for (int n = 0; n < 5; ++n) nu[n] = cp::freq_init[n];
+    rrk::photoion_sigma(nu, sig_init);
+    in_patch = std::make_unique<ax::iMultiFab>(ba, dm, 1, 1);
+    in_patch->setVal(0);
+    in_patch->setVal(1, 0, 1, 0);
+    in_patch->FillBoundary(period);
+  }
+  void set_covered(const ax::BoxArray* fine_ba) {
+    if (!fine_ba) {
+      covered.reset();
+      return;
+    }
+    covered = std::make_unique<ax::iMultiFab>(ax::makeFineMask(ba, dm, *fine_ba, ax::IntVect(2), 0, 1));
+  }
+  // A box's cells (valid) and a refined level's grown box
   ax::Box local_box(int li) const { return ba[C.IndexArray()[li]]; }
 
   // the plane partials (part[k] of the planes this rank owns, 0 elsewhere)
@@ -212,34 +273,64 @@ struct MomentLevel : CellLevel {
   void prep(Simulation& s) override {
     if (s.tdiag) throw std::runtime_error("rt_backend = amrex: tensor_dump is not implemented for the moment RT");
     CellLevel::prep(s);
-    const double t0 = now();
-    // the source cells of the slabs in ascending cell order, from the cells
-    // (prep set Luv and sfr from the sources)
-    src.clear();
-    const double sfr_min = s.units.sfr_min;
-    for (int li : zorder) {
-      const ax::Box bx = local_box(li);
-      auto c = C.atLocalIdx(li).const_array();
-      const RTGrid& G = s.rt;
-      const std::int64_t N2 = static_cast<std::int64_t>(N) * N;
-      const auto b0 = std::lower_bound(G.src_cell.begin(), G.src_cell.end(), bx.smallEnd(2) * N2);
-      const auto b1 = std::lower_bound(b0, G.src_cell.end(), (bx.bigEnd(2) + 1) * N2);
-      for (auto it = b0; it != b1; ++it) {
-        const std::int64_t gc = *it;
-        const int i = static_cast<int>(gc % N), j = static_cast<int>((gc / N) % N), k = static_cast<int>(gc / N2);
-        const RTCell& d = c(i, j, k);
-        if (!(static_cast<double>(d.sfr) > sfr_min)) continue;
-        src.push_back({li, i, j, k, d.Luv, d.sfr});
+    if (covered) {  // the finer level has the sources of the cells it covers
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        auto c = C.array(mfi);
+        auto cov = covered->const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          if (cov(i, j, k)) c(i, j, k).Luv = c(i, j, k).sfr = 0.0f;
+        });
       }
     }
-    T.prep += now() - t0;
-    s.timers.prep += now() - t0;
-    if (s.cfg.rt_method == RTMethod::OTVET) tensor(s);
+    if (!in_hierarchy) build_src_list(s);  // (a hierarchy places the sources first)
+    if (lev == 0 && s.cfg.rt_method == RTMethod::OTVET) tensor(s);
     // gammaHI_avg: this step's sums (radiative_transfer resets the time)
     if (s.gamma_avg.on) {
       if (!GA.ok()) GA.define(ba, dm, 1, 0);
       GA.setVal(0.0);
     }
+  }
+
+  // The source cells from the cells (prep set Luv and sfr from the sources,
+  // a hierarchy its place_sources): level 0 in ascending cell order along
+  // calc_halo's sparse list (the exact inject sum), a refined level by a
+  // scan of its boxes (its sum is in fixed point)
+  void build_src_list(Simulation& s) {
+    const double t0 = now();
+    src.clear();
+    const double sfr_min = s.units.sfr_min;
+    if (lev == 0) {
+      for (int li : zorder) {
+        const ax::Box bx = local_box(li);
+        auto c = C.atLocalIdx(li).const_array();
+        const RTGrid& G = s.rt;
+        const std::int64_t N2 = static_cast<std::int64_t>(N) * N;
+        const auto b0 = std::lower_bound(G.src_cell.begin(), G.src_cell.end(), bx.smallEnd(2) * N2);
+        const auto b1 = std::lower_bound(b0, G.src_cell.end(), (bx.bigEnd(2) + 1) * N2);
+        for (auto it = b0; it != b1; ++it) {
+          const std::int64_t gc = *it;
+          const int i = static_cast<int>(gc % N), j = static_cast<int>((gc / N) % N), k = static_cast<int>(gc / N2);
+          const RTCell& d = c(i, j, k);
+          if (!(static_cast<double>(d.sfr) > sfr_min)) continue;
+          src.push_back({li, i, j, k, d.Luv, d.sfr});
+        }
+      }
+    } else {
+      for (int li : zorder) {
+        const ax::Box bx = local_box(li);
+        auto c = C.atLocalIdx(li).const_array();
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+        for (int k = lo.z; k <= hi.z; ++k)
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i) {
+              const RTCell& d = c(i, j, k);
+              if (!(static_cast<double>(d.sfr) > sfr_min)) continue;
+              src.push_back({li, i, j, k, d.Luv, d.sfr});
+            }
+      }
+    }
+    T.prep += now() - t0;
+    s.timers.prep += now() - t0;
   }
 
   // gamma_avg_add on the cells: each cell its own sum (rank and thread
@@ -958,10 +1049,16 @@ struct MomentLevel : CellLevel {
       mk::inject_cell(static_cast<double>(q.Luv), s.clk.dtsec_rt, s.units, &m(q.i, q.j, q.k, 0),
                       &m(q.i, q.j, q.k, 4), gs_, dummy, &rec[n * kNfreq]);
     }
-    // rank 0: the addends of every rank in rank (= z = cell) order
+    // rank 0: the addends of every rank in rank (= z = cell) order (a
+    // refined level: in fixed point, order independent)
     const int np = ax::ParallelDescriptor::NProcs(), me = ax::ParallelDescriptor::MyProc();
     double inj = 0;
-    if (np == 1) {
+    if (lev > 0) {
+      i128 fx = 0;
+      for (double a : rec) fx += to_fx128(a, kBudgetBits);
+      allreduce_i128(&fx, 1);
+      inj = from_fx128(fx, kBudgetBits);
+    } else if (np == 1) {
       for (double a : rec) inj += a;
     } else {
       int cnt = static_cast<int>(rec.size());
@@ -980,7 +1077,7 @@ struct MomentLevel : CellLevel {
       for (double a : all) inj += a;
       MPI_Bcast(&inj, 1, MPI_DOUBLE, 0, comm());
     }
-    injected += inj / s.cfg.nrtcr;
+    injected += inj / nrtcr_l;
     // recomb_rad = 1: the ground-state recombination photons photo_cell
     // counted in the last substep, emitted isotropically where they were
     // made; the photons added by plane (moment_step_1's plane_sum)
@@ -1012,8 +1109,8 @@ struct MomentLevel : CellLevel {
         }
       }
       const double rec = plane_total(part);
-      injected += rec / s.cfg.nrtcr;
-      launched += rec / s.cfg.nrtcr;
+      injected += rec / nrtcr_l;
+      launched += rec / nrtcr_l;
     }
     T.inject += now() - t0;
   }
@@ -1101,34 +1198,29 @@ struct MomentLevel : CellLevel {
     }
   }
 
-  void substep(Simulation& s) override {
-    s.timers.substeps += 1;
-    const Units u = s.units;
-    // rt_stat(1), ray_stat(1) of this substep
-    {
-      RTStat& t = s.rt_stat;
-      t.dtau = 0;
-      t.ngam = {};
-      t.nion = {};
-      t.ncol = {};
-      t.nrec = {};
-      t.nrab = {};
-      t.gamma = {};
-      t.lambda = {};
-      t.nsfill = 0;
-      t.ngfill = 0;
-      RayStat& r = s.rays.stat;
-      r.ncst1 = r.ncst2 = r.nmrg1 = r.nmrg2 = r.nspl1 = r.nspl2 = r.ndel1 = 0;
-    }
-    double tw = now();
-    auto lap = [&](double& t, double& t2) {
-      const double tn = now();
-      t += tn - tw;
-      t2 += tn - tw;
-      tw = tn;
-    };
+  // ---- the substep in phases (a MomentHierarchy interleaves the levels') ----
 
-    // calc_rt_1
+  // rt_stat(1), ray_stat(1) of this substep
+  static void stat_reset(Simulation& s) {
+    RTStat& t = s.rt_stat;
+    t.dtau = 0;
+    t.ngam = {};
+    t.nion = {};
+    t.ncol = {};
+    t.nrec = {};
+    t.nrab = {};
+    t.gamma = {};
+    t.lambda = {};
+    t.nsfill = 0;
+    t.ngfill = 0;
+    RayStat& r = s.rays.stat;
+    r.ncst1 = r.ncst2 = r.nmrg1 = r.nmrg2 = r.nspl1 = r.nspl2 = r.ndel1 = 0;
+  }
+
+  // calc_rt_1 on the cells (the level's units)
+  void phase_rt1(Simulation& s) {
+    const double t0 = now();
+    const Units u = units_of(s);
     double sig[3][kNfreq];
     std::memcpy(sig, sig_init, sizeof sig);
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1137,48 +1229,93 @@ struct MomentLevel : CellLevel {
         mk::calc_rt_1_cell(rrk::cell_ref(c(i, j, k)), u, sig);
       });
     }
-    lap(s.timers.calc_rt1, T.rt1);
+    const double t1 = now();
+    s.timers.calc_rt1 += t1 - t0;
+    T.rt1 += t1 - t0;
+  }
 
-    // the sources (moment_inject = 0: before the transport), the transport
-    // (moment_nsub GLF subcycles of Courant number 1/moment_nsub), the
-    // sources after it (moment_inject = 1)
-    if (s.cfg.moment_inject == 0) inject(s);
-    {
-      const double t0 = now();
-      const int nsub = s.cfg.moment_nsub;
-      const double Cn = 1.0 / nsub;
-      const bool otvet = s.cfg.rt_method == RTMethod::OTVET;
-      const mk::Closure cl = !otvet ? mk::Closure::M1 : split_now ? mk::Closure::Split : mk::Closure::Otvet;
-      // otvet_split = 1: N_dir,g = q_g ndir
-      std::array<double, kNfreq> qg{};
-      for (int g = 0; g < kNfreq; ++g) qg[g] = cl == mk::Closure::Split ? inject_per_L(s, g) : 0.0;
-      for (int g = 0; g < kNfreq; ++g) {
-        bool any = false;
-        for (ax::MFIter mfi(M); mfi.isValid() && !any; ++mfi) {
-          auto m = M.const_array(mfi, 5 * g);
-          const ax::Box bx = mfi.validbox();
-          const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
-          for (int k = lo.z; k <= hi.z && !any; ++k)
-            for (int j = lo.y; j <= hi.y && !any; ++j)
-              for (int i = lo.x; i <= hi.x; ++i)
-                if (m(i, j, k, 0) > 0) {
-                  any = true;
-                  break;
-                }
-        }
-        ax::ParallelDescriptor::ReduceBoolOr(any);
-        if (!any) continue;
-        for (int it = 0; it < nsub; ++it) transport_group(g, cl, Cn, qg[g]);
+  // the transport: moment_nsub GLF subcycles of Courant number 1/moment_nsub
+  // per base cell of light, 2^lev times as many on a refined level (its
+  // cells are 2^-lev as long)
+  void phase_transport(Simulation& s) {
+    const double t0 = now();
+    const int nsub = s.cfg.moment_nsub;
+    const int nsub_l = nsub << lev;
+    const double Cn = 1.0 / nsub;
+    const bool otvet = s.cfg.rt_method == RTMethod::OTVET;
+    const mk::Closure cl = !otvet ? mk::Closure::M1 : split_now ? mk::Closure::Split : mk::Closure::Otvet;
+    // otvet_split = 1: N_dir,g = q_g ndir
+    std::array<double, kNfreq> qg{};
+    for (int g = 0; g < kNfreq; ++g) qg[g] = cl == mk::Closure::Split ? inject_per_L(s, g) : 0.0;
+    for (int g = 0; g < kNfreq; ++g) {
+      bool any = false;
+      for (ax::MFIter mfi(M); mfi.isValid() && !any; ++mfi) {
+        auto m = M.const_array(mfi, 5 * g);
+        const ax::Box bx = mfi.validbox();
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+        for (int k = lo.z; k <= hi.z && !any; ++k)
+          for (int j = lo.y; j <= hi.y && !any; ++j)
+            for (int i = lo.x; i <= hi.x; ++i)
+              if (m(i, j, k, 0) > 0) {
+                any = true;
+                break;
+              }
       }
-      T.trans += now() - t0;
+      ax::ParallelDescriptor::ReduceBoolOr(any);
+      if (!any) continue;
+      for (int it = 0; it < nsub_l; ++it) transport_group(g, cl, Cn, qg[g]);
     }
-    if (s.cfg.moment_inject == 1) inject(s);
-    {
-      double dummy = 0;
-      lap(s.timers.trace1, dummy);
-    }
+    T.trans += now() - t0;
+    s.timers.trace1 += now() - t0;
+  }
 
-    // the deposit for radiative_physics: ngam = N, nu = E, dx = sum F
+  // A sum over the level's cells of a per-cell value: the plane partials
+  // in plane order (level 0, the serial order on slabs) or in fixed point
+  // (a refined level: order and layout independent). cell(c, m, i, j, k)
+  // returns the cell's addend; the moments may be modified by it.
+  template <class F>
+  double cell_sum(F&& cell) {
+    if (lev == 0) {
+      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
+      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+        auto c = C.const_array(mfi);
+        auto m = M.array(mfi);
+        const ax::Box bx = mfi.validbox();
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+#pragma omp parallel for schedule(static)
+        for (int k = lo.z; k <= hi.z; ++k) {
+          double t = 0;
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i) t += cell(c, m, i, j, k);
+          part[static_cast<std::size_t>(k)] += t;
+        }
+      }
+      return plane_total(part);
+    }
+    i128 fx = 0;
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.const_array(mfi);
+      auto m = M.array(mfi);
+      const ax::Box bx = mfi.validbox();
+      const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+      std::vector<i128> part(static_cast<std::size_t>(hi.z - lo.z + 1), 0);
+#pragma omp parallel for schedule(static)
+      for (int k = lo.z; k <= hi.z; ++k) {
+        i128 t = 0;
+        for (int j = lo.y; j <= hi.y; ++j)
+          for (int i = lo.x; i <= hi.x; ++i) t += to_fx128(cell(c, m, i, j, k), kBudgetBits);
+        part[static_cast<std::size_t>(k - lo.z)] = t;
+      }
+      for (i128 t : part) fx += t;
+    }
+    allreduce_i128(&fx, 1);
+    return from_fx128(fx, kBudgetBits);
+  }
+
+  // the deposit, radiative_physics, gammaHI_avg and rt_step_3 (N, F, E *=
+  // fgam; the absorbed photons)
+  void phase_physics(Simulation& s) {
+    double t0 = now();
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       auto c = C.array(mfi);
       auto m = M.const_array(mfi);
@@ -1189,35 +1326,55 @@ struct MomentLevel : CellLevel {
                          rrk::cell_ref(c(i, j, k)));
       });
     }
-    lap(s.timers.sync, T.deposit);
+    double t1 = now();
+    s.timers.sync += t1 - t0;
+    T.deposit += t1 - t0;
 
     physics(s);
     if (s.gamma_avg.on) gamma_avg_add(s);  // gammaHI_avg: after this substep's physics
-    tw = now();
-
-    // rt_step_3: N, F, E *= fgam; the absorbed photons by plane
-    {
-      std::vector<double> part(static_cast<std::size_t>(N), 0.0);
-      for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
-        auto c = C.const_array(mfi);
-        auto m = M.array(mfi);
-        const ax::Box bx = mfi.validbox();
-#pragma omp parallel for schedule(static)
-        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
-          double t = 0;
-          for (int j = 0; j < N; ++j)
-            for (int i = 0; i < N; ++i)
-              for (int g = 0; g < kNfreq; ++g) {
-                if (m(i, j, k, 5 * g) == 0) continue;
-                t += mk::absorb_group(m(i, j, k, 5 * g), m(i, j, k, 5 * g + 4), m(i, j, k, 5 * g + 1),
-                                      m(i, j, k, 5 * g + 2), m(i, j, k, 5 * g + 3), c(i, j, k).fgam[g]);
-              }
-          part[static_cast<std::size_t>(k)] = t;
-        }
+    t0 = now();
+    absorbed += cell_sum([](ax::Array4<RTCell const> const& c, ax::Array4<float> const& m, int i, int j, int k) {
+      double t = 0;
+      for (int g = 0; g < kNfreq; ++g) {
+        if (m(i, j, k, 5 * g) == 0) continue;
+        t += mk::absorb_group(m(i, j, k, 5 * g), m(i, j, k, 5 * g + 4), m(i, j, k, 5 * g + 1),
+                              m(i, j, k, 5 * g + 2), m(i, j, k, 5 * g + 3), c(i, j, k).fgam[g]);
       }
-      absorbed += plane_total(part) / s.cfg.nrtcr;
+      return t;
+    }) / nrtcr_l;
+    t1 = now();
+    s.timers.trace3 += t1 - t0;
+    T.absorb += t1 - t0;
+  }
+
+  // the physics sums of the last substep into s.rt_stat
+  void publish_stats(Simulation& s) const {
+    RTStat& t = s.rt_stat;
+    t.nsfill = stat_cnt[0];
+    t.ngfill = stat_cnt[1];
+    for (int sp = 0; sp < 3; ++sp) {
+      t.ngam[sp] = stat_v[kSNgam + sp];
+      t.nion[sp] = stat_v[kSNion + sp];
+      t.ncol[sp] = stat_v[kSNcol + sp];
+      t.nrec[sp] = stat_v[kSNrec + sp];
+      t.nrab[sp] = stat_v[kSNrab + sp];
+      t.gamma[sp] = stat_v[kSGamma + sp];
+      t.lambda[sp] = stat_v[kSLambda + sp];
     }
-    lap(s.timers.trace3, T.absorb);
+    t.dtau = stat_v[kSDtau];
+  }
+
+  void substep(Simulation& s) override {
+    s.timers.substeps += 1;
+    stat_reset(s);
+    phase_rt1(s);
+    // the sources (moment_inject = 0: before the transport), the transport,
+    // the sources after it (moment_inject = 1)
+    if (s.cfg.moment_inject == 0) inject(s);
+    phase_transport(s);
+    if (s.cfg.moment_inject == 1) inject(s);
+    phase_physics(s);
+    publish_stats(s);
     accumulate_rt_stats(s);
   }
 
@@ -1226,13 +1383,13 @@ struct MomentLevel : CellLevel {
   void physics(Simulation& s) {
     const double t0 = now();
     rrk::PhysCtx X;
-    X.u = s.units;
+    X.u = units_of(s);
     X.rates.cool = s.rates.coef_cool_.data();
     X.rates.alpha = s.rates.alpha_rec_.data();
     X.rates.gcol = s.rates.gamma_col_.data();
     X.rates.legacy_physics = s.cfg.legacy_physics;
     X.dtsec_rt = s.clk.dtsec_rt;
-    X.cells = s.cfg.rt_cells_per_substep;
+    X.cells = s.cfg.rt_cells_per_substep << lev;  // the crossing speed of this level's cell
     X.photon_conserve = s.cfg.photon_conserve;
     X.photon_consume_dense = s.cfg.photon_consume_dense;
     X.ia = s.cfg.recomb_case_A ? 0 : 3;
@@ -1241,10 +1398,11 @@ struct MomentLevel : CellLevel {
     if (recomb && !Rc) throw std::runtime_error("recomb_rad = 1: recomb_init was not called");
     const bool lines = s.cfg.recomb_rad_lines;
     const bool he = has_e;
-    const Units u = s.units;
+    const Units u = units_of(s);
     const double dtsec_rt = s.clk.dtsec_rt;
-    const double Ncell = s.cfg.ncellr;
-    const double nrtcr = s.cfg.nrtcr;
+    // the box averages weight a cell by its volume: 8^-lev of a base cell
+    const double Ncell = s.cfg.ncellr * std::ldexp(1.0, 3 * lev);
+    const double nrtcr = nrtcr_l;
     const double navg[3] = {u.nH_avg, u.nHe_avg, u.nHe_avg};
     int err = 0;
     Long nsf = 0, ngf = 0;  // nsfill, ngfill
@@ -1255,6 +1413,9 @@ struct MomentLevel : CellLevel {
       auto c = C.array(mfi);
       ax::Array4<float> rb = recomb ? RB.array(mfi) : ax::Array4<float>{};
       const std::int64_t rstride = recomb ? comp_stride(rb) : 0;
+      ax::Array4<int const> cov;
+      if (covered) cov = covered->const_array(mfi);
+      const bool has_cov = static_cast<bool>(covered);
       std::vector<std::vector<double>>& ad = adds[mfi.LocalIndex()];
       double* A[kSNstat];
       for (int a2 = 0; a2 < kSNstat; ++a2) {
@@ -1269,7 +1430,8 @@ struct MomentLevel : CellLevel {
         double ngsrc[3][5] = {};
         bool processed = false, source = false;
         double ngam_tot = 0;
-        const int e = rrk::physics_cell(d, X, &st, he, &processed, &ngam_tot);
+        // under the finer level: its cells have the physics
+        const int e = (has_cov && cov(i, j, k)) ? 0 : rrk::physics_cell(d, X, &st, he, &processed, &ngam_tot);
         err = std::max(err, e);
         if (processed && !e) {
           if (Rc) {
@@ -1334,69 +1496,59 @@ struct MomentLevel : CellLevel {
       allreduce_i128(fx, kSNstat);
       for (int a2 = 0; a2 < kSNstat; ++a2) v[a2] = from_fx128(fx[a2], stat_bits(a2));
     }
-    RTStat& t = s.rt_stat;
-    t.nsfill = cnt[0];
-    t.ngfill = cnt[1];
-    for (int sp = 0; sp < 3; ++sp) {
-      t.ngam[sp] = v[kSNgam + sp];
-      t.nion[sp] = v[kSNion + sp];
-      t.ncol[sp] = v[kSNcol + sp];
-      t.nrec[sp] = v[kSNrec + sp];
-      t.nrab[sp] = v[kSNrab + sp];
-      t.gamma[sp] = v[kSGamma + sp];
-      t.lambda[sp] = v[kSLambda + sp];
-    }
-    t.dtau = v[kSDtau];
+    for (int a2 = 0; a2 < kSNstat; ++a2) stat_v[a2] = v[a2];
+    stat_cnt[0] = cnt[0];
+    stat_cnt[1] = cnt[1];
     T.sums += now() - t1;
   }
 
   // ---- post_rt: the redshift, calc_rt_f, the photons in flight -----------
+
+  // ray.log: the photon budget (photons per H atom of the box)
+  void log_budget(const Simulation& s, double tot, double inj, double abs_, double lost_) const {
+    if (s.raylog)
+      *s.raylog << " Moments    : in flight " << static_cast<float>(tot / s.cfg.nrtcr) << " injected "
+                << static_cast<float>(inj) << " absorbed " << static_cast<float>(abs_) << " lost "
+                << static_cast<float>(lost_) << "\n";
+    if (s.raylog && recomb)
+      *s.raylog << " Recomb     : emitted " << static_cast<float>(launched) << " (included in injected)\n";
+  }
 
   void post(Simulation& s) override {
     const double t0 = now();
     const double fscale = redshift_fscale(s.cfg, s.clk);
     const RedshiftTable RT = make_redshift_table();
     const double ngam_min = s.units.ngam_min;
-    std::vector<double> part(static_cast<std::size_t>(N), 0.0);
-    for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
-      auto m = M.array(mfi);
-      const ax::Box bx = mfi.validbox();
-      const std::int64_t gs_ = 5 * comp_stride(m);
-      const std::int64_t ns = comp_stride(m);
-#pragma omp parallel for schedule(static)
-      for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
-        double t = 0;
-        for (int j = 0; j < N; ++j)
-          for (int i = 0; i < N; ++i) {
-            float* p = &m(i, j, k, 0);
-            double l = 0;
-            if (mk::redshift_cell(RT, fscale, ngam_min, p, p + 4 * ns, p + ns, p + 2 * ns, p + 3 * ns, gs_, l)) t += l;
-          }
-        part[static_cast<std::size_t>(k)] = t;
-      }
-    }
-    lost += plane_total(part) / s.cfg.nrtcr;
-    // the photons in flight, in cell order
+    lost += cell_sum([&](ax::Array4<RTCell const> const&, ax::Array4<float> const& m, int i, int j, int k) {
+      const std::int64_t ns = comp_stride(m), gs_ = 5 * ns;
+      float* p = &m(i, j, k, 0);
+      double l = 0;
+      return mk::redshift_cell(RT, fscale, ngam_min, p, p + 4 * ns, p + ns, p + 2 * ns, p + 3 * ns, gs_, l) ? l : 0.0;
+    }) / nrtcr_l;
+    // the photons in flight, in cell order (level 0: a chain over the ranks
+    // in z order; a refined level: fixed point)
     const double ts = now();
     double tot = 0;
-    chain(&tot, 1, [&](double* a) {
-      for (int li : zorder) {
-        auto m = M.atLocalIdx(li).const_array();
-        const ax::Box bx = local_box(li);
-        const std::int64_t gs_ = 5 * comp_stride(m);
-        for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k)
-          for (int j = 0; j < N; ++j)
-            for (int i = 0; i < N; ++i) a[0] = a[0] + mk::photons_cell(&m(i, j, k, 0), gs_);
-      }
-    });
+    if (lev == 0) {
+      chain(&tot, 1, [&](double* a) {
+        for (int li : zorder) {
+          auto m = M.atLocalIdx(li).const_array();
+          const ax::Box bx = local_box(li);
+          const std::int64_t gs_ = 5 * comp_stride(m);
+          for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k)
+            for (int j = 0; j < N; ++j)
+              for (int i = 0; i < N; ++i) a[0] = a[0] + mk::photons_cell(&m(i, j, k, 0), gs_);
+        }
+      });
+    } else {
+      tot = cell_sum([](ax::Array4<RTCell const> const&, ax::Array4<float> const& m, int i, int j, int k) {
+        return mk::photons_cell(&m(i, j, k, 0), 5 * comp_stride(m));
+      });
+    }
     T.sums += now() - ts;
     s.ngam_total_backend = tot;
-    if (s.raylog)
-      *s.raylog << " Moments    : in flight " << static_cast<float>(tot / s.cfg.nrtcr) << " injected "
-                << static_cast<float>(injected) << " absorbed " << static_cast<float>(absorbed) << " lost "
-                << static_cast<float>(lost) << "\n";
-    if (s.raylog && recomb)
-      *s.raylog << " Recomb     : emitted " << static_cast<float>(launched) << " (included in injected)\n";
+    inflight_last = tot;
+    if (!in_hierarchy) log_budget(s, tot, injected, absorbed, lost);
     // calc_rt_f
     const Units u = s.units;
     const bool he = has_e;
@@ -1598,6 +1750,403 @@ struct MomentLevel : CellLevel {
   }
 };
 
+// ---------------------------------------------------------------------------
+// The moment hierarchy (docs/moment_amr.md): one MomentLevel per refinement
+// level of the gas state, the base level on its slabs, the refined levels
+// on the hydro's grids. Per coarse substep a level-l transport runs 2^l
+// times the base subcycles with the parent's moments in its ghosts outside
+// the level, the parent's cells under a finer level have neither sources
+// nor physics, and after the substep the finer levels' moments, cells and
+// gas are averaged down onto the parents, so level 0 is the composite.
+// Milestone 1: M1, no refluxing at the coarse-fine faces (the budget line
+// shows the residual), the OTVET tensors refused.
+// ---------------------------------------------------------------------------
+struct MomentHierarchy : LevelBase {
+  Config cfg;
+  bool with_e = false;
+  gs::GasState* state = nullptr;
+  std::vector<std::unique_ptr<MomentLevel>> levels;  // [0] the base level, always
+  int finest = 0;
+  const char* dbg = std::getenv("RADRAY_MOMENT_AMR_DEBUG");
+
+  MomentHierarchy(const Config& cfg_, bool with_e_) : cfg(cfg_), with_e(with_e_) {
+    state = gs::active();
+    if (!state) throw std::runtime_error("rt_method = m1 | otvet with amrex_max_level > 0 needs amrex_state = 1");
+    if (cfg.rt_method == RTMethod::OTVET)
+      throw std::runtime_error("rt_method = otvet with amrex_max_level > 0: not implemented yet (docs/moment_amr.md milestone 2)");
+    if (cfg.recomb_rad)
+      throw std::runtime_error("recomb_rad = 1 with the moment RT on refined levels: not implemented (docs/moment_amr.md)");
+    levels.push_back(std::make_unique<MomentLevel>(cfg, with_e));
+    levels[0]->in_hierarchy = true;
+  }
+  MomentLevel& base() { return *levels[0]; }
+  const MomentLevel& base_c() const { return *levels[0]; }
+  MomentLevel& L(int l) { return *levels[static_cast<std::size_t>(l)]; }
+
+  // ---- the levels follow the gas state's grids ------------------------------
+
+  // The moments of level l from its parent's: every cell of the grown boxes
+  // where `where` says so (valid cells: a new level; the ghosts outside the
+  // level: fill_ghost_moments). The values are densities (photons per the
+  // level's cell volume and <n_H>), so a child takes the parent's value.
+  void prolong_moments(int l, bool valid, bool ghosts) {
+    MomentLevel& F = L(l);
+    MomentLevel& P = L(l - 1);
+    ax::BoxArray gba = F.ba;
+    gba.grow(1);
+    gba.coarsen(2);
+    FFab Pc(gba, F.dm, kMC, 0);
+    Pc.ParallelCopy(P.M, 0, 0, kMC, 0, 0, P.period);
+    for (ax::MFIter mfi(F.M); mfi.isValid(); ++mfi) {
+      auto m = F.M.array(mfi);
+      auto pc_ = Pc.const_array(mfi);
+      auto inp = F.in_patch->const_array(mfi);
+      const ax::Box vbx = mfi.validbox();
+      const ax::Box gbx = ax::grow(vbx, 1);
+      ax::ParallelForOMP(gbx, kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+        const bool v = vbx.contains(ax::IntVect(i, j, k));
+        if (v ? !valid : !(ghosts && !inp(i, j, k))) return;
+        m(i, j, k, c) = pc_(i >> 1, j >> 1, k >> 1, c);
+      });
+    }
+  }
+  void fill_ghost_moments(int l) { prolong_moments(l, false, true); }
+
+  // The finer level's moments averaged onto the parent's covered cells (the
+  // mean of the 8 children in double, rounded once)
+  void average_down_moments(int l) {
+    MomentLevel& F = L(l);
+    MomentLevel& P = L(l - 1);
+    const ax::BoxArray cba = ax::coarsen(F.ba, 2);
+    FFab Fc(cba, F.dm, kMC, 0);
+    for (ax::MFIter mfi(Fc); mfi.isValid(); ++mfi) {
+      auto f = F.M.const_array(mfi);
+      auto a = Fc.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+        double sum = 0;
+        for (int kk = 0; kk < 2; ++kk)
+          for (int jj = 0; jj < 2; ++jj)
+            for (int ii = 0; ii < 2; ++ii) sum += f(2 * i + ii, 2 * j + jj, 2 * k + kk, c);
+        a(i, j, k, c) = static_cast<float>(sum / 8);
+      });
+    }
+    FFab Pf(P.ba, P.dm, kMC, 0);
+    Pf.setVal(0.0f);
+    Pf.ParallelCopy(Fc, 0, 0, kMC, 0, 0, P.period);
+    for (ax::MFIter mfi(P.M); mfi.isValid(); ++mfi) {
+      auto m = P.M.array(mfi);
+      auto f = Pf.const_array(mfi);
+      auto cov = P.covered->const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+        if (cov(i, j, k)) m(i, j, k, c) = f(i, j, k, c);
+      });
+    }
+    // gammaHI_avg: the children's sums likewise
+    if (F.GA.ok() && P.GA.ok()) {
+      ax::FabArray<ax::BaseFab<double>> Gc(cba, F.dm, 1, 0);
+      for (ax::MFIter mfi(Gc); mfi.isValid(); ++mfi) {
+        auto f = F.GA.const_array(mfi);
+        auto a = Gc.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          double sum = 0;
+          for (int kk = 0; kk < 2; ++kk)
+            for (int jj = 0; jj < 2; ++jj)
+              for (int ii = 0; ii < 2; ++ii) sum += f(2 * i + ii, 2 * j + jj, 2 * k + kk);
+          a(i, j, k) = sum / 8;
+        });
+      }
+      ax::FabArray<ax::BaseFab<double>> Pg(P.ba, P.dm, 1, 0);
+      Pg.setVal(0.0);
+      Pg.ParallelCopy(Gc, 0, 0, 1, 0, 0, P.period);
+      for (ax::MFIter mfi(P.GA); mfi.isValid(); ++mfi) {
+        auto g = P.GA.array(mfi);
+        auto f = Pg.const_array(mfi);
+        auto cov = P.covered->const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          if (cov(i, j, k)) g(i, j, k) = f(i, j, k);
+        });
+      }
+    }
+  }
+
+  // The finer levels' cells and gas averaged down onto their parents (the
+  // rays' Hierarchy::average_down: plain averages of the 8 children of every
+  // covered cell, in double, rounded once), finest first
+  void average_down_cells() {
+    for (int l = finest; l >= 1; --l) {
+      MomentLevel& F = L(l);
+      MomentLevel& P = L(l - 1);
+      FFab Ff(F.ba, F.dm, NC, 0);
+      for (ax::MFIter mfi(F.C); mfi.isValid(); ++mfi) {
+        auto c = F.C.const_array(mfi);
+        auto f = Ff.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          f(i, j, k, m) = cf(c, i, j, k, m);
+        });
+      }
+      const ax::BoxArray cba = ax::coarsen(F.ba, 2);
+      FFab Fc(cba, F.dm, NC, 0);
+      for (ax::MFIter mfi(Fc); mfi.isValid(); ++mfi) {
+        auto f = Ff.const_array(mfi);
+        auto a = Fc.array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+          double sum = 0;
+          for (int kk = 0; kk < 2; ++kk)
+            for (int jj = 0; jj < 2; ++jj)
+              for (int ii = 0; ii < 2; ++ii) sum += f(2 * i + ii, 2 * j + jj, 2 * k + kk, m);
+          a(i, j, k, m) = static_cast<float>(sum / 8);
+        });
+      }
+      FFab Pf(P.ba, P.dm, NC, 0);
+      Pf.setVal(0.0f);
+      Pf.ParallelCopy(Fc, 0, 0, NC, 0, 0, P.period);
+      for (ax::MFIter mfi(P.C); mfi.isValid(); ++mfi) {
+        auto c = P.C.array(mfi);
+        auto f = Pf.const_array(mfi);
+        auto cov = P.covered->const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          if (!cov(i, j, k)) return;
+          float* dp = reinterpret_cast<float*>(&c(i, j, k));
+          for (int m = 0; m < NC; ++m) dp[m] = f(i, j, k, m);
+        });
+      }
+      gs::FFab& G = P.state_G();
+      for (ax::MFIter mfi(G); mfi.isValid(); ++mfi) {
+        auto g = G.array(mfi);
+        auto c = P.C.const_array(mfi);
+        auto cov = P.covered->const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+          if (!cov(i, j, k)) return;
+          const RTCell& d = c(i, j, k);
+          for (int m = 0; m < 5; ++m) g(i, j, k, gs::kU + m) = d.u[m];
+          for (int m = 0; m < 4; ++m) g(i, j, k, gs::kW + m) = d.w[m];
+          g(i, j, k, gs::kE) = d.e;
+        });
+      }
+    }
+  }
+
+  // A refined level whose grids changed (a regrid) is rebuilt: its moments
+  // where the new grids hold its old cells copied over, the rest prolonged
+  // from the parent; then the coverage masks. Collective.
+  void sync() {
+    const int nf = state->finest;
+    for (int l = 1; l <= nf; ++l) {
+      const gs::GasState::FineLevel& F = state->fine[static_cast<std::size_t>(l) - 1];
+      const bool have = static_cast<int>(levels.size()) > l;
+      if (have && L(l).ba == F.ba && L(l).dm == F.dm) continue;
+      auto nl = std::make_unique<MomentLevel>(cfg, with_e, l, F.ba, F.dm);
+      if (have) {
+        std::unique_ptr<MomentLevel> old = std::move(levels[static_cast<std::size_t>(l)]);
+        levels[static_cast<std::size_t>(l)] = std::move(nl);
+        prolong_moments(l, true, false);
+        L(l).M.ParallelCopy(old->M, 0, 0, kMC, 0, 0, L(l).period);  // the old moments where the new grids hold them
+        // (the cells: the gas comes from the state at prep, the radiation
+        // fields are recomputed every substep)
+      } else {
+        levels.push_back(std::move(nl));
+        prolong_moments(l, true, false);
+      }
+    }
+    while (static_cast<int>(levels.size()) > nf + 1) levels.pop_back();
+    finest = nf;
+    for (int l = 0; l <= finest; ++l) L(l).set_covered(l < finest ? &L(l + 1).ba : nullptr);
+  }
+
+  // The sources of the cells covered by a finer level, on the finest level
+  // covering their positions (the rays' Hierarchy::place_sources): a covered
+  // base cell's Luv and sfr shared among its sources in proportion to their
+  // L, each going to the finest cell holding it
+  void place_sources(Simulation& s) {
+    if (finest == 0 || s.rt_sources.empty()) return;
+    const int N0 = base().N;
+    const RTGrid& G = s.rt;
+    std::unordered_map<std::int64_t, double> lsum;
+    auto cell0 = [&](const Simulation::RTSource& q, int c[3]) {
+      for (int d = 0; d < 3; ++d) c[d] = rrk::cell_of(q.x[d], N0);
+      return c[0] + static_cast<std::int64_t>(N0) * (c[1] + static_cast<std::int64_t>(N0) * c[2]);
+    };
+    for (const auto& q : s.rt_sources) {
+      if (!(q.L > 0)) continue;
+      int c[3];
+      lsum[cell0(q, c)] += q.L;
+    }
+    for (const auto& q : s.rt_sources) {
+      if (!(q.L > 0)) continue;
+      int c[3];
+      const std::int64_t gc = cell0(q, c);
+      int lev = 0;
+      for (int l = 1; l <= finest; ++l) {
+        int cl[3];
+        for (int d = 0; d < 3; ++d) cl[d] = rrk::cell_of(q.x[d] * (1 << l), N0 << l);
+        if (L(l).ba.contains(ax::IntVect(cl[0], cl[1], cl[2])))
+          lev = l;
+        else
+          break;
+      }
+      if (lev == 0) continue;
+      const double share = q.L / lsum[gc];
+      float gLuv = 0.0f, gsfr = 0.0f;
+      const auto it = std::lower_bound(G.src_cell.begin(), G.src_cell.end(), gc);
+      if (it != G.src_cell.end() && *it == gc) {
+        const std::size_t n = static_cast<std::size_t>(it - G.src_cell.begin());
+        gLuv = G.src_Luv[n];
+        gsfr = G.src_sfr[n];
+      }
+      const float Luv = static_cast<float>(static_cast<double>(gLuv) * share);
+      const float sfr = static_cast<float>(static_cast<double>(gsfr) * share);
+      MomentLevel& Ll = L(lev);
+      int cl[3];
+      for (int d = 0; d < 3; ++d) cl[d] = rrk::cell_of(q.x[d] * (1 << lev), N0 << lev);
+      const ax::IntVect iv(cl[0], cl[1], cl[2]);
+      for (ax::MFIter mfi(Ll.C); mfi.isValid(); ++mfi) {
+        if (!mfi.validbox().contains(iv)) continue;
+        RTCell& d = Ll.C.array(mfi)(cl[0], cl[1], cl[2]);
+        d.Luv = static_cast<float>(d.Luv + Luv);
+        d.sfr = static_cast<float>(d.sfr + sfr);
+        break;
+      }
+    }
+  }
+
+  // ---- the RT step ----------------------------------------------------------
+
+  void prep(Simulation& s) override {
+    sync();
+    for (auto& l : levels) l->prep(s);
+    place_sources(s);
+    for (auto& l : levels) l->build_src_list(s);
+  }
+
+  void substep(Simulation& s) override {
+    s.timers.substeps += 1;
+    MomentLevel::stat_reset(s);
+    for (auto& l : levels) l->phase_rt1(s);
+    if (cfg.moment_inject == 0)
+      for (auto& l : levels) l->inject(s);
+    // the transport, finest first: a level sees its parent's moments of the
+    // previous substep in its ghosts, the parent the level's composite in
+    // its covered cells
+    for (int l = finest; l >= 1; --l) {
+      fill_ghost_moments(l);
+      L(l).phase_transport(s);
+      average_down_moments(l);
+    }
+    base().phase_transport(s);
+    if (cfg.moment_inject == 1)
+      for (auto& l : levels) l->inject(s);
+    for (auto& l : levels) l->phase_physics(s);
+    for (int l = finest; l >= 1; --l) average_down_moments(l);
+    // the statistics: the levels' sums (each in its own volume weight)
+    double v[kSNstat] = {};
+    Long cnt[2] = {0, 0};
+    for (auto& l : levels) {
+      for (int a = 0; a < kSNstat; ++a) v[a] += l->stat_v[a];
+      cnt[0] += l->stat_cnt[0];
+      cnt[1] += l->stat_cnt[1];
+    }
+    for (int a = 0; a < kSNstat; ++a) base().stat_v[a] = v[a];
+    base().stat_cnt[0] = cnt[0];
+    base().stat_cnt[1] = cnt[1];
+    base().publish_stats(s);
+    accumulate_rt_stats(s);
+  }
+
+  void post(Simulation& s) override {
+    double tot = 0, inj = 0, abs_ = 0, lost = 0;
+    for (auto& l : levels) {
+      l->post(s);
+      tot += l->inflight_last;
+      inj += l->injected;
+      abs_ += l->absorbed;
+      lost += l->lost;
+    }
+    s.ngam_total_backend = tot;
+    base().log_budget(s, tot, inj, abs_, lost);
+    if (dbg && ax::ParallelDescriptor::IOProcessor())
+      std::fprintf(stderr, "moment amr: levels %d in flight %.9e injected %.9e absorbed %.9e lost %.9e residual %.3e\n",
+                   finest + 1, tot / cfg.nrtcr, inj, abs_, lost, inj - abs_ - lost - tot / cfg.nrtcr);
+    average_down_cells();
+    for (int l = finest; l >= 1; --l) average_down_moments(l);
+    amrex_hydro_level0_is_current();  // the hydro must not push this change down again
+  }
+
+  // ---- outputs, checkpoint: level 0 is the composite ---------------------------
+  void sync_fields(Simulation& s) override { base().sync_fields(s); }
+  void gather_fields(Simulation& s, bool stats_only) override { base().gather_fields(s, stats_only); }
+  void gather_movie(Simulation& s) override { base().gather_movie(s); }
+  void stream(const std::vector<int>& comps, const StreamFn& fn) override { base().stream(comps, fn); }
+  void fill(const std::vector<int>& comps, const FillFn& fn) override { base().fill(comps, fn); }
+  void scatter_fields(Simulation& s) override { base().scatter_fields(s); }
+  void gamma_avg_stream(const Simulation& s, const StreamFn& fn) const override { base_c().gamma_avg_stream(s, fn); }
+  void box_ray_counts(ax::Vector<ax::Real>& count) const override { base_c().box_ray_counts(count); }
+  void remap(const ax::DistributionMapping&) override {
+    throw std::runtime_error("amrex_balance = 1 does not support the moment RT");
+  }
+  void level_slice(int, int, std::vector<float>&, int&, int&, int&) const override {
+    throw std::runtime_error("fields_levels = 1 is not implemented for the moment RT on the levels");
+  }
+  std::int64_t nrays() const override { return 0; }
+  int bytes_per_ray() const override { return 0; }
+  void gather_rays(std::vector<RayP>& out) const override { out.clear(); }
+  void gather_rays_chunks(const std::function<void(const std::vector<RayP>&)>&) const override {}
+  void scatter_rays(const std::vector<RayP>& in, bool) override {
+    if (!in.empty()) throw std::runtime_error("the moment hierarchy holds no rays");
+  }
+  // the checkpoint: level 0 in the serial format (the composite), the
+  // refined levels' moments as VisMF files in the level directory
+  void ckpt_write(const std::function<void(const void*, std::size_t)>& sink) const override { base_c().ckpt_write(sink); }
+  void ckpt_read(const std::function<void(void*, std::size_t)>& rd, int version) override { base().ckpt_read(rd, version); }
+  void write_levels(const std::string& dir) const override {
+    if (finest == 0) return;
+    if (ax::ParallelDescriptor::IOProcessor()) ax::UtilCreateDirectory(dir, 0755);
+    ax::ParallelDescriptor::Barrier();
+    for (int l = 1; l <= finest; ++l) {
+      const MomentLevel& Ll = *levels[static_cast<std::size_t>(l)];
+      ax::MultiFab t(Ll.ba, Ll.dm, kMC, 0);
+      for (ax::MFIter mfi(t); mfi.isValid(); ++mfi) {
+        auto a = t.array(mfi);
+        auto m = Ll.M.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+          a(i, j, k, c) = m(i, j, k, c);
+        });
+      }
+      ax::VisMF::Write(t, dir + "/RT_moments_" + std::to_string(l));
+    }
+  }
+  void restore_levels(bool, const std::string& dir) override {
+    sync();  // the levels of the checkpoint's gas state, their moments prolonged
+    if (finest == 0 || dir.empty()) return;
+    for (int l = 1; l <= finest; ++l) {
+      const std::string f = dir + "/RT_moments_" + std::to_string(l);
+      if (!ax::VisMF::Exist(f)) return;
+      MomentLevel& Ll = L(l);
+      ax::MultiFab p;
+      ax::VisMF::Read(p, f);
+      if (p.nComp() != kMC || !(p.boxArray().minimalBox() == Ll.ba.minimalBox()))
+        throw std::runtime_error("moment hierarchy: the checkpoint's moments of level " + std::to_string(l) +
+                                 " do not match the level");
+      ax::MultiFab q(Ll.ba, Ll.dm, kMC, 0);
+      q.ParallelCopy(p, 0, 0, kMC);
+      for (ax::MFIter mfi(q); mfi.isValid(); ++mfi) {
+        auto m = Ll.M.array(mfi);
+        auto a = q.const_array(mfi);
+        ax::ParallelForOMP(mfi.validbox(), kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+          m(i, j, k, c) = static_cast<float>(a(i, j, k, c));
+        });
+      }
+    }
+  }
+  std::string timers() const override {
+    std::string out;
+    for (std::size_t l = 0; l < levels.size(); ++l) {
+      if (l) out += "\n";
+      out += "level " + std::to_string(l) + ": " + levels[l]->timers();
+    }
+    return out;
+  }
+};
+
 }  // namespace
 
 std::unique_ptr<LevelBase> make_moment_level(const Config& cfg, bool with_e) {
@@ -1607,6 +2156,16 @@ std::unique_ptr<LevelBase> make_moment_level(const Config& cfg, bool with_e) {
   throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex: CPU builds only");
 #else
   return std::make_unique<MomentLevel>(cfg, with_e);
+#endif
+}
+
+std::unique_ptr<LevelBase> make_moment_hierarchy(const Config& cfg, bool with_e) {
+#ifdef AMREX_USE_GPU
+  (void)cfg;
+  (void)with_e;
+  throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex: CPU builds only");
+#else
+  return std::make_unique<MomentHierarchy>(cfg, with_e);
 #endif
 }
 

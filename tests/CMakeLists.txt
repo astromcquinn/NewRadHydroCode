@@ -2073,6 +2073,31 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;moments;amrex_moments;restart" ENVIRONMENT OMP_NUM_THREADS=1
                            PROCESSORS ${np})
     endforeach()
+    # The moment RT on the refined levels (docs/moment_amr.md, M1): the smoke
+    # problem with two levels over a fixed region, byte-identical over 1, 2
+    # and 3 ranks and through a restart; level 0 on slabs, the refined
+    # levels on the hydro's grids
+    set(mamr_sets --set rt_method=m1 --set legacy_rt=0 --set legacy_physics=0 --set rt_backend=amrex
+                  --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                  --set pm_backend=amrex --set amrex_state=1 --set amrex_slab=1 --set amrex_max_grid_size=8
+                  --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=4,4,4,11,11,11
+                  --set movie_dz=0.5 --set movie_z0=25 --set fields=fHI,gammaHI,gammaHI_avg)
+    add_test(NAME amrex_moment_amr_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/moment_amr_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                     ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_sets}
+                     --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_moment_amr_ranks_smoke PROPERTIES TIMEOUT 2400
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_moment_amr_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/moment_amr_restart 13 ${mamr_sets})
+    set_tests_properties(amrex_moment_amr_restart_smoke PROPERTIES TIMEOUT 2400
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1
+                         PROCESSORS 2)
     add_test(NAME amrex_slab_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke

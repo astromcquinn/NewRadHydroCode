@@ -2934,9 +2934,9 @@ LevelBase& level_of(Simulation& s) {
     const bool with_e = s.gas.has_e();
     const bool hier = s.cfg.amrex_max_level > 0 && use_amrex_hydro(s.cfg);  // the hierarchy (F3b)
     if (use_moments(s.cfg)) {
-      // rt_method = m1 | otvet (moment_level.cpp): the base level only
-      if (hier) throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex: amrex_max_level must be 0");
-      s.amrex->level = make_moment_level(s.cfg, with_e);
+      // rt_method = m1 | otvet (moment_level.cpp): the base level, or the
+      // moment hierarchy on the refined levels (docs/moment_amr.md)
+      s.amrex->level = hier ? make_moment_hierarchy(s.cfg, with_e) : make_moment_level(s.cfg, with_e);
     } else if (s.cfg.ray_encoding == RayEncoding::RStruct)
       s.amrex->level = hier ? std::unique_ptr<LevelBase>(std::make_unique<Hierarchy<amrex_enc::RStructEnc>>(s.cfg, with_e))
                             : std::unique_ptr<LevelBase>(std::make_unique<Level<amrex_enc::RStructEnc>>(s.cfg, with_e));
