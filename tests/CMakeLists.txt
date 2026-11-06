@@ -94,6 +94,14 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/healpix_vs_healpy.py
                    $<TARGET_FILE:healpix_tool> 1000000)
   set_tests_properties(healpix_vs_healpy PROPERTIES SKIP_RETURN_CODE 77)
+  # The photon-sink-by-density tool of docs/absorbers_closures.md on a
+  # synthetic cube: the code's alpha_B lookup, the rho_source factor, the
+  # binned sums and cuts, the periodic connected components and their HI
+  # columns (the component checks need scipy and are skipped without it)
+  add_test(NAME absorber_budget_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_budget.py
+                   --selftest)
+  set_tests_properties(absorber_budget_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
 
   # The runtime cosmology's IC tool, a Planck RT run and the preheating
   # floor on a cooling test (tests/cosmology_check.py; docs/production_run.md
