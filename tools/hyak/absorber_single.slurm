@@ -7,7 +7,7 @@
 # Environment: RUNS, EXE (default $RUNS/absorbers_wu21_bin/rt_driver, a build
 # with P11), OUT (default $RUNS/absorbers_wu21/single), NLIST (default
 # 32,64,128: 32, 16 and 8 pkpc cells in the 5 Mpc/h box at z = 6), METHODS,
-# NSTEPS (40), CALSTEPS (0 = NSTEPS), THREADS (the job's cpus), EXTRA (more
+# NSTEPS (60), CALSTEPS (0 = NSTEPS), THREADS (the job's cpus), EXTRA (more
 # absorber_single.py run arguments).
 #SBATCH --job-name=absorber_single
 #SBATCH --account=astro
@@ -26,7 +26,7 @@ EXE="${EXE:-$RUNS/absorbers_wu21_bin/rt_driver}"
 OUT="${OUT:-$RUNS/absorbers_wu21/single}"
 NLIST="${NLIST:-32,64,128}"
 METHODS="${METHODS:-rays,m1,otvet,cone,split,screen,rays_p110}"
-NSTEPS="${NSTEPS:-40}"
+NSTEPS="${NSTEPS:-60}"
 CALSTEPS="${CALSTEPS:-0}"
 THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-16}}"
 export OMP_PLACES=cores OMP_PROC_BIND=close
