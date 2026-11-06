@@ -102,6 +102,13 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_budget.py
                    --selftest)
   set_tests_properties(absorber_budget_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
+  # The single-absorber problem generator (Phase 2 (c) of
+  # docs/absorbers_closures.md): the gas.bin record round trip against the
+  # kernel's gas state, the r^-2 profile, a written problem read back
+  add_test(NAME absorber_single_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_single.py
+                   selftest)
+  set_tests_properties(absorber_single_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
 
   # The runtime cosmology's IC tool, a Planck RT run and the preheating
   # floor on a cooling test (tests/cosmology_check.py; docs/production_run.md
