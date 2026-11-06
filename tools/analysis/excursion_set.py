@@ -360,6 +360,46 @@ def cmd_run(a):
             del gmax, g0, xhii, xnp, ib, ibz
 
 
+def solve_zeta(xv_of, target, zeta0, tol, factor=1.3, maxcall=16):
+    """zeta with x_V(zeta) = target (x_V rises with zeta): expand from
+    zeta0 by `factor` until the target is bracketed, then secant steps in
+    ln zeta kept inside the bracket (bisection when a step leaves it).
+    xv_of(zeta) returns (x_V, result). Returns (x_V, zeta, result) of the
+    closest call."""
+    calls = []
+
+    def call(z):
+        x, r = xv_of(z)
+        calls.append((x, z, r))
+        return x
+
+    lo = hi = None                      # (ln zeta, x) below / above the target
+    lz = math.log(zeta0)
+    x = call(math.exp(lz))
+    while len(calls) < maxcall:
+        if abs(x - target) < tol:
+            break
+        if x < target:
+            lo = (lz, x)
+        else:
+            hi = (lz, x)
+        if lo is None:
+            lz = hi[0] - math.log(factor)
+        elif hi is None:
+            lz = lo[0] + math.log(factor)
+        else:
+            # secant between the bracket ends; bisection if degenerate or outside
+            if hi[1] > lo[1]:
+                lz = lo[0] + (target - lo[1]) * (hi[0] - lo[0]) / (hi[1] - lo[1])
+            if not (min(lo[0], hi[0]) < lz < max(lo[0], hi[0])) or hi[1] <= lo[1] or \
+                    abs(lz - lo[0]) < 1e-3 * abs(hi[0] - lo[0]) or abs(hi[0] - lz) < 1e-3 * abs(hi[0] - lo[0]):
+                lz = 0.5 * (lo[0] + hi[0])
+            if abs(hi[0] - lo[0]) < 1e-5:
+                break
+        x = call(math.exp(lz))
+    return min(calls, key=lambda t: abs(t[0] - target))
+
+
 def cmd_standalone(a):
     """B2: a 21cmFAST run of its own (its ICs, 2LPT density at each z), the
     suite's cosmology, box and resolution; zeta at each z matched to the
@@ -390,6 +430,7 @@ def cmd_standalone(a):
         return p21_inputs(N, box, zeta, rmax, rmin, log10_mmin, threads, cosmo, dim=a.dim, seed=a.seed)
 
     t0 = time.time()
+    zeta_prev = None
     ic = p21.compute_initial_conditions(inputs=inputs(30.0))
     print(f"ICs {a.dim}^3 -> {N}^3, seed {a.seed}: {time.time() - t0:.0f} s", flush=True)
     outd = os.path.join(a.out, "es_standalone")
@@ -413,22 +454,8 @@ def cmd_standalone(a):
                   flush=True)
             return x, ib
 
-        z0 = a.zeta0
-        x0, ib0 = xv_of(z0)
-        z1 = z0 * (1.3 if x0 < target else 0.7)
-        x1, ib1 = xv_of(z1)
-        best = min(((x1, z1, ib1), (x0, z0, ib0)), key=lambda t: abs(t[0] - target))
-        for _ in range(12):
-            if abs(best[0] - target) < a.tol or x1 == x0:
-                break
-            lz = math.log(z1) + (target - x1) * (math.log(z1) - math.log(z0)) / (x1 - x0)
-            lz = min(max(lz, math.log(z1) - 1.0), math.log(z1) + 1.0)
-            z0, x0 = z1, x1
-            z1 = math.exp(lz)
-            x1, ib1 = xv_of(z1)
-            if abs(x1 - target) < abs(best[0] - target):
-                best = (x1, z1, ib1)
-        xv, zeta, ib = best
+        xv, zeta, ib = solve_zeta(xv_of, target, zeta_prev or a.zeta0, a.tol)
+        zeta_prev = zeta
         sdir = os.path.join(outd, "run", f"step_{st:04d}")
         os.makedirs(sdir, exist_ok=True)
         np.asarray(ib.neutral_fraction, np.float32).tofile(os.path.join(sdir, "fHI.bin"))
@@ -445,7 +472,7 @@ def cmd_standalone(a):
             f.write(f"{st} {z:.4f} {target:.5f} {xv:.5f} {zeta:.5g} {rmax:.4g} {rmin:.4g} "
                     f"{a.mmin:.4g} {time.time() - t1:.0f}\n")
         print(f"step {st} z {z:.3f}: zeta {zeta:.4g}, x_V {xv:.4f} (target {target:.4f})", flush=True)
-        del pf, ib, ib0, ib1
+        del pf, ib
 
 
 # ---------------------------------------------------------------------------
