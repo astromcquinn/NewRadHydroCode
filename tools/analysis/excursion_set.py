@@ -4,11 +4,14 @@ RT-methods suite (B1 of docs/taueff_21cmfast.md).
 
     excursion_set.py run RUN --steps 61,69,74,78,84 --out DIR [--rmax 15]
                      [--rmax-mfp IGM.json] [--mmin 1.28e8] [--threads N]
+    excursion_set.py run-mass RUN --steps ... --out DIR [--alpha-star A] [--pop2-start P]
     excursion_set.py standalone RUN --steps ... --out DIR [--hii-dim 512] [--dim 1024]
-    excursion_set.py figure DIR RUN:label [RUN:label ...] --outdir FIGDIR
+    excursion_set.py figure DIR RUN:label [RUN:label ...] --outdir FIGDIR [--es NAME,...]
     excursion_set.py --selftest
 
-`run` needs py21cmfast (tested with 4.3.1, the conda env of
+`run-mass` (B1m) uses 21cmFAST's mass-dependent sources (E-INTEGRAL) with
+the suite's abundance-matched slope, N_ion ~ M^a(z), and solves POP2_ION for
+x_V. `run` needs py21cmfast (tested with 4.3.1, the conda env of
 docs/taueff_21cmfast.md); `figure` and the self-test need numpy and scipy only.
 
 The criterion, as 21cmFAST 4.3.1 applies it with SOURCE_MODEL = CONST-ION-EFF
@@ -359,6 +362,91 @@ def cmd_run(a):
                   f"target {target:.4f}; numpy vs 21cmFAST: {mism:.2e} of the cells differ in "
                   f"'ionised', <|dx|> {dmean:.2e}", flush=True)
             del gmax, g0, xhii, xnp, ib, ibz
+
+
+def am_slope(top, z):
+    """The low-mass slope a(z) of the suite's abundance-matched L_UV(M)
+    (docs/abundance_matching.md: L = 2 L_p / ((M/M_p)^-a + (M/M_p)^-b),
+    a = a0 + a1 x, x = clamp(z, z_lo, z_hi) - z0), from the run's params.txt."""
+    p = {}
+    for line in open(os.path.join(top, "params.txt")):
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = [t.strip() for t in line.split("=", 1)]
+            p[k] = v
+    x = min(max(z, float(p["am_zlo"])), float(p["am_zhi"])) - float(p["am_z0"])
+    return float(p["am_a0"]) + float(p["am_a1"]) * x
+
+
+def p21_inputs_mass(N, box_mpc, pop2, rmax, rmin, log10_mturn, alpha_star, threads, cosmo,
+                    alpha_esc=0.0):
+    """21cmFAST's mass-dependent source model (SOURCE_MODEL = E-INTEGRAL):
+    N_ion per halo ~ M f_*(M) f_esc(M) POP2_ION, f_* = F_STAR10 (M/1e10)^ALPHA_STAR,
+    f_esc = F_ESC10 (M/1e10)^ALPHA_ESC, duty cycle exp(-M_turn/M), M_turn =
+    max(M_TURN_STELLAR_FEEDBACK, the atomic-cooling mass); POP2_ION is the free
+    normalisation (it scales N_ion linearly, like zeta). Otherwise as p21_inputs."""
+    import py21cmfast as p21
+    inp = p21.InputParameters.from_template("const-zeta", random_seed=1)
+    return inp.evolve_input_structs(
+        HII_DIM=N, DIM=N, BOX_LEN=box_mpc, N_THREADS=threads,
+        OMm=cosmo["omegam"], OMb=cosmo["omegab"], hlittle=cosmo["hubble0"],
+        SIGMA_8=cosmo["sigma8"], POWER_INDEX=cosmo["ns"],
+        SOURCE_MODEL="E-INTEGRAL", ALPHA_STAR_ACG=alpha_star, ALPHA_ESC=alpha_esc,
+        POP2_ION=pop2, R_BUBBLE_MAX=rmax, R_BUBBLE_MIN=rmin,
+        M_MIN_in_Mass=True, M_TURN_STELLAR_FEEDBACK=log10_mturn,
+        HII_FILTER="spherical-tophat", IONISE_ENTIRE_SPHERE=False)
+
+
+def cmd_run_mass(a):
+    """B1 with the mass-dependent source model: ALPHA_STAR = a(z) - 1 from the
+    suite's abundance matching (N_ion ~ M^a below the turnover M_p ~ 4e11),
+    ALPHA_ESC = 0 (the suite's f_esc depends on z only), M_turn = M_min;
+    POP2_ION solved so that x_V = the rays'. Writes OUT/es_<name>/ as `run`."""
+    import time
+    rd = run_dir(a.run)
+    top = os.path.dirname(rd)
+    cosmo = read_cosmo(top)
+    box_h = box_of(rd)
+    box = box_h / cosmo["hubble0"]
+    snaps = snapshots(rd)
+    threads = a.threads or int(os.environ.get("SLURM_CPUS_PER_TASK", "1"))
+    log10_mt = math.log10(a.mmin)
+    outd = os.path.join(a.out, "es_" + a.name)
+    for st in [int(s) for s in a.steps.split(",")]:
+        t0 = time.time()
+        z, sd = snaps[st]
+        rho = load_cube(os.path.join(sd, "rhog.bin")).astype(np.float64)
+        delta = (rho / rho.mean() - 1.0).astype(np.float32)
+        del rho
+        N = delta.shape[0]
+        target = float(1.0 - load_cube(os.path.join(sd, "fHI.bin")).astype(np.float64).mean())
+        alpha = (am_slope(top, z) - 1.0) if a.alpha_star is None else a.alpha_star
+        rmax = min(a.rmax, L_FACTOR * box)
+        rmin = a.rmin                       # B1's R_min (radius of 1.28e8 Msun x 1.01)
+
+        def xv_of(pop2):
+            inp = p21_inputs_mass(N, box, pop2, rmax, rmin, log10_mt, alpha, threads, cosmo)
+            ib = p21_ionize(delta, z, inp)
+            x = float(1.0 - np.asarray(ib.neutral_fraction, np.float64).mean())
+            print(f"  step {st} z {z:.3f}: POP2_ION {pop2:.5g} -> x_V {x:.5f} (target {target:.5f})",
+                  flush=True)
+            return x, ib
+
+        xv, pop2, ib = solve_zeta(xv_of, target, a.pop2_start, a.tol, factor=1.5, maxcall=a.maxcall)
+        xhii = (1.0 - np.asarray(ib.neutral_fraction, np.float32))
+        sdir = os.path.join(outd, "run", f"step_{st:04d}")
+        os.makedirs(sdir, exist_ok=True)
+        with open(os.path.join(outd, "params.txt"), "w") as f:
+            f.write(f"# excursion_set.py run-mass (21cmFAST E-INTEGRAL on {top})\nN = {N}\nbox = {box_h}\n")
+        (1.0 - xhii).astype(np.float32).tofile(os.path.join(sdir, "fHI.bin"))
+        with open(os.path.join(sdir, "stats.txt"), "w") as f:
+            f.write(f"redshift = {z}\nxHII_V = {xv}\npop2_ion = {pop2}\ntarget_xHII_V = {target}\n"
+                    f"alpha_star = {alpha}\nalpha_esc = 0\nM_turn_Msun = {a.mmin}\n"
+                    f"R_max_Mpc = {rmax}\nR_min_Mpc = {rmin}\nsource_step = {sd}\n")
+        with open(os.path.join(outd, f"pop2_step{st}.txt"), "w") as f:
+            f.write("# step z target_xV xV POP2_ION alpha_star seconds\n"
+                    f"{st} {z:.4f} {target:.5f} {xv:.5f} {pop2:.5g} {alpha:.4f} {time.time() - t0:.0f}\n")
+        print(f"step {st} z {z:.3f}: POP2_ION {pop2:.4g}, alpha_star {alpha:.3f}, x_V {xv:.4f} "
+              f"target {target:.4f}", flush=True)
 
 
 def solve_zeta(xv_of, target, zeta0, tol, factor=1.3, maxcall=16):
@@ -784,6 +872,20 @@ def main():
     r.add_argument("--mmin", type=float, default=1.28e8, help="M_min [Msun] (20 particles of 6.4e6)")
     r.add_argument("--tol", type=float, default=0.002, help="|x_V - target|")
     r.add_argument("--threads", type=int, default=0)
+    m = sub.add_parser("run-mass", help="B1 with 21cmFAST's mass-dependent sources (E-INTEGRAL)")
+    m.add_argument("run")
+    m.add_argument("--steps", required=True)
+    m.add_argument("--out", required=True)
+    m.add_argument("--name", default="rmax15_mass")
+    m.add_argument("--rmax", type=float, default=15.0)
+    m.add_argument("--rmin", type=float, default=0.095, help="R_BUBBLE_MIN [Mpc] (B1's)")
+    m.add_argument("--mmin", type=float, default=1.28e8, help="M_TURN_STELLAR_FEEDBACK [Msun]")
+    m.add_argument("--alpha-star", type=float, default=None,
+                   help="default: a(z) - 1 from the run's abundance matching")
+    m.add_argument("--pop2-start", type=float, default=5000.0)
+    m.add_argument("--maxcall", type=int, default=12)
+    m.add_argument("--tol", type=float, default=0.002)
+    m.add_argument("--threads", type=int, default=0)
     b = sub.add_parser("standalone")
     b.add_argument("run", help="the reference run (cosmology, box, the x_V targets)")
     b.add_argument("--steps", required=True)
@@ -810,6 +912,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "run":
         cmd_run(a)
+    elif a.cmd == "run-mass":
+        cmd_run_mass(a)
     elif a.cmd == "standalone":
         cmd_standalone(a)
     else:
