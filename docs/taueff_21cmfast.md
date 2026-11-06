@@ -268,6 +268,38 @@ width (raw, real space). (d) The median against λ_mfp.* Numbers:
   rays, A + RR and the cone agree; M1 is broad at the end of reionization;
   thin OTVET is 15–20 % narrower after it.
 
+**Normalised to the observed mean flux** (`taueff_z.py --norm`; the user,
+2026-11-06). τ in each frame is multiplied by A so that the slab pixels' ⟨F⟩
+equals Bosman+22's mean transmission (`data/igm/igm_z5_6.txt`, Table 4,
+transcribed from the paper the user supplied on 2026-10-10). This only
+works for z ≤ 6.2.
+
+![tau_eff normalised](figures/taueff_21cmfast_z_A.png)
+
+![lambda_mfp and normalised width](figures/taueff_21cmfast_mfp_width_A.png)
+
+| width / rays (normalised, real space) | z 6.15 | 6.0 | 5.8 | 5.6 | 5.5 | 5.4 | 5.2 | 5.03 |
+|---|---|---|---|---|---|---|---|---|
+| (rays' width) | 2.26 | 1.74 | 1.31 | 0.95 | 0.92 | 0.88 | 0.73 | 0.63 |
+| A + RR | 0.96 | 0.98 | 1.00 | 1.00 | 1.02 | 1.01 | 0.99 | 1.00 |
+| M1 | 0.93 | 1.01 | 1.08 | 1.31 | 1.34 | 1.02 | 1.08 | 1.08 |
+| OTVET (thin) | 0.84 | 0.93 | 0.91 | 0.99 | 0.94 | 0.83 | 0.81 | 0.82 |
+| split | 0.84 | 0.93 | 0.91 | 1.04 | 1.03 | 0.95 | 0.98 | 1.02 |
+| screen | 0.78 | 0.92 | 0.96 | 1.15 | 1.07 | 0.93 | 0.99 | 1.01 |
+| cone | 0.94 | 0.96 | 0.95 | 0.98 | 0.95 | 0.97 | 0.97 | 1.02 |
+
+* With the mean flux fixed, the medians agree within 2 %, so the
+  comparison is in the widths alone.
+* The ordering matches A.3 and A.5:
+  * thin OTVET is 16–19 % narrower after z ≈ 5.4, and the whole OTVET
+    family is 7–22 % narrower before z ≈ 5.8;
+  * M1 is 31–34 % broader at the end of reionization (z ≈ 5.5–5.6) and
+    8 % broader after it;
+  * the cone stays within 6 % of the rays at every z, and A + RR within
+    4 %.
+* These widths are in real space and not calibrated (A.5: × 1.03–1.08 at
+  z ≥ 5.7, × 0.98–1.02 after).
+
 ## Part B: 21cmFAST against the rays and the moment methods
 
 ### B.0 21cmFAST on klone

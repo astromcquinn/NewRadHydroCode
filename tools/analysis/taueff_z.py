@@ -30,6 +30,11 @@ Writes taueff_z.png and taueff_z.txt (docs/taueff_21cmfast.md A.6), and
 taueff_mfp_width.png: lambda_mfp of every run at the snapshots (left; open
 symbols where the exponential fit stands in) beside the 84-16 % width of
 the raw tau_eff against z (right).
+
+--norm: the same figures (suffix _A) for tau rescaled per frame by A so that
+<F> of the slab pixels equals Bosman+22's mean transmission at the frame's z
+(data/igm/igm_z5_6.txt, Table 4; taueff_slabs.py; z <= 6.2 only). The
+markers of (a) are then the observed -ln<F>.
 """
 import argparse
 import json
@@ -41,10 +46,10 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def read_slabs(path):
-    """z, raw tau_eff at 5, 16, 50, 84, 95 % (descending z in the file)."""
+def read_slabs(path, norm=False):
+    """z, tau_eff at 5, 16, 50, 84, 95 % (raw, or rescaled by A if norm)."""
     sl = np.loadtxt(path, ndmin=2)
-    z, p = sl[:, 1], sl[:, 11:16]
+    z, p = sl[:, 1], (sl[:, 5:10] if norm else sl[:, 11:16])
     o = np.argsort(z)
     return z[o], p[o]
 
@@ -83,7 +88,10 @@ def main():
     ap.add_argument("--slabs", required=True)
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--dpi", type=int, default=200)
+    ap.add_argument("--norm", action="store_true", help="tau rescaled to Bosman+22's mean flux")
     a = ap.parse_args()
+    sfx = "_A" if a.norm else ""
+    kind = "rescaled to $\\langle F\\rangle_{\\rm obs}$" if a.norm else "raw"
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -93,14 +101,14 @@ def main():
     runs = []
     for spec in a.runs:
         lab, _, js = spec.partition(":")
-        zs, ps = read_slabs(os.path.join(a.slabs, f"{lab}_slabs.txt"))
+        zs, ps = read_slabs(os.path.join(a.slabs, f"{lab}_slabs.txt"), a.norm)
         runs.append((lab, zs, ps, read_igm(js)))
 
     fig, ax = plt.subplots(2, 2, figsize=(9.0, 7.0))
     (a0, a1), (a2, a3) = ax
     z0, p0 = smooth121(*[x[np.all(np.isfinite(runs[0][2][:, 1:4]), axis=1)] for x in runs[0][1:3]])
-    with open(os.path.join(a.outdir, "taueff_z.txt"), "w") as f:
-        f.write("# taueff_z.py: raw tau_eff over 50 Mpc/h segments from the movie slabs (real space)\n"
+    with open(os.path.join(a.outdir, f"taueff_z{sfx}.txt"), "w") as f:
+        f.write(f"# taueff_z.py: {'tau rescaled to the Bosman+22 mean flux' if a.norm else 'raw'}: tau_eff over 50 Mpc/h segments from the movie slabs (real space)\n"
                 "# smoothed [1,2,1]/4 over frames; columns: label z tau16 tau50 tau84 width(84-16) lambda_mfp[pMpc] (interpolated)\n")
         for ir, (lab, zs, ps, (zi, ti, li, fi)) in enumerate(runs):
             c, ls = COLORS[ir % len(COLORS)], STYLES[ir % len(STYLES)]
@@ -117,7 +125,8 @@ def main():
                                 label=f"{lab} 16-84 %")
             a0.plot(z, med, color=c, ls=ls, lw=lw, label=lab)
             k = (zi >= z.min() - 0.02) & (zi <= z.max() + 0.02)
-            a0.plot(zi[k], ti[k], color=c, marker="o", ms=3.5, mfc="none", ls="none")
+            if not a.norm:
+                a0.plot(zi[k], ti[k], color=c, marker="o", ms=3.5, mfc="none", ls="none")
             a1.plot(z, med / np.interp(z, z0, p0[:, 2]), color=c, ls=ls, lw=lw)
             a2.plot(z, w, color=c, ls=ls, lw=lw)
             a3.plot(lam, med, color=c, ls=ls, lw=lw)
@@ -127,9 +136,19 @@ def main():
             for row in zip(zi, ti, li, fi):
                 f.write(f"#S {lab:10s} {row[0]:.4f} {row[1]:.4g} {row[2]:.4g} {int(row[3])}\n")
 
-    a0.plot([], [], color="0.4", marker="o", mfc="none", ls="none", label=r"$-\ln\langle F\rangle$ (snapshots)")
+    if a.norm:
+        import igm_stats as ig
+        ob = ig.read_obs()["mean_flux"]
+        k = (ob["z"] >= 4.95) & (ob["z"] <= 6.25)
+        a0.errorbar(ob["z"][k], -np.log(ob["v"][k]),
+                    yerr=[np.log(ob["v"][k] + ob["ep"][k]) - np.log(ob["v"][k]),
+                          np.log(ob["v"][k]) - np.log(np.maximum(ob["v"][k] - ob["em"][k], 1e-4))],
+                    color="0.4", marker="s", ms=3, mfc="none", ls="none", lw=0.8,
+                    label=r"$-\ln\langle F\rangle$ Bosman+22")
+    else:
+        a0.plot([], [], color="0.4", marker="o", mfc="none", ls="none", label=r"$-\ln\langle F\rangle$ (snapshots)")
     a0.set_yscale("log")
-    a0.set_ylabel(r"median $\tau_{\rm eff}$ (50 Mpc/$h$, raw)")
+    a0.set_ylabel(r"median $\tau_{\rm eff}$ (50 Mpc/$h$, " + kind + ")")
     a0.legend(frameon=False, fontsize=7, ncol=2)
     a1.axhline(1, color="0.6", lw=0.8)
     a1.set_ylabel(f"median / median({runs[0][0]})")
@@ -140,7 +159,7 @@ def main():
     a3.set_xscale("log")
     a3.set_yscale("log")
     a3.set_xlabel(r"$\lambda_{\rm mfp}$ [pMpc] (912 Å, interpolated between snapshots)")
-    a3.set_ylabel(r"median $\tau_{\rm eff}$ (50 Mpc/$h$, raw)")
+    a3.set_ylabel(r"median $\tau_{\rm eff}$ (50 Mpc/$h$, " + kind + ")")
     from matplotlib.ticker import ScalarFormatter, NullFormatter
     for x in (a0, a2, a3):
         x.yaxis.set_major_formatter(ScalarFormatter())
@@ -156,12 +175,12 @@ def main():
         for sp in ("top", "right"):
             x.spines[sp].set_visible(False)
     fig.tight_layout()
-    fig.savefig(os.path.join(a.outdir, "taueff_z.png"), dpi=a.dpi)
+    fig.savefig(os.path.join(a.outdir, f"taueff_z{sfx}.png"), dpi=a.dpi)
     plt.close(fig)
-    mfp_width_figure(runs, a.outdir, a.dpi)
+    mfp_width_figure(runs, a.outdir, a.dpi, sfx, kind)
 
 
-def mfp_width_figure(runs, outdir, dpi):
+def mfp_width_figure(runs, outdir, dpi, sfx="", kind="raw"):
     """Left: lambda_mfp against z at the snapshots; right: the raw 84-16 % width."""
     import matplotlib.pyplot as plt
     from matplotlib.ticker import ScalarFormatter, NullFormatter
@@ -185,7 +204,7 @@ def mfp_width_figure(runs, outdir, dpi):
     b0.plot([], [], color="0.4", marker="o", mfc="none", ls="none", label="exp. fit (λ > rays)")
     b0.legend(frameon=False, fontsize=7, ncol=2)
     b1.set_yscale("log")
-    b1.set_ylabel(r"$\tau_{\rm eff}$(84 %) $-$ $\tau_{\rm eff}$(16 %), 50 Mpc/$h$, raw")
+    b1.set_ylabel(r"$\tau_{\rm eff}$(84 %) $-$ $\tau_{\rm eff}$(16 %)" + "\n50 Mpc/$h$, " + kind)
     b1.set_yticks([0.5, 0.7, 1, 1.5, 2, 3])
     for x in (b0, b1):
         x.yaxis.set_major_formatter(ScalarFormatter())
@@ -196,7 +215,7 @@ def mfp_width_figure(runs, outdir, dpi):
         for sp in ("top", "right"):
             x.spines[sp].set_visible(False)
     fig.tight_layout()
-    fig.savefig(os.path.join(outdir, "taueff_mfp_width.png"), dpi=dpi)
+    fig.savefig(os.path.join(outdir, f"taueff_mfp_width{sfx}.png"), dpi=dpi)
     plt.close(fig)
 
 

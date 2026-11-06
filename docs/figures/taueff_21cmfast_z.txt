@@ -1,4 +1,4 @@
-# taueff_z.py: raw tau_eff over 50 Mpc/h segments from the movie slabs (real space)
+# taueff_z.py: raw: tau_eff over 50 Mpc/h segments from the movie slabs (real space)
 # smoothed [1,2,1]/4 over frames; columns: label z tau16 tau50 tau84 width(84-16) lambda_mfp[pMpc] (interpolated)
 rays       5.025 1.283 1.52 1.809 0.5257 42.5
 rays       5.05 1.315 1.56 1.855 0.5405 40.54
