@@ -181,6 +181,165 @@ with the observed mean (Figure 7, bottom left).
 
 ## Part B: 21cmFAST against the rays and the moment methods
 
+### B.0 21cmFAST on klone
+
+* **Version 4.3.1** (PyPI, the latest on 2026-11-05; conda-forge has only
+  3.3.1), in its own conda env `$RADRAY_SW/conda-envs/21cmfast`: python 3.12,
+  `gsl`, `fftw`, `c-compiler`, `pkg-config` from conda-forge, then
+  `pip install 21cmFAST==4.3.1` (it builds CLASS, `classy` 3.3.4, too).
+  PyPI and GitHub are reachable from klone through the proxy. The C source
+  of the tag (`src/py21cmfast/src/*.c` from GitHub) and the docs are in
+  `$RADRAY_SW/src/21cmFAST-src-4.3.1` and `21cmFAST-docs-4.3.1`. The
+  single-field functions write no cache (`write=False` by default); the
+  standalone run points `config["direc"]` at the output directory anyway,
+  never at the default `~/21cmFAST-cache` in the 10 GB home.
+* **An external density field is supported.** The documentation's FAQ
+  (`docs/faqs/misc.rst`, v4.3.1) has two entries: "Can I inject my own
+  initial conditions for the density field?"
+  (`compute_initial_conditions(inputs=..., initial_density=...)`, a z = 0
+  linear field on the high-resolution grid) and "Can I instantiate my own
+  OutputStruct objects?" (`X.new(inputs=...)` then `X.set(name, value)`).
+  B1 uses the second: a `PerturbedField` holding the suite's gas density
+  at z. Two details the FAQ does not mention: `set()` leaves an array
+  "initialized", not "computed", and `compute_ionization_field` refuses
+  it, so the density is marked computed (`setattr(pf, "density",
+  pf.arrays["density"].computed())`); and a `InitialConditions.new(inputs,
+  dummy=True)` with the run's own inputs is passed (CONST-ION-EFF reads no
+  IC array: `IonisationBox.c` touches `ini_boxes` only for the
+  mass-dependent models' turnover masses).
+* **The criterion** (21cmFAST 4.3.1, `SOURCE_MODEL = "CONST-ION-EFF"`, the
+  `const-zeta` template): `IonisationBox.c` (`setup_radii`,
+  `copy_filter_transform`, `calculate_conditional_nion`,
+  `find_ionised_regions`), `hmf.c` (`nion_conditional_acg`,
+  `fcoll_conditional_eps`), `filtering.c` (`real_tophat_filter`),
+  `Constants.c` (δ_c = 1.686, l_factor = 0.620350491):
+  - δ smoothed with a real-space top hat (k space) of radius R, from
+    R_max = min(R_BUBBLE_MAX, l_factor L) down to R_min = max(R_BUBBLE_MIN,
+    l_factor Δx) in factors of `DELTA_R_HII_FACTOR` = 1.1; the smallest R
+    uses the unsmoothed δ; δ_R clipped to > −1;
+  - f_coll(R) = erfc[(δ_c − δ_R)/D(z) / √(2(σ²(M_min) − σ²(M_R)))] (EPS,
+    σ at z = 0, M_R the mass of the sphere R at the mean matter density);
+  - n_ion = ζ f_coll(R) × (the factor that sets its box mean to ζ times
+    the unconditional f_coll(> M_min) of the HMF, ST: `fix_mean`; 0.74–1.11
+    at R_min, 1.03–1.19 at R_max here);
+  - a cell is ionised if n_ion(R) > 1 on any R (the central-pixel flagging,
+    `IONISE_ENTIRE_SPHERE = False`); otherwise x_HII = n_ion(R_min),
+    clipped to [0, 1].
+* **Settings** (all others the `const-zeta` template's):
+  `HII_DIM = DIM = 512`, `BOX_LEN = 40/0.70 = 57.14` Mpc, the suite's
+  cosmology (Ω_m 0.27, Ω_b 0.045, h 0.70, σ_8 0.80, n_s 0.96; 21cmFAST's EH
+  transfer function, the ICs used EH without wiggles), `HMF = ST`,
+  `HII_FILTER = spherical-tophat` (**the template sets `sharp-k`**; the
+  top hat is the AstroOptions default and what the prompt asks for),
+  `M_MIN_in_Mass = True` with **M_min = 1.28×10⁸ M☉** (the suite's smallest
+  source halo, 20 particles of 6.4×10⁶ M☉), `R_BUBBLE_MIN = 0.095` Mpc (the
+  radius of M_min ×1.01: 21cmFAST's EPS f_coll throws where σ(M_R) >
+  σ(M_min), and the cell, l_factor Δx = 0.069 Mpc, is below it; the
+  default `R_BUBBLE_MIN` is 0.62 Mpc), no recombinations, no spin
+  temperature, no photon conservation (coeval boxes, no evolution needed).
+* **The numpy mirror** (`excursion_set.excursion`) reproduces 21cmFAST: on
+  the test sphere identically, on the 512³ fields 0.04–0.6 % of the cells
+  differ in "ionised" and ζ by ≤ 0.8 % (21cmFAST interpolates n_ion in a
+  table and uses an approximate erfc). It gives the starting ζ; three or
+  four 21cmFAST calls by the secant method finish (15–25 min per z and
+  R_max on 10 cores).
+
+### B.1 The criterion on the suite's own density (Figure 8)
+
+At each snapshot of the rays (z = 6.97, 6.45, 6.20, 5.98, 5.70), the gas
+density ρ/⟨ρ⟩ − 1 of the case-B rays, ζ chosen so that the volume-weighted
+x_HII equals the rays' (to ≤ 0.0016). Two R_max: 21cmFAST's default 15 Mpc,
+and the rays' mean free path (ionised starts, the fit, `docs/rt_suite_512.md`
+§7) in comoving Mpc, capped at l_factor L = 35.4 Mpc
+(`$RUNS/rt_closure_paper/es/es_rmax15`, `es_rmaxmfp`).
+
+| z | x_V (rays) | ζ, R_max = 15 Mpc | R_max = λ_mfp [cMpc] | ζ |
+|---|---|---|---|---|
+| 6.97 | 0.490 | 14.56 | 6.2 | 16.69 |
+| 6.45 | 0.681 | 13.82 | 10.1 | 15.51 |
+| 6.20 | 0.794 | 13.48 | 14.2 | 13.89 |
+| 5.98 | 0.885 | 13.43 | 21.0 | 12.36 |
+| 5.70 | 0.971 | 14.36 | 35.4 (cap) | 10.11 |
+
+With R_max = 15 Mpc ζ is nearly constant (13.4–14.6), so one ζ would
+reproduce the rays' x_V(z) from z = 7 to 5.7 to within a few per cent of
+ionised volume; with the growing λ_mfp it falls from 16.7 to 10.1.
+
+![Figure 8, spectra](figures/taueff_21cmfast_fig8_pk.png)
+
+*Δ² of x_HII (the field itself), the ratio to the rays and r(k) with the
+rays, at the five snapshots, every run and the excursion set (violet; dotted
+with R_max = λ_mfp). Top right: the fraction of cells whose x_HII differs
+from the rays' by more than 0.5.*
+
+![Figure 8, maps](figures/taueff_21cmfast_fig8_maps.png)
+
+*x_HII in the 8-cell slab through the box centre (the slab of Figure 2),
+rows the snapshots, columns the runs and the two excursion sets.*
+
+The fraction of cells with |x_HII − x_HII,rays| > 0.5
+(`es/fig/es_compare.txt`; the case A + RR rays' snapshots are at z = 6.92 and
+5.95 for the first and fourth rows, which accounts for most of their 2 %):
+
+| z | x_V | A + RR | M1 | OTVET | split | screen | cone | ES (15 Mpc) | ES (λ_mfp) |
+|---|---|---|---|---|---|---|---|---|---|
+| 6.97 | 0.49 | 0.024 | 0.066 | 0.028 | 0.027 | 0.025 | 0.018 | **0.193** | 0.203 |
+| 6.45 | 0.68 | 0.003 | 0.084 | 0.031 | 0.031 | 0.032 | 0.019 | **0.193** | 0.191 |
+| 6.20 | 0.79 | 0.002 | 0.078 | 0.030 | 0.030 | 0.033 | 0.018 | **0.166** | 0.167 |
+| 5.98 | 0.88 | 0.023 | 0.056 | 0.024 | 0.024 | 0.029 | 0.013 | **0.114** | 0.105 |
+| 5.70 | 0.97 | 0.004 | 0.017 | 0.012 | 0.012 | 0.011 | 0.008 | **0.030** | 0.047 |
+
+P/P_rays / r(k) at three scales:
+
+| z | k [h/Mpc] | M1 | OTVET | cone | ES (15 Mpc) | ES (λ_mfp) |
+|---|---|---|---|---|---|---|
+| 6.97 | 0.22 | 1.05 / 1.00 | 1.06 / 1.00 | 1.02 / 1.00 | 1.29 / 0.93 | 1.03 / 0.92 |
+| 6.97 | 1.07 | 1.00 / 0.86 | 1.01 / 0.99 | 1.02 / 1.00 | 0.88 / **0.48** | 0.98 / 0.50 |
+| 6.97 | 4.93 | 0.96 / 0.65 | 0.90 / 0.85 | 0.96 / 0.92 | 0.95 / **0.15** | 0.98 / 0.14 |
+| 6.20 | 0.22 | 1.02 / 0.98 | 1.13 / 1.00 | 1.01 / 1.00 | 2.42 / 0.86 | 2.44 / 0.83 |
+| 6.20 | 1.07 | 0.93 / 0.69 | 0.93 / 0.96 | 1.02 / 0.99 | 0.86 / **0.23** | 0.83 / 0.23 |
+| 6.20 | 4.93 | 0.91 / 0.43 | 0.83 / 0.69 | 0.94 / 0.86 | 0.78 / 0.07 | 0.77 / 0.07 |
+| 5.98 | 0.22 | 1.07 / 0.98 | 1.13 / 1.00 | 0.98 / 1.00 | 2.70 / 0.85 | 2.63 / 0.90 |
+| 5.98 | 1.07 | 0.90 / 0.62 | 0.88 / 0.93 | 1.00 / 0.98 | 0.77 / **0.05** | 0.72 / 0.09 |
+| 5.70 | 0.22 | 0.88 / 0.99 | 0.72 / 0.98 | 1.27 / 1.00 | 1.61 / 0.92 | 1.03 / 0.49 |
+| 5.70 | 1.07 | 0.89 / 0.57 | 0.60 / 0.79 | 1.27 / 0.94 | 0.70 / 0.06 | 0.84 / 0.00 |
+
+* **On the same density field and at the same x_V, the excursion set
+  disagrees with the rays several times more than any moment method
+  does.** 17–19 % of the cells differ by more than 0.5 in x_HII at
+  x_V = 0.5–0.8 (M1, the worst moment method, 7–8 %; the OTVET family 3 %;
+  the cone 2 %); r(k) with the rays is 0.85–0.93 at k = 0.2 h/Mpc but
+  falls to 0.2–0.5 at k = 1 h/Mpc and to ≤ 0.15 at 5 h/Mpc, where M1
+  keeps 0.43–0.65 and the cone 0.86–0.92. The maps show why: the
+  criterion ionises the large-scale overdensity (the left half of the slab)
+  as one region with a smooth edge and leaves the underdense half neutral
+  as a single island, while the rays (and every moment method) carve
+  separate HII regions around the sources in the underdense half; at
+  z = 6.97 the criterion also ionises the top right of the slab, which
+  is neutral in every RT run.
+* **Its large-scale power is too high** once x_V ≳ 0.7: 1.9–2.7× the rays'
+  at k = 0.2 h/Mpc at z = 6.45–5.98 (the moment methods 0.96–1.14×), the
+  signature of bubbles tied to the largest overdensity. At k ≳ 10 h/Mpc
+  it has up to 6× the rays' power, from the cell-scale partial ionisation
+  (x_HII = ζ f_coll at R_min on the nonlinear δ) in the neutral regions.
+* **R_max hardly matters** at x_V ≤ 0.9 (the two excursion sets are
+  nearly identical in the maps, the spectra and the cell differences);
+  only at x_V = 0.97 does the λ_mfp version (R_max = 35 Mpc, nearly the
+  box) remove the last island the 15 Mpc version keeps, and its r(k) is
+  then zero.
+* **Caveats.** This applies 21cmFAST's criterion at 78 kpc/h to a
+  nonlinear hydrodynamic density, far below the ~1 Mpc cells and the
+  2LPT density it is built for (and down to R_min = 0.095 Mpc against
+  its default 0.62 Mpc). The 40 Mpc/h box holds a few independent
+  bubble-scale modes. The comparison is of the criterion with the same
+  sources implied (f_coll above the suite's M_min), not of the suite's
+  actual source catalogue; the optional variant on the sources'
+  emissivity was not run (the suite writes no `RT/rt_grid` or `Luv.bin`,
+  `data_files = gas`; `prompts/gamma_profiles.md` is not in this
+  checkout).
+
+### B.2 A standalone 21cmFAST run
+
 (PENDING)
 
 ## References (from memory; the user to verify)
