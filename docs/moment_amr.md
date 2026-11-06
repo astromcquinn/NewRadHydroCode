@@ -164,5 +164,21 @@ with the particles. Decide the pair (cone, M1) when milestone 2 passes.
 
 ## 5. Status
 
-- 2026-11-06: design; milestone 1 in progress (M1 on the hierarchy,
-  `src/amrex/moment_hierarchy.cpp`).
+- 2026-11-06: design. Milestone 1 built in `src/amrex/moment_level.cpp`
+  (`MomentHierarchy`; `CellLevel` on a given level and grids;
+  `MomentLevel` on a refined level with fixed-point sums, the covered
+  mask, the budgets in base units, the substep in phases): the smoke
+  problem with two levels is byte-identical over 1, 2 and 3 ranks and
+  through a restart (`amrex_moment_amr_ranks_smoke`,
+  `amrex_moment_amr_restart_smoke`); the budget residual J − A − L − I is
+  10⁻¹⁰ per step (`RADRAY_MOMENT_AMR_DEBUG=1`). Found on the way: the
+  hydro's refined levels refuse z-slabs, so a hierarchy's base level runs
+  on boxes with the fixed-point sums (`exact` only on slabs); the parent's
+  covered cells must be left out of the absorbed, lost and in-flight sums
+  (they counted the children's absorption again, 3× with three levels);
+  a refined level injects with its own cell volume (the base units gave
+  8× too few photons: the I-front test caught it).
+- Milestone 2 written: the OTVET tensor on a slab shadow of level 0
+  (`tensor_on_shadow`), H and N_dir prolonged onto the levels; the cone
+  smoke tests. `tools/hyak/amr_moment_runs.sh` makes and submits the
+  siblings of `fesc512_b2.5_amr`.

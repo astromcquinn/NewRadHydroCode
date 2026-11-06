@@ -185,8 +185,6 @@ struct MomentLevel : CellLevel {
     exact = cfg.amrex_slab != 0;
     if (!exact && cfg.amrex_max_level == 0)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
-    if (!exact && cfg.rt_method == RTMethod::OTVET)
-      throw std::runtime_error("rt_method = otvet with rt_backend = amrex needs amrex_slab = 1 (the FFT tensors on z-slabs)");
     stats_mode = exact ? cfg.amrex_moment_stats : 1;
     nrtcr_l = cfg.nrtcr;
     fft_threads_cfg = cfg.amrex_moment_fft_threads;
@@ -294,7 +292,8 @@ struct MomentLevel : CellLevel {
       }
     }
     if (!in_hierarchy) build_src_list(s);  // (a hierarchy places the sources first)
-    if (lev == 0 && s.cfg.rt_method == RTMethod::OTVET) tensor(s);
+    // the OTVET tensor: on slabs (a hierarchy computes it on its slab shadow)
+    if (exact && s.cfg.rt_method == RTMethod::OTVET) tensor(s);
     // gammaHI_avg: this step's sums (radiative_transfer resets the time)
     if (s.gamma_avg.on) {
       if (!GA.ok()) GA.define(ba, dm, 1, 0);
@@ -1057,7 +1056,7 @@ struct MomentLevel : CellLevel {
       const Src& q = src[n];
       auto m = M.atLocalIdx(q.li).array();
       const std::int64_t gs_ = 5 * comp_stride(m);  // between groups
-      mk::inject_cell(static_cast<double>(q.Luv), s.clk.dtsec_rt, s.units, &m(q.i, q.j, q.k, 0),
+      mk::inject_cell(static_cast<double>(q.Luv), s.clk.dtsec_rt, units_of(s), &m(q.i, q.j, q.k, 0),
                       &m(q.i, q.j, q.k, 4), gs_, dummy, &rec[n * kNfreq]);
     }
     // rank 0: the addends of every rank in rank (= z = cell) order (a
@@ -1257,7 +1256,9 @@ struct MomentLevel : CellLevel {
     const mk::Closure cl = !otvet ? mk::Closure::M1 : split_now ? mk::Closure::Split : mk::Closure::Otvet;
     // otvet_split = 1: N_dir,g = q_g ndir
     std::array<double, kNfreq> qg{};
-    for (int g = 0; g < kNfreq; ++g) qg[g] = cl == mk::Closure::Split ? inject_per_L(s, g) : 0.0;
+    // (per the level's cell volume: 8^lev times the base value)
+    for (int g = 0; g < kNfreq; ++g)
+      qg[g] = cl == mk::Closure::Split ? inject_per_L(s, g) * std::ldexp(1.0, 3 * lev) : 0.0;
     for (int g = 0; g < kNfreq; ++g) {
       bool any = false;
       for (ax::MFIter mfi(M); mfi.isValid() && !any; ++mfi) {
@@ -1282,22 +1283,30 @@ struct MomentLevel : CellLevel {
 
   // A sum over the level's cells of a per-cell value: the plane partials
   // in plane order (level 0, the serial order on slabs) or in fixed point
-  // (a refined level: order and layout independent). cell(c, m, i, j, k)
-  // returns the cell's addend; the moments may be modified by it.
+  // (a level on boxes: order and layout independent). cell(c, m, i, j, k)
+  // returns the cell's addend; the moments may be modified by it. The
+  // cells under a finer level are skipped (the finer level has them; their
+  // moments are the children's averages, overwritten after the step).
   template <class F>
   double cell_sum(F&& cell) {
+    const bool has_cov = static_cast<bool>(covered);
     if (exact) {
       std::vector<double> part(static_cast<std::size_t>(N), 0.0);
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         auto c = C.const_array(mfi);
         auto m = M.array(mfi);
+        ax::Array4<int const> cov;
+        if (has_cov) cov = covered->const_array(mfi);
         const ax::Box bx = mfi.validbox();
         const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
 #pragma omp parallel for schedule(static)
         for (int k = lo.z; k <= hi.z; ++k) {
           double t = 0;
           for (int j = lo.y; j <= hi.y; ++j)
-            for (int i = lo.x; i <= hi.x; ++i) t += cell(c, m, i, j, k);
+            for (int i = lo.x; i <= hi.x; ++i) {
+              if (has_cov && cov(i, j, k)) continue;
+              t += cell(c, m, i, j, k);
+            }
           part[static_cast<std::size_t>(k)] += t;
         }
       }
@@ -1307,6 +1316,8 @@ struct MomentLevel : CellLevel {
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       auto c = C.const_array(mfi);
       auto m = M.array(mfi);
+      ax::Array4<int const> cov;
+      if (has_cov) cov = covered->const_array(mfi);
       const ax::Box bx = mfi.validbox();
       const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
       std::vector<i128> part(static_cast<std::size_t>(hi.z - lo.z + 1), 0);
@@ -1314,7 +1325,10 @@ struct MomentLevel : CellLevel {
       for (int k = lo.z; k <= hi.z; ++k) {
         i128 t = 0;
         for (int j = lo.y; j <= hi.y; ++j)
-          for (int i = lo.x; i <= hi.x; ++i) t += to_fx128(cell(c, m, i, j, k), kBudgetBits);
+          for (int i = lo.x; i <= hi.x; ++i) {
+            if (has_cov && cov(i, j, k)) continue;
+            t += to_fx128(cell(c, m, i, j, k), kBudgetBits);
+          }
         part[static_cast<std::size_t>(k - lo.z)] = t;
       }
       for (i128 t : part) fx += t;
@@ -1561,7 +1575,7 @@ struct MomentLevel : CellLevel {
     inflight_last = tot;
     if (!in_hierarchy) log_budget(s, tot, injected, absorbed, lost);
     // calc_rt_f
-    const Units u = s.units;
+    const Units u = units_of(s);
     const bool he = has_e;
     double sig[3][5];
     std::memcpy(sig, sig_init, sizeof sig);
@@ -1779,16 +1793,104 @@ struct MomentHierarchy : LevelBase {
   std::vector<std::unique_ptr<MomentLevel>> levels;  // [0] the base level, always
   int finest = 0;
   const char* dbg = std::getenv("RADRAY_MOMENT_AMR_DEBUG");
+  // OTVET: the tensor code (the FFT kernels, the cone's mip-maps and march,
+  // the serial-order budget sums) works on z-slabs; the hierarchy's levels
+  // are on the hydro's boxes. The shadow is a slab level 0 without a gas
+  // state: each hydro step the base level's cells and moments are copied
+  // onto it, the tensor computed there, and H (and N_dir) copied back and
+  // prolonged onto the refined levels (per child; the cone's attenuation
+  // is the base grid's: docs/moment_amr.md section 2.5).
+  std::unique_ptr<MomentLevel> shadow;
 
   MomentHierarchy(const Config& cfg_, bool with_e_) : cfg(cfg_), with_e(with_e_) {
     state = gs::active();
     if (!state) throw std::runtime_error("rt_method = m1 | otvet with amrex_max_level > 0 needs amrex_state = 1");
-    if (cfg.rt_method == RTMethod::OTVET)
-      throw std::runtime_error("rt_method = otvet with amrex_max_level > 0: not implemented yet (docs/moment_amr.md milestone 2)");
     if (cfg.recomb_rad)
       throw std::runtime_error("recomb_rad = 1 with the moment RT on refined levels: not implemented (docs/moment_amr.md)");
     levels.push_back(std::make_unique<MomentLevel>(cfg, with_e));
     levels[0]->in_hierarchy = true;
+    if (cfg.rt_method == RTMethod::OTVET) {
+      Config c2 = cfg;
+      c2.amrex_state = 0;
+      c2.amrex_slab = 1;
+      c2.amrex_max_level = 0;
+      shadow = std::make_unique<MomentLevel>(c2, with_e);
+      shadow->in_hierarchy = true;
+    }
+  }
+
+  // A level's FabArray from its parent's (per child, the parent's value):
+  // the valid cells and/or the ghosts outside the level's grids
+  static void prolong_fab(const MomentLevel& F, const MomentLevel& P, FFab& Ff, const FFab& Pf, int ncomp,
+                          bool valid, bool ghosts) {
+    ax::BoxArray gba = F.ba;
+    gba.grow(1);
+    gba.coarsen(2);
+    FFab Pc(gba, F.dm, ncomp, 0);
+    Pc.ParallelCopy(Pf, 0, 0, ncomp, 0, 0, P.period);
+    for (ax::MFIter mfi(Ff); mfi.isValid(); ++mfi) {
+      auto m = Ff.array(mfi);
+      auto pc_ = Pc.const_array(mfi);
+      auto inp = F.in_patch->const_array(mfi);
+      const ax::Box vbx = mfi.validbox();
+      const ax::Box gbx = ax::grow(vbx, 1);
+      ax::ParallelForOMP(gbx, ncomp, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+        const bool v = vbx.contains(ax::IntVect(i, j, k));
+        if (v ? !valid : !(ghosts && !inp(i, j, k))) return;
+        m(i, j, k, c) = pc_(i >> 1, j >> 1, k >> 1, c);
+      });
+    }
+  }
+
+  // The cells of one level as floats (NC per cell) onto another layout
+  static void copy_cells(const CFab& src, CFab& dst, const ax::Periodicity& per) {
+    FFab Sf(src.boxArray(), src.DistributionMap(), NC, 0);
+    for (ax::MFIter mfi(src); mfi.isValid(); ++mfi) {
+      auto c = src.const_array(mfi);
+      auto f = Sf.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), NC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
+        f(i, j, k, m) = cf(c, i, j, k, m);
+      });
+    }
+    FFab Df(dst.boxArray(), dst.DistributionMap(), NC, 0);
+    Df.ParallelCopy(Sf, 0, 0, NC, 0, 0, per);
+    for (ax::MFIter mfi(dst); mfi.isValid(); ++mfi) {
+      auto c = dst.array(mfi);
+      auto f = Df.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+        float* dp = reinterpret_cast<float*>(&c(i, j, k));
+        for (int m = 0; m < NC; ++m) dp[m] = f(i, j, k, m);
+      });
+    }
+  }
+
+  // The OTVET tensor of this hydro step on the shadow, then onto the levels
+  void tensor_on_shadow(Simulation& s) {
+    MomentLevel& B = base();
+    MomentLevel& S = *shadow;
+    const double t0 = now();
+    copy_cells(B.C, S.C, B.period);
+    S.M.ParallelCopy(B.M, 0, 0, kMC, 0, 0, B.period);
+    S.tensor(s);
+    B.H.ParallelCopy(S.H, 0, 0, 6, 0, 0, B.period);
+    B.H.FillBoundary(B.period);
+    B.split_now = S.split_now;
+    if (B.split) {
+      B.Nd.ParallelCopy(S.Nd, 0, 0, 1, 0, 0, B.period);
+      B.Nd.FillBoundary(B.period);
+    }
+    for (int l = 1; l <= finest; ++l) {
+      MomentLevel& F = L(l);
+      MomentLevel& P = L(l - 1);
+      prolong_fab(F, P, F.H, P.H, 6, true, true);
+      F.H.FillBoundary(F.period);
+      F.split_now = B.split_now;
+      if (F.split) {
+        prolong_fab(F, P, F.Nd, P.Nd, 1, true, true);
+        F.Nd.FillBoundary(F.period);
+      }
+    }
+    B.T.tensor += now() - t0;
   }
   MomentLevel& base() { return *levels[0]; }
   const MomentLevel& base_c() const { return *levels[0]; }
@@ -1801,25 +1903,7 @@ struct MomentHierarchy : LevelBase {
   // level: fill_ghost_moments). The values are densities (photons per the
   // level's cell volume and <n_H>), so a child takes the parent's value.
   void prolong_moments(int l, bool valid, bool ghosts) {
-    MomentLevel& F = L(l);
-    MomentLevel& P = L(l - 1);
-    ax::BoxArray gba = F.ba;
-    gba.grow(1);
-    gba.coarsen(2);
-    FFab Pc(gba, F.dm, kMC, 0);
-    Pc.ParallelCopy(P.M, 0, 0, kMC, 0, 0, P.period);
-    for (ax::MFIter mfi(F.M); mfi.isValid(); ++mfi) {
-      auto m = F.M.array(mfi);
-      auto pc_ = Pc.const_array(mfi);
-      auto inp = F.in_patch->const_array(mfi);
-      const ax::Box vbx = mfi.validbox();
-      const ax::Box gbx = ax::grow(vbx, 1);
-      ax::ParallelForOMP(gbx, kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
-        const bool v = vbx.contains(ax::IntVect(i, j, k));
-        if (v ? !valid : !(ghosts && !inp(i, j, k))) return;
-        m(i, j, k, c) = pc_(i >> 1, j >> 1, k >> 1, c);
-      });
-    }
+    prolong_fab(L(l), L(l - 1), L(l).M, L(l - 1).M, kMC, valid, ghosts);
   }
   void fill_ghost_moments(int l) { prolong_moments(l, false, true); }
 
@@ -2027,6 +2111,7 @@ struct MomentHierarchy : LevelBase {
     for (auto& l : levels) l->prep(s);
     place_sources(s);
     for (auto& l : levels) l->build_src_list(s);
+    if (shadow) tensor_on_shadow(s);
   }
 
   void substep(Simulation& s) override {
@@ -2154,6 +2239,7 @@ struct MomentHierarchy : LevelBase {
       if (l) out += "\n";
       out += "level " + std::to_string(l) + ": " + levels[l]->timers();
     }
+    if (shadow) out += "\nshadow: " + shadow->timers();
     return out;
   }
 };
