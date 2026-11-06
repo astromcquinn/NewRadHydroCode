@@ -151,13 +151,13 @@ def tau_rows(x, rho, T, v, geo, chunk=2048):
 def seg_stats(tau, box, seg, Fo, seed):
     A = ig.rescale_A(tau, Fo)
     S = ig.taueff_segments(tau, box, seg, A, np.random.default_rng(seed))
-    res = {"A": A}
+    res = {"A": A, "p_raw": np.full(len(QS), np.nan), "p_A": np.full(len(QS), np.nan)}
     for tag in ("raw", "A"):
         k = "F_seg_" + tag
         if k in S:
             F = np.asarray(S[k])
             te = np.where(F > 0, -np.log(np.maximum(F, 1e-300)), np.inf)
-            res[tag] = np.percentile(te, QS)
+            res["p_" + tag] = np.percentile(te, QS)
     return res
 
 
@@ -230,9 +230,9 @@ def main():
             f.write("# frame z x_V A nskew then tau_eff rescaled at " + ",".join(map(str, QS)) +
                     " %, width(84-16), then raw at the same points\n")
             for fr, z, xv, r, m in res:
-                pA = r.get("A", np.full(5, np.nan))
+                pA = r["p_A"]
                 f.write(f"{fr} {z:.4f} {xv:.5f} {r['A']:.4g} {m} {fmt(pA)} {pA[3] - pA[1]:.4g} "
-                        f"{fmt(r['raw'])}\n")
+                        f"{fmt(r['p_raw'])}\n")
         print(f"{label}: {len(res)} frames", flush=True)
         if a.calib:
             steps = [s.step for s in run.snapshots(a.zmin - 0.05, a.zmax + 0.05)]
@@ -245,7 +245,7 @@ def main():
                 f.write("# step z A_real A_rs then real 5..95 %, width; redshift-space 5..95 %, width; "
                         "width ratio rs/real; median difference rs - real\n")
                 for st, z, o in cal:
-                    pr, ps = o["real"].get("A", np.full(5, np.nan)), o["redshift"].get("A", np.full(5, np.nan))
+                    pr, ps = o["real"]["p_A"], o["redshift"]["p_A"]
                     wr, ws = pr[3] - pr[1], ps[3] - ps[1]
                     f.write(f"{st} {z:.4f} {o['real']['A']:.4g} {o['redshift']['A']:.4g} {fmt(pr)} {wr:.4g} "
                             f"{fmt(ps)} {ws:.4g} {ws / wr if wr > 0 else float('nan'):.4g} "
