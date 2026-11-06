@@ -50,6 +50,9 @@ case "$PHASE" in
       i=$((i + 1))
     done
     wait
+    L=""; i=0     # raw tau_eff against z and lambda_mfp (A.6)
+    for r in $NAMES; do L="$L ${LABELS[$i]}:$RUNS/rt_methods_512/igm/igm_reion512_$r.json"; i=$((i + 1)); done
+    python3 tools/analysis/taueff_z.py --slabs "$OUT/taueff/slabs" --outdir "$OUT/taueff/fig_z" $L
     ;;
   es)
     use_21cmfast

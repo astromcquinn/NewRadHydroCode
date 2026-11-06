@@ -216,6 +216,54 @@ skewers at the snapshots). Right: the ratio to the rays.* Numbers:
 * Before z ≈ 6 the OTVET family is 5–20 % narrower than the rays, as in
   A.3.
 
+### A.6 Raw τ_eff against z and against λ_mfp
+
+The user's choice (2026-11-06): no observed distributions for now, and the
+methods should be compared **at the same mean free path** rather than at
+the same z. `taueff_z.py` draws the raw (unrescaled) slab τ_eff of A.5 with
+no new computation. λ_mfp is the 912 Å mean free path from random starts
+(`docs/igm_diagnostics.md`, `rt_methods_512/igm/*.json`), with ln λ
+interpolated linearly in z between the 8 snapshots (Δz ≈ 0.25). At
+z ≈ 5.0 the exponential fit from ionized starts stands in, because λ_e
+exceeds the 40 pMpc rays there. The slab curves are smoothed with
+[1, 2, 1]/4 over frames. The reason is that ρ and T in a slab change only at
+hydro steps, which come about every second frame, so the raw curves step
+in pairs. Two runs whose hydro steps fall on different frames then zigzag
+by ±2 % against each other.
+
+![tau_eff against z](figures/taueff_21cmfast_z.png)
+
+*(a) The median raw τ_eff over 50 Mpc/h against z; the shading is the
+rays' 16–84 % band; circles are −ln⟨F⟩ of all pixels at the snapshots
+(redshift space). (b) The median over the rays' median. (c) The 84−16 %
+width (raw, real space). (d) The median against λ_mfp.* Numbers:
+`figures/taueff_21cmfast_z.txt`.
+
+| median τ_eff / rays | z 6.2 | 6.0 | 5.8 | 5.6 | 5.4 | 5.2 | 5.03 |
+|---|---|---|---|---|---|---|---|
+| (rays' median, λ_mfp in pMpc) | 6.00, 1.4 | 4.92, 2.4 | 4.05, 4.7 | 3.05, 9.8 | 2.28, 19 | 1.81, 31 | 1.52, 43 |
+| A + RR, fixed z / fixed λ | 0.98 / – | 0.98 / 1.01 | 0.98 / 1.01 | 0.98 / 1.01 | 0.99 / 1.02 | 1.00 / 1.01 | 1.00 / 1.01 |
+| M1 | 0.91 / 0.90 | 0.94 / 0.94 | 0.98 / 0.98 | 0.99 / 0.99 | 0.97 / 0.96 | 0.97 / 0.95 | 0.96 / – |
+| OTVET (thin) | 1.10 / 1.11 | 1.10 / 1.12 | 1.09 / 1.15 | 1.03 / 1.13 | 1.02 / 1.13 | 1.01 / 1.12 | 1.00 / 1.11 |
+| split | 1.10 / 1.11 | 1.10 / 1.12 | 1.09 / 1.14 | 1.02 / 1.11 | 0.99 / 1.06 | 0.98 / 1.03 | 0.96 / 1.01 |
+| screen | 1.15 / – | 1.12 / 1.16 | 1.07 / 1.15 | 0.99 / 1.10 | 0.98 / 1.06 | 0.97 / 1.04 | 0.96 / 1.02 |
+| cone | 1.05 / 1.06 | 1.04 / 1.06 | 1.03 / 1.05 | 1.00 / 1.03 | 0.98 / 1.04 | 0.97 / 1.03 | 0.96 / 1.02 |
+
+("–": that λ lies outside the run's range.)
+
+* **At fixed z** the medians agree within 5 % after z ≈ 5.6. Before that,
+  the OTVET family is 10–15 % more opaque and M1 is 6–9 % more transparent
+  at z ≥ 6.
+* **At fixed λ_mfp** the late-time agreement goes away for the OTVET
+  family. Thin OTVET is 11–15 % more opaque than the rays at every λ from 1.4
+  to 43 pMpc, because its λ_mfp is 20–25 % longer at the same z and τ. Split
+  and screen are 10–16 % more opaque for λ ≤ 10 pMpc and approach the rays
+  (+1–4 %) as λ → 40 pMpc. The cone stays within +2–6 %, M1 within −2 to
+  −10 %, and A + RR within 2 %. The cone is again the closest closure.
+* The ordering of the widths (c) is A.5's (raw here, uncalibrated): the
+  rays, A + RR and the cone agree; M1 is broad at the end of reionization;
+  thin OTVET is 15–20 % narrower after it.
+
 ## Part B: 21cmFAST against the rays and the moment methods
 
 ### B.0 21cmFAST on klone

@@ -38,10 +38,16 @@
   OTVET 3 %, cone 2 %); r(k) 0.85–0.93 at k = 0.2 h/Mpc but 0.05–0.5 at
   1 h/Mpc. B2 (own ICs, 512³): ζ within 7 % of B1's, the same small-scale
   power deficit.
-* **Open:** Bosman+22's τ_eff distribution table from the user (not
-  transcribed from memory); the references (Mesinger+11, Murray+20,
-  Becker+15, Bosman+18/22) to verify; optionally the criterion at
-  21cmFAST's usual resolution (R_BUBBLE_MIN = 0.62 Mpc, ~1 Mpc cells).
+* **Raw τ_eff against z and λ_mfp** (`taueff_z.py`, report A.6): the
+  medians over 50 Mpc/h agree within 5 % at fixed z after z ≈ 5.6. At
+  fixed λ_mfp (the user's preferred match) thin OTVET is 11–15 % more
+  opaque at every λ, split/screen 10–16 % for λ ≤ 10 pMpc, the cone
+  +2–6 %, M1 −2 to −10 %, A + RR within 2 %.
+* **Deferred (user, 2026-11-06):** the observed τ_eff distributions
+  (Bosman+22) and the reference check are on hold; the comparison
+  between methods is to be made at the same mean free path. Optional:
+  the criterion at 21cmFAST's usual resolution (R_BUBBLE_MIN = 0.62 Mpc,
+  ~1 Mpc cells).
 
 ## Done 2026-11-06: the photon sink by density of the 512³ suite, why the closures do not change ⟨Γ_HI⟩ (branch `absorbers-wu21`)
 
