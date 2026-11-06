@@ -260,6 +260,10 @@ width (raw, real space). (d) The median against λ_mfp.* Numbers:
   and screen are 10–16 % more opaque for λ ≤ 10 pMpc and approach the rays
   (+1–4 %) as λ → 40 pMpc. The cone stays within +2–6 %, M1 within −2 to
   −10 %, and A + RR within 2 %. The cone is again the closest closure.
+* `taueff_mfp_width.png` puts λ_mfp at the snapshots (left; open symbols:
+  the exponential fit) beside the raw width (right):
+
+  ![lambda_mfp and width](figures/taueff_21cmfast_mfp_width.png)
 * The ordering of the widths (c) is A.5's (raw here, uncalibrated): the
   rays, A + RR and the cone agree; M1 is broad at the end of reionization;
   thin OTVET is 15–20 % narrower after it.

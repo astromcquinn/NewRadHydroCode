@@ -26,7 +26,10 @@ frames dropped): rho and T in the slabs change only at hydro steps, about
 every second frame, so the raw curves step in pairs, and two runs whose hydro
 steps fall on different frames zigzag against each other in (b).
 
-Writes taueff_z.png and taueff_z.txt (docs/taueff_21cmfast.md A.6).
+Writes taueff_z.png and taueff_z.txt (docs/taueff_21cmfast.md A.6), and
+taueff_mfp_width.png: lambda_mfp of every run at the snapshots (left; open
+symbols where the exponential fit stands in) beside the 84-16 % width of
+the raw tau_eff against z (right).
 """
 import argparse
 import json
@@ -154,6 +157,46 @@ def main():
             x.spines[sp].set_visible(False)
     fig.tight_layout()
     fig.savefig(os.path.join(a.outdir, "taueff_z.png"), dpi=a.dpi)
+    plt.close(fig)
+    mfp_width_figure(runs, a.outdir, a.dpi)
+
+
+def mfp_width_figure(runs, outdir, dpi):
+    """Left: lambda_mfp against z at the snapshots; right: the raw 84-16 % width."""
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter, NullFormatter
+    from rt_suite_figures import COLORS, STYLES
+    fig, (b0, b1) = plt.subplots(1, 2, figsize=(9.0, 3.8), sharex=True)
+    zlo = min(r[1].min() for r in runs) - 0.03
+    zhi = max(r[1].max() for r in runs) + 0.03
+    for ir, (lab, zs, ps, (zi, ti, li, fi)) in enumerate(runs):
+        c, ls = COLORS[ir % len(COLORS)], STYLES[ir % len(STYLES)]
+        lw = 1.8 if ir == 0 else 1.1
+        k = (zi >= zlo) & (zi <= zhi) & np.isfinite(li)
+        b0.plot(zi[k], li[k], color=c, ls=ls, lw=lw, label=lab)
+        b0.plot(zi[k & ~fi], li[k & ~fi], color=c, marker="o", ms=3.5, ls="none")
+        b0.plot(zi[k & fi], li[k & fi], color=c, marker="o", ms=3.5, mfc="none", ls="none")
+        m = np.all(np.isfinite(ps[:, 1:4]), axis=1)
+        z, p = smooth121(zs[m], ps[m])
+        b1.plot(z, p[:, 3] - p[:, 1], color=c, ls=ls, lw=lw)
+    b0.set_yscale("log")
+    b0.set_ylabel(r"$\lambda_{\rm mfp}$ (912 Å) [pMpc]")
+    b0.set_yticks([1, 2, 5, 10, 20, 50])
+    b0.plot([], [], color="0.4", marker="o", mfc="none", ls="none", label="exp. fit (λ > rays)")
+    b0.legend(frameon=False, fontsize=7, ncol=2)
+    b1.set_yscale("log")
+    b1.set_ylabel(r"$\tau_{\rm eff}$(84 %) $-$ $\tau_{\rm eff}$(16 %), 50 Mpc/$h$, raw")
+    b1.set_yticks([0.5, 0.7, 1, 1.5, 2, 3])
+    for x in (b0, b1):
+        x.yaxis.set_major_formatter(ScalarFormatter())
+        x.yaxis.set_minor_formatter(NullFormatter())
+        x.set_xlabel("z")
+        x.set_xlim(zlo, zhi)
+        x.grid(True, color="0.9", lw=0.6)
+        for sp in ("top", "right"):
+            x.spines[sp].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(os.path.join(outdir, "taueff_mfp_width.png"), dpi=dpi)
     plt.close(fig)
 
 
