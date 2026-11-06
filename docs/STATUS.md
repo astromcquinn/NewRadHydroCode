@@ -9,8 +9,8 @@
   excursion set on the suite's own density against the rays and the
   moment methods. Report `docs/taueff_21cmfast.md`; outputs
   `$RUNS/rt_closure_paper/`; job `tools/hyak/taueff_21cmfast.slurm`
-  (phases taueff, slabs, es, standalone, figures; all of it ≈ 1.5
-  node-hours, run on a 32-core allocation).
+  (phases taueff, slabs, es, standalone, figures; all of it ≈ 1
+  node-hour, run on a 32-core allocation).
 * **Tools:** `igm_stats.py --taueff L` (per-skewer fluxes, box-length and
   L Mpc/h joined segments, raw and A-rescaled, per-skewer ⟨ρ⟩ and ⟨Γ⟩_ion,
   a uniform-Γ counterfactual; `--lya-only`; default output unchanged),
@@ -19,8 +19,9 @@
   `excursion_set.py` (21cmFAST 4.3.1 on an external density, a numpy
   mirror, B2, Figure 8); ctest `igm_stats_selftest`,
   `excursion_set_selftest` (label `analysis`, skipped without scipy).
-* **Figure 7:** the rescaled τ_eff distributions of all methods agree to
-  ≤ 15 % in width; the cone within 5 % of the rays at every z. The order
+* **Figure 7:** the widths of the rescaled τ_eff distributions differ
+  between methods by up to 15–20 % at the snapshots (35 % for M1 at the
+  end of reionization in the slabs); the cone within 5 % of the rays. The order
   is the reverse of the prompt's expectation: after overlap thin OTVET is
   the narrowest (0.55 against 0.62 at z = 5) and M1 slightly broad; before
   overlap M1 is the broadest (+11–22 %). With a uniform Γ all methods have
