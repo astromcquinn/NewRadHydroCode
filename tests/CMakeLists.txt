@@ -102,6 +102,23 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_budget.py
                    --selftest)
   set_tests_properties(absorber_budget_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
+  # igm_stats.py's analytic checks, with the per-segment tau_eff of --taueff
+  # on a synthetic snapshot (docs/igm_diagnostics.md, docs/taueff_21cmfast.md);
+  # skipped without scipy
+  add_test(NAME igm_stats_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/igm_stats.py
+                   --selftest)
+  set_tests_properties(igm_stats_selftest PROPERTIES TIMEOUT 120 LABELS analysis
+                       SKIP_RETURN_CODE 77)
+  # The 21cmFAST excursion-set criterion (B1 of docs/taueff_21cmfast.md) on a
+  # spherical overdensity: the ionised ball has the radius the criterion
+  # gives (with py21cmfast importable, also 21cmFAST itself against the numpy
+  # mirror); skipped without scipy
+  add_test(NAME excursion_set_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/excursion_set.py
+                   --selftest)
+  set_tests_properties(excursion_set_selftest PROPERTIES TIMEOUT 300 LABELS analysis
+                       SKIP_RETURN_CODE 77)
   # The single-absorber problem generator (Phase 2 (c) of
   # docs/absorbers_closures.md): the gas.bin record round trip against the
   # kernel's gas state, the r^-2 profile, a written problem read back

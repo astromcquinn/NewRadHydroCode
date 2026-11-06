@@ -1927,3 +1927,35 @@ in the prompt, followed:
   may follow if the absorbers can be resolved; PR #27 merged. Results in
   `docs/absorbers_closures.md` §5–7: the cone tensor is the closure to
   carry forward; P11 needs the f_esc(z) recalibration (f6 ≈ 0.13).
+
+## τ_eff over 50 Mpc/h and 21cmFAST against the RT methods (2026-11-05/06, branch `taueff-21cmfast`)
+
+Thread prompt of 2026-11-05 (the RT-closure paper's Figures 7 and 8;
+report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
+
+* The seven runs of the uniform 512³ suite, read only; every parameter
+  from their `params.txt` (the §1 table of `docs/rt_suite_512.md` is
+  stale); compare at fixed z (user decision); outputs under
+  `$RUNS/rt_closure_paper/`.
+* Part A: `igm_stats.py --taueff L` (a new option, the default output
+  unchanged) keeps each redshift-space skewer's flux; box-length and
+  50 Mpc/h segments (a skewer joined to 10 Mpc/h of another: not one
+  sightline; the box misses > 40 Mpc/h modes, so the scatter is a lower
+  bound), raw and rescaled by A to Bosman+22's mean flux. Figure 7 by
+  `taueff_plot.py`. The prompt's expectation (thin OTVET broader, M1
+  narrower) does not hold: the order is reversed, because on the box's
+  scales Γ is correlated with density and τ ∝ ρ²/Γ (the uniform-Γ
+  diagnostic added to `--taueff`). The optional slab analysis (A4) was
+  cheap and done, its real-space offset measured first.
+* Bosman+22's τ_eff distributions were **not** transcribed from memory:
+  the user is asked for the paper's table (open).
+* Part B: 21cmFAST 4.3.1 (PyPI) in its own conda env; it accepts an
+  external density (FAQ: own OutputStruct objects), so B1 runs 21cmFAST
+  itself, with a numpy mirror for ζ and a cross-check. M_min = the
+  suite's smallest source halo, R_min raised to its radius, the
+  top-hat filter (the `const-zeta` template's `sharp-k` overridden). The
+  optional emissivity variant was not run (no source field is written by
+  the suite). B2: 21cmFAST's own ICs (seed 12345, DIM 1024 → 512³), ζ per
+  z matched to the rays' x_V; 2 node-hours or less.
+* References from memory flagged for the user (Mesinger+11, Murray+20,
+  Becker+15, Bosman+18/22).
