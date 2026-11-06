@@ -375,9 +375,44 @@ P/P_rays / r(k) at three scales:
   `data_files = gas`; `prompts/gamma_profiles.md` is not in this
   checkout).
 
-### B.2 A standalone 21cmFAST run
+### B.2 A standalone 21cmFAST run (statistics only)
 
-(PENDING)
+21cmFAST 4.3.1 with its own initial conditions (`excursion_set.py
+standalone`; `es/es_standalone`): the suite's cosmology and box, `DIM = 1024`
+→ `HII_DIM = 512` (78 kpc/h, the suite's resolution; 107 s for the ICs on 10
+cores, under 58 GB), seed 12345, the 2LPT density at each z, the criterion
+and settings of B1 (R_max = 15 Mpc, M_min = 1.28×10⁸ M☉), ζ at each z
+matched to the rays' x_V (a coeval box per z: no evolution is needed without
+spin temperature and recombinations):
+
+| z | x_V (rays) | ζ (B2) | ζ (B1, 15 Mpc) |
+|---|---|---|---|
+| 6.97 | 0.490 | 14.01 | 14.56 |
+| 6.45 | 0.681 | 13.27 | 13.82 |
+| 6.20 | 0.794 | 14.26 | 13.48 |
+| 5.98 | 0.885 | 14.42 | 13.43 |
+| 5.70 | 0.971 | 14.75 | 14.36 |
+
+Its Δ² of x_HII is the grey dash-dotted curve of Figure 8 (spectra and ratio
+only: it is another realisation, so r(k), the cell differences and the map
+mean nothing). The x_V are matched at the same z, so this is also the
+comparison at matched x_V with the suite's spectra
+(`figures/rt_suite_512_pk.txt`).
+
+* **ζ is the same within 7 %** on the suite's hydrodynamic density and on
+  21cmFAST's own 2LPT density, and nearly constant in z (13.3–14.8): one
+  ζ ≈ 14 reproduces the rays' x_V(z) between z = 7 and 5.7 with either
+  field.
+* **At k ≥ 1 h/Mpc the standalone run has 0.62–1.0× the rays' Δ²**, the
+  same deficit as B1 on the suite's density (0.62–0.95×), from 1.0 at
+  x_V = 0.5 to 0.6–0.9 at x_V ≥ 0.88; above k ≈ 10 h/Mpc both
+  excursion sets have the cell-scale excess.
+* **At k ≤ 0.5 h/Mpc the ratio scatters between 0.57 and 2.75 from bin
+  to bin**: two realisations of a 40 Mpc/h box differ substantially at
+  low k (a handful of modes per bin; the box holds ~2–3 bubble-scale
+  wavelengths). The low-k excess of B1 (1.9–2.7× at k = 0.2 h/Mpc) is
+  of the same size as this realisation scatter, but B1 shares the rays'
+  density, so it is the criterion's.
 
 ## References (from memory; the user to verify)
 
