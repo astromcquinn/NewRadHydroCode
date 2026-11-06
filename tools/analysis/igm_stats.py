@@ -49,6 +49,12 @@ in this unit, component 1+d along grid axis d). Fields are float32 in
 Fortran order, read in slabs of k (memory ~ 1.5 x 4 N^3 bytes per job).
 
 Output: a JSON file (default igm_<run name>.json) read by igm_plot.py.
+
+--taueff L (off by default) also keeps the mean flux of every Lya skewer
+(lya.segments in the JSON, taueff_segments): box-length segments and
+segments of L Mpc/h, each a skewer joined to L - box of another, randomly
+chosen skewer; raw and with tau rescaled by A (taueff_plot.py,
+docs/taueff_21cmfast.md). --lya-only skips the mean free path.
 """
 import argparse
 import json
@@ -576,7 +582,43 @@ def rescale_A(tau, F_target):
     return float(math.exp(brentq(g, lo, hi, xtol=1e-6)))
 
 
-def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat"):
+def taueff_segments(tau, box, seg_len, A=float("nan"), rng=None, partner=None, offset=None):
+    """Mean transmission of segments of the skewers tau (M, N) (periodic,
+    pixel = cell, N pixels per box length box [Mpc/h]); docs/taueff_21cmfast.md.
+
+    * box-length segments: <exp(-tau)> over each whole skewer;
+    * seg_len segments (seg_len > box): each skewer joined to seg_len - box
+      of another skewer, chosen at random (partner[m] != m), from a random
+      pixel (offset[m]) on. The joined segment is not one physical sightline.
+    Both raw and with tau rescaled by A (skipped if A is nan). tau_eff of a
+    segment is -ln of its mean flux. Returns a dict of lists (JSON)."""
+    M, N = tau.shape
+    if rng is None:
+        rng = np.random.default_rng(0)
+    nx = int(round((seg_len - box) / box * N)) if seg_len > box else 0
+    if nx > N:
+        raise ValueError("seg_len above twice the box is not supported")
+    if partner is None:
+        partner = (np.arange(M) + rng.integers(1, M, M)) % M  # never itself
+    if offset is None:
+        offset = rng.integers(0, N, M)
+    cols = (offset[:, None] + np.arange(nx)[None, :]) % N
+    out = {"box_mpch": box, "seg_mpch": seg_len, "npix_box": N, "npix_extra": nx,
+           "partner": partner.tolist(), "offset": offset.tolist(), "A": A}
+    for tag, s in (("raw", 1.0), ("A", A)):
+        if not np.isfinite(s):
+            continue
+        F = np.exp(-s * tau)
+        Fb = F.mean(axis=1)
+        out["F_box_" + tag] = Fb.tolist()
+        if nx:
+            Fx = np.take_along_axis(F[partner], cols, axis=1).sum(axis=1)
+            out["F_seg_" + tag] = ((Fb * N + Fx) / (N + nx)).tolist()
+    return out
+
+
+def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat",
+              taueff_seg=None):
     rng = np.random.default_rng(seed + 7 + 1000 * snap.step)
     sel = choose_pencils(snap.N, nskew, rng)
     P = read_pencils(snap, sel)
@@ -605,6 +647,10 @@ def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat"):
         Fo = obs_interp(obs, "mean_flux", snap.z)
         out["F_obs"] = Fo
         out["A"] = rescale_A(tau, Fo)
+    if taueff_seg:  # per-segment mean flux (--taueff); its own random stream
+        out["segments"] = taueff_segments(
+            tau, snap.run.box, taueff_seg, out.get("A", float("nan")),
+            np.random.default_rng(seed + 11 + 1000 * snap.step))
     return out
 
 
@@ -621,17 +667,20 @@ def measure(args):
            "xHII_M": snap.st.get("xHII_M"), "T_V": snap.st.get("T_V"),
            "dl_pmpc": snap.dl_pmpc, "box_pmpc": snap.N * snap.dl_pmpc}
     res["gamma"] = gamma_stats(snap)
-    res["mfp"] = mfp_stats(snap, nlos=opt["nlos"], rmax_pmpc=opt["rmax"], ds=opt["ds"],
-                           seed=opt["seed"])
+    if not opt.get("lya_only"):
+        res["mfp"] = mfp_stats(snap, nlos=opt["nlos"], rmax_pmpc=opt["rmax"], ds=opt["ds"],
+                               seed=opt["seed"])
     res["lya"] = lya_stats(snap, nskew=opt["nskew"], seed=opt["seed"], obs=obs,
-                           profile=opt.get("profile", "tophat"))
+                           profile=opt.get("profile", "tophat"),
+                           taueff_seg=opt.get("taueff_seg"))
     g = res["gamma"]
     i2 = g["thresholds"].index(1e-2)
     res["gamma"]["req_from_F"] = g["ion_V"][i2] / res["lya"]["A"] if res["lya"].get("A") else \
         float("nan")
+    le = res["mfp"]["random"]["lambda_e"] if "mfp" in res else float("nan")
     print(f"# {run.name} step {step} z = {snap.z:.3f}: Gamma_V = {g['V']:.3g}, "
           f"Gamma(x<1e-2) = {g['ion_V'][i2]:.3g}, lambda_e(random) = "
-          f"{res['mfp']['random']['lambda_e']:.3g} pMpc, <F> = {res['lya']['F_mean']:.4f}, "
+          f"{le:.3g} pMpc, <F> = {res['lya']['F_mean']:.4f}, "
           f"A = {res['lya'].get('A', float('nan')):.3g}", flush=True)
     return res
 
@@ -674,7 +723,62 @@ def selftest():
           f"min tau/tau_GP(top-hat) {e5:.3f} (expect 1/1.8 = 0.556), empty pixels (point) {gaps}")
     ok = e1 < 1e-6 and e2 < 1e-6 and e3 < 1e-3 and e4 < 1e-3 and \
         tau1.argmax(axis=1).tolist() == [10, 13, 33] and abs(e5 - 1 / 1.8) < 1e-3 and gaps > 0
+    ok = selftest_taueff() and ok
     print("selftest", "passed" if ok else "FAILED")
+    return ok
+
+
+def selftest_taueff(N=32, box=40.0, seg=50.0):
+    """--taueff on a synthetic snapshot written to a temporary run directory:
+    x_HI depends on the grid index k only, the gas is at rest and uniform,
+    so the skewers along i and j (axes 0 and 1) are uniform, with
+    tau = tau_GP(x_HI(k)) in every pixel. Checks: each box-length segment's
+    mean flux is exp(-tau_GP); each joined segment's is (N F_a + n F_b) /
+    (N + n) with n = (seg - box)/box N pixels of its partner b != a; the
+    rescaled fluxes use exp(-A tau); the mean of the box segments over the
+    three axes is <F> of all pixels."""
+    import tempfile
+    z, T = 5.5, 1.5e4
+    xk = np.float32(1e-6) * np.float32(10.0) ** (np.arange(N, dtype=np.float32) / N)  # tau_GP 0.4-4
+    with tempfile.TemporaryDirectory() as td:
+        with open(os.path.join(td, "params.txt"), "w") as f:
+            f.write(f"N = {N}\nbox = {box}\n")
+        sd = os.path.join(td, "run", "step_0001")
+        os.makedirs(sd)
+        os.makedirs(os.path.join(td, "run", "Gas"))
+        with open(os.path.join(sd, "stats.txt"), "w") as f:
+            f.write(f"redshift = {z}\nscalefactor = {1 / (1 + z)}\nxHII_V = 1\n")
+        shp = (N, N, N)
+        (np.ones(shp, np.float32) * xk[:, None, None]).tofile(os.path.join(sd, "fHI.bin"))
+        np.ones(shp, np.float32).tofile(os.path.join(sd, "rhog.bin"))
+        np.full(shp, T, np.float32).tofile(os.path.join(sd, "temp.bin"))
+        np.full(shp, 1e-12, np.float32).tofile(os.path.join(sd, "gammaHI.bin"))
+        u = np.zeros(shp + (5,), np.float32)
+        u[..., 0] = 1
+        u.tofile(os.path.join(td, "run", "Gas", "u_gas." + ztag(z)))
+        run = Run(td)
+        snap = run.snapshots()[0]
+        res = lya_stats(snap, nskew=40, seed=3, obs=read_obs(), taueff_seg=seg)
+        S = res["segments"]
+        sel = choose_pencils(N, 40, np.random.default_rng(3 + 7 + 1000 * snap.step))
+    tgp = K_LYA * snap.nH_avg * xk.astype(np.float64) / snap.H
+    kk = np.concatenate([sel[0][0], sel[1][0]])  # the k of the axis-0 and axis-1 skewers
+    nu = len(kk)
+    Fb, Fs = np.array(S["F_box_raw"]), np.array(S["F_seg_raw"])
+    FbA = np.array(S["F_box_A"])
+    part = np.array(S["partner"])
+    n = S["npix_extra"]
+    e1 = np.abs(Fb[:nu] / np.exp(-tgp[kk]) - 1).max()
+    e2 = np.abs(FbA[:nu] / np.exp(-S["A"] * tgp[kk]) - 1).max()
+    u_ = part[:nu] < nu  # partners that are uniform skewers too
+    Fp = np.exp(-tgp[kk[part[:nu][u_]]])
+    e3 = np.abs(Fs[:nu][u_] / ((N * Fb[:nu][u_] + n * Fp) / (N + n)) - 1).max()
+    e4 = abs(Fb.mean() / res["F_mean"] - 1)
+    ok = (e1 < 1e-9 and e2 < 1e-9 and e3 < 1e-9 and e4 < 1e-12 and n == round(N * (seg - box) / box)
+          and not np.any(part == np.arange(len(part))) and u_.sum() > 10)
+    print(f"taueff segments: box F vs exp(-tau_GP) {e1:.1e}, rescaled {e2:.1e}, joined "
+          f"({n} extra pixels, {int(u_.sum())} checked) {e3:.1e}, mean of segments vs <F> {e4:.1e}; "
+          f"A = {S['A']:.3g}: {'ok' if ok else 'FAILED'}")
     return ok
 
 
@@ -695,8 +799,19 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=1, help="snapshots measured in parallel")
     ap.add_argument("--data", default=DATA_DEFAULT)
+    ap.add_argument("--taueff", type=float, default=0.0, metavar="L",
+                    help="also keep the mean flux of every Lya skewer: box-length segments and "
+                         "segments of L Mpc/h (a skewer joined to L - box of another; "
+                         "docs/taueff_21cmfast.md), raw and rescaled by A")
+    ap.add_argument("--lya-only", action="store_true",
+                    help="skip the mean free path (Gamma and the Lya forest only)")
     a = ap.parse_args()
     if a.selftest:
+        try:
+            import scipy  # noqa: F401  (lya_tau, the fits)
+        except ImportError:
+            print("selftest skipped: no scipy")
+            sys.exit(77)
         sys.exit(0 if selftest() else 1)
     if not a.run:
         ap.error("RUN is required")
@@ -705,6 +820,10 @@ def main():
     snaps = run.snapshots(a.zmin, a.zmax, steps or None)
     opt = {"nlos": a.nlos, "rmax": a.rmax, "ds": a.ds, "nskew": a.nskew, "seed": a.seed,
            "data": a.data, "profile": a.lya_profile}
+    if a.taueff > 0:  # only when asked: the default output is unchanged
+        opt["taueff_seg"] = a.taueff
+    if a.lya_only:
+        opt["lya_only"] = True
     jobs = [(run.top, s.step, opt) for s in snaps]
     if a.jobs > 1 and len(jobs) > 1:
         with ProcessPoolExecutor(max_workers=a.jobs) as ex:

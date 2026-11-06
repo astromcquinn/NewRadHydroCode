@@ -102,6 +102,14 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_budget.py
                    --selftest)
   set_tests_properties(absorber_budget_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
+  # igm_stats.py's analytic checks, with the per-segment tau_eff of --taueff
+  # on a synthetic snapshot (docs/igm_diagnostics.md, docs/taueff_21cmfast.md);
+  # skipped without scipy
+  add_test(NAME igm_stats_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/igm_stats.py
+                   --selftest)
+  set_tests_properties(igm_stats_selftest PROPERTIES TIMEOUT 120 LABELS analysis
+                       SKIP_RETURN_CODE 77)
 
   # The runtime cosmology's IC tool, a Planck RT run and the preheating
   # floor on a cooling test (tests/cosmology_check.py; docs/production_run.md
