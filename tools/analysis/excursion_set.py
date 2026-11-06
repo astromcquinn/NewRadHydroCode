@@ -4,6 +4,7 @@ RT-methods suite (B1 of docs/taueff_21cmfast.md).
 
     excursion_set.py run RUN --steps 61,69,74,78,84 --out DIR [--rmax 15]
                      [--rmax-mfp IGM.json] [--mmin 1.28e8] [--threads N]
+    excursion_set.py standalone RUN --steps ... --out DIR [--hii-dim 512] [--dim 1024]
     excursion_set.py figure DIR RUN:label [RUN:label ...] --outdir FIGDIR
     excursion_set.py --selftest
 
@@ -204,11 +205,11 @@ def snapshots(rd):
 # 21cmFAST
 # ---------------------------------------------------------------------------
 
-def p21_inputs(N, box_mpc, zeta, rmax, rmin, log10_mmin, threads, cosmo):
+def p21_inputs(N, box_mpc, zeta, rmax, rmin, log10_mmin, threads, cosmo, dim=None, seed=1):
     import py21cmfast as p21
-    inp = p21.InputParameters.from_template("const-zeta", random_seed=1)
+    inp = p21.InputParameters.from_template("const-zeta", random_seed=seed)
     return inp.evolve_input_structs(
-        HII_DIM=N, DIM=N, BOX_LEN=box_mpc, N_THREADS=threads,
+        HII_DIM=N, DIM=dim or N, BOX_LEN=box_mpc, N_THREADS=threads,
         OMm=cosmo["omegam"], OMb=cosmo["omegab"], hlittle=cosmo["hubble0"],
         SIGMA_8=cosmo["sigma8"], POWER_INDEX=cosmo["ns"],
         HII_EFF_FACTOR=zeta, R_BUBBLE_MAX=rmax, R_BUBBLE_MIN=rmin,
@@ -359,6 +360,94 @@ def cmd_run(a):
             del gmax, g0, xhii, xnp, ib, ibz
 
 
+def cmd_standalone(a):
+    """B2: a 21cmFAST run of its own (its ICs, 2LPT density at each z), the
+    suite's cosmology, box and resolution; zeta at each z matched to the
+    reference run's x_V there (coeval boxes: no evolution is needed without
+    spin temperature and recombinations)."""
+    import time
+    import py21cmfast as p21
+    p21.config["direc"] = os.path.join(os.path.abspath(a.out), "cache")  # never the home default
+    rd = run_dir(a.run)
+    top = os.path.dirname(rd)
+    cosmo = read_cosmo(top)
+    box_h = box_of(rd)
+    box = box_h / cosmo["hubble0"]
+    snaps = snapshots(rd)
+    steps = [int(s) for s in a.steps.split(",")]
+    threads = a.threads or int(os.environ.get("SLURM_CPUS_PER_TASK", "1"))
+    N = a.hii_dim
+    log10_mmin = math.log10(a.mmin)
+    rmax = min(a.rmax, L_FACTOR * box)
+    inp0 = p21_inputs(N, box, 30.0, rmax, L_FACTOR * box / N, log10_mmin, threads, cosmo,
+                      dim=a.dim, seed=a.seed)
+    from py21cmfast.wrapper import cfuncs
+    cfuncs.get_growth_factor(inputs=inp0, redshift=7.0)
+    rho_m = cfuncs.get_condition_mass(inp0, 1.0) / (4.0 / 3.0 * np.pi)
+    rmin = max(L_FACTOR * box / N, 1.01 * (a.mmin / (4.0 / 3.0 * np.pi * rho_m)) ** (1 / 3))
+
+    def inputs(zeta):
+        return p21_inputs(N, box, zeta, rmax, rmin, log10_mmin, threads, cosmo, dim=a.dim, seed=a.seed)
+
+    t0 = time.time()
+    ic = p21.compute_initial_conditions(inputs=inputs(30.0))
+    print(f"ICs {a.dim}^3 -> {N}^3, seed {a.seed}: {time.time() - t0:.0f} s", flush=True)
+    outd = os.path.join(a.out, "es_standalone")
+    os.makedirs(outd, exist_ok=True)
+    with open(os.path.join(outd, "params.txt"), "w") as f:
+        f.write(f"# excursion_set.py standalone: 21cmFAST {p21.__version__}, own ICs (seed {a.seed}, "
+                f"DIM {a.dim}), 2LPT\nN = {N}\nbox = {box_h}\n")
+    for st in steps:
+        z, sd = snaps[st]
+        target = float(1.0 - load_cube(os.path.join(sd, "fHI.bin")).astype(np.float64).mean())
+        t1 = time.time()
+        pf = p21.perturb_field(redshift=z, initial_conditions=ic, inputs=inputs(30.0))
+        hist = []
+
+        def xv_of(zeta):
+            ib = p21.compute_ionization_field(perturbed_field=pf, initial_conditions=ic,
+                                              inputs=inputs(zeta))
+            x = float(1.0 - np.asarray(ib.neutral_fraction, np.float64).mean())
+            hist.append((zeta, x))
+            print(f"  step {st} z {z:.3f}: zeta {zeta:.5g} -> x_V {x:.5f} (target {target:.5f})",
+                  flush=True)
+            return x, ib
+
+        z0 = a.zeta0
+        x0, ib0 = xv_of(z0)
+        z1 = z0 * (1.3 if x0 < target else 0.7)
+        x1, ib1 = xv_of(z1)
+        best = min(((x1, z1, ib1), (x0, z0, ib0)), key=lambda t: abs(t[0] - target))
+        for _ in range(12):
+            if abs(best[0] - target) < a.tol or x1 == x0:
+                break
+            lz = math.log(z1) + (target - x1) * (math.log(z1) - math.log(z0)) / (x1 - x0)
+            lz = min(max(lz, math.log(z1) - 1.0), math.log(z1) + 1.0)
+            z0, x0 = z1, x1
+            z1 = math.exp(lz)
+            x1, ib1 = xv_of(z1)
+            if abs(x1 - target) < abs(best[0] - target):
+                best = (x1, z1, ib1)
+        xv, zeta, ib = best
+        sdir = os.path.join(outd, "run", f"step_{st:04d}")
+        os.makedirs(sdir, exist_ok=True)
+        np.asarray(ib.neutral_fraction, np.float32).tofile(os.path.join(sdir, "fHI.bin"))
+        (1.0 + np.asarray(pf.density, np.float32)).tofile(os.path.join(sdir, "rhog.bin"))
+        with open(os.path.join(sdir, "stats.txt"), "w") as f:
+            f.write(f"redshift = {z}\nxHII_V = {xv}\nzeta = {zeta}\ntarget_xHII_V = {target}\n"
+                    f"R_max_Mpc = {rmax}\nR_min_Mpc = {rmin}\nM_min_Msun = {a.mmin}\n"
+                    f"seed = {a.seed}\nDIM = {a.dim}\n")
+        zt = os.path.join(outd, "zeta.txt")
+        new = not os.path.exists(zt)
+        with open(zt, "a") as f:
+            if new:
+                f.write("# step z target_xV xV zeta R_max[Mpc] R_min[Mpc] M_min[Msun] seconds\n")
+            f.write(f"{st} {z:.4f} {target:.5f} {xv:.5f} {zeta:.5g} {rmax:.4g} {rmin:.4g} "
+                    f"{a.mmin:.4g} {time.time() - t1:.0f}\n")
+        print(f"step {st} z {z:.3f}: zeta {zeta:.4g}, x_V {xv:.4f} (target {target:.4f})", flush=True)
+        del pf, ib, ib0, ib1
+
+
 # ---------------------------------------------------------------------------
 # Figure 8
 # ---------------------------------------------------------------------------
@@ -374,9 +463,14 @@ def cmd_figure(a):
     for r in a.runs:
         p, _, lab = r.partition(":")
         specs.append((run_dir(p), lab or os.path.basename(p.rstrip("/"))))
-    es = sorted(glob.glob(os.path.join(a.esdir, "es_*")))
+    es = sorted(d for d in glob.glob(os.path.join(a.esdir, "es_*")) if not d.endswith("_standalone"))
     es_specs = [(os.path.join(d, "run"), "21cmFAST ES" + ("" if i == 0 else f" ({os.path.basename(d)[3:]})"))
                 for i, d in enumerate(es)]
+    # B2, the standalone 21cmFAST run: another realisation, so only its
+    # Delta^2 and the ratio are shown (no r(k), no cell differences, no map)
+    sa = os.path.join(a.esdir, "es_standalone")
+    if os.path.isdir(os.path.join(sa, "run")):
+        es_specs.append((os.path.join(sa, "run"), "21cmFAST own ICs (B2)"))
     all_specs = specs + es_specs
     nrun, nes = len(specs), len(es_specs)
     box = box_of(specs[0][0])
@@ -389,6 +483,10 @@ def cmd_figure(a):
     os.makedirs(a.outdir, exist_ok=True)
     colors = COLORS[:nrun] + ["#6250d6", "#9a8ad0", "#3a2a96"][:nes]
     styles = STYLES[:nrun] + ["-", ":", "--"][:nes]
+    stat_only = [l.endswith("(B2)") for _, l in all_specs]
+    for i, so in enumerate(stat_only):
+        if so:
+            colors[i], styles[i] = "#888888", "-."
     lw = [1.6] + [1.1] * (nrun - 1) + [1.8] * nes
     binner = None
     rows = {}     # step -> per spec (P_auto, P_cross, frac, slab, z, xV)
@@ -469,7 +567,8 @@ def cmd_figure(a):
             axes[0, ic].loglog(k, k ** 3 * r[0] / (2 * np.pi ** 2), **kw)
             if ir > 0:
                 axes[1, ic].semilogx(k, r[0] / pr, **kw)
-                axes[2, ic].semilogx(k, r[1] / np.sqrt(r[0] * pr), **kw)
+                if not stat_only[ir]:
+                    axes[2, ic].semilogx(k, r[1] / np.sqrt(r[0] * pr), **kw)
         axes[0, ic].set_title(f"z = {ref[st][0]:.2f}, $x_V$ = {rows[st][0][5]:.2f}")
         axes[1, ic].axhline(1, color="0.6", lw=0.8)
         axes[1, ic].set_yscale("log")
@@ -485,6 +584,8 @@ def cmd_figure(a):
     axf = axes[0, nc]
     zs = np.array([ref[st][0] for st in steps])
     for ir in range(1, len(labels)):
+        if stat_only[ir]:
+            continue
         v = np.array([np.nan if rows[st][ir] is None else rows[st][ir][2] for st in steps])
         axf.plot(zs, v, color=colors[ir], ls=styles[ir], lw=lw[ir], marker="o", ms=2.5)
     axf.set_xlabel("z")
@@ -501,13 +602,15 @@ def cmd_figure(a):
     fig.savefig(os.path.join(a.outdir, "es_pk_xHII.png"))
     plt.close(fig)
     # ---- maps
-    ncol = len(all_specs)
+    mcols = [i for i in range(len(all_specs)) if not stat_only[i]]
+    ncol = len(mcols)
     w = 1.9
     fig, axes = plt.subplots(nc, ncol, figsize=(w * ncol + 0.6, w * nc + 0.3), squeeze=False)
     im = None
     for irow, st in enumerate(steps):
-        for ir, r in enumerate(rows[st]):
-            ax = axes[irow, ir]
+        for icol, ir in enumerate(mcols):
+            r = rows[st][ir]
+            ax = axes[irow, icol]
             ax.set_xticks([])
             ax.set_yticks([])
             if r is None:
@@ -517,7 +620,7 @@ def cmd_figure(a):
                            cmap="cividis", interpolation="nearest")
             if irow == 0:
                 ax.set_title(labels[ir], fontsize=8)
-            if ir == 0:
+            if icol == 0:
                 ax.set_ylabel(f"z = {ref[st][0]:.2f}, $x_V$ = {r[5]:.2f}")
     fig.subplots_adjust(left=0.04, right=0.92, bottom=0.02, top=0.95, wspace=0.03, hspace=0.03)
     cax = fig.add_axes([0.93, 0.1, 0.012, 0.8])
@@ -648,6 +751,18 @@ def main():
     r.add_argument("--mmin", type=float, default=1.28e8, help="M_min [Msun] (20 particles of 6.4e6)")
     r.add_argument("--tol", type=float, default=0.002, help="|x_V - target|")
     r.add_argument("--threads", type=int, default=0)
+    b = sub.add_parser("standalone")
+    b.add_argument("run", help="the reference run (cosmology, box, the x_V targets)")
+    b.add_argument("--steps", required=True)
+    b.add_argument("--out", required=True)
+    b.add_argument("--hii-dim", type=int, default=512)
+    b.add_argument("--dim", type=int, default=1024)
+    b.add_argument("--seed", type=int, default=12345)
+    b.add_argument("--rmax", type=float, default=15.0)
+    b.add_argument("--mmin", type=float, default=1.28e8)
+    b.add_argument("--zeta0", type=float, default=30.0)
+    b.add_argument("--tol", type=float, default=0.002)
+    b.add_argument("--threads", type=int, default=0)
     f = sub.add_parser("figure")
     f.add_argument("esdir")
     f.add_argument("runs", nargs="+")
@@ -660,6 +775,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "run":
         cmd_run(a)
+    elif a.cmd == "standalone":
+        cmd_standalone(a)
     else:
         cmd_figure(a)
 

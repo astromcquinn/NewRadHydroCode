@@ -157,16 +157,18 @@ def main():
     nrun = len(runs)
     for ir, (label, sn) in enumerate(runs):
         c, ls = COLORS[ir % len(COLORS)], STYLES[ir % len(STYLES)]
-        z = np.array([e["z"] for e in sn if keyA in e])
-        if len(z) == 0:
-            continue
-        dz = (ir - (nrun - 1) / 2) * 0.012  # offset so the error bars do not overlap
-        pA = np.array([np.percentile(taueff(e[keyA]), (16, 50, 84)) for e in sn if keyA in e])
-        pR = np.array([np.percentile(taueff(e[keyR]), (16, 50, 84)) for e in sn if keyR in e])
-        axes[1, 0].errorbar(z + dz, pA[:, 1], yerr=[pA[:, 1] - pA[:, 0], pA[:, 2] - pA[:, 1]],
-                            color=c, ls=ls, lw=1.0, marker="o", ms=2.5, capsize=1.5, label=label)
-        axes[1, 1].plot(z, pA[:, 2] - pA[:, 0], color=c, ls=ls, marker="o", ms=2.5, lw=1.1)
-        axes[1, 2].plot(z, pR[:, 1], color=c, ls=ls, marker="o", ms=2.5, lw=1.1)
+        # snapshots outside the Bosman+22 range (A = nan) have no rescaled values
+        sa = [e for e in sn if keyA in e]
+        if sa:
+            z = np.array([e["z"] for e in sa])
+            dz = (ir - (nrun - 1) / 2) * 0.012  # offset so the error bars do not overlap
+            pA = np.array([np.percentile(taueff(e[keyA]), (16, 50, 84)) for e in sa])
+            axes[1, 0].errorbar(z + dz, pA[:, 1], yerr=[pA[:, 1] - pA[:, 0], pA[:, 2] - pA[:, 1]],
+                                color=c, ls=ls, lw=1.0, marker="o", ms=2.5, capsize=1.5, label=label)
+            axes[1, 1].plot(z, pA[:, 2] - pA[:, 0], color=c, ls=ls, marker="o", ms=2.5, lw=1.1)
+        zr = np.array([e["z"] for e in sn])
+        pR = np.array([np.percentile(taueff(e[keyR]), 50) for e in sn])
+        axes[1, 2].plot(zr, pR, color=c, ls=ls, marker="o", ms=2.5, lw=1.1)
     b = obs.get("mean_flux")
     if b is not None:
         w = b["z"] <= 6.3

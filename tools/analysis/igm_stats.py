@@ -97,6 +97,7 @@ LAMBDA_LYA = 1215.67e-8       # Lya wavelength [cm]
 K_LYA = math.pi * E_ESU ** 2 * F_LYA * LAMBDA_LYA / (ME_G * C_CGS)
 
 XHI_THRESHOLDS = (0.5, 0.1, 1e-2, 1e-3)
+XION_UG = 1e-2  # --taueff: the cells whose x_HI the uniform-Gamma tau rescales
 DATA_DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data",
                             "igm", "igm_z5_6.txt")
 
@@ -623,6 +624,16 @@ def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat",
     sel = choose_pencils(snap.N, nskew, rng)
     P = read_pencils(snap, sel)
     taus, gw, fw = [], 0.0, 0.0
+    if taueff_seg:
+        # --taueff diagnostics per skewer: the mean density, the mean Gamma of
+        # its ionised cells, and tau with a uniform Gamma (x_HI of the ionised
+        # cells scaled by Gamma / the median ionised Gamma, as in photoionisation
+        # equilibrium; neutral cells as they are)
+        allx = np.concatenate([P[ax]["fHI"].ravel() for ax in sel])
+        allg = np.concatenate([P[ax]["gamma"].ravel() for ax in sel])
+        g_ref = float(np.median(allg[allx < XION_UG])) if (allx < XION_UG).any() else float("nan")
+        del allx, allg
+        taus_ug, rho_m, gam_m = [], [], []
     for ax in sel:
         d = P[ax]
         for c0 in range(0, d["fHI"].shape[0], chunk):
@@ -630,6 +641,16 @@ def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat",
             nHI = d["fHI"][s].astype(np.float64) * d["rhog"][s] * snap.nH_avg
             tau, pix = lya_tau(nHI, d["temp"][s], d["v"][s], snap.dl, snap.H, profile=profile)
             taus.append(tau)
+            if taueff_seg:
+                ion = d["fHI"][s] < XION_UG
+                g = d["gamma"][s].astype(np.float64)
+                if np.isfinite(g_ref):
+                    nHI = np.where(ion, nHI * g / g_ref, nHI)
+                    taus_ug.append(lya_tau(nHI, d["temp"][s], d["v"][s], snap.dl, snap.H,
+                                           profile=profile)[0])
+                rho_m.append(d["rhog"][s].astype(np.float64).mean(axis=1))
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    gam_m.append((g * ion).sum(axis=1) / ion.sum(axis=1))
             # transmission-weighted Gamma: each cell weighted by the flux of
             # the pixel its gas falls in
             Fc = np.exp(-np.take_along_axis(tau, pix, axis=1))
@@ -648,9 +669,21 @@ def lya_stats(snap, nskew=4096, seed=1, obs=None, chunk=1024, profile="tophat",
         out["F_obs"] = Fo
         out["A"] = rescale_A(tau, Fo)
     if taueff_seg:  # per-segment mean flux (--taueff); its own random stream
-        out["segments"] = taueff_segments(
-            tau, snap.run.box, taueff_seg, out.get("A", float("nan")),
-            np.random.default_rng(seed + 11 + 1000 * snap.step))
+        S = taueff_segments(tau, snap.run.box, taueff_seg, out.get("A", float("nan")),
+                            np.random.default_rng(seed + 11 + 1000 * snap.step))
+        S["rho_mean"] = np.concatenate(rho_m).tolist()
+        S["gamma_ion_mean"] = [float(x) if np.isfinite(x) else None for x in np.concatenate(gam_m)]
+        S["gamma_ref_ug"] = g_ref
+        if taus_ug:  # the same segments (partners, offsets) with the uniform Gamma
+            tug = np.concatenate(taus_ug)
+            Aug = rescale_A(tug, out["F_obs"]) if obs is not None else float("nan")
+            U = taueff_segments(tug, snap.run.box, taueff_seg, Aug,
+                                partner=np.array(S["partner"]), offset=np.array(S["offset"]))
+            S["A_ug"] = Aug
+            for k in ("F_box_raw", "F_box_A", "F_seg_raw", "F_seg_A"):
+                if k in U:
+                    S[k.replace("F_", "Fug_")] = U[k]
+        out["segments"] = S
     return out
 
 
@@ -774,10 +807,15 @@ def selftest_taueff(N=32, box=40.0, seg=50.0):
     Fp = np.exp(-tgp[kk[part[:nu][u_]]])
     e3 = np.abs(Fs[:nu][u_] / ((N * Fb[:nu][u_] + n * Fp) / (N + n)) - 1).max()
     e4 = abs(Fb.mean() / res["F_mean"] - 1)
-    ok = (e1 < 1e-9 and e2 < 1e-9 and e3 < 1e-9 and e4 < 1e-12 and n == round(N * (seg - box) / box)
+    # Gamma is uniform here: the uniform-Gamma fluxes are the fluxes
+    e6 = max(np.abs(np.array(S["Fug_box_raw"]) - Fb).max(), np.abs(np.array(S["Fug_seg_raw"]) - Fs).max(),
+             abs(np.mean(S["rho_mean"]) - 1))
+    ok = (e1 < 1e-9 and e2 < 1e-9 and e3 < 1e-9 and e4 < 1e-12 and e6 < 1e-12
+          and n == round(N * (seg - box) / box)
           and not np.any(part == np.arange(len(part))) and u_.sum() > 10)
     print(f"taueff segments: box F vs exp(-tau_GP) {e1:.1e}, rescaled {e2:.1e}, joined "
-          f"({n} extra pixels, {int(u_.sum())} checked) {e3:.1e}, mean of segments vs <F> {e4:.1e}; "
+          f"({n} extra pixels, {int(u_.sum())} checked) {e3:.1e}, mean of segments vs <F> {e4:.1e}, "
+          f"uniform-Gamma fluxes {e6:.1e}; "
           f"A = {S['A']:.3g}: {'ok' if ok else 'FAILED'}")
     return ok
 
