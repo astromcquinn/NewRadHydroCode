@@ -169,9 +169,11 @@ their recombinations are 1.3 % and 0.5 % (the rays; M1 5 % and 4 %).
   the sources without being consumed there; the rule turns those into
   free ionisations. **So H2 is real: the suite's rule hid the moment
   methods' over-ionisation of the dense gas from the photon budget**,
-  and it would have been a 5–11 % difference in the effective emissivity
-  between M1 and the rays at z ≈ 6 (and ≤ 1 % at z ≤ 5.25) with P11 on,
-  not Wu's 30–40 %.
+  and the per-cell estimate put it at a 5–11 % difference in the
+  effective emissivity between M1 and the rays at z ≈ 6 (and ≤ 1 % at
+  z ≤ 5.25) with P11 on, not Wu's 30–40 %. **Measured with P11 (§6.2)
+  the difference is a few per cent in Γ:** the per-cell P over-counts in
+  dense cells that cycle within a hydro step.
 - The dense cells are the source cells and their neighbours: the median
   Γ at δ = 1000 is 1.4–7×10⁻¹¹ s⁻¹ (30–100× the mean) and the median
   x_HI there 1–3×10⁻⁷. None of them self-shields (§3.4).
@@ -274,7 +276,7 @@ of its photoionisations), against 16 for the rays.
 | | supported? | the fractions |
 |---|---|---|
 | **H1** resolution | **yes, decisive** | no self-shielding cell in any run; 2 neutral cells and 16 cells with τ_912 > 1 at z = 4.99 in 1.3×10⁸; 70 % of the 912 Å opacity in τ < 1 cells; λ_mfp = 1/(σ⟨n_HI⟩) |
-| **H2** the dense-gas rule | **yes, as a hidden difference** | δ > 50 removes 4–6 % of the photons but hosts 21–30 % of the recombinations and 12–30 % of the photoionisations; with P11 the methods' effective emissivities would differ by 5–11 % (M1 vs rays) at z ≈ 6 and ≤ 1 % after overlap |
+| **H2** the dense-gas rule | **yes, as a hidden difference, a small one** | δ > 50 removes 4–6 % of the photons but hosts 21–30 % of the recombinations and 12–30 % of the photoionisations; the per-cell estimate put the hidden M1-vs-rays difference at 5–11 % at z ≈ 6, the P11 runs of §6 measure 2–3 % in the median Γ (7 % in the box mean at z = 5.49) |
 | **H3** the sink is elsewhere | **yes** | the sink is half diffuse (δ < 10: 47–56 % of R, 65–75 % of X); after overlap 70 % of a step's emission goes into the in-flight reservoir (12 steps' emission at z = 5), 4–6 % redshifts away, 22–28 % is absorbed; every method agrees on this budget to 0.01–0.03 |
 
 The mean Γ after overlap is σ ĉ n_γ with n_γ the reservoir, filled by the
@@ -465,3 +467,116 @@ number: the neutral core has no photoionisations to discount.)*
   mean, growing with N: the B16 quirk); it is kept only as the record of
   what was changed. Its ratios were of the same kind (M1 1.4–2.1×, the
   cone 0.8× at N = 128).
+
+## 6. Phase 2 (a): P11 on and off at the suite's resolution (done 2026-11-06)
+
+`tools/hyak/absorber_p11_runs.sh`: six runs of the suite's configuration
+at 256³ in 20 Mpc/h (the precheck box: 512³ particles, seed 7,
+`pm_refine = 2`, the Sheth–Tormen table, f6 = 0.11, β = 2.5, the
+continuous ĉ schedule, case B, cooling suppression 200, the current
+production defaults including `dual_e_self = 1`), the rays, M1 and the
+OTVET cone each with `photon_consume_dense = 1` (P11) and `= 0` (the
+suite's rule), the binary `$RUNS/absorbers_wu21_bin/radhydro` (`main` at
+29cf798), 64 threads each (the account's CPU limit; the rays 4.9 h, the
+moment methods 1.8 h), runs `$RUNS/abs256_{rays,m1,cone}_p11{1,0}` to
+z = 4.93 (34 GB each). Analyses: `absorber_budget.py` at the snapshots
+z = 5.96, 5.49, 5.15, 4.93 (`$RUNS/absorbers_wu21/p11_256/`),
+`igm_stats.py` (`p11_256/igm/`), the histories from `run/reion.txt`.
+
+### 6.1 What P11 does, for every method alike
+
+| | rays | | M1 | | cone | |
+|---|---|---|---|---|---|---|
+| | rule | P11 | rule | P11 | rule | P11 |
+| z50 / z90 / z99 | 6.90 / 5.95 / 5.60 | 6.90 / 5.85 / 5.55 | 6.90 / 5.95 / 5.70 | 6.85 / 5.85 / 5.60 | 6.90 / 5.95 / 5.65 | 6.90 / 5.85 / 5.55 |
+| τ_es | 0.0569 | 0.0567 | 0.0570 | 0.0568 | 0.0571 | 0.0568 |
+| Γ (median × x_V, 10⁻¹² s⁻¹) z = 5.96 / 5.49 / 5.15 / 4.93 | 0.100 / 0.318 / 0.606 / 0.790 | 0.082 / 0.249 / 0.528 / 0.712 | 0.088 / 0.307 / 0.606 / 0.790 | 0.074 / 0.233 / 0.510 / 0.696 | 0.090 / 0.318 / 0.613 / 0.799 | 0.074 / 0.253 / 0.540 / 0.720 |
+| λ_mfp [pMpc] z = 5.49 / 5.15 / 4.93 | 12.6 / 29.4 / 43.9 | 9.3 / 25.8 / 39.7 | 12.2 / 28.1 / 43.3 | 9.5 / 23.9 / 38.1 | 14.7 / 32.7 / 49.3 | 11.5 / 29.2 / 45.0 |
+| ⟨F⟩ z = 5.49 / 4.93 | 0.095 / 0.305 | 0.071 / 0.286 | 0.104 / 0.320 | 0.077 / 0.298 | 0.100 / 0.319 | 0.072 / 0.301 |
+| absorbed per step / emitted (code) z = 5.96 / 5.49 / 5.15 / 4.93 | – | – | 0.96 / 0.34 / 0.28 / 0.24 | 0.98 / 0.43 / 0.32 / 0.28 | 0.92 / 0.36 / 0.27 / 0.23 | 0.95 / 0.47 / 0.30 / 0.26 |
+| photons in flight, P11 / rule, z = 5.49 / 4.93 | 0.80 / 0.90 | | 0.76 / 0.89 | | 0.80 / 0.91 | |
+
+- **P11 is a 10–25 % effect on the IGM at fixed f_esc, the same for
+  every method:** the dense cells' recombinations are now paid for in
+  photons, so 4–10 % more of each step's emission is absorbed (the
+  code's budget: M1 absorbs 0.43 of a step's emission at z = 5.49 with
+  P11 against 0.34 under the rule), the reservoir of photons in flight
+  is 10–24 % smaller, the median Γ 18–24 % lower before and at overlap
+  and 10–13 % after, λ_mfp 10–27 % shorter, ⟨F⟩ 6–25 % lower, the end
+  of reionization 0.05–0.10 later in z and τ_es 0.0003 lower. **The
+  f_esc(z) of the suite needs recalibrating for P11** (as
+  `docs/STATUS.md` 2026-10-28 anticipated): at z = 5.49 Γ is 0.72× the
+  Gaikwad+23 value with P11 against 0.92× under the rule, so f6 ≈ 0.13
+  rather than 0.11 for the same Γ, with the end then ≈ 0.1 earlier.
+
+### 6.2 The closures with P11: the hidden difference is a few per cent, not 5–11 %
+
+| Γ(method)/Γ(rays), median × x_V | z = 5.96 | 5.49 | 5.15 | 4.93 |
+|---|---|---|---|---|
+| M1, rule | 0.88 | 0.97 | 1.00 | 1.00 |
+| M1, P11 | 0.91 | 0.94 | 0.97 | 0.98 |
+| cone, rule | 0.89 | 1.00 | 1.01 | 1.01 |
+| cone, P11 | 0.90 | 1.01 | 1.02 | 1.01 |
+
+and in the box mean ⟨Γ⟩_V: M1/rays 0.84, 0.93, 0.97, 0.97 under the rule
+and 0.86, 0.86, 0.95, 0.96 with P11; the cone 0.94, 1.01, 1.01, 1.00 and
+0.94, 1.01, 1.02, 1.01. The recombination rate of M1 relative to the
+rays in the δ = 30–1000 bins is 1.00–1.08 under the rule and 1.03–1.14
+with P11 (the cone 0.85–0.97 and 0.88–0.98).
+
+- **With P11 the M1-to-rays difference in the median Γ changes by 3
+  points** (0.97 → 0.94 at z = 5.49, 1.00 → 0.97–0.98 after overlap;
+  +3 at z = 5.96, where M1's later overlap dominates), 7 points in the
+  box mean at z = 5.49 and nothing for the cone. This is the size of
+  the difference the suite's rule hid: a few per cent, **not the 5–11 %
+  that §3.2 estimated** from the per-cell photoionisations. That
+  estimate (P − X)/ṅ over-counted: the dense cells cycle between
+  ionised and recombined within a hydro step (their recombination time
+  is a few Myr against the 10 Myr step), so the step-averaged Γ times
+  the end-of-step n_HI exceeds the photons they actually use (P/ṅ
+  reaches 1.5 in the P11 runs, more than the emission), and the code's
+  own budget, which counts the photons removed, is the number to use.
+  §3.2 and §3.5 are corrected accordingly.
+- **The closure still does not matter at 78 kpc/h with P11**, for the
+  reason of §3.4: the 256³ box has, like the suite, no self-shielding
+  cell (zero neutral cells at z = 4.93, 11 with τ_912 > 1; the 61
+  components of x_HI > 0.5 at z = 5.49 are the last islands), so the
+  dense gas recombines as optically thin gas at the local Γ in every
+  method, and P11 only makes that recombination cost photons. The
+  resolved-absorber effect of §5 (2× for M1, 1.4× for the cone) needs
+  cells that hold a self-shielded core with an ionised skin.
+
+![P11 sink](figures/absorbers_p11_256.png)
+
+*`absorber_budget.py` on the six runs: the share of the removed photons
+(solid; for the P11 runs the x(δ)-weighted estimate is not the removed
+number, see above) and of the recombinations (dashed) above δ, and the
+median Γ and x_HI against δ.*
+
+![P11 IGM](figures/absorbers_p11_256_igm.png)
+
+*`igm_plot.py`: Γ, λ_mfp, ⟨F⟩ and ṅ of the six runs against the data.*
+
+## 7. What this means for the paper, and next
+
+1. **Why the IGM statistics are the same for every method (§5 of the
+   outline):** the mean Γ after overlap is set by the photon reservoir
+   that the same emissivity fills and the same diffuse opacity drains
+   (§3.1); the methods differ in where the photons go only in the
+   20–30 % of the sink above δ = 50, by 5–12 % (§3.3), and with the
+   dense gas consuming photons that becomes a 2–3 % difference in the
+   median Γ (§6.2). Wu+21's absorber effect is real and large in the
+   code (2× for M1, §5) but acts on self-shielding absorbers that
+   78 kpc/h cells do not contain (§3.4).
+2. **The cone tensor is the closure to carry forward:** alone among the
+   closures its over-ionisation of a resolved absorber falls with
+   resolution (1.8 → 1.4× from 2 to 8 cells across, §5), and in the
+   boxes it matches the rays' Γ to 1–2 % after overlap with or without
+   P11 (§6.2).
+3. **Next (the user, 2026-11-06): an AMR run with M1 or OTVET where the
+   absorbers are resolved.** The moment RT does not run on the AMReX
+   levels yet (Thread C of `docs/PLAN.md`, "the moment methods and FLD on
+   the AMReX hierarchy"); the refinement that `fesc512_b2.5_amr` used
+   (two levels above 8 ρ̄ and 64 ρ̄, 19.5 kpc/h cells) is the 4 pkpc
+   column of §5, where M1's excess is 2.3× and the cone's 1.4× for a
+   63 pkpc absorber. Option (b), 512³ in 20 Mpc/h, was not run.

@@ -1922,3 +1922,8 @@ in the prompt, followed:
   and off, (b) 512³/20 Mpc/h. Wu+21 taken only from
   `docs/otvet_closure_literature.md` §1 (arXiv unreachable from klone);
   the 1.3–1.4× and 0.4× are quoted from those notes.
+* **User decisions (2026-11-06):** run Phase 2 (c) and (a), not (b)
+  ("yes, let's start with 1 and 2 but not 3"); an AMR run with M1/OTVET
+  may follow if the absorbers can be resolved; PR #27 merged. Results in
+  `docs/absorbers_closures.md` §5–7: the cone tensor is the closure to
+  carry forward; P11 needs the f_esc(z) recalibration (f6 ≈ 0.13).
