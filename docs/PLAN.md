@@ -1900,3 +1900,25 @@ User decisions (2026-10-29):
   sources, such as the plane-parallel mode, can turn the halo finder off.
 - Recommendation adopted: do the grid part first, then the power spectrum
   on the level, which frees the host PM mesh arrays on rank 0.
+
+## Why the closures do not change ⟨Γ_HI⟩ after overlap (2026-11-06, branch `absorbers-wu21`)
+
+Thread prompt of 2026-11-06 (the paper's §5): find out why the moment
+methods' Γ_HI, λ_mfp and ⟨F⟩ agree with the rays' in the 512³ suite when
+Wu, McQuinn & Eisenstein 2021 predict over-ionised absorbers. Decisions
+in the prompt, followed:
+
+* Phase 1 on the existing snapshots only (no new runs): the photon sink
+  by density and neutral fraction with the code's own rates, the
+  self-shielding curves, Wu's ratio in δ bins, the resolution of the
+  absorbers; tool `tools/analysis/absorber_budget.py` with a synthetic
+  self-test under ctest (a new label `analysis`, none existed); report
+  `docs/absorbers_closures.md`. Result: H1 decisive (no self-shielding
+  cell in any run), H2 a hidden 5–11 % emissivity difference at z ≈ 6
+  that P11 would expose, H3 yes (the sink is diffuse and, after overlap,
+  mostly the growing in-flight reservoir).
+* Phase 2 proposed with node-hours and disk, **not launched**: (c)-cheap
+  the single-absorber `rt_driver` test, (a) 256³/20 Mpc/h with P11 on
+  and off, (b) 512³/20 Mpc/h. Wu+21 taken only from
+  `docs/otvet_closure_literature.md` §1 (arXiv unreachable from klone);
+  the 1.3–1.4× and 0.4× are quoted from those notes.

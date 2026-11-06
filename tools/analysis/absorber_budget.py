@@ -276,7 +276,8 @@ def read_moment_budget(run):
                 step = int(line.split()[3])
             elif line.startswith(" Moments") and step is not None:
                 t = line.split()
-                out[step] = (float(t[5]), float(t[7]), float(t[9]), float(t[11]))
+                # ' Moments : in flight I injected J absorbed A lost L'
+                out[step] = (float(t[4]), float(t[6]), float(t[8]), float(t[10]))
     return out
 
 
@@ -598,12 +599,12 @@ def write_absorbers(results, labels, outdir):
                      f"1/(sigma <n_HI>) = {a['lambda_from_mean_nHI_pMpc']:.2f} pMpc")
             if a["ncomp"]:
                 sq, cq = a["size_quantiles"], a["peak_col_quantiles"]
-                L.append(f"sizes [cells]: median {sq['50']:.0f}, 90 % {sq['90']:.0f}, 99 % "
-                         f"{sq['99']:.0f}, max {a['size_max']}; single cells {a['n_size_1']}, "
+                L.append(f"sizes [cells]: median {sq[50]:.0f}, 90 % {sq[90]:.0f}, 99 % "
+                         f"{sq[99]:.0f}, max {a['size_max']}; single cells {a['n_size_1']}, "
                          f">= 8 cells {a['n_size_ge8']} ({100 * a['frac_cells_in_ge8']:.1f} % of "
                          f"the neutral cells), >= 27 cells {a['n_size_ge27']}")
                 L.append(f"largest grid-line column N_HI [cm^-2] per component (max over axes): "
-                         f"median {cq['50']:.2e}, 90 % {cq['90']:.2e}, 99 % {cq['99']:.2e}, max "
+                         f"median {cq[50]:.2e}, 90 % {cq[90]:.2e}, 99 % {cq[99]:.2e}, max "
                          f"{a['peak_col_max']:.2e}")
                 L.append(f"Lyman-limit systems (N_HI > 1.6e17): {a['n_LL_any_axis']} on at least "
                          f"one axis, {a['n_LL_all_axes']} on all three "
