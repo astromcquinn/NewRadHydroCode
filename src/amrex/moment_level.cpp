@@ -167,6 +167,10 @@ struct MomentLevel : CellLevel {
   // live there); the budgets are in base units (nrtcr_l = Nrt^3 8^lev);
   // the physics sums of the last substep are kept for the hierarchy to add
   bool in_hierarchy = false;
+  // the sums in the serial order (the chains over slabs in z order): level 0
+  // on slabs; a level on boxes (a hierarchy's base level, the refined
+  // levels) sums in fixed point
+  bool exact = true;
   std::unique_ptr<ax::iMultiFab> covered, in_patch;
   double nrtcr_l = 0;
   double stat_v[kSNstat] = {};
@@ -175,18 +179,24 @@ struct MomentLevel : CellLevel {
   static constexpr int kBudgetBits = 40;  // the fixed point of a refined level's budgets
 
   MomentLevel(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
-    if (!cfg.amrex_slab)
+    // z-slabs (the serial-order sums, the FFT tensors), or boxes as the base
+    // level of a hierarchy (amrex_max_level > 0 refuses slabs; the sums in
+    // fixed point; docs/moment_amr.md)
+    exact = cfg.amrex_slab != 0;
+    if (!exact && cfg.amrex_max_level == 0)
       throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
-    stats_mode = cfg.amrex_moment_stats;
+    if (!exact && cfg.rt_method == RTMethod::OTVET)
+      throw std::runtime_error("rt_method = otvet with rt_backend = amrex needs amrex_slab = 1 (the FFT tensors on z-slabs)");
+    stats_mode = exact ? cfg.amrex_moment_stats : 1;
     nrtcr_l = cfg.nrtcr;
     fft_threads_cfg = cfg.amrex_moment_fft_threads;
     // whole planes per box, and the ranks in z order (the chains)
-    for (int b = 0; b < static_cast<int>(ba.size()); ++b) {
+    for (int b = 0; exact && b < static_cast<int>(ba.size()); ++b) {
       const ax::Box& bx = ba[b];
       if (bx.smallEnd(0) != 0 || bx.bigEnd(0) != N - 1 || bx.smallEnd(1) != 0 || bx.bigEnd(1) != N - 1)
         throw std::runtime_error("the moment level needs z-slabs (whole i, j planes per box)");
     }
-    for (int b = 0; b < static_cast<int>(ba.size()); ++b)
+    for (int b = 0; exact && b < static_cast<int>(ba.size()); ++b)
       for (int b2 = 0; b2 < static_cast<int>(ba.size()); ++b2)
         if (ba[b2].smallEnd(2) > ba[b].smallEnd(2) && dm[b2] < dm[b])
           throw std::runtime_error("the moment level needs the slabs mapped to the ranks in z order");
@@ -220,6 +230,7 @@ struct MomentLevel : CellLevel {
   MomentLevel(const Config& cfg, bool with_e, int lev_, const ax::BoxArray& ba_, const ax::DistributionMapping& dm_)
       : CellLevel(cfg, with_e, lev_, ba_, dm_) {
     in_hierarchy = true;
+    exact = false;
     stats_mode = 1;
     fft_threads_cfg = cfg.amrex_moment_fft_threads;
     nrtcr_l = cfg.nrtcr * std::ldexp(1.0, 3 * lev);
@@ -299,7 +310,7 @@ struct MomentLevel : CellLevel {
     const double t0 = now();
     src.clear();
     const double sfr_min = s.units.sfr_min;
-    if (lev == 0) {
+    if (exact) {
       for (int li : zorder) {
         const ax::Box bx = local_box(li);
         auto c = C.atLocalIdx(li).const_array();
@@ -1053,7 +1064,7 @@ struct MomentLevel : CellLevel {
     // refined level: in fixed point, order independent)
     const int np = ax::ParallelDescriptor::NProcs(), me = ax::ParallelDescriptor::MyProc();
     double inj = 0;
-    if (lev > 0) {
+    if (!exact) {
       i128 fx = 0;
       for (double a : rec) fx += to_fx128(a, kBudgetBits);
       allreduce_i128(&fx, 1);
@@ -1275,7 +1286,7 @@ struct MomentLevel : CellLevel {
   // returns the cell's addend; the moments may be modified by it.
   template <class F>
   double cell_sum(F&& cell) {
-    if (lev == 0) {
+    if (exact) {
       std::vector<double> part(static_cast<std::size_t>(N), 0.0);
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         auto c = C.const_array(mfi);
@@ -1529,7 +1540,7 @@ struct MomentLevel : CellLevel {
     // in z order; a refined level: fixed point)
     const double ts = now();
     double tot = 0;
-    if (lev == 0) {
+    if (exact) {
       chain(&tot, 1, [&](double* a) {
         for (int li : zorder) {
           auto m = M.atLocalIdx(li).const_array();

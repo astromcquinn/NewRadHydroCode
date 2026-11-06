@@ -80,7 +80,7 @@ void check_amrex_state_param(const Config& c) {
     throw std::runtime_error("amrex_state = 1 needs rt_backend = amrex, hydro_backend = amrex and pm_backend = amrex");
   if (c.hydro_scheme != HydroScheme::Unsplit)
     throw std::runtime_error("amrex_state = 1 needs hydro_scheme = unsplit");
-  if (c.rt_method != RTMethod::Rays && !c.amrex_slab)
+  if (c.rt_method != RTMethod::Rays && !c.amrex_slab && !(c.amrex_max_level > 0 && c.rt_method == RTMethod::M1))
     throw std::runtime_error("amrex_state = 1 with rt_method = m1 | otvet needs amrex_slab = 1");
   if (c.recomb_rad && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("amrex_state = 1 does not support recomb_rad = 1 with the rays");
