@@ -56,52 +56,58 @@ milestone 1 (M1); milestone 2 prolongs the parent's.
 the `MomentFine`s; `finest`; the budget (injected, absorbed, lost) in base
 units summed over the levels.
 
-### 2.2 The substep
+### 2.2 The substep (as built)
 
 ```
 calc_rt_1 on every level's cells (its own gas, its units)
-inject: level 0 on its uncovered source cells, level l on its source cells
-        (place_sources: a covered base cell's L on the finest cell holding
-        the source), moment_inject = 0 before / 1 after the transport
-for l = finest .. 1:  fill_ghost_moments(l)   # the parent's N, F, E in the
-                                              # ghosts outside the level, per volume as they are
-for l = finest .. 1:  transport(l): 2^l x nsub subcycles of C = 1/nsub,
-                      FillBoundary of the level's own ghosts each subcycle,
-                      the outside ghosts fixed for the coarse substep
-                      average_down_moments(l)   # the fine moments onto the covered parent cells
-transport(0): nsub subcycles (the covered cells carry the composite)
-deposit N, E, sum F into every level's cells; physics on every level
-   (level 0: uncovered cells only); fgam scaling of each level's M (absorbed)
-average_down_moments(l) again (the children's absorption onto the parents)
-statistics: fixed-point sums over the levels; gamma_avg per level
+inject (moment_inject = 0): level 0 on its uncovered source cells, level l
+        on its source cells (place_sources: a covered base cell's L on the
+        finest cell holding the source)
+for l = 1 .. finest:  fill_ghost_moments(l): the parent's N, F, E in the
+        ghosts outside the level (per volume, as they are), kept as Mg
+level 0 transport: nsub GLF subcycles of C = 1/nsub; its flux across each
+        face into a covered neighbour is recorded in RF (minus sign)
+for l = 1 .. finest (coarse first, Berger & Colella):
+        fill_ghost_moments(l) again (the parent after its transport), kept
+        as Mg1; the level's 2^l x nsub subcycles with its outside ghosts at
+        Mg + (it + 1/2)/(2^l nsub) (Mg1 - Mg); the photons its valid cells
+        send into the outside ghosts go, per coarse volume, into RFup
+for l = finest .. 1:  reflux: RF of level l-1 += RFup of level l; the
+        uncovered cells of level l-1 next to the level get RF (the finer
+        level's flux instead of their own; realizability enforced);
+        average_down_moments(l): the level's moments onto the covered
+        parent cells
+inject (moment_inject = 1)
+deposit N, E, sum F into every level's cells; physics on every level's
+        uncovered cells (the level's units, X.cells = 2^l so Gamma = n sigma c_hat);
+        fgam scaling of each level's M (absorbed, uncovered cells only)
+average_down_moments again; the statistics in fixed point over the levels
 ```
 
-The order fine-then-coarse makes the fine level see the parent's moments
-of the previous substep in its ghosts (first order in time, as the rays'
-hierarchy sees the parent's tau and fgam of the previous substep).
-
 **Units.** A level's N, F, E are photons per ⟨n_H⟩ and the level's cell
-volume (`inject_cell`: Luv dt / vol_rt / nH_avg with the level's vol_rt),
-so a value is a density: a child takes the parent's value as it is, a
-parent takes the mean of its 8 children. The budget in base units: a
-level-l total ÷ 8^l.
+volume (`inject_cell` with the level's `vol_rt`), so a value is a
+density: a child takes the parent's value as it is, a parent takes the
+mean of its 8 children. Every budget (injected, absorbed, lost, in
+flight) is kept in base units: a level-l total ÷ 8^l.
 
-**Light speed.** `physics_cell` takes `X.cells = 2^l` and the level's
-`len_rt`, so Γ = n σ (cells len_rt/dt) = n σ ĉ as on level 0.
+### 2.3 Conservation at the interface
 
-### 2.3 Conservation at the interface (milestone 1: measured, not fixed)
-
-Without refluxing the parent's GLF flux across a coarse-fine face (its
-uncovered cell against the composite in the covered neighbour) and the
-fine level's flux into its fixed ghost differ at first order, so photons
-are created or lost at the interface. The budget line
-`Moments : in flight I injected J absorbed A lost L` (now the sum over
-the levels) makes the residual J − A − L − I visible per step; the
-single-level solver holds it to 6 digits. Milestone 2 adds a
-`FluxRegister` per refined level (the 5 moment components per group:
-`CrseInit` with the parent's face fluxes, `FineAdd` with the fine ones
-summed over the subcycles, `Reflux` onto the parent's uncovered cells) if
-the residual is not negligible against the absorption.
+The reflux registers (`RF`, `RFup`, 2^32 fixed point per moment
+component, so the sums are layout independent) replace the parent's GLF
+flux across a coarse-fine face by the sum of the finer level's fluxes
+over its subcycles (`glf_face`: the GLF face flux from the same
+quantities the update uses). With the fine level run *before* the parent
+on the parent's start-of-step ghosts, the fine level drained ghost cells
+whose photons the parent spent elsewhere in the same substep, and the
+reflux drove parent cells negative: the realizability clamp then created
+photons at 0.1 % of the in-flight total per substep, 6 % of the
+injection over the I-front run. The coarse-first order with the ghosts
+interpolated in time between the parent's old and new values (§2.2)
+brings the transport's non-conservation to 10⁻¹¹ per substep and the
+clamp to 10⁻⁶ over the run. `RADRAY_MOMENT_AMR_DEBUG=1` prints, per
+substep, the photon change of the transport, the injection and the
+physics against the counters, and per step the budget residual
+J − A − L − I.
 
 ### 2.4 Regrid, restart, outputs
 
@@ -178,7 +184,11 @@ with the particles. Decide the pair (cone, M1) when milestone 2 passes.
   (they counted the children's absorption again, 3× with three levels);
   a refined level injects with its own cell volume (the base units gave
   8× too few photons: the I-front test caught it).
-- Milestone 2 written: the OTVET tensor on a slab shadow of level 0
+- Milestone 2 built: the OTVET tensor on a slab shadow of level 0
   (`tensor_on_shadow`), H and N_dir prolonged onto the levels; the cone
-  smoke tests. `tools/hyak/amr_moment_runs.sh` makes and submits the
-  siblings of `fesc512_b2.5_amr`.
+  smoke tests pass (1/2/3 ranks, restart). The refluxing and the
+  coarse-first subcycling (§2.3) built after the M1 I-front test
+  (`amrex_moment_amr_ifront`: the refined front against the uniform M1
+  runs at N and 2N) showed the front running ahead once it left the
+  refined region; it passes with them. `tools/hyak/amr_moment_runs.sh`
+  makes and submits the siblings of `fesc512_b2.5_amr`.

@@ -177,6 +177,23 @@ struct MomentLevel : CellLevel {
   Long stat_cnt[2] = {0, 0};
   double inflight_last = 0;
   static constexpr int kBudgetBits = 40;  // the fixed point of a refined level's budgets
+  // The photons across the coarse-fine faces (docs/moment_amr.md section
+  // 2.3), in 2^kRfBits fixed point per moment component: RF (a level with
+  // a finer one, on its own cells) collects minus its own GLF flux from the
+  // covered neighbours into each uncovered cell, and, through RFup of the
+  // finer level (its grown, coarsened boxes: the photons its valid cells
+  // sent into the ghosts outside the level, per coarse volume), the finer
+  // level's flux; the sum is what the uncovered cell should have received
+  // instead of its own flux, added after the transports (apply_reflux).
+  static constexpr int kRfBits = 32;
+  std::unique_ptr<LFab> RF, RFup;
+  // a refined level: the parent's moments in the ghosts outside the level
+  // before (Mg) and after (Mg1) the parent's transport of this substep;
+  // the ghosts of subcycle it are interpolated in time between them
+  // (refresh_ghosts: the coarse-first subcycling of Berger & Colella), so
+  // the level sees the parent's content as it evolves
+  FFab Mg, Mg1;
+  double clamp_created = 0;  // photons the realizability clamp of apply_reflux added (diagnostic)
 
   MomentLevel(const Config& cfg, bool with_e) : CellLevel(cfg, with_e) {
     // z-slabs (the serial-order sums, the FFT tensors), or boxes as the base
@@ -257,13 +274,197 @@ struct MomentLevel : CellLevel {
     in_patch->setVal(0);
     in_patch->setVal(1, 0, 1, 0);
     in_patch->FillBoundary(period);
+    ax::BoxArray gba = ba;
+    gba.grow(1);
+    gba.coarsen(2);
+    RFup = std::make_unique<LFab>(gba, dm, kMC, 0);
+    RFup->setVal(0);
+    Mg.define(ba, dm, kMC, 1);
+    Mg.setVal(0.0f);
+    Mg1.define(ba, dm, kMC, 1);
+    Mg1.setVal(0.0f);
+  }
+
+  // The outside ghosts of group g at the fraction frac of the parent's
+  // substep: Mg + frac (Mg1 - Mg)
+  void refresh_ghosts(int g, double frac) {
+    if (!RFup) return;
+    for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
+      auto m = M.array(mfi);
+      auto mg = Mg.const_array(mfi);
+      auto mg1 = Mg1.const_array(mfi);
+      auto inp = in_patch->const_array(mfi);
+      const ax::Box vbx = mfi.validbox();
+      const ax::Box gbx = ax::grow(vbx, 1);
+      ax::ParallelForOMP(gbx, 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+        if (vbx.contains(ax::IntVect(i, j, k)) || inp(i, j, k)) return;
+        const int c = 5 * g + q;
+        const double a = mg(i, j, k, c), b = mg1(i, j, k, c);
+        m(i, j, k, c) = static_cast<float>(a + frac * (b - a));
+      });
+    }
+  }
+  // the ghost snapshot after fill_ghost_moments, into Mg (before the
+  // parent's transport) or Mg1 (after it)
+  void snapshot_ghosts(bool after) {
+    if (!RFup) return;
+    FFab& dst = after ? Mg1 : Mg;
+    for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
+      auto m = M.const_array(mfi);
+      auto mg = dst.array(mfi);
+      auto inp = in_patch->const_array(mfi);
+      const ax::Box vbx = mfi.validbox();
+      ax::ParallelForOMP(ax::grow(vbx, 1), kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+        if (vbx.contains(ax::IntVect(i, j, k)) || inp(i, j, k)) return;
+        mg(i, j, k, c) = m(i, j, k, c);
+      });
+    }
+  }
+
+  // The GLF flux of group g in direction d (0 x, 1 y, 2 z) across the face
+  // between the cells at c (left) and c + off (right), per subcycle of
+  // Courant number C, in the +d direction: C [ (f_d(U_L) + f_d(U_R))/2 -
+  // (U_R - U_L)/2 ] for the 5 components (N, F_x, F_y, F_z, E), with f_d =
+  // (F_d, P_xd, P_yd, P_zd, nu F_d) from the 9 fluxes of flux_cell
+  // (P_xx, P_yy, P_zz, P_xy, P_xz, P_yz, nu F_x, nu F_y, nu F_z)
+  static void glf_face(const float* mb, const float* P, std::int64_t c, std::int64_t off, std::int64_t cs, int d,
+                       double C, double phi[5]) {
+    static const int pxd[3] = {0, 3, 4}, pyd[3] = {3, 1, 5}, pzd[3] = {4, 5, 2};
+    const std::int64_t r = c + off;
+    const double fL[5] = {mb[c + (1 + d) * cs], P[9 * c + pxd[d]], P[9 * c + pyd[d]], P[9 * c + pzd[d]], P[9 * c + 6 + d]};
+    const double fR[5] = {mb[r + (1 + d) * cs], P[9 * r + pxd[d]], P[9 * r + pyd[d]], P[9 * r + pzd[d]], P[9 * r + 6 + d]};
+    for (int q = 0; q < 5; ++q) {
+      const double uL = mb[c + q * cs], uR = mb[r + q * cs];
+      phi[q] = C * (0.5 * (fL[q] + fR[q]) - 0.5 * (uR - uL));
+    }
+  }
+
+  // The interface photons of one subcycle of group g on one box (the grown
+  // state mb and fluxes P of transport_group): minus this level's flux into
+  // its uncovered cells from covered neighbours (RF), and this level's flux
+  // out of its valid cells into the ghosts outside the level (RFup, per
+  // coarse volume: /8). Fixed point, so the sums are layout independent.
+  void accumulate_iface(const ax::MFIter& mfi, int g, const float* mb, const float* P, std::int64_t cs,
+                        std::int64_t js, std::int64_t ks, const ax::Dim3& glo, const ax::Dim3& glen, double C) {
+    const double scale = std::ldexp(1.0, kRfBits);
+    const std::int64_t off[3] = {1, js, ks};
+    const ax::Box vbx = mfi.validbox();
+    const auto vlo = ax::lbound(vbx), vhi = ax::ubound(vbx);
+    ax::Array4<int const> cov, inp;
+    if (RF) cov = covered->const_array(mfi);
+    if (RFup) inp = in_patch->const_array(mfi);
+    ax::Array4<Long> rf, up;
+    if (RF) rf = RF->array(mfi);
+    if (RFup) up = RFup->array(mfi);
+    (void)glen;
+    for (int k = vlo.z; k <= vhi.z; ++k)
+      for (int j = vlo.y; j <= vhi.y; ++j)
+        for (int i = vlo.x; i <= vhi.x; ++i) {
+          const bool own_cov = RF && cov(i, j, k);
+          if (own_cov) continue;  // under the finer level: its cells carry the flux
+          const std::int64_t c = (i - glo.x) + (j - glo.y) * js + (k - glo.z) * ks;
+          for (int d = 0; d < 3; ++d) {
+            const int di = d == 0, dj = d == 1, dk = d == 2;
+            for (int sgn = -1; sgn <= 1; sgn += 2) {
+              const int ni = i + sgn * di, nj = j + sgn * dj, nk = k + sgn * dk;
+              const bool to_cov = RF && cov(ni, nj, nk);
+              const bool to_out = RFup && !inp(ni, nj, nk);
+              if (!to_cov && !to_out) continue;
+              double phi[5];
+              // the flux in +d across the face toward the neighbour; the
+              // photons leaving this cell through that face are +phi for
+              // the +d face and -phi for the -d face
+              if (sgn > 0)
+                glf_face(mb, P, c, off[d], cs, d, C, phi);
+              else
+                glf_face(mb, P, c - off[d], off[d], cs, d, C, phi);
+              const double out_sign = sgn > 0 ? 1.0 : -1.0;
+              if (to_cov) {
+                // the covered neighbour: this level moved -out_sign*phi into this
+                // cell; take it back (the finer level's flux replaces it)
+                for (int q = 0; q < 5; ++q)
+                  rf(i, j, k, 5 * g + q) += static_cast<Long>(std::llround(out_sign * phi[q] * scale));
+              }
+              if (to_out) {
+                // the ghost outside the level: the photons that left this cell
+                // go to the parent's cell holding the ghost (per its volume)
+                for (int q = 0; q < 5; ++q)
+                  up(ni >> 1, nj >> 1, nk >> 1, 5 * g + q) +=
+                      static_cast<Long>(std::llround(out_sign * phi[q] * scale / 8.0));
+              }
+            }
+          }
+        }
+  }
+
+  // The finer level's RFup into this level's RF (collective)
+  void reflux_up(MomentLevel& F) {
+    LFab tot(ba, dm, kMC, 0);
+    tot.setVal(0);
+    tot.ParallelCopy(*F.RFup, 0, 0, kMC, 0, 0, period, ax::FabArrayBase::ADD);
+    for (ax::MFIter mfi(*RF); mfi.isValid(); ++mfi) {
+      auto rf = RF->array(mfi);
+      auto t = tot.const_array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), kMC, [=] AMREX_GPU_DEVICE(int i, int j, int k, int c) {
+        rf(i, j, k, c) += t(i, j, k, c);
+      });
+    }
+    F.RFup->setVal(0);
+  }
+
+  // RF onto the uncovered cells, then realizability (N >= 0, |F| <= N,
+  // E >= 0, as glf_cell); RF reset
+  void apply_reflux() {
+    if (!RF) return;
+    const double inv = std::ldexp(1.0, -kRfBits);
+    double created = 0;
+    for (ax::MFIter mfi(M); mfi.isValid(); ++mfi) {
+      auto m = M.array(mfi);
+      auto rf = RF->array(mfi);
+      auto cov = covered->const_array(mfi);
+      ax::LoopOnCpu(mfi.validbox(), [&](int i, int j, int k) {
+        if (cov(i, j, k)) return;
+        for (int g = 0; g < kNfreq; ++g) {
+          double U[5];
+          bool any = false;
+          for (int q = 0; q < 5; ++q) {
+            const Long r = rf(i, j, k, 5 * g + q);
+            any = any || r != 0;
+            U[q] = static_cast<double>(m(i, j, k, 5 * g + q)) + static_cast<double>(r) * inv;
+          }
+          if (!any) continue;
+          if (!(U[0] > 0)) {
+            created += -U[0];
+            U[0] = U[1] = U[2] = U[3] = U[4] = 0;
+          } else {
+            const double fn = std::sqrt((U[1] * U[1] + U[2] * U[2]) + U[3] * U[3]);
+            if (fn > U[0]) {
+              const double r = U[0] / fn;
+              U[1] *= r;
+              U[2] *= r;
+              U[3] *= r;
+            }
+            if (U[4] < 0) U[4] = 0;
+          }
+          for (int q = 0; q < 5; ++q) m(i, j, k, 5 * g + q) = static_cast<float>(U[q]);
+        }
+      });
+    }
+    ax::ParallelDescriptor::ReduceRealSum(created);
+    clamp_created += created / nrtcr_l;
+    RF->setVal(0);
   }
   void set_covered(const ax::BoxArray* fine_ba) {
     if (!fine_ba) {
       covered.reset();
+      RF.reset();
       return;
     }
-    covered = std::make_unique<ax::iMultiFab>(ax::makeFineMask(ba, dm, *fine_ba, ax::IntVect(2), 0, 1));
+    // (one ghost layer, periodic: accumulate_iface reads the neighbours of the valid cells)
+    covered = std::make_unique<ax::iMultiFab>(
+        ax::makeFineMask(ba, dm, ax::IntVect(1), *fine_ba, ax::IntVect(2), period, 0, 1));
+    RF = std::make_unique<LFab>(ba, dm, kMC, 0);
+    RF->setVal(0);
   }
   // A box's cells (valid) and a refined level's grown box
   ax::Box local_box(int li) const { return ba[C.IndexArray()[li]]; }
@@ -1173,6 +1374,7 @@ struct MomentLevel : CellLevel {
         }
       double tb = now();
       T.tflux += tb - ta;
+      if (in_hierarchy && (RF || RFup)) accumulate_iface(mfi, g, mb, P, cs, js, ks, glo, glen, C);
       // the update of the valid cells (offsets 1 into the grown box)
       auto wa = Wn.array(mfi);
       const auto vlen = ax::length(wa);
@@ -1275,7 +1477,10 @@ struct MomentLevel : CellLevel {
       }
       ax::ParallelDescriptor::ReduceBoolOr(any);
       if (!any) continue;
-      for (int it = 0; it < nsub_l; ++it) transport_group(g, cl, Cn, qg[g]);
+      for (int it = 0; it < nsub_l; ++it) {
+        if (RFup) refresh_ghosts(g, (it + 0.5) / nsub_l);
+        transport_group(g, cl, Cn, qg[g]);
+      }
     }
     T.trans += now() - t0;
     s.timers.trace1 += now() - t0;
@@ -1370,6 +1575,13 @@ struct MomentLevel : CellLevel {
     t1 = now();
     s.timers.trace3 += t1 - t0;
     T.absorb += t1 - t0;
+  }
+
+  // the photons in flight of the uncovered cells (base units), a diagnostic
+  double photons_now() {
+    return cell_sum([](ax::Array4<RTCell const> const&, ax::Array4<float> const& m, int i, int j, int k) {
+      return mk::photons_cell(&m(i, j, k, 0), 5 * comp_stride(m));
+    }) / nrtcr_l;
   }
 
   // the physics sums of the last substep into s.rt_stat
@@ -1572,7 +1784,9 @@ struct MomentLevel : CellLevel {
     }
     T.sums += now() - ts;
     s.ngam_total_backend = tot;
-    inflight_last = tot;
+    // in base units for the hierarchy's sum: a refined level's cell holds
+    // 8^-lev of a base cell's volume
+    inflight_last = tot / std::ldexp(1.0, 3 * lev);
     if (!in_hierarchy) log_budget(s, tot, injected, absorbed, lost);
     // calc_rt_f
     const Units u = units_of(s);
@@ -2114,25 +2328,69 @@ struct MomentHierarchy : LevelBase {
     if (shadow) tensor_on_shadow(s);
   }
 
+  double photons_all() {
+    double t = 0;
+    for (auto& l : levels) t += l->photons_now();
+    return t;
+  }
   void substep(Simulation& s) override {
     s.timers.substeps += 1;
     MomentLevel::stat_reset(s);
     for (auto& l : levels) l->phase_rt1(s);
+    const bool dg = dbg != nullptr;
+    double n0 = 0, inj0 = 0, abs0 = 0;
+    if (dg) {
+      n0 = photons_all();
+      for (auto& l : levels) {
+        inj0 += l->injected;
+        abs0 += l->absorbed;
+      }
+    }
     if (cfg.moment_inject == 0)
       for (auto& l : levels) l->inject(s);
-    // the transport, finest first: a level sees its parent's moments of the
-    // previous substep in its ghosts, the parent the level's composite in
-    // its covered cells
-    for (int l = finest; l >= 1; --l) {
+    double n1 = dg ? photons_all() : 0;
+    // the transport, coarse first (Berger & Colella): a level's ghosts
+    // outside its grids are interpolated in time between the parent's
+    // moments before and after the parent's transport; the parent's covered
+    // cells carry the previous substep's composite during its transport.
+    // Then, finest first, the interface flux of each level replaces its
+    // parent's own across the coarse-fine faces (reflux) and the level is
+    // averaged down onto the parent.
+    for (int l = 1; l <= finest; ++l) {
       fill_ghost_moments(l);
-      L(l).phase_transport(s);
-      average_down_moments(l);
+      L(l).snapshot_ghosts(false);
     }
     base().phase_transport(s);
+    for (int l = 1; l <= finest; ++l) {
+      fill_ghost_moments(l);
+      L(l).snapshot_ghosts(true);
+      L(l).phase_transport(s);
+    }
+    for (int l = finest; l >= 1; --l) {
+      L(l - 1).reflux_up(L(l));
+      L(l - 1).apply_reflux();
+      average_down_moments(l);
+    }
+    double n2 = dg ? photons_all() : 0;
     if (cfg.moment_inject == 1)
       for (auto& l : levels) l->inject(s);
+    double n3 = dg ? photons_all() : 0;
     for (auto& l : levels) l->phase_physics(s);
     for (int l = finest; l >= 1; --l) average_down_moments(l);
+    if (dg) {
+      const double n4 = photons_all();
+      double inj1 = 0, abs1 = 0;
+      for (auto& l : levels) {
+        inj1 += l->injected;
+        abs1 += l->absorbed;
+      }
+      double cl = 0;
+      for (auto& l : levels) cl += l->clamp_created;
+      if (ax::ParallelDescriptor::IOProcessor())
+        std::fprintf(stderr,
+                     "moment amr substep: transport dN %.3e (of %.3e, clamp total %.3e) | inject dN %.3e vs injected %.3e | physics dN %.3e vs absorbed %.3e\n",
+                     n2 - n1, n1, cl, (n1 - n0) + (n3 - n2), inj1 - inj0, n4 - n3, -(abs1 - abs0));
+    }
     // the statistics: the levels' sums (each in its own volume weight)
     double v[kSNstat] = {};
     Long cnt[2] = {0, 0};
