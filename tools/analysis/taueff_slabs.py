@@ -23,6 +23,9 @@ redshift-space values of all 3 x nskew random skewers of igm_stats.py
 --taueff (that JSON, if given with --rs-json). The ratio of the widths gives
 the real-space offset, reported before any use of the slab curve.
 
+`taueff_slabs.py --plot DIR label [label ...]` draws the calibrated widths
+against z (DIR/slabs_width.png, .txt; the first label is the reference).
+
 Writes DIR/<label>_slabs.txt (per frame: z, x_V, A, the 5/16/50/84/95 %
 points of the rescaled seg tau_eff, its 84-16 width, the same raw) and with
 --calib DIR/<label>_calib.txt.
@@ -198,7 +201,64 @@ def fmt(p):
     return " ".join("nan" if not np.isfinite(x) else f"{x:.4g}" for x in p)
 
 
+def plot(out, labels, dpi=200):
+    """DIR/slabs_width.{png,txt}: the 84-16 % width of the rescaled tau_eff
+    against z from the slabs, raw (real space) and calibrated (times the
+    redshift-space/real-space width ratio of the calibration, interpolated
+    linearly in z, held constant beyond the end points)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from rt_suite_figures import COLORS, STYLES
+    fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.6))
+    with open(os.path.join(out, "slabs_width.txt"), "w") as f:
+        f.write("# taueff_slabs.py --plot: label z width_real width_calibrated median_real (rescaled, "
+                "50 Mpc/h segments, movie slabs)\n")
+        for ir, lab in enumerate(labels):
+            sl = np.loadtxt(os.path.join(out, f"{lab}_slabs.txt"), ndmin=2)
+            ca = np.loadtxt(os.path.join(out, f"{lab}_calib.txt"), ndmin=2)
+            z, w, med = sl[:, 1], sl[:, 10], sl[:, 7]
+            ok = np.isfinite(ca[:, 16])
+            zc, rc = ca[ok, 1][::-1], ca[ok, 16][::-1]       # ascending z
+            ratio = np.interp(z, zc, rc)
+            wc = w * ratio
+            for row in zip(z, w, wc, med):
+                f.write(f"{lab} " + " ".join(f"{v:.4g}" for v in row) + "\n")
+            c, ls = COLORS[ir % len(COLORS)], STYLES[ir % len(STYLES)]
+            m = np.isfinite(w)
+            axes[0].plot(z[m], wc[m], color=c, ls=ls, lw=1.6 if ir == 0 else 1.1, label=lab)
+            axes[0].plot(ca[ok, 1], ca[ok, 15], color=c, marker="o", ms=3, ls="none")
+            axes[1].plot(z[m], wc[m] / np.interp(z[m], *_ref_curve(out, labels[0])), color=c, ls=ls,
+                         lw=1.6 if ir == 0 else 1.1)
+    axes[0].set_xlabel("z")
+    axes[0].set_ylabel(r"$\tau_{\rm eff}$(84 %) $-$ $\tau_{\rm eff}$(16 %), 50 Mpc/$h$")
+    axes[0].set_yscale("log")
+    axes[0].legend(frameon=False, fontsize=7)
+    axes[1].set_xlabel("z")
+    axes[1].set_ylabel(f"width / width({labels[0]})")
+    axes[1].axhline(1, color="0.6", lw=0.8)
+    for ax in axes:
+        ax.grid(True, color="0.9", lw=0.6)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "slabs_width.png"), dpi=dpi)
+    plt.close(fig)
+
+
+def _ref_curve(out, lab):
+    sl = np.loadtxt(os.path.join(out, f"{lab}_slabs.txt"), ndmin=2)
+    ca = np.loadtxt(os.path.join(out, f"{lab}_calib.txt"), ndmin=2)
+    ok = np.isfinite(ca[:, 16])
+    w = sl[:, 10] * np.interp(sl[:, 1], ca[ok, 1][::-1], ca[ok, 16][::-1])
+    m = np.isfinite(w)
+    return sl[m, 1][::-1], w[m][::-1]
+
+
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--plot":
+        plot(sys.argv[2], sys.argv[3:])
+        return
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--out", required=True)

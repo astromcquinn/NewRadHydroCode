@@ -177,7 +177,44 @@ with the observed mean (Figure 7, bottom left).
 
 ### A.5 Finer in z: the movie slabs
 
-(PENDING)
+The movie slabs (`movie/frame_NNNNN_<field>.slab`, 8 cells through the box
+centre normal to each axis, x_HI, T, ρ every Δz = 0.025, no velocities)
+give 3 × 2 × 512 × 8 = 24 576 real-space skewers per frame along the
+slabs' planes (`taueff_slabs.py`; thermal broadening only), 51–52 frames
+per run between z = 6.25 and 4.95, segments and rescaling as in A.1.
+
+**The real-space offset first** (`--calib`: the same slab skewers cut from
+the snapshot cubes, real space against redshift space with the `Gas/u_gas`
+velocities; `slabs/<run>_calib.txt`). The ratio of the 84−16 % widths,
+redshift space / real space, is **1.03–1.08 at z ≥ 5.7** (real space 4–7 %
+narrower: the peculiar velocities spread the absorption) and **0.98–1.02 at
+z ≤ 5.5**; the medians differ by ≤ 0.03; the order of the methods is the
+same in both. The slab skewers also see fewer independent structures than
+the 3 × 8192 random skewers: their redshift-space widths differ from A.2's
+by up to 6 % (0.519 against 0.550 for thin OTVET at z = 4.99), the same way
+for every method. The curves below are the real-space widths times the
+calibration ratio interpolated in z, per run; the ratios between methods
+are the robust part.
+
+![slab widths](figures/taueff_21cmfast_slabs.png)
+
+*Left: the calibrated width of the rescaled τ_eff over 50 Mpc/h against z
+(lines, every Δz = 0.025; dots: the redshift-space widths of the same slab
+skewers at the snapshots). Right: the ratio to the rays.* Numbers:
+`figures/taueff_21cmfast_slabs.txt`.
+
+* The snapshot picture of A.3 holds between the snapshots: the cone and
+  the case A + RR rays stay within 5 % of the rays from z = 6.2 to 5.0;
+  thin OTVET is 15–20 % narrower at every z below 5.4.
+* **The end of reionization is where the methods differ most**, and the
+  snapshots at 5.70 and 5.49 straddle it: at z ≈ 5.45–5.6 every moment
+  method is broader than the rays, M1 by up to 35 %, screen by 15 %,
+  split and OTVET by 5–10 % (their last neutral islands survive longer,
+  z99 = 5.60–5.68 against the rays' 5.58, `docs/rt_suite_512.md` §4, and a
+  segment crossing one is opaque). M1 has a second excess, 20 %, at
+  z ≈ 5.85–5.9, and its width stays 7–10 % above the rays' after overlap.
+* Before z ≈ 6 the OTVET family is 5–20 % narrower than the rays, as in
+  A.3.
 
 ## Part B: 21cmFAST against the rays and the moment methods
 
