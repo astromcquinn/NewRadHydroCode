@@ -459,18 +459,21 @@ ionised volume; with the growing λ_mfp it falls from 16.7 to 10.1.
 
 ![Figure 8, spectra](figures/taueff_21cmfast_fig8_pk.png)
 
-*Δ² of x_HII (the field itself), the ratio to the rays and r(k) with the
-rays, at the five snapshots, every run and the excursion set (violet; dotted
-with R_max = λ_mfp). Top right: the fraction of cells whose x_HII differs
-from the rays' by more than 0.5.*
+*Δ² of x_HII (the field itself; x_HI's is the same), the ratio to the rays
+and r(k) with the rays, at the five snapshots, every run and 21cmFAST's
+criterion with the default R_max = 15 Mpc (violet). Top right: the
+fraction of cells whose x_HII differs from the rays' by more than 0.5. The
+user (2026-11-06) asked for only the default 21cmFAST in the figures: the
+R_max = λ_mfp variant and B2 (own ICs) are left out
+(`excursion_set.py figure --es rmax15`) and stay in the tables.*
 
 ![Figure 8, maps](figures/taueff_21cmfast_fig8_maps.png)
 
 *x_HII in the 8-cell slab through the box centre (the slab of Figure 2),
-rows the snapshots, columns the runs and the two excursion sets.*
+rows the snapshots, columns the runs and 21cmFAST (R_max = 15 Mpc).*
 
 The fraction of cells with |x_HII − x_HII,rays| > 0.5
-(`es/fig/es_compare.txt`; the case A + RR rays' snapshots are at z = 6.92 and
+(`es/fig/es_compare.txt`, all variants; the case A + RR rays' snapshots are at z = 6.92 and
 5.95 for the first and fourth rows, which accounts for most of their 2 %):
 
 | z | x_V | A + RR | M1 | OTVET | split | screen | cone | ES (15 Mpc) | ES (λ_mfp) |

@@ -52,7 +52,8 @@ DIR/es_<variant>/zeta.txt.
 variant of DIR at the reference's steps: Delta^2 of x_HII, the ratio to the
 reference, r(k) with it, the fraction of cells whose x_HII differs from the
 reference's by more than 0.5, and the x_HII maps (the slab of
-rt_suite_figures.py).
+rt_suite_figures.py). `--es rmax15` shows only that variant (labelled
+"21cmFAST"); B2 only if `standalone` is listed.
 """
 import argparse
 import glob
@@ -490,13 +491,18 @@ def cmd_figure(a):
     for r in a.runs:
         p, _, lab = r.partition(":")
         specs.append((run_dir(p), lab or os.path.basename(p.rstrip("/"))))
-    es = sorted(d for d in glob.glob(os.path.join(a.esdir, "es_*")) if not d.endswith("_standalone"))
-    es_specs = [(os.path.join(d, "run"), "21cmFAST ES" + ("" if i == 0 else f" ({os.path.basename(d)[3:]})"))
-                for i, d in enumerate(es)]
+    pick = [x for x in a.es.split(",") if x] if a.es else None     # --es: the variants to show
+    es = sorted(d for d in glob.glob(os.path.join(a.esdir, "es_*")) if not d.endswith("_standalone")
+                and (pick is None or os.path.basename(d)[3:] in pick))
+    if pick is not None and len(es) == 1 and "standalone" not in pick:
+        es_specs = [(os.path.join(es[0], "run"), "21cmFAST")]
+    else:
+        es_specs = [(os.path.join(d, "run"), "21cmFAST ES" + ("" if i == 0 else f" ({os.path.basename(d)[3:]})"))
+                    for i, d in enumerate(es)]
     # B2, the standalone 21cmFAST run: another realisation, so only its
     # Delta^2 and the ratio are shown (no r(k), no cell differences, no map)
     sa = os.path.join(a.esdir, "es_standalone")
-    if os.path.isdir(os.path.join(sa, "run")):
+    if os.path.isdir(os.path.join(sa, "run")) and (pick is None or "standalone" in pick):
         es_specs.append((os.path.join(sa, "run"), "21cmFAST own ICs (B2)"))
     all_specs = specs + es_specs
     nrun, nes = len(specs), len(es_specs)
@@ -799,6 +805,8 @@ def main():
     f.add_argument("--nbins", type=int, default=24)
     f.add_argument("--slab", type=int, default=8)
     f.add_argument("--dpi", type=int, default=200)
+    f.add_argument("--es", default="", help="comma list of the variants to show (es_<name>: rmax15, rmaxmfp; "
+                   "standalone for B2); default all")
     a = ap.parse_args()
     if a.cmd == "run":
         cmd_run(a)

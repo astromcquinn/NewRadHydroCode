@@ -71,7 +71,7 @@ case "$PHASE" in
     source tools/hyak/env.sh
     L=""; i=0
     for r in $NAMES; do L="$L $RUNS/reion512_$r:${LABELS[$i]}"; i=$((i + 1)); done
-    python3 tools/analysis/excursion_set.py figure "$OUT/es" $L --outdir "$OUT/es/fig"
+    python3 tools/analysis/excursion_set.py figure "$OUT/es" $L --outdir "$OUT/es/fig_r15" --es rmax15
     ;;
   *)
     echo "PHASE must be taueff, slabs, es, standalone or figures" >&2
