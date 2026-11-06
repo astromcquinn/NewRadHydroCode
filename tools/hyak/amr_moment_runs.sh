@@ -18,6 +18,8 @@
 # branch:
 #   tools/hyak/amr_moment_runs.sh [cone m1]      # default: cone
 #   DRYRUN=1 tools/hyak/amr_moment_runs.sh
+# The uniform twin of the pair (the same without refinement, one node):
+#   BASE=$RUNS/fesc512_b2.5_uniform NODES=1 SBATCH_ARGS="--exclusive --nodes=1 --ntasks=24 --cpus-per-task=8 --mem=1000G --time=3-00:00:00" tools/hyak/amr_moment_runs.sh cone
 # Environment: RUNS, BASE, EXE (default build-amrex/radhydro), NODES (5),
 # SBATCH_ARGS, OVERWRITE=1 (remove an existing sibling), EXTRA (more
 # "key = value" lines, ';'-separated).
@@ -29,7 +31,10 @@ NODES="${NODES:-5}"
 SBATCH_ARGS="${SBATCH_ARGS:---exclusive --nodes=$NODES --ntasks=$((24 * NODES)) --cpus-per-task=8 --mem=1400G --time=4-00:00:00}"
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_amrex.sh first"; exit 1; }
 [ -f "$BASE/params.txt" ] || { echo "$BASE/params.txt missing"; exit 1; }
-grep -Eq '^[[:space:]]*amrex_max_level[[:space:]]*=[[:space:]]*[1-9]' "$BASE/params.txt" || { echo "$BASE is not a refined run"; exit 1; }
+# a refined base (the levels: the base level on boxes, the tensor on the slab
+# shadow) or a uniform one (the moment level on z-slabs: its twin without
+# refinement, e.g. BASE=$RUNS/fesc512_b2.5_uniform NODES=1)
+if grep -Eq '^[[:space:]]*amrex_max_level[[:space:]]*=[[:space:]]*[1-9]' "$BASE/params.txt"; then refined=1; else refined=0; fi
 ics="$(cd "$BASE" && readlink -f ics)"
 submit() { if [ "${DRYRUN:-0}" = 1 ]; then echo "DRYRUN: $*"; else "$@"; fi; }
 for m in "${@:-cone}"; do
@@ -45,10 +50,11 @@ for m in "${@:-cone}"; do
   mkdir -p "$d"
   {
     echo "# $(basename "$BASE") with the moment RT on the refined levels: $keys (tools/hyak/amr_moment_runs.sh, docs/moment_amr.md)"
-    grep -Ev '^[[:space:]]*(ics|rt_method|otvet_closure|otvet_split|amrex_balance|amrex_slab_planes|photon_consume_dense|restart_every|fields|movie_fields|ray_deposit)[[:space:]]*=' "$BASE/params.txt"
+    grep -Ev '^[[:space:]]*(ics|rt_method|otvet_closure|otvet_split|amrex_balance|amrex_slab|amrex_slab_planes|photon_consume_dense|restart_every|fields|movie_fields|ray_deposit)[[:space:]]*=' "$BASE/params.txt"
     echo "ics = $ics"
     echo "$keys" | tr ';' '\n'
     echo "amrex_balance = 0"
+    [ "$refined" = 1 ] || echo "amrex_slab = 1"
     echo "amrex_slab_planes = 4"
     echo "photon_consume_dense = 0"
     echo "restart_every = 10"
