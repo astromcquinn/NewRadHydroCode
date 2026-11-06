@@ -234,10 +234,29 @@ by ±2 % against each other.
 ![tau_eff against z](figures/taueff_21cmfast_z.png)
 
 *(a) The median raw τ_eff over 50 Mpc/h against z; the shading is the
-rays' 16–84 % band; circles are −ln⟨F⟩ of all pixels at the snapshots
-(redshift space). (b) The median over the rays' median. (c) The 84−16 %
-width (raw, real space). (d) The median against λ_mfp.* Numbers:
+rays' 16–84 % band. (b) The median over the rays' median. (c) The 84−16 %
+width (raw). (d) The median against λ_mfp. Lines: the slabs (real space).
+Filled markers: the full box at the snapshots (`--full`, Figure 7's
+3 × 8192 random skewers, redshift space).* Numbers:
 `figures/taueff_21cmfast_z.txt`.
+
+**The slabs against the full box** (the markers; the slabs are three
+8-cell planes, about 1.5 % of the volume, in real space):
+
+* **The raw level is offset.** The slab medians are 13–22 % above the
+  full box's (1.05–1.22×). That is real space against redshift space: the
+  calibration slabs need A_rs/A_real ≈ 1.5 to reach the same mean flux,
+  because the voids' outflow stretches them in redshift space and raises
+  their transmission. Once rescaled to a common ⟨F⟩, the two agree within
+  0.03 in the median (A.5).
+* **The ratios between methods agree within 2–3 %**, except M1 at
+  z ≥ 6. There M1 is 5–9 % below the rays in the slabs but only 2 %
+  below in the full box (0.983 at z = 5.98, 0.979 at 6.20), so the slabs'
+  M1 deficit at z ≥ 6 in the table below is mostly sampling.
+* The rescaled widths of the slabs are 0.86–1.05× the full box's. Before
+  z ≈ 6 they are narrower (the real-space offset of A.5 plus the smaller
+  sample); M1's end-of-reionization excess is in both (full box: 1.11
+  against the rays' 0.91 at z ≈ 5.48, +22 %).
 
 | median τ_eff / rays | z 6.2 | 6.0 | 5.8 | 5.6 | 5.4 | 5.2 | 5.03 |
 |---|---|---|---|---|---|---|---|
@@ -252,14 +271,16 @@ width (raw, real space). (d) The median against λ_mfp.* Numbers:
 ("–": that λ lies outside the run's range.)
 
 * **At fixed z** the medians agree within 5 % after z ≈ 5.6. Before that,
-  the OTVET family is 10–15 % more opaque and M1 is 6–9 % more transparent
-  at z ≥ 6.
+  the OTVET family is 10–15 % more opaque (8–12 % in the full box). M1 is
+  6–9 % more transparent at z ≥ 6 in the slabs but only 2 % in the full
+  box.
 * **At fixed λ_mfp** the late-time agreement goes away for the OTVET
   family. Thin OTVET is 11–15 % more opaque than the rays at every λ from 1.4
   to 43 pMpc, because its λ_mfp is 20–25 % longer at the same z and τ. Split
   and screen are 10–16 % more opaque for λ ≤ 10 pMpc and approach the rays
   (+1–4 %) as λ → 40 pMpc. The cone stays within +2–6 %, M1 within −2 to
-  −10 %, and A + RR within 2 %. The cone is again the closest closure.
+  −10 % (the −6 to −10 % at λ ≤ 2.5 pMpc is the slab sampling above; the
+  full box gives about −2 %), and A + RR within 2 %. The cone is again the closest closure.
 * `taueff_mfp_width.png` puts λ_mfp at the snapshots (left; open symbols:
   the exponential fit) beside the raw width (right):
 

@@ -42,7 +42,10 @@
   medians over 50 Mpc/h agree within 5 % at fixed z after z ≈ 5.6. At
   fixed λ_mfp (the user's preferred match) thin OTVET is 11–15 % more
   opaque at every λ, split/screen 10–16 % for λ ≤ 10 pMpc, the cone
-  +2–6 %, M1 −2 to −10 %, A + RR within 2 %.
+  +2–6 %, M1 −2 to −5 % (the slabs' −10 % at z ≥ 6 is slab sampling:
+  the full-box snapshots, now overplotted, give −2 %), A + RR within 2 %.
+  The raw slab level is 13–22 % above the full box's (real against
+  redshift space); the ratios between methods agree within 2–3 %.
 * **Normalised to the mean flux** (`taueff_z.py --norm`, A.6): medians
   within 2 % in every method; the widths keep the ordering (thin OTVET
   16–19 % narrow after z ≈ 5.4, M1 31–34 % broad at z ≈ 5.5–5.6, the cone

@@ -31,6 +31,10 @@ taueff_mfp_width.png: lambda_mfp of every run at the snapshots (left; open
 symbols where the exponential fit stands in) beside the 84-16 % width of
 the raw tau_eff against z (right).
 
+--full FILE (taueff_plot.py's taueff.txt): the full-box values at the
+snapshots (3 x 8192 random skewers, redshift space, 50 Mpc/h joined
+segments) as filled markers on every panel, for comparison with the slabs.
+
 --norm: the same figures (suffix _A) for tau rescaled per frame by A so that
 <F> of the slab pixels equals Bosman+22's mean transmission at the frame's z
 (data/igm/igm_z5_6.txt, Table 4; taueff_slabs.py; z <= 6.2 only). The
@@ -72,6 +76,23 @@ def read_igm(path):
     return np.array(z)[o], np.array(tau)[o], np.array(lam)[o], np.array(fit)[o]
 
 
+def read_full(path, norm):
+    """taueff_plot.py's taueff.txt: label -> (z, tau at 5..95 % of the 50 Mpc/h
+    segments, raw or rescaled)."""
+    out = {}
+    if not path:
+        return out
+    for line in open(path):
+        if line.startswith("#"):
+            continue
+        t = line.split()
+        if len(t) != 27:          # the CDF block that follows has other columns
+            continue
+        p = [float(v) for v in (t[22:27] if norm else t[17:22])]
+        out.setdefault(t[0], []).append([float(t[1])] + p)
+    return {k: np.array(sorted(v)) for k, v in out.items()}
+
+
 def smooth121(z, p):
     """[1, 2, 1]/4 over frames along axis 0, the end frames dropped."""
     return z[1:-1], 0.25 * p[:-2] + 0.5 * p[1:-1] + 0.25 * p[2:]
@@ -89,6 +110,7 @@ def main():
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--dpi", type=int, default=200)
     ap.add_argument("--norm", action="store_true", help="tau rescaled to Bosman+22's mean flux")
+    ap.add_argument("--full", default=None, help="taueff_plot.py's taueff.txt: full-box snapshot markers")
     a = ap.parse_args()
     sfx = "_A" if a.norm else ""
     kind = "rescaled to $\\langle F\\rangle_{\\rm obs}$" if a.norm else "raw"
@@ -103,6 +125,8 @@ def main():
         lab, _, js = spec.partition(":")
         zs, ps = read_slabs(os.path.join(a.slabs, f"{lab}_slabs.txt"), a.norm)
         runs.append((lab, zs, ps, read_igm(js)))
+    full = read_full(a.full, a.norm)
+    fr0 = full.get(runs[0][0])
 
     fig, ax = plt.subplots(2, 2, figsize=(9.0, 7.0))
     (a0, a1), (a2, a3) = ax
@@ -125,8 +149,19 @@ def main():
                                 label=f"{lab} 16-84 %")
             a0.plot(z, med, color=c, ls=ls, lw=lw, label=lab)
             k = (zi >= z.min() - 0.02) & (zi <= z.max() + 0.02)
-            if not a.norm:
+            if not a.norm and not full:
                 a0.plot(zi[k], ti[k], color=c, marker="o", ms=3.5, mfc="none", ls="none")
+            fb = full.get(lab)
+            if fb is not None:
+                fb = fb[np.all(np.isfinite(fb[:, 1:]), axis=1)]
+                mk = dict(color=c, marker="os^vDph"[ir % 7], ms=4.5, ls="none", mec="white", mew=0.5, zorder=5)
+                a0.plot(fb[:, 0], fb[:, 3], **mk)
+                if fr0 is not None:
+                    g = fr0[np.isfinite(fr0[:, 3])]
+                    ref = np.exp(np.interp(fb[:, 0], g[:, 0], np.log(g[:, 3]), left=np.nan, right=np.nan))
+                    a1.plot(fb[:, 0], fb[:, 3] / ref, **mk)
+                a2.plot(fb[:, 0], fb[:, 4] - fb[:, 2], **mk)
+                a3.plot(lam_at(fb[:, 0], zi, li), fb[:, 3], **mk)
             a1.plot(z, med / np.interp(z, z0, p0[:, 2]), color=c, ls=ls, lw=lw)
             a2.plot(z, w, color=c, ls=ls, lw=lw)
             a3.plot(lam, med, color=c, ls=ls, lw=lw)
@@ -145,8 +180,12 @@ def main():
                           np.log(ob["v"][k]) - np.log(np.maximum(ob["v"][k] - ob["em"][k], 1e-4))],
                     color="0.4", marker="s", ms=3, mfc="none", ls="none", lw=0.8,
                     label=r"$-\ln\langle F\rangle$ Bosman+22")
-    else:
+    elif not full:
         a0.plot([], [], color="0.4", marker="o", mfc="none", ls="none", label=r"$-\ln\langle F\rangle$ (snapshots)")
+    if full:
+        a0.plot([], [], color="0.4", marker="o", ms=4.5, ls="none",
+                label="full box (snapshots, z-space)")
+        a0.plot([], [], color="0.4", ls="-", label="slabs (real space)")
     a0.set_yscale("log")
     a0.set_ylabel(r"median $\tau_{\rm eff}$ (50 Mpc/$h$, " + kind + ")")
     a0.legend(frameon=False, fontsize=7, ncol=2)
@@ -177,10 +216,10 @@ def main():
     fig.tight_layout()
     fig.savefig(os.path.join(a.outdir, f"taueff_z{sfx}.png"), dpi=a.dpi)
     plt.close(fig)
-    mfp_width_figure(runs, a.outdir, a.dpi, sfx, kind)
+    mfp_width_figure(runs, a.outdir, a.dpi, sfx, kind, full)
 
 
-def mfp_width_figure(runs, outdir, dpi, sfx="", kind="raw"):
+def mfp_width_figure(runs, outdir, dpi, sfx="", kind="raw", full=None):
     """Left: lambda_mfp against z at the snapshots; right: the raw 84-16 % width."""
     import matplotlib.pyplot as plt
     from matplotlib.ticker import ScalarFormatter, NullFormatter
@@ -198,6 +237,15 @@ def mfp_width_figure(runs, outdir, dpi, sfx="", kind="raw"):
         m = np.all(np.isfinite(ps[:, 1:4]), axis=1)
         z, p = smooth121(zs[m], ps[m])
         b1.plot(z, p[:, 3] - p[:, 1], color=c, ls=ls, lw=lw)
+        fb = (full or {}).get(lab)
+        if fb is not None:
+            fb = fb[np.all(np.isfinite(fb[:, 1:]), axis=1)]
+            b1.plot(fb[:, 0], fb[:, 4] - fb[:, 2], color=c, marker="os^vDph"[ir % 7], ms=4.5, ls="none",
+                    mec="white", mew=0.5, zorder=5)
+    if full:
+        b1.plot([], [], color="0.4", marker="o", ms=4.5, ls="none", label="full box (snapshots, z-space)")
+        b1.plot([], [], color="0.4", ls="-", label="slabs (real space)")
+        b1.legend(frameon=False, fontsize=7)
     b0.set_yscale("log")
     b0.set_ylabel(r"$\lambda_{\rm mfp}$ (912 Å) [pMpc]")
     b0.set_yticks([1, 2, 5, 10, 20, 50])
