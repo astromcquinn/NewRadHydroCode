@@ -137,10 +137,14 @@ def make_problem(dirpath, N, box, z, delta_c, r_c, delta_min, luv, absorber=True
                     # 1-based cell indices at N/8 + m N/4 (the absorber at N/2 is a lattice-cell centre)
                     f.write(f"{step // 2 + i * step + 1} {step // 2 + j * step + 1} "
                             f"{step // 2 + k * step + 1} {luv:.6e} {luv / 2e28:.6e}\n")
+    # the ray pool: 64 sources of 192 rays per substep, split as they go, need
+    # more rays per cell in a small box (the pool overflowed at N = 32 with the
+    # production factor 15)
+    nray_factor = max(15, int(15 * (128 / N) ** 2))
     with open(os.path.join(dirpath, "params.txt"), "w") as f:
         f.write(f"N = {N}\nbox = {box}\nz_init = {z}\nda_sim = {da}\nnsteps = {nsteps}\n"
                 f"c_reduced = {c_reduced}\nlegacy_rt = 0\nlegacy_physics = 0\n"
-                f"deterministic_parallel = 1\nnray_max_factor = 15\n")
+                f"deterministic_parallel = 1\nnray_max_factor = {nray_factor}\n")
     with open(os.path.join(dirpath, "README.txt"), "w") as f:
         f.write(f"absorber_single.py: {'an r^-2 absorber' if absorber else 'no absorber'}, "
                 f"delta_c {delta_c}, r_c {r_c} pkpc, cut at delta {delta_min}; {nsrc_side ** 3} "
