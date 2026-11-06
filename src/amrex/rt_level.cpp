@@ -1204,6 +1204,21 @@ struct Level : LevelBase {
     // ---- plane_transport = sweep: the packets in flight cast as the rays they stand for ----
     if (plane_sweep && P.plane.L > 0) {  // (L = 0 before the turn-on: no face sources)
       const int L = P.plane.L, kc = P.cells;
+      // plane_packet_rescale = 1: the packets in flight to the photons of
+      // one substep of the current dtsec_rt (the change counts as emitted)
+      const double scale = plane_packet_scale(s);
+      if (scale != 1) {
+        for (std::size_t fi = 0; fi < pfaces.size(); ++fi)
+          for (ax::MFIter mfi(PF[fi]); mfi.isValid(); ++mfi) {
+            auto pf = PF[fi].array(mfi);
+            ax::ParallelForOMP(mfi.fabbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+              pf(i, j, k, q) = static_cast<float>(static_cast<double>(pf(i, j, k, q)) * scale);
+            });
+          }
+        const double inf = from_fx128(plane_inflight_fx, kBitsNgam);
+        if (!in_hierarchy) s.plane.emitted += (scale - 1) * inf;
+        plane_inflight_fx = to_fx128(scale * inf, kBitsNgam);
+      }
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
         const int f = pfaces[fi], d = f / 2, sgn = rrk::plane_face_sign(f);
         for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {

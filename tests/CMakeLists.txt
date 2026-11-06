@@ -939,6 +939,13 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_full)
     set_tests_properties(plane_full PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # plane_packet_rescale (docs/plane_parallel.md "Packet rescaling"): the
+    # sweep's packets in flight rescaled to the current RT substep, so
+    # Gamma_HI does not dip at the c_reduced switch (tests/plane_rescale_check.py)
+    add_test(NAME plane_rescale
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_rescale_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_rescale)
+    set_tests_properties(plane_rescale PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full" PROCESSORS 4)
     # the scaled-down DM20 problem (0.256 Mpc/h, 32^3, z_re = 8, Gamma_-12 =
     # 0.3, cooling on): the post-front temperature and the clumping factor
     # (~ minutes: label nightly)
@@ -1910,6 +1917,12 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
     set_tests_properties(amrex_plane_full PROPERTIES TIMEOUT 3600 LABELS "amrex;plane;physics;full"
                          ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_rescale
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_rescale_check.py
+                     $<TARGET_FILE:radhydro> ${amrex_runs}/plane_rescale --amrex $<TARGET_FILE:radhydro>
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rescale PROPERTIES TIMEOUT 3600 LABELS "amrex;plane;physics;full"
+                         PROCESSORS 4)
     # amrex_slab = 1: the shared decomposition as z-slabs (P planes; 0 = N /
     # ranks), byte-identical to the host state on the default boxes; N = 16:
     # 3 ranks hold 2, 1, 1 slabs of 4; P = 2 is thinner than the hydro's
