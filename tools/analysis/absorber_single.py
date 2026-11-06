@@ -20,7 +20,7 @@ cut where it reaches delta_min (r_t = r_c sqrt(delta_c/delta_min)); r_c in
 proper kpc. Its gas starts neutral at 10^4 K; the rest of the box is the
 mean density, ionised (x_HI = 1e-4, HeII), 10^4 K. The sources' Luv is
 set so that the rays give Gamma_HI = --gamma at the absorber's position in
-the same box without the absorber (a calibration run, 5 steps). Every
+the same box without the absorber (a calibration run of as many steps as the measurement: in the periodic box the background keeps rising while the images within a mean free path arrive, so the calibration and the measurement are read at the same time). Every
 run uses legacy_rt = legacy_physics = 0, so photon_consume_dense = 1
 (P11); the method rays_p110 is the rays with photon_consume_dense = 0, the
 rule of the 512^3 suite.
@@ -228,6 +228,8 @@ def cmd_run(a):
     methods = a.methods.split(",")
     results = {}
     r_t = a.r_c * math.sqrt(a.delta_c / a.delta_min)
+    if a.cal_steps <= 0:
+        a.cal_steps = a.nsteps
     for N in Ns:
         key = f"N{N}"
         results[key] = {}
@@ -243,6 +245,10 @@ def cmd_run(a):
         st = last_step(cal_out)[-1]
         _, _, _, Tc, rc_, gc = read_step(cal_out, st, N)
         g_centre = float(gc[N // 2, N // 2, N // 2])
+        if not g_centre > 0:
+            raise SystemExit(f"{key}: Gamma = 0 at the centre after {st} calibration steps: the "
+                             "radiation has not reached it (the light travel at c_reduced over "
+                             "half a lattice spacing); raise --cal-steps")
         luv = luv0 * a.gamma / g_centre
         results[key]["calibration"] = {"luv0": luv0, "gamma_centre": g_centre, "luv": luv,
                                        "step": st, "rhog_centre": float(rc_[N // 2, N // 2, N // 2]),
@@ -401,7 +407,7 @@ def main():
     r.add_argument("--r-c", type=float, default=5.0, help="core radius [proper kpc]")
     r.add_argument("--delta-min", type=float, default=10.0)
     r.add_argument("--nsteps", type=int, default=40)
-    r.add_argument("--cal-steps", type=int, default=5)
+    r.add_argument("--cal-steps", type=int, default=0, help="steps of the calibration run; 0 (default) = --nsteps: in the periodic box the background keeps rising while the images within a mean free path (~8 box lengths) arrive, so Gamma is calibrated at the step at which the absorber runs are measured")
     r.add_argument("--da", type=float, default=1e-4)
     r.add_argument("--c-reduced", type=float, default=0.3)
     r.add_argument("--threads", type=int, default=16)

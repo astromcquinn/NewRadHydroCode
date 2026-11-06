@@ -3,11 +3,11 @@
 # of sources with every RT method (tools/analysis/absorber_single.py), at
 # several resolutions, with apps/rt_driver. Submit from the repository root:
 #   sbatch tools/hyak/absorber_single.slurm
-#   NLIST=16 NSTEPS=2 CALSTEPS=1 METHODS=rays,m1 OUT=$RUNS/absorbers_wu21/single_smoke sbatch ... # a smoke test
+#   NLIST=16 NSTEPS=3 METHODS=rays,m1 OUT=$RUNS/absorbers_wu21/single_smoke sbatch ... # a smoke test
 # Environment: RUNS, EXE (default $RUNS/absorbers_wu21_bin/rt_driver, a build
 # with P11), OUT (default $RUNS/absorbers_wu21/single), NLIST (default
 # 32,64,128: 32, 16 and 8 pkpc cells in the 5 Mpc/h box at z = 6), METHODS,
-# NSTEPS (40), CALSTEPS (5), THREADS (the job's cpus), EXTRA (more
+# NSTEPS (40), CALSTEPS (0 = NSTEPS), THREADS (the job's cpus), EXTRA (more
 # absorber_single.py run arguments).
 #SBATCH --job-name=absorber_single
 #SBATCH --account=astro
@@ -27,7 +27,7 @@ OUT="${OUT:-$RUNS/absorbers_wu21/single}"
 NLIST="${NLIST:-32,64,128}"
 METHODS="${METHODS:-rays,m1,otvet,cone,split,screen,rays_p110}"
 NSTEPS="${NSTEPS:-40}"
-CALSTEPS="${CALSTEPS:-5}"
+CALSTEPS="${CALSTEPS:-0}"
 THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-16}}"
 export OMP_PLACES=cores OMP_PROC_BIND=close
 mkdir -p "$OUT"
