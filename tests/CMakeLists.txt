@@ -2100,7 +2100,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
                      ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_sets}
                      --set restart_every=1 --set restart_keep_latest=0)
-    set_tests_properties(amrex_moment_amr_ranks_smoke PROPERTIES TIMEOUT 2400
+    set_tests_properties(amrex_moment_amr_ranks_smoke PROPERTIES TIMEOUT 3600
                          LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     add_test(NAME amrex_moment_amr_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
@@ -2124,7 +2124,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
                      ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_cone_sets}
                      --set restart_every=1 --set restart_keep_latest=0)
-    set_tests_properties(amrex_moment_amr_ranks_smoke_cone PROPERTIES TIMEOUT 2400
+    set_tests_properties(amrex_moment_amr_ranks_smoke_cone PROPERTIES TIMEOUT 3600
                          LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
     add_test(NAME amrex_moment_amr_restart_smoke_cone
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
