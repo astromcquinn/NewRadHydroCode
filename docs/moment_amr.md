@@ -168,6 +168,45 @@ on the hierarchy the fine levels' transport is 2^l subcycles on 6 % of
 the base cell count, so ≈ 8–12 node-days per run; disk ≈ 0.3 TB per run
 with the particles. Decide the pair (cone, M1) when milestone 2 passes.
 
+## 6. Results (in progress)
+
+`igm_stats.py` (`$RUNS/moment_amr_cmp/igm/`): Γ_HI the median over the
+ionised cells times x_V (10⁻¹² s⁻¹), λ_mfp the exponential fit from
+ionised starts (pMpc); the histories from `run/reion.txt`.
+
+| | rays, uniform | cone, uniform | cone / rays | rays, refined | refined / uniform (rays) | cone, refined |
+|---|---|---|---|---|---|---|
+| z50 / z90 / z99 | 7.00 / 5.80 / 5.25 | 7.00 / 5.85 / 5.30 | | 6.95 / 5.70 / 5.15 | | |
+| τ_es | 0.0594 | 0.0597 | | 0.0589 | | |
+| Γ z = 5.98 | 0.108 | 0.121 | 1.12 | 0.092 | 0.85 | |
+| Γ z = 5.5 | 0.160 | 0.170 | 1.07 | 0.134 | 0.84 | |
+| Γ z = 5.2 | 0.206 | 0.211 | 1.02 | 0.165 | 0.80 | |
+| Γ z = 5.0 | 0.253 | 0.259 | 1.02 | 0.207 | 0.82 | |
+| λ z = 5.98 | 2.27 | 2.52 | 1.11 | 1.89 | 0.83 | |
+| λ z = 5.5 | 5.62 | 6.96 | 1.24 | 4.34 | 0.77 | |
+| λ z = 5.2 | 10.5 | 11.7 | 1.12 | 7.03 | 0.67 | |
+| λ z = 5.0 | 16.5 | 18.9 | 1.14 | 10.9 | 0.66 | |
+
+*(2026-11-07: the uniform cone run done, 5 h on one node; the refined
+cone run queued. The rays' refined-vs-uniform numbers restate
+`docs/stage_f.md` §4.)*
+
+- **On the uniform grid the cone and the rays agree in Γ to 2–12 %**
+  (the cone higher before overlap, where its bubbles are a little ahead:
+  x_V 0.863 against 0.855 at z = 5.98) **and the cone's λ_mfp is 11–24 %
+  longer**: the cone over-ionises the dense cells of the uniform grid
+  (`docs/absorbers_closures.md` §5: 1.4–1.8× the rays' recombinations in
+  a marginally resolved absorber), which clears the opacity the rays
+  leave. The histories agree to 0.05 in z.
+- **The refinement lowers the rays' Γ by 15–20 % and λ_mfp by 17–34 %**
+  at fixed z: the refined dense gas recombines more and absorbs more (the
+  known result of `docs/stage_f.md` §4).
+- **The question the refined cone answers:** whether the cone's
+  over-ionisation grows as the absorbers are resolved (§5 of the
+  absorbers report: M1's did, the cone's shrank from 1.8× to 1.4× from 2
+  to 8 cells across), i.e. whether the cone's refined-vs-uniform Γ and λ
+  ratios stay at the rays' 0.8 and 0.7, or stay nearer 1.
+
 ## 5. Status
 
 - 2026-11-06: design. Milestone 1 built in `src/amrex/moment_level.cpp`
