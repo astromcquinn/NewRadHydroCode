@@ -8,8 +8,14 @@
 # --sources), BOX (amrex_refine_box, one box per level, instead of HALF;
 # amrex_n_error_buf = 0), LEVEL (refined levels, default 1; the reference is
 # uniform 2^LEVEL N); with SOURCES the check is tools/analysis/ifront_multi.py
-# (per-source fronts, x_HII,V/M, photons in flight, no jump).
+# (per-source fronts, x_HII,V/M, photons in flight, no jump). SETS: extra
+# --set arguments for every run; SETS_UNI, SETS_AMR: for the uniform runs or
+# the refined run only (the moment RT: rt_method=m1 for all, amrex_slab=1 on
+# the uniform grids and 0 with the levels; docs/moment_amr.md).
 file(REMOVE_RECURSE ${OUT})
+separate_arguments(SETS)
+separate_arguments(SETS_UNI)
+separate_arguments(SETS_AMR)
 file(MAKE_DIRECTORY ${OUT})
 if(NOT DEFINED LEVEL)
   set(LEVEL 1)
@@ -51,9 +57,9 @@ function(run name prob)
     message(FATAL_ERROR "radhydro failed (${rc}) on ${name}, see ${OUT}/${name}.stderr")
   endif()
 endfunction()
-run(uniform${N} ${OUT}/prob${N})
-run(amr${N} ${OUT}/prob${N} --set amrex_max_level=${LEVEL} --set amrex_refine_mass=1e9 ${refine})
-run(uniform${N2} ${OUT}/prob${N2})
+run(uniform${N} ${OUT}/prob${N} ${SETS} ${SETS_UNI})
+run(amr${N} ${OUT}/prob${N} --set amrex_max_level=${LEVEL} --set amrex_refine_mass=1e9 ${refine} ${SETS} ${SETS_AMR})
+run(uniform${N2} ${OUT}/prob${N2} ${SETS} ${SETS_UNI})
 if(SOURCES)
   execute_process(COMMAND ${PYTHON} ${SRC}/tools/analysis/ifront_multi.py --N ${N}
                           --sources ${OUT}/prob${N}/sources_pos.txt

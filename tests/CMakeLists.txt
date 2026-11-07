@@ -1825,6 +1825,18 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       if(NOT RADRAY_NIGHTLY_TESTS)
         set_tests_properties(amrex_rt_amr_ifront PROPERTIES DISABLED TRUE)
       endif()
+      # the same with the moment RT (M1) on the levels (docs/moment_amr.md):
+      # the refined front against the uniform M1 runs at N and 2N
+      add_test(NAME amrex_moment_amr_ifront
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:radhydro> -DPYTHON=${Python3_EXECUTABLE}
+                 -DSRC=${PROJECT_SOURCE_DIR} -DOUT=${amrex_runs}/moment_amr_ifront -DN=32 -DHALF=4
+                 "-DSETS=--set;rt_method=m1" "-DSETS_UNI=--set;amrex_slab=1" "-DSETS_AMR=--set;amrex_slab=0;--set;amrex_max_grid_size=8"
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/rt_amr_ifront.cmake)
+      set_tests_properties(amrex_moment_amr_ifront PROPERTIES TIMEOUT 3600 LABELS "amrex;amr;moments;amrex_moments"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 2)
       # the 8 sources of uniform_8src, one level over a box where fronts
       # cross the level boundary and overlap there (rt_amr_ifront8.slurm's
       # BOX1), against uniform 32^3 and 64^3 (ifront_multi.py --check)
@@ -2090,6 +2102,55 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;moments;amrex_moments;restart" ENVIRONMENT OMP_NUM_THREADS=1
                            PROCESSORS ${np})
     endforeach()
+    # The moment RT on the refined levels (docs/moment_amr.md, M1): the smoke
+    # problem with two levels over a fixed region, byte-identical over 1, 2
+    # and 3 ranks and through a restart; every level on the hydro's boxes
+    # (the refined levels refuse slabs), the sums in fixed point
+    set(mamr_sets --set rt_method=m1 --set legacy_rt=0 --set legacy_physics=0 --set rt_backend=amrex
+                  --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                  --set pm_backend=amrex --set amrex_state=1 --set amrex_slab=0 --set amrex_max_grid_size=8
+                  --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=4,4,4,11,11,11
+                  --set movie_dz=0.5 --set movie_z0=25 --set fields=fHI,gammaHI,gammaHI_avg)
+    add_test(NAME amrex_moment_amr_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/moment_amr_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                     ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_sets}
+                     --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_moment_amr_ranks_smoke PROPERTIES TIMEOUT 3600
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_moment_amr_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/moment_amr_restart 13 ${mamr_sets})
+    set_tests_properties(amrex_moment_amr_restart_smoke PROPERTIES TIMEOUT 2400
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1
+                         PROCESSORS 2)
+    # the same with the OTVET cone tensor (the tensor on the slab shadow of
+    # level 0, prolonged onto the levels)
+    set(mamr_cone_sets --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2 --set amrex_slab_planes=4
+                       --set legacy_rt=0 --set legacy_physics=0 --set rt_backend=amrex
+                       --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                       --set pm_backend=amrex --set amrex_state=1 --set amrex_slab=0 --set amrex_max_grid_size=8
+                       --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=4,4,4,11,11,11
+                       --set movie_dz=0.5 --set movie_z0=25 --set fields=fHI,gammaHI,gammaHI_avg)
+    add_test(NAME amrex_moment_amr_ranks_smoke_cone
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/moment_amr_ranks_cone "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                     ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_cone_sets}
+                     --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_moment_amr_ranks_smoke_cone PROPERTIES TIMEOUT 3600
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_moment_amr_restart_smoke_cone
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/moment_amr_restart_cone 13 ${mamr_cone_sets})
+    set_tests_properties(amrex_moment_amr_restart_smoke_cone PROPERTIES TIMEOUT 2400
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1
+                         PROCESSORS 2)
     add_test(NAME amrex_slab_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
