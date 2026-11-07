@@ -190,5 +190,13 @@ with the particles. Decide the pair (cone, M1) when milestone 2 passes.
   coarse-first subcycling (§2.3) built after the M1 I-front test
   (`amrex_moment_amr_ifront`: the refined front against the uniform M1
   runs at N and 2N) showed the front running ahead once it left the
-  refined region; it passes with them. `tools/hyak/amr_moment_runs.sh`
-  makes and submits the siblings of `fesc512_b2.5_amr`.
+  refined region; it passes with them. All five tests pass (the rank
+  tests take 50 min each: three full runs). `tools/hyak/amr_moment_runs.sh`
+  makes and submits the siblings of `fesc512_b2.5_amr` and of its uniform
+  twin.
+- 2026-11-07: the production pair queued (the user's decision: match the
+  rays' refined run and report ⟨Γ⟩ and λ_mfp, each method refined against
+  uniform): `fesc512_b2.5_amr_otvet_cone` (job 43012838, 5 nodes) and
+  `fesc512_b2.5_uniform_otvet_cone` (job 43012839, 1 node), the binary
+  `$RUNS/moment_amr_bin/radhydro`; they wait for the group's cores (the
+  C1 runs until ~11-10) and the maintenance of 11-10/11.

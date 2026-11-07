@@ -28,10 +28,15 @@
   test); without refluxing, and with the fine level run before its
   parent, photons were created at the coarse-fine faces (6 % of the
   injection over the I-front run).
-* **Next:** the production siblings of `fesc512_b2.5_amr`
-  (`tools/hyak/amr_moment_runs.sh`: the cone, then M1), once the group's
-  cores free up (the four C1 1024³ runs hold 768 of 992 until about
-  2026-11-10).
+* **Queued 2026-11-07 (user: match the rays' refined run and report ⟨Γ⟩
+  and λ_mfp, each method refined against its uniform twin):**
+  `fesc512_b2.5_amr_otvet_cone` (5 nodes, job 43012838) and
+  `fesc512_b2.5_uniform_otvet_cone` (1 node, job 43012839), the rays'
+  runs' parameters plus the cone keys (`tools/hyak/amr_moment_runs.sh`),
+  the binary `$RUNS/moment_amr_bin/radhydro`; they start once the four C1
+  1024³ runs release the group's cores (~11-10) and after the
+  maintenance of 11-10/11. Then `igm_stats.py` on the four runs. M1 on
+  the levels is built and tested too (not queued).
 
 ## Done 2026-11-06: the photon sink by density of the 512³ suite, why the closures do not change ⟨Γ_HI⟩ (branch `absorbers-wu21`)
 
