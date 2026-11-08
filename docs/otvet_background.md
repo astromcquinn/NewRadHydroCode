@@ -509,3 +509,6 @@ written before the RT started, restarts with an empty B.
 - ctest `thread_rt_otvet_ga01_lognormal_16src` and
   `restart_smoke_otvet_ga01` (Λ fixed at 0.5, since the box's Λ is ≈ 0 in
   these neutral problems).
+- Fast suite: 171/180 pass. The 9 failures are the `platform_ref` stored
+  references, which fail the same way on `main` on klone (another libm;
+  CI runs them).
