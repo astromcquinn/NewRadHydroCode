@@ -82,6 +82,22 @@ bool set_otvet_closure_param(Config& c, const std::string& key, const std::strin
     c.otvet_cone_blend = pos_dbl(0, false);
     return true;
   }
+  if (key == "otvet_background") {  // docs/otvet_background.md
+    if (val == "none" || val == "0")
+      c.otvet_background = 0;
+    else if (val == "ga01" || val == "1")
+      c.otvet_background = 1;
+    else
+      throw std::runtime_error("otvet_background must be none or ga01");
+    return true;
+  }
+  if (key == "otvet_background_fix") {
+    const double v = std::stod(val);
+    if (!(v == -1 || (v >= 0 && v <= 1)))
+      throw std::runtime_error("otvet_background_fix must be -1 (from the box) or in [0, 1]");
+    c.otvet_background_fix = v;
+    return true;
+  }
   return false;
 }
 
@@ -109,10 +125,23 @@ void check_otvet_closure_param(const Config& c) {
         "otvet_split applies to otvet_closure = thin or screen; the cone uses otvet_cone_blend");
   if (p.closure == 2 && c.Nrt % p.cone_coarse != 0)
     throw std::runtime_error("otvet_cone_coarse must divide the RT grid size");
+  if (c.otvet_background && c.rt_method != RTMethod::OTVET)
+    throw std::runtime_error("otvet_background = ga01 requires rt_method = otvet");
+  if (c.otvet_background && p.active())
+    throw std::runtime_error("otvet_background = ga01 applies to otvet_closure = thin with otvet_split = 0");
 }
 
 std::string otvet_closure_summary(const Config& c) {
   const OtvetClosureParams p = otvet_closure_params(c);
+  if (c.otvet_background) {
+    std::ostringstream o;
+    o << "otvet_background = ga01 (Lambda ";
+    if (c.otvet_background_fix >= 0)
+      o << "fixed " << c.otvet_background_fix << ")";
+    else
+      o << "= exp(-0.611 N_rt <tau_cell>) per group)";
+    return o.str();
+  }
   if (!p.active()) return "";
   std::ostringstream o;
   o << "otvet_closure = " << (p.closure == 0 ? "thin" : p.closure == 1 ? "screen" : "cone");

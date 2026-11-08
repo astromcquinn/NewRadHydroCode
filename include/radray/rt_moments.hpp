@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "radray/constants.hpp"
 #include "radray/simulation.hpp"
 
 namespace radray {
@@ -64,6 +65,17 @@ struct MomentState {
   std::vector<float> ndir;
   // Diagnostics of the last alternative tensor (otvet_closure.hpp)
   double closure_lambda = 0, closure_lam_x = 0, closure_ratio = 0, closure_seconds = 0;
+  // otvet_background = ga01 (docs/otvet_background.md): the isotropic
+  // background field B, laid out as n..e (the local field L is n..e
+  // above); empty otherwise. Checkpointed (version 10).
+  std::vector<float> bn, bfx, bfy, bfz, be;
+  // Lambda_g of the hydro step (moment_prep) and the box-mean
+  // <tau_cell,g> it came from; bg_ready once computed
+  std::array<double, kNfreq> bg_lambda{}, bg_tau{};
+  bool bg_ready = false;
+  // the photons moved from L to B (per H atom of the box, as injected),
+  // cumulative; checkpointed
+  double bg_moved = 0;
   // Scratch of the transport (one group at a time; not checkpointed)
   std::vector<float> P, nn, nfx, nfy, nfz, ne;
 };
@@ -90,8 +102,14 @@ void moment_step_3(Simulation& s);
 // redshift_spectrum of the rays, per cell; F follows the photons).
 void moment_redshift(Simulation& s);
 // Sum of N over groups and cells (photons in flight, in units of <nH> per
-// cell), in the fixed cell order.
+// cell), in the fixed cell order; with otvet_background = ga01 both fields.
 double moment_photons_total(const Simulation& s);
+
+// otvet_background = ga01: Lambda_g = exp(-kGa01Path N_rt <tau_cell,g>),
+// kGa01Path = the mean distance to the box in box lengths, L/(4 pi) times
+// the integral of d^3x/|x|^2 over the minimum-image cube (Gnedin & Abel
+// 2001 below eq. 17; Monte Carlo, docs/otvet_background.md section 2.1).
+constexpr double kGa01Path = 0.611;
 
 // OTVET tensor for the sources of the RT grid (cells with sfr > sfr_min,
 // weight Luv): h = P / tr P with P = sum_s L_s d d^T / |d|^4 over minimum-

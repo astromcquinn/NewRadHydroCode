@@ -1,7 +1,8 @@
 # OTVET with an isotropic background (Gnedin & Abel 2001; CROC, Gnedin 2014)
 
-*Branch `otvet-background`, started 2026-11-06. **Step 1, the design;
-nothing is implemented yet.** The user's decisions are needed first (§7).*
+*Branch `otvet-background`, started 2026-11-06. Step 1 (the design,
+§1–7) and the user's decisions (§7); step 2, `otvet_background = ga01`, is
+implemented (§8); step 3, the 256³ validation, follows (§9).*
 
 **The question.** Our `rt_method = otvet` gives the whole radiation field
 the optically thin tensor h. Both published OTVET schemes give h only to a
@@ -444,3 +445,67 @@ intensity tied to observations.**
 4. **Recombination photons:** into L and split by Λ like the stars (G&A),
    or straight into the background (CROC).
 5. **Λ per group** (G&A's Λ_ν, recommended) or one Γ-weighted Λ.
+
+**The user's decisions (2026-11-07):** (a) `ga01` as recommended; Λ from
+the box's volume-mean opacity, as G&A; Λ per frequency group; case B
+recombination as the default (`recomb_case = B`: no recombination photons
+are transported, so only the stars feed s̄). (b) `croc` and (c) as a
+runtime option are not built; (c) stays the a-priori proxy in
+`apps/otvet_tensor` (step 3).
+
+## 8. Implementation (step 2)
+
+**Keys** (`set_otvet_closure_param`, `src/otvet_closure.cpp`):
+- `otvet_background = none | ga01` (default none).
+- `otvet_background_fix`: −1 (default) = Λ from the box; a value in
+  [0, 1] fixes Λ for every group (for the tests).
+- ga01 needs `rt_method = otvet`, `otvet_closure = thin` and
+  `otvet_split = 0`; with `rt_backend = amrex` it is an error.
+
+**Λ** (`ga01_lambda`, `src/rt_moments.cpp`): once per hydro step in
+`moment_prep`, Λ_g = exp(−0.611 N_rt ⟨τ_cell,g⟩). τ_cell,g is calc_rt_1's
+per-cell optical depth at the group frequency (HI, HeI and HeII, rounded to
+float as calc_rt_1 stores it), averaged over the cells in plane order.
+`kGa01Path = 0.611` (`rt_moments.hpp`). ray.log gets a line
+`Background : ga01 Lambda … <tau_cell> …` per hydro step.
+
+**The substep** (`moment_step_1`):
+1. Injection as before (both `moment_inject` orders). The photons injected
+   per group are summed over the cells: s̄_g = Σ/N_rt³. With `recomb_rad =
+   1` the recombination photons count too (G&A: all sources).
+2. The transfer: every cell moves T_g = min(N_L,g, Λ_g s̄_g) to B
+   (`mk::ga01_transfer`, `moment_cell.hpp`). L loses (N, F, E) in
+   proportion; B gains N and E, not F.
+3. Transport: L as before; B with `Closure::Iso` (P = N I/3), the same ĉ and
+   `moment_nsub`. A group of B with no photons is skipped.
+4. Deposit of the sum (`mk::deposit_cell2`): photo_cell sees N_L + N_B,
+   E_L + E_B and the summed F.
+
+`moment_step_3` scales both fields by the cell's fgam; `moment_redshift`
+redshifts each field separately (`ngam_min` per field); the photon total
+and the ray.log budget include B (`Background : in flight … moved …`).
+`tensor_dump`'s diagnostic adds B with D = I/3, Γ-weighted at B's own mean
+frequency.
+
+**Memory:** B is 25 floats per cell, allocated at the first `moment_prep`
+with ga01 (none otherwise).
+
+**Checkpoint version 10:** B's five arrays and the cumulative transfer
+after the star particles (empty arrays when off). A ga01 checkpoint
+restarted without ga01 is an error; a version ≤ 9 checkpoint, or one
+written before the RT started, restarts with an empty B.
+
+**Checks (2026-11-07):**
+- With the key off, byte-identical to `main` (6dd6a96), `compare.py
+  --rtol 0 --atol-frac 0`: rt_driver lognormal_16src with rays, otvet and
+  m1; radhydro smoke with rays and otvet: all PASS.
+- ga01 with Λ = 0 is byte-identical to thin OTVET (rt_driver
+  lognormal_16src).
+- `test_moments`: Λ = 0 bitwise thin OTVET with B empty; positivity and
+  realizability of both fields, and the photons of both conserved, at
+  Λ = 0.3 and 1; a uniform emissivity at Λ = 1 gives a uniform B with F_B
+  = 0 and an empty L; the box Λ (1 ionised, exp(−0.611 N τ/N³) for one
+  partly neutral cell, ≈ 0 neutral); 1 and 3 threads bitwise.
+- ctest `thread_rt_otvet_ga01_lognormal_16src` and
+  `restart_smoke_otvet_ga01` (Λ fixed at 0.5, since the box's Λ is ≈ 0 in
+  these neutral problems).

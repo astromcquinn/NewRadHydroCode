@@ -819,11 +819,15 @@ if(Python3_Interpreter_FOUND)
                          LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   endforeach()
   # the alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md)
-  foreach(cl split screen_split cone)
+  foreach(cl split screen_split cone ga01)
     if(cl STREQUAL "split")
       set(clargs --set otvet_split=1)
     elseif(cl STREQUAL "screen_split")
       set(clargs --set otvet_closure=screen --set otvet_split=1)
+    elseif(cl STREQUAL "ga01")
+      # the isotropic background (docs/otvet_background.md) with a fixed
+      # Lambda: the box's is ~0 in this neutral problem
+      set(clargs --set otvet_background=ga01 --set otvet_background_fix=0.5)
     else()
       set(clargs --set otvet_closure=cone --set otvet_cone_nside=2)
     endif()
@@ -1105,8 +1109,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_cone 13 --set rt_method=otvet
                      --set otvet_closure=cone --set otvet_cone_nside=2 --set recomb_case=A
                      --set recomb_rad=1)
-    set_tests_properties(restart_smoke_otvet_split restart_smoke_otvet_cone PROPERTIES TIMEOUT 900
-                         LABELS "restart;moments")
+    # the ga01 background field through the checkpoint (version 10)
+    add_test(NAME restart_smoke_otvet_ga01
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_ga01 13 --set rt_method=otvet
+                     --set otvet_background=ga01 --set otvet_background_fix=0.5)
+    set_tests_properties(restart_smoke_otvet_split restart_smoke_otvet_cone restart_smoke_otvet_ga01
+                         PROPERTIES TIMEOUT 900 LABELS "restart;moments")
     # tensor_dump (docs/otvet_closure.md section 1) is a pure diagnostic: the
     # other outputs byte-identical with and without it, for rays (with
     # recombination rays) and OTVET; and independent of the thread count

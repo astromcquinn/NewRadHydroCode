@@ -56,13 +56,17 @@ inline void otvet_split_pressure(double Nc, double Nd, const float* hc, double Q
   for (int k = 3; k < 6; ++k) Q[k] = m * static_cast<double>(hc[k]);
 }
 
-// The closure of a cell: M1, OTVET (P = N h) or the split (h and N_dir =
-// nd = q_g ndir)
-enum class Closure { M1, Otvet, Split };
+// The closure of a cell: M1, OTVET (P = N h), the split (h and N_dir =
+// nd = q_g ndir) or isotropic (P = N I/3: the background field of
+// otvet_background = ga01, docs/otvet_background.md; hc unused)
+enum class Closure { M1, Otvet, Split, Iso };
 
 inline void closure_pressure(Closure cl, double Nc, float fx, float fy, float fz, const float* hc, double nd,
                              double Q[6]) {
-  if (cl == Closure::Split) {
+  if (cl == Closure::Iso) {
+    Q[0] = Q[1] = Q[2] = Nc / 3;
+    Q[3] = Q[4] = Q[5] = 0;
+  } else if (cl == Closure::Split) {
     otvet_split_pressure(Nc, nd, hc, Q);
   } else if (cl == Closure::Otvet) {
     for (int m = 0; m < 6; ++m) Q[m] = Nc * static_cast<double>(hc[m]);
@@ -209,6 +213,52 @@ inline void deposit_cell(const float* n, const float* e, const float* fx, const 
     dx[0] += static_cast<double>(fx[i]);
     dx[1] += static_cast<double>(fy[i]);
     dx[2] += static_cast<double>(fz[i]);
+  }
+  for (int d = 0; d < 3; ++d) c.dx[d] = static_cast<float>(dx[d]);
+}
+
+// otvet_background = ga01 (docs/otvet_background.md section 4a): move
+// min(N_L, T) photons of one group of a cell from the local field L to the
+// background B. They leave L in proportion to its (N, F, E) and arrive in B
+// isotropically (F_B unchanged) with L's mean frequency. Returns the
+// photons added to B (float-rounded).
+inline double ga01_transfer(float& nL, float& fxL, float& fyL, float& fzL, float& eL, float& nB, float& eB,
+                            double T) {
+  const float n0 = nL;
+  if (!(n0 > 0) || !(T > 0)) return 0;
+  const float b0 = nB;
+  if (T >= static_cast<double>(n0)) {
+    nB = static_cast<float>(static_cast<double>(b0) + static_cast<double>(n0));
+    eB = static_cast<float>(static_cast<double>(eB) + static_cast<double>(eL));
+    nL = fxL = fyL = fzL = eL = 0;
+  } else {
+    const double r = 1 - T / static_cast<double>(n0);
+    const float e0 = eL;
+    nL = static_cast<float>(static_cast<double>(n0) * r);
+    eL = static_cast<float>(static_cast<double>(e0) * r);
+    fxL = static_cast<float>(static_cast<double>(fxL) * r);
+    fyL = static_cast<float>(static_cast<double>(fyL) * r);
+    fzL = static_cast<float>(static_cast<double>(fzL) * r);
+    nB = static_cast<float>(static_cast<double>(b0) + (static_cast<double>(n0) - static_cast<double>(nL)));
+    eB = static_cast<float>(static_cast<double>(eB) + (static_cast<double>(e0) - static_cast<double>(eL)));
+  }
+  return static_cast<double>(nB) - static_cast<double>(b0);
+}
+
+// The deposit of two fields (otvet_background = ga01): photo_cell sees the
+// sum, ngam = N_L + N_B, nu = E_L + E_B, dx = the sum over groups and fields
+// of F
+inline void deposit_cell2(const float* n, const float* e, const float* fx, const float* fy, const float* fz,
+                          const float* bn, const float* be, const float* bfx, const float* bfy, const float* bfz,
+                          std::int64_t stride, const rrk::CellRef& c) {
+  double dx[3] = {0, 0, 0};
+  for (int g = 0; g < kNfreq; ++g) {
+    const std::int64_t i = g * stride;
+    c.ngam[g] = n[i] + bn[i];
+    c.nu[g] = e[i] + be[i];
+    dx[0] += static_cast<double>(fx[i]) + static_cast<double>(bfx[i]);
+    dx[1] += static_cast<double>(fy[i]) + static_cast<double>(bfy[i]);
+    dx[2] += static_cast<double>(fz[i]) + static_cast<double>(bfz[i]);
   }
   for (int d = 0; d < 3; ++d) c.dx[d] = static_cast<float>(dx[d]);
 }
