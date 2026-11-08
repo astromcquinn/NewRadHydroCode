@@ -457,11 +457,58 @@ With R_max = 15 Mpc ζ is nearly constant (13.4–14.6), so one ζ would
 reproduce the rays' x_V(z) from z = 7 to 5.7 to within a few per cent of
 ionised volume; with the growing λ_mfp it falls from 16.7 to 10.1.
 
+**21cmFAST with the suite's mass weighting (B1m; the user, 2026-11-06).**
+The constant-ζ criterion gives each halo N_ion ∝ M. The suite's
+abundance-matched sources give L_UV ∝ M^a below the turnover
+M_p ≈ 3–5×10¹¹ M☉, with a = 1.43–1.46 at z = 7–5.7
+(`docs/abundance_matching.md`; f_esc depends only on z). So the figures use
+21cmFAST 4.3.1's mass-dependent model instead (`excursion_set.py run-mass`):
+
+* `SOURCE_MODEL = E-INTEGRAL`;
+* `ALPHA_STAR = a(z) − 1`, read from the run's `am_*` parameters;
+* `ALPHA_ESC = 0`;
+* `M_TURN_STELLAR_FEEDBACK` = 1.28×10⁸ M☉. The duty cycle is
+  exp(−M_turn/M), with M_turn = max(that, the atomic-cooling mass), so the
+  cut is soft rather than our sharp 20-particle limit;
+* R_max = 15 Mpc and R_min = 0.095 Mpc, as in B1;
+* `POP2_ION` (a linear normalisation, like ζ) solved so that x_V equals
+  the rays' value.
+
+21cmFAST's upper stellar turnover (`USE_UPPER_STELLAR_TURNOVER`) applies
+only in its halo sampler, not in E-INTEGRAL, so the suite's turnover at
+M_p, which affects only the few most massive halos, is not reproduced.
+Outputs are in `es/es_rmax15_mass`; it took 1.5 node-hours on 40 cores.
+
+| z | ALPHA_STAR | POP2_ION | x_V (target) |
+|---|---|---|---|
+| 6.97 | 0.460 | 6088 | 0.4895 (0.4899) |
+| 6.45 | 0.447 | 5215 | 0.6807 (0.6811) |
+| 6.20 | 0.440 | 4926 | 0.7939 (0.7937) |
+| 5.98 | 0.435 | 4880 | 0.8857 (0.8846) |
+| 5.70 | 0.433 | 5419 | 0.9721 (0.9705) |
+
+**Matching the mass weighting makes the agreement with the rays slightly
+worse.** The source weighting is not what limits 21cmFAST here:
+
+* the fraction of cells off by more than 0.5 is 0.209 / 0.206 / 0.174 /
+  0.115 / 0.029, against 0.193 / 0.193 / 0.166 / 0.114 / 0.030 with
+  constant ζ;
+* the power at k ≈ 0.2 h/Mpc rises from 1.3–2.7× to 1.6–3.1× the rays';
+* the power at k ≈ 1–3 h/Mpc falls from 0.7–0.95× to 0.5–0.8×;
+* r(k) at k ≈ 0.5–1 h/Mpc drops by 0.05–0.13.
+
+Weighting toward massive halos clusters the ionized regions more strongly,
+and the criterion already had too much large-scale power. The remaining
+gap is the criterion itself: collapsed fractions from extended
+Press–Schechter on a nonlinear density, no recombinations or absorbers
+other than R_max, and complete ionization within a sphere. The constant-ζ
+numbers (B1) are in the table below and in `es/fig_r15/es_compare.txt`.
+
 ![Figure 8, spectra](figures/taueff_21cmfast_fig8_pk.png)
 
 *Δ² of x_HII (the field itself; x_HI's is the same), the ratio to the rays
-and r(k) with the rays, at the five snapshots, every run and 21cmFAST's
-criterion with the default R_max = 15 Mpc (violet). Top right: the
+and r(k) with the rays, at the five snapshots, every run and 21cmFAST
+(violet: the mass-dependent model B1m, R_max = 15 Mpc). Top right: the
 fraction of cells whose x_HII differs from the rays' by more than 0.5. The
 user (2026-11-06) asked for only the default 21cmFAST in the figures: the
 R_max = λ_mfp variant and B2 (own ICs) are left out
@@ -470,7 +517,7 @@ R_max = λ_mfp variant and B2 (own ICs) are left out
 ![Figure 8, maps](figures/taueff_21cmfast_fig8_maps.png)
 
 *x_HII in the 8-cell slab through the box centre (the slab of Figure 2),
-rows the snapshots, columns the runs and 21cmFAST (R_max = 15 Mpc).*
+rows the snapshots, columns the runs and 21cmFAST (B1m, R_max = 15 Mpc).*
 
 The fraction of cells with |x_HII − x_HII,rays| > 0.5
 (`es/fig/es_compare.txt`, all variants; the case A + RR rays' snapshots are at z = 6.92 and
