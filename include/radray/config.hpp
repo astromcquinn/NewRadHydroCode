@@ -305,6 +305,18 @@ struct Config {
   double otvet_cone_smax = 8;
   int otvet_cone_budget = 1;
   double otvet_cone_blend = 4;
+  // The isotropic background of Gnedin & Abel 2001, eq. 17
+  // (docs/otvet_background.md; set_otvet_closure_param). New options, not
+  // in the original; the default keeps one field with the thin tensor:
+  //   otvet_background: 0 = none (default), 1 = ga01: a second field per
+  //                group with the isotropic tensor, which receives
+  //                min(N, Lambda_g s_g) of each cell's photons per substep
+  //                (s_g the box-mean injection), Lambda_g = exp(-0.611 N_rt
+  //                <tau_cell,g>) from the box's volume-mean opacity;
+  //   otvet_background_fix: Lambda in [0, 1] for every group instead of
+  //                the box's (tests); -1 (default) = from the box.
+  int otvet_background = 0;
+  double otvet_background_fix = -1;
 
   // params.txt rt_backend = serial (default) | amrex and the parameters of
   // the AMReX backend (set_rt_backend_param in rt_backend.hpp;

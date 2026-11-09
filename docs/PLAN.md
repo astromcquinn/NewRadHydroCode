@@ -1959,3 +1959,23 @@ report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
   z matched to the rays' x_V; 2 node-hours or less.
 * References from memory flagged for the user (Mesinger+11, Murray+20,
   Becker+15, Bosman+18/22).
+
+## OTVET with the isotropic background of Gnedin & Abel 2001 (2026-11-06/07, branch `otvet-background`)
+
+* The task: an OTVET closure with G&A 2001's isotropic background (eqs. 4,
+  17) and CROC's (Gnedin 2014, App. C), designed from the papers' LaTeX
+  sources (downloaded from arXiv 2026-11-06), the design approved before
+  any code (`docs/otvet_background.md`). Key off: byte-identical; one PR
+  at the end; nothing at 512³ without the user's go-ahead; step 3 (the
+  256³ validation) run by the user or on their go-ahead.
+* **User decisions (2026-11-07):** build (a) `ga01` (two fields, the
+  clipped Λ transfer), not `croc` and not (c) as a runtime option; Λ from
+  the box's volume-mean opacity, as G&A (Λ_g = exp(−0.611 N_rt
+  ⟨τ_cell,g⟩)); Λ per frequency group; case B recombination as the
+  default (no recombination photons transported; with `recomb_rad = 1`
+  they go into the local field and count in s̄, as G&A).
+* **User decisions (2026-11-08):** go-ahead for step 3 at 256³; PR #30
+  (21cmFAST with the suite's mass-weighted sources) merged. Step 3 added a
+  case-B set (rays, thin, split, cone, ga01; ≈ 8 node-hours in all) since
+  the October case-A suite predates P11 under `legacy_physics = 0`
+  (`docs/otvet_background.md` §9).
