@@ -2,7 +2,7 @@
 
 *Branch `otvet-background`, started 2026-11-06. Step 1 (the design,
 §1–7) and the user's decisions (§7); step 2, `otvet_background = ga01`, is
-implemented (§8); step 3, the 256³ validation, follows (§9).*
+implemented (§8); step 3, the 256³ validation (§9, 2026-11-08).*
 
 **The question.** Our `rt_method = otvet` gives the whole radiation field
 the optically thin tensor h. Both published OTVET schemes give h only to a
@@ -512,3 +512,150 @@ written before the RT started, restarts with an empty B.
 - Fast suite: 171/180 pass. The 9 failures are the `platform_ref` stored
   references, which fail the same way on `main` on klone (another libm;
   CI runs them).
+
+## 9. Validation at 256³ (step 3, 2026-11-08)
+
+**Runs.** The box, ICs and parameters of `otvcl256` (20 Mpc/h, ĉ = 0.2c,
+`legacy_physics = 0`), all from one binary (973b4ee, frozen in
+`$RUNS/otvbg_bin`), each on one node:
+
+| set | runs | recombination |
+|---|---|---|
+| B | `otvcl256B` (rays), `otvcl256B_otvet` (thin), `otvcl256B_otvet_{split,cone,ga01}` | case B, no recombination photons (the user's default) |
+| A | `otvcl256_otvet_ga01`, `otvcl256_otvet_now` (thin, rerun) | case A + `recomb_rad = 1`, as the October suite |
+
+- **Set B is the clean comparison.** The October case-A suite (`otvcl256`
+  rays, thin, split, `cone2`) predates aa30151 (2026-10-28):
+  `photon_consume_dense` (P11) now follows `legacy_physics = 0`. The thin
+  OTVET rerun differs from the October one from the first hydro step with
+  RT, by Δz = 0.03–0.05 in the history (zV50 6.988 against 7.027, zV99
+  6.011 against 6.065). That is as large as the closure differences, so
+  set A only compares ga01 with the rerun thin OTVET.
+- Post-processing (`$RUNS/otvbg_post256v2`): `gamma_power.py --s0` (the
+  hydro-step mean Γ of the tensor dump), `rt_methods_runs.py`,
+  `reion_power.py`, and `tensor_compare.py --moment` with each run's own
+  tensor. Scripts in `$RUNS/otvbg_scripts`. Tables:
+  [`otvet_background_256_gamma_pk.txt`](figures/otvet_background_256_gamma_pk.txt),
+  [`otvet_background_256_compare.txt`](figures/otvet_background_256_compare.txt)
+  (set B), [`otvet_background_256_compareA.txt`](figures/otvet_background_256_compareA.txt)
+  (set A with the October suite),
+  [`otvet_background_tensor.txt`](figures/otvet_background_tensor.txt)
+  (all tensor comparisons).
+
+**Λ in the runs** (ray.log, per hydro step; group 1 / 2 / 3 / 4; group 5,
+above 54.4 eV, stays < 10⁻⁶ since HeII is never reionised):
+- Λ < 10⁻¹² in every group until x_V ≈ 0.99 (z ≈ 6.0), as G&A intend:
+  before overlap ga01 is thin OTVET. In set B the ga01 and thin fHI are
+  **bit-identical through z = 6.8** (step 30; step 31 is the first with a
+  Λ_g > 0, 10⁻⁴³ in group 5).
+- After overlap Λ rises within one hydro step. Set B: 0.78 / 0.90 / 0.93 /
+  0.97 at z = 5.81, 0.94 / 0.97 / 0.98 / 0.99 at z = 5.03. Set A (more
+  neutral gas with case A): 0.25 / 0.54 / 0.70 / 0.87 at z = 5.86, 0.75 /
+  0.88 / 0.92 / 0.97 at z = 5.06.
+- The background photons are absorbed slowly: they see the volume-mean
+  opacity, while L's photons sit near the sources and the remaining
+  absorbers. So B accumulates (set B, photons in flight):
+
+  | z | 5.81 | 5.65 | 5.49 | 5.33 | 5.03 |
+  |---|---|---|---|---|---|
+  | B / (L + B) | 0.31 | 0.50 | 0.62 | 0.70 | 0.80 |
+
+  Only Λ times each substep's new photons moves to B; the stock in L
+  drains by absorption alone. The field takes a photon lifetime after
+  overlap to become background-dominated.
+
+**A priori** (the pressure-only proxy of §4c in `apps/otvet_tensor` on
+the October rays' dumps; `$RUNS/otvbg_apriori`). Its thin part reproduces
+`tensor_compare.py`'s otvet to all digits. Λ from the rays' fields: 0
+until z = 6.2, then (Γ-weighted) 0.46, 0.89, 0.94, 0.97 at z = 5.85, 5.67,
+5.34, 4.92.
+
+| z | cell error: thin / split / proxy / proxy, Λ_budget | block A: truth / split / proxy / proxy, Λ_budget | force error k = 0.94: split / proxy / proxy, Λ_budget |
+|---|---|---|---|
+| 5.85 | 0.126 / 0.066 / 0.065 / 0.067 | 0.147 / 0.138 / 0.144 / 0.110 | 4.2 / 4.7 / 5.2 |
+| 5.67 | 0.141 / 0.052 / 0.073 / 0.051 | 0.108 / 0.110 / 0.035 / 0.090 | 7.1 / 36 / 9.7 |
+| 5.34 | 0.153 / 0.047 / 0.065 / 0.047 | 0.088 / 0.079 / 0.024 / 0.069 | 23 / 88 / 29 |
+| 4.92 | 0.166 / 0.042 / 0.054 / 0.042 | 0.066 / 0.057 / 0.016 / 0.052 | 55 / 193 / 64 |
+
+- With G&A's Λ (volume-mean opacity) the proxy is right at z = 5.85 and too
+  isotropic afterwards: Λ ≈ 0.9–0.97 says the box is nearly transparent,
+  while the photons' own absorption path (the budget λ_eff = ΣS0/(4πΣρ),
+  297 → 687 cells) gives Λ_budget = exp(−0.611 N/λ_eff) = 0.59, 0.65, 0.73,
+  0.80. With Λ_budget (fixed through `otvet_background_fix`) the proxy
+  equals the split at every z.
+- This is the volume mean against the radiation-weighted k̄ of G&A eq. 4
+  (§2.1): they chose ⟨κ⟩; k̄ would have been the budget.
+
+**A posteriori, set B** (hydro-step mean Γ; P_Γ ratio to the rays at k =
+0.9 / 2.2 / 6.7 h/Mpc; r(k) ≥ 0.92 for every run at k ≤ 7):
+
+| z | thin | split | cone | ga01 |
+|---|---|---|---|---|
+| 5.98 | 1.63 / 1.92 / 1.93 | 1.31 / 1.49 / 1.35 | 1.21 / 1.40 / 1.36 | = thin |
+| 5.64 | 4.66 / 4.91 / 4.60 | 1.27 / 1.34 / 1.26 | 0.95 / 1.27 / 1.38 | 3.91 / 4.04 / 3.81 |
+| 5.49 | 7.06 / 6.94 / 6.05 | 1.25 / 1.26 / 1.16 | 1.00 / 1.21 / 1.28 | 3.05 / 3.08 / 2.84 |
+| 4.90 | 13.6 / 15.7 / 13.8 | 0.97 / 1.14 / 1.10 | 0.82 / 1.15 / 1.28 | 1.16 / 1.41 / 1.47 |
+
+![P_Gamma, set B](figures/otvet_background_256_gamma_pk.png)
+
+*Γ_HI power spectra of the hydro-step means, set B, z = 5.64, 5.49 and
+4.90. Top: Δ²; middle: the ratio to the rays; bottom: r(k) with the rays.*
+
+One-point Γ/⟨Γ⟩ in ionised cells (0.1 % / 16 % / 50 % / 84 % / 99 % /
+99.9 %):
+
+| z | rays | thin | split | cone | ga01 |
+|---|---|---|---|---|---|
+| 5.49 | 0.67 / 0.85 / 0.95 / 1.12 / 1.85 / 3.85 | 0.51 / 0.65 / 0.84 / 1.25 / 3.31 / 8.59 | 0.75 / 0.83 / 0.93 / 1.12 / 2.04 / 4.31 | 0.82 / 0.87 / 0.94 / 1.09 / 1.91 / 4.16 | 0.64 / 0.74 / 0.90 / 1.19 / 2.56 / 6.09 |
+| 4.90 | 0.72 / 0.89 / 0.97 / 1.09 / 1.54 / 2.78 | 0.55 / 0.66 / 0.85 / 1.24 / 3.18 / 8.12 | 0.87 / 0.91 / 0.96 / 1.06 / 1.59 / 2.94 | 0.87 / 0.91 / 0.96 / 1.06 / 1.57 / 2.93 | 0.82 / 0.88 / 0.96 / 1.09 / 1.66 / 3.16 |
+
+The runs' own tensors against the rays' (S0-weighted cell error; block
+anisotropy, truth in brackets; force error at k = 0.94 h/Mpc):
+
+| z | cell: thin / split / cone / ga01 | block A: thin / split / cone / ga01 (truth) | force: thin / split / cone / ga01 |
+|---|---|---|---|
+| 5.98 | 0.106 / 0.096 / 0.071 / 0.106 | 0.267 / 0.234 / 0.239 / 0.267 (0.215) | 2.6 / 1.9 / 1.0 / 2.6 |
+| 5.64 | 0.139 / 0.059 / 0.055 / 0.102 | 0.256 / 0.128 / 0.109 / 0.207 (0.115) | 124 / 12 / 8.9 / 67 |
+| 5.49 | 0.145 / 0.052 / 0.049 / 0.069 | 0.252 / 0.104 / 0.092 / 0.146 (0.100) | 440 / 23 / 17 / 96 |
+| 4.90 | 0.164 / 0.043 / 0.041 / 0.043 | 0.248 / 0.063 / 0.059 / 0.056 (0.068) | 2750 / 65 / 55 / 65 |
+
+- **ga01 removes thin OTVET's post-overlap excess, but late.** At z = 4.90
+  its P_Γ is 1.2–1.5× the rays' (thin 14–16×, split 1.0–1.1×, cone
+  0.8–1.3×), its one-point Γ is within 8 % of the rays' quantiles from 16 %
+  to 99 %, and its own tensor is as close to the rays' as the split's. At z =
+  5.6–5.5, 0.3–0.4 after overlap, it is still 3–4× (split and cone
+  1.2–1.4×). The cause is the accumulation above: the background builds
+  up over a photon lifetime, while the split and the cone re-divide the
+  whole field every step.
+- **Reionization history and morphology** are thin OTVET's: identical
+  through x_V = 0.99 (zV99 6.014 against the rays' 5.958; split 6.015,
+  cone 6.005). After overlap the x_HII power (residual neutral gas) at k =
+  2–16 (fundamentals) is 0.71–0.46 of the rays' at z = 5.64 (thin
+  0.56–0.31, split 0.85–1.12, cone 0.79–0.87).
+- **Set A** (ga01 against the thin rerun; the October rays, split and cone
+  for orientation): with case A Λ is smaller and ga01 converges more slowly:
+  P_Γ ratio to the rays at k = 2.2 of 4.4, 4.2, 3.4 at z = 5.67, 5.34, 4.92
+  (thin 4.8, 8.9, 16.9; split 1.0; cone 0.9–1.0). The thin rerun's P_Γ is
+  within 4 % of the October thin run's after overlap.
+
+**Cost.** Set B: 61 min against thin OTVET's 48 min (RT 0.94 h against 0.72
+h). Per hydro step 1.2× thin before overlap (the deposit of two fields and
+the injection sums) and 1.5× after (B's transport). Peak RSS 25.6 GB against
+23.9 GB.
+
+**Conclusions.**
+1. `otvet_background = ga01` reproduces G&A's scheme in our solver: thin
+   OTVET before overlap (bit for bit), the isotropic background after,
+   photons conserved, stable, deterministic.
+2. With G&A's Λ (volume-mean opacity) it is no better than the split or
+   the cone at any redshift at 256³. It converges to them by z ≈ 4.9,
+   ~1 in z after overlap, and is 3–4× too high in P_Γ in between.
+3. The a priori proxy says the choice of Λ, not the two-field structure,
+   sets the post-overlap tensor: with the photon-budget Λ it equals the
+   split. In the run, the slow drain of L would remain.
+4. For the paper, ga01 is "OTVET as G&A use it". The cone stays the closure
+   to carry; the split stays the cheap one.
+
+Not done (each departs from G&A): Λ from the photon budget (k̄) in the
+run; moving a share of L's stock to B each step (no lag); recombination
+photons into B (CROC's choice); 512³.

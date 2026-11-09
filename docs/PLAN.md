@@ -1974,3 +1974,8 @@ report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
   ⟨τ_cell,g⟩)); Λ per frequency group; case B recombination as the
   default (no recombination photons transported; with `recomb_rad = 1`
   they go into the local field and count in s̄, as G&A).
+* **User decisions (2026-11-08):** go-ahead for step 3 at 256³; PR #30
+  (21cmFAST with the suite's mass-weighted sources) merged. Step 3 added a
+  case-B set (rays, thin, split, cone, ga01; ≈ 8 node-hours in all) since
+  the October case-A suite predates P11 under `legacy_physics = 0`
+  (`docs/otvet_background.md` §9).
