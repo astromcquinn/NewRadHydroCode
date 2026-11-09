@@ -238,8 +238,10 @@ FFTW 3.3.10).
   (within 1e-2, 2e-2, 1e-3 and no worse than 1.5× A1.) The momentum of
   the smoke problem with two levels and `RADRAY_PM_MOMENTUM_CHECK=1`:
   |ΔP| / Σ|Δp_gas| per PM step ≤ 7e-8 with the levels over the whole box
-  for `pm_refine` 1 and 2 (< 1e-5 required), 2–3e-4 with them over half
-  the box (< 2e-2).
+  for `pm_refine` 1 and 2 (< 1e-5 required), 2.4e-5 with them over half
+  the box (`pm_refine = 1`; < 2e-2). (This read 2–3e-4 from the first
+  version of the level solve; the check has printed 2.4e-5 since at least
+  2026-11-02, with the truncating restriction and the exact one alike.)
 - `amrex_pm_level_solve_ranks_smoke_r{1,2}`: the smoke problem with two
   levels over half the box, `pm_refine` 1 and 2, to z = 28 (12 steps, the
   gravity-only steps): 1, 2 and 3 ranks byte-identical (every field,
