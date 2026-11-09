@@ -203,6 +203,26 @@
   same) with the three methods, ≈ 70–75 node-hours, 0.35–0.4 TB, a
   trend point only.
 
+## Done 2026-11-05: the plane-parallel sweep's packets rescaled to the current RT substep (branch `claude/plane-packet-rescale`)
+
+The user saw the domain boxes slide along +x +y in the C1 1024³ movies
+(z ≈ 6.6). The cause: a sweep packet holds the photons of one RT substep
+at launch and moves k cells per substep however long it is, while the
+cell rates divide by the current dt_rt, so every change of dt_rt sent a
+Γ wave across all the domains at once. The worst case is the 0.1c → 0.0025c
+switch at z = 7, after which Γ_HI,V was 16× low. Hot-cell-shortened steps
+gave ±11–15 % ripples, and the landing steps gave ~10× spikes.
+`plane_packet_rescale = 1` (default 0; sweep, serial and AMReX) rescales
+the packets in flight by dt_new/dt_old (`docs/plane_parallel.md` "Packet
+rescaling"). Tests `plane_rescale` and `amrex_plane_rescale` pass; in the
+16³ test the default's Γ dip at the switch (5.98 → 2.06 × 10⁻¹²) becomes
+0.23 %. `make_production.py --plane-parallel` writes the flag. The four
+running C1 1024³ runs keep the old behaviour (user decision 2026-11-05):
+they will be rerun with the flag after the Nov 10–11 maintenance. The
+512³ halo-source runs have the same property in their rays, but only
+≲ 5 % changes of dt_rt per step (interpolated ĉ), so the bias is a few
+per cent and makes no pattern.
+
 ## Done 2026-10-31: the RT levels survive a rechopping regrid (branch `claude/elegant-volta-wekhho`)
 
 The open item of `stage-g-subcycle` below (`docs/stage_g.md` §6.9 item 3;

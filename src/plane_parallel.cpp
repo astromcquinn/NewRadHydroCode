@@ -205,6 +205,15 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
       throw std::runtime_error("plane_turnon_courant must be in (0, 1]");
     return true;
   }
+  if (key == "plane_packet_rescale") {
+    if (val == "0")
+      c.plane_packet_rescale = false;
+    else if (val == "1")
+      c.plane_packet_rescale = true;
+    else
+      throw std::runtime_error("plane_packet_rescale must be 0 or 1");
+    return true;
+  }
   if (key == "land_outputs") {
     if (val == "0")
       c.land_outputs = false;
@@ -226,6 +235,7 @@ void copy_plane_param(const Config& from, Config& to) {
   to.plane_z_re = from.plane_z_re;
   to.plane_alpha = from.plane_alpha;
   to.plane_nu_max_ry = from.plane_nu_max_ry;
+  to.plane_packet_rescale = from.plane_packet_rescale;
   to.dt_max_myr = from.dt_max_myr;
   to.rt_substeps_max = from.rt_substeps_max;
   to.land_outputs = from.land_outputs;
@@ -254,6 +264,8 @@ void check_plane_param(const Config& c) {
   if (c.plane_faces == 0) throw std::runtime_error("plane_faces: no face given");
   if (!(c.plane_gamma12 > 0)) throw std::runtime_error("plane_gamma12 must be > 0");
   if (!(c.plane_nu_max_ry > 1)) throw std::runtime_error("plane_nu_max_ry must be > 1");
+  if (c.plane_packet_rescale && c.plane_transport != 1)
+    throw std::runtime_error("plane_packet_rescale = 1 requires plane_transport = sweep");
   if (c.plane_transport == 1) return;  // sweep: no ray pool
   // the pool: nfaces * N^3 / k rays in flight once the fronts have crossed
   int nfaces = 0;
@@ -281,6 +293,7 @@ std::string plane_summary(const Config& c) {
   if (c.dt_max_myr > 0) s += ", dt_max_myr = " + std::to_string(c.dt_max_myr);
   if (c.rt_substeps_max > 0) s += ", rt_substeps_max = " + std::to_string(c.rt_substeps_max);
   if (c.land_outputs) s += ", land_outputs = 1";
+  if (c.plane_packet_rescale) s += ", plane_packet_rescale = 1";
   if (!c.plane_turnon_cfl)
     s += ", plane_turnon_cfl = 0";
   else if (c.plane_turnon_temp != 2e4 || c.plane_turnon_courant != 0.05)
@@ -302,6 +315,7 @@ void plane_init(Simulation& s) {
   P.face_list = plane_face_list(P.faces);
   P.field.clear();
   P.inflight_fx = 0;
+  P.dtsec_packets = 0;
   if (P.transport == 1 && !use_amrex(s.cfg)) {
     // the serial sweep's packets (the backend holds its own fields)
     P.field.assign(P.face_list.size(), std::vector<float>(static_cast<std::size_t>(kNfreq) * s.cfg.Nrtc, 0.0f));
@@ -332,6 +346,15 @@ double plane_emitted_per_substep(const Simulation& s, const rrk::RTP& P) {
   double per_ray = 0;
   for (int n = 0; n < kNfreq; ++n) per_ray += static_cast<double>(P.plane.ngam[n]);
   return nfaces * N * N * s.cfg.plane_ndom * per_ray;
+}
+
+double plane_packet_scale(Simulation& s) {
+  PlaneState& ps = s.plane;
+  if (!s.cfg.plane_packet_rescale || !ps.on || !ps.active || ps.transport != 1) return 1;
+  const double dt = s.clk.dtsec_rt, old = ps.dtsec_packets;
+  ps.dtsec_packets = dt;
+  if (!(old > 0) || dt == old) return 1;
+  return dt / old;
 }
 
 bool plane_rt_active(const Config& c, double a_start) {
