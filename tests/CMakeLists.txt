@@ -975,6 +975,21 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_full_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_full)
     set_tests_properties(plane_full PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # on-the-fly E(k) and T-Delta (diag_dz) and the movie's |v|
+    add_test(NAME plane_diag
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_diag_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_diag)
+    set_tests_properties(plane_diag PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # X-ray preheating before the turn-on and plane_xray_substeps
+    add_test(NAME plane_xray
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_xray_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_xray)
+    set_tests_properties(plane_xray PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # the temperature cap T_max
+    add_test(NAME plane_tcap
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_tcap_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_tcap)
+    set_tests_properties(plane_tcap PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
     # plane_packet_rescale (docs/plane_parallel.md "Packet rescaling"): the
     # sweep's packets in flight rescaled to the current RT substep, so
     # Gamma_HI does not dip at the c_reduced switch (tests/plane_rescale_check.py)
