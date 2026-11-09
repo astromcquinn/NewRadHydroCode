@@ -1609,6 +1609,13 @@ be designed); `recomb_rad` on the backend (block emission and
     `RADRAY_PM_CORRECTOR_CHECK=1` computes the corrector, reports its
     difference from the prediction near each level boundary and discards
     it (results unchanged), so Z1 can decide whether it is needed.
+* **Decision (user, 2026-11-02): `pm_level_solve`'s restriction exact
+  always, no flag.** `restrict_and_spill` divides the fine boxes' summed
+  partials once (floor quotient and remainder per box) instead of
+  truncating each box's partial, which made level 0's deposit depend on
+  the fine box layout (the rank count) by ~1e-13. `pm_level_solve` has no
+  Fortran original, so the old bits are not kept (`docs/stage_g.md` §1
+  item 3).
 * **Decision (user, 2026-10-31): rectangular zoom levels, no irregular
   levels for now.** Each zoom level is the bounding box of its tagged
   region (the cells holding particles of a finer mass class) plus the
@@ -1933,3 +1940,82 @@ User decisions (2026-10-29):
   sources, such as the plane-parallel mode, can turn the halo finder off.
 - Recommendation adopted: do the grid part first, then the power spectrum
   on the level, which frees the host PM mesh arrays on rank 0.
+
+## Why the closures do not change ⟨Γ_HI⟩ after overlap (2026-11-06, branch `absorbers-wu21`)
+
+Thread prompt of 2026-11-06 (the paper's §5): find out why the moment
+methods' Γ_HI, λ_mfp and ⟨F⟩ agree with the rays' in the 512³ suite when
+Wu, McQuinn & Eisenstein 2021 predict over-ionised absorbers. Decisions
+in the prompt, followed:
+
+* Phase 1 on the existing snapshots only (no new runs): the photon sink
+  by density and neutral fraction with the code's own rates, the
+  self-shielding curves, Wu's ratio in δ bins, the resolution of the
+  absorbers; tool `tools/analysis/absorber_budget.py` with a synthetic
+  self-test under ctest (a new label `analysis`, none existed); report
+  `docs/absorbers_closures.md`. Result: H1 decisive (no self-shielding
+  cell in any run), H2 a hidden 5–11 % emissivity difference at z ≈ 6
+  that P11 would expose, H3 yes (the sink is diffuse and, after overlap,
+  mostly the growing in-flight reservoir).
+* Phase 2 proposed with node-hours and disk, **not launched**: (c)-cheap
+  the single-absorber `rt_driver` test, (a) 256³/20 Mpc/h with P11 on
+  and off, (b) 512³/20 Mpc/h. Wu+21 taken only from
+  `docs/otvet_closure_literature.md` §1 (arXiv unreachable from klone);
+  the 1.3–1.4× and 0.4× are quoted from those notes.
+* **User decisions (2026-11-06):** run Phase 2 (c) and (a), not (b)
+  ("yes, let's start with 1 and 2 but not 3"); an AMR run with M1/OTVET
+  may follow if the absorbers can be resolved; PR #27 merged. Results in
+  `docs/absorbers_closures.md` §5–7: the cone tensor is the closure to
+  carry forward; P11 needs the f_esc(z) recalibration (f6 ≈ 0.13).
+
+## τ_eff over 50 Mpc/h and 21cmFAST against the RT methods (2026-11-05/06, branch `taueff-21cmfast`)
+
+Thread prompt of 2026-11-05 (the RT-closure paper's Figures 7 and 8;
+report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
+
+* The seven runs of the uniform 512³ suite, read only; every parameter
+  from their `params.txt` (the §1 table of `docs/rt_suite_512.md` is
+  stale); compare at fixed z (user decision); outputs under
+  `$RUNS/rt_closure_paper/`.
+* Part A: `igm_stats.py --taueff L` (a new option, the default output
+  unchanged) keeps each redshift-space skewer's flux; box-length and
+  50 Mpc/h segments (a skewer joined to 10 Mpc/h of another: not one
+  sightline; the box misses > 40 Mpc/h modes, so the scatter is a lower
+  bound), raw and rescaled by A to Bosman+22's mean flux. Figure 7 by
+  `taueff_plot.py`. The prompt's expectation (thin OTVET broader, M1
+  narrower) does not hold: the order is reversed, because on the box's
+  scales Γ is correlated with density and τ ∝ ρ²/Γ (the uniform-Γ
+  diagnostic added to `--taueff`). The optional slab analysis (A4) was
+  cheap and done, its real-space offset measured first.
+* Bosman+22's τ_eff distributions were **not** transcribed from memory:
+  the user is asked for the paper's table (open).
+* Part B: 21cmFAST 4.3.1 (PyPI) in its own conda env; it accepts an
+  external density (FAQ: own OutputStruct objects), so B1 runs 21cmFAST
+  itself, with a numpy mirror for ζ and a cross-check. M_min = the
+  suite's smallest source halo, R_min raised to its radius, the
+  top-hat filter (the `const-zeta` template's `sharp-k` overridden). The
+  optional emissivity variant was not run (no source field is written by
+  the suite). B2: 21cmFAST's own ICs (seed 12345, DIM 1024 → 512³), ζ per
+  z matched to the rays' x_V; 2 node-hours or less.
+* References from memory flagged for the user (Mesinger+11, Murray+20,
+  Becker+15, Bosman+18/22).
+
+## OTVET with the isotropic background of Gnedin & Abel 2001 (2026-11-06/07, branch `otvet-background`)
+
+* The task: an OTVET closure with G&A 2001's isotropic background (eqs. 4,
+  17) and CROC's (Gnedin 2014, App. C), designed from the papers' LaTeX
+  sources (downloaded from arXiv 2026-11-06), the design approved before
+  any code (`docs/otvet_background.md`). Key off: byte-identical; one PR
+  at the end; nothing at 512³ without the user's go-ahead; step 3 (the
+  256³ validation) run by the user or on their go-ahead.
+* **User decisions (2026-11-07):** build (a) `ga01` (two fields, the
+  clipped Λ transfer), not `croc` and not (c) as a runtime option; Λ from
+  the box's volume-mean opacity, as G&A (Λ_g = exp(−0.611 N_rt
+  ⟨τ_cell,g⟩)); Λ per frequency group; case B recombination as the
+  default (no recombination photons transported; with `recomb_rad = 1`
+  they go into the local field and count in s̄, as G&A).
+* **User decisions (2026-11-08):** go-ahead for step 3 at 256³; PR #30
+  (21cmFAST with the suite's mass-weighted sources) merged. Step 3 added a
+  case-B set (rays, thin, split, cone, ga01; ≈ 8 node-hours in all) since
+  the October case-A suite predates P11 under `legacy_physics = 0`
+  (`docs/otvet_background.md` §9).

@@ -79,6 +79,8 @@ void copy_rt_method(const Config& from, Config& to) {
   to.otvet_cone_smax = from.otvet_cone_smax;
   to.otvet_cone_budget = from.otvet_cone_budget;
   to.otvet_cone_blend = from.otvet_cone_blend;
+  to.otvet_background = from.otvet_background;
+  to.otvet_background_fix = from.otvet_background_fix;
   copy_recomb_param(from, to);
   check_otvet_closure_param(to);
 }
@@ -345,6 +347,62 @@ void otvet_update_tensor(Simulation& s) {
 }
 }  // namespace
 
+namespace {
+// otvet_background = ga01: the background field, allocated on first use
+void bg_alloc(MomentState& M) {
+  if (!M.bn.empty()) return;
+  const std::int64_t n = kNfreq * M.ncell;
+  for (auto* v : {&M.bn, &M.bfx, &M.bfy, &M.bfz, &M.be}) v->assign(n, 0.0f);
+}
+
+// otvet_background = ga01: Lambda_g = exp(-kGa01Path N_rt <tau_cell,g>)
+// (Gnedin & Abel 2001 eq. 17, Lambda_nu = exp(-<kappa_nu> L) with the
+// volume mean of the opacity), tau_cell,g as calc_rt_1 computes it, the
+// mean in plane order; or otvet_background_fix
+void ga01_lambda(Simulation& s) {
+  MomentState& M = *s.moments;
+  const RTGrid& G = s.rt;
+  const Units& u = s.units;
+  const int N = M.N;
+  const std::int64_t nc = M.ncell;
+  const SigmaTable sig = photoion_sigma(freq_init);
+  std::vector<double> part(static_cast<std::size_t>(N) * kNfreq, 0.0);
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (int k = 0; k < N; ++k) {
+    double t[kNfreq] = {};
+    const std::int64_t c0 = static_cast<std::int64_t>(k) * N * N;
+    for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(N) * N; ++c) {
+      const double rhog = static_cast<double>(G.rhog[c]) * u.rhob_avg;
+      const double nH = rhog * XHy / mH_cgs;
+      const double nHe = rhog * YHe / mHe_cgs;
+      const double nHI = nH * static_cast<double>(G.fHI[c]);
+      const double nHeI = nHe * static_cast<double>(G.fHeI[c]);
+      const double nHeII = nHe * static_cast<double>(G.fHeII[c]);
+      for (int g = 0; g < kNfreq; ++g) {
+        const double sm = ((0.0 + nHI * sig[0][g]) + nHeI * sig[1][g]) + nHeII * sig[2][g];
+        t[g] += static_cast<double>(static_cast<float>(sm * u.len_rt));
+      }
+    }
+    for (int g = 0; g < kNfreq; ++g) part[static_cast<std::size_t>(k) * kNfreq + g] = t[g];
+  }
+  for (int g = 0; g < kNfreq; ++g) {
+    double t = 0;
+    for (int k = 0; k < N; ++k) t = t + part[static_cast<std::size_t>(k) * kNfreq + g];
+    M.bg_tau[g] = t / static_cast<double>(nc);
+    M.bg_lambda[g] = s.cfg.otvet_background_fix >= 0 ? s.cfg.otvet_background_fix
+                                                     : std::exp(-kGa01Path * N * M.bg_tau[g]);
+  }
+  M.bg_ready = true;
+  if (s.raylog) {
+    *s.raylog << " Background : ga01 Lambda";
+    for (int g = 0; g < kNfreq; ++g) *s.raylog << " " << static_cast<float>(M.bg_lambda[g]);
+    *s.raylog << " <tau_cell>";
+    for (int g = 0; g < kNfreq; ++g) *s.raylog << " " << static_cast<float>(M.bg_tau[g]);
+    *s.raylog << "\n";
+  }
+}
+}  // namespace
+
 void moment_prep(Simulation& s) {
   moment_init(s);
   MomentState& M = *s.moments;
@@ -353,6 +411,10 @@ void moment_prep(Simulation& s) {
   } else {
     M.h.clear();
   }
+  if (s.cfg.otvet_background) {
+    bg_alloc(M);
+    ga01_lambda(s);
+  }
 }
 
 double moment_photons_total(const Simulation& s) {
@@ -360,6 +422,8 @@ double moment_photons_total(const Simulation& s) {
   const MomentState& M = *s.moments;
   double t = 0;
   for (std::int64_t c = 0; c < M.ncell; ++c) t = t + mk::photons_cell(&M.n[c], M.ncell);
+  if (!M.bn.empty())
+    for (std::int64_t c = 0; c < M.ncell; ++c) t = t + mk::photons_cell(&M.bn[c], M.ncell);
   return t;
 }
 
@@ -369,24 +433,36 @@ double moment_photons_total(const Simulation& s) {
 
 namespace {
 
-// One GLF subcycle of group g with Courant number C (periodic box; the
+// The arrays of group g of one field: the local field (M.n..M.e) or, with
+// otvet_background = ga01, the background (M.bn..M.be)
+struct GroupField {
+  float *n, *fx, *fy, *fz, *e;
+};
+GroupField group_field(MomentState& M, int g, bool bg) {
+  const std::int64_t o = g * M.ncell;
+  if (bg) return {&M.bn[o], &M.bfx[o], &M.bfy[o], &M.bfz[o], &M.be[o]};
+  return {&M.n[o], &M.fx[o], &M.fy[o], &M.fz[o], &M.e[o]};
+}
+
+// One GLF subcycle of one group with Courant number C (periodic box; the
 // per-cell arithmetic is mk::flux_cell and mk::glf_cell, moment_cell.hpp)
-void transport_group(MomentState& M, int g, bool otvet, double C, const float* ndir, double qg) {
+void transport_group(MomentState& M, const GroupField& f, mk::Closure cl, double C, const float* ndir,
+                     double qg) {
   const int N = M.N;
   const std::int64_t nc = M.ncell;
-  float* n = &M.n[g * nc];
-  float* fx = &M.fx[g * nc];
-  float* fy = &M.fy[g * nc];
-  float* fz = &M.fz[g * nc];
-  float* e = &M.e[g * nc];
+  float* n = f.n;
+  float* fx = f.fx;
+  float* fy = f.fy;
+  float* fz = f.fz;
+  float* e = f.e;
   // Per cell: P (xx, yy, zz, xy, xz, yz) and the E fluxes nu F (x, y, z)
   float* P = M.P.data();
-  const mk::Closure cl = !otvet ? mk::Closure::M1 : ndir ? mk::Closure::Split : mk::Closure::Otvet;
+  const bool tensor = cl == mk::Closure::Otvet || cl == mk::Closure::Split;
 
 #pragma omp parallel for schedule(static) if (par::worth(nc))
   for (std::int64_t c = 0; c < nc; ++c) {
     const double nd = cl == mk::Closure::Split ? qg * static_cast<double>(ndir[c]) : 0.0;
-    mk::flux_cell(cl, n[c], fx[c], fy[c], fz[c], e[c], otvet ? &M.h[6 * c] : nullptr, nd, &P[9 * c]);
+    mk::flux_cell(cl, n[c], fx[c], fy[c], fz[c], e[c], tensor ? &M.h[6 * c] : nullptr, nd, &P[9 * c]);
   }
 
   float* nn = M.nn.data();
@@ -445,10 +521,9 @@ void moment_tensor_diag(const MomentState& M, TensorDiag& T, bool otvet, const f
       nu[g] = M.n[i] > 0 ? static_cast<double>(M.e[i]) / M.n[i] : 0.0;
       any = any || M.n[i] > 0;
     }
-    if (!any) continue;
-    rrk::photoion_sigma(nu, sig);
     double* S = &T.acc[10 * c];
-    for (int g = 0; g < kNfreq; ++g) {
+    if (any) rrk::photoion_sigma(nu, sig);
+    for (int g = 0; g < kNfreq && any; ++g) {
       const std::int64_t i = g * nc + c;
       const double Ng = M.n[i];
       if (!(Ng > 0)) continue;
@@ -466,6 +541,28 @@ void moment_tensor_diag(const MomentState& M, TensorDiag& T, bool otvet, const f
       S[2] += w * M.fy[i];
       S[3] += w * M.fz[i];
       for (int m = 0; m < 6; ++m) S[4 + m] += w * Q[m];
+    }
+    // otvet_background = ga01: the background field, D = I/3, weighted at
+    // its own mean frequency
+    if (M.bn.empty()) continue;
+    bool anyb = false;
+    for (int g = 0; g < kNfreq; ++g) {
+      const std::int64_t i = g * nc + c;
+      nu[g] = M.bn[i] > 0 ? static_cast<double>(M.be[i]) / M.bn[i] : 0.0;
+      anyb = anyb || M.bn[i] > 0;
+    }
+    if (!anyb) continue;
+    rrk::photoion_sigma(nu, sig);
+    for (int g = 0; g < kNfreq; ++g) {
+      const std::int64_t i = g * nc + c;
+      const double Ng = M.bn[i];
+      if (!(Ng > 0)) continue;
+      const double w = sig[0][g] * 1e18;
+      S[0] += w * Ng;
+      S[1] += w * M.bfx[i];
+      S[2] += w * M.bfy[i];
+      S[3] += w * M.bfz[i];
+      for (int m = 0; m < 3; ++m) S[4 + m] += w * Ng / 3;
     }
   }
 }
@@ -532,12 +629,25 @@ void moment_step_1(Simulation& s) {
   // Sources and recombination photons (moment_inject = 0: before the
   // transport, the original order; 1: after it, so that photo_cell absorbs
   // them in the cell that emitted them before they move on)
+  // otvet_background = ga01: the photons injected per group this substep
+  // (sources and recombination photons, summed over cells), for the box
+  // mean s_g of the transfer to the background
+  const bool ga01 = s.cfg.otvet_background != 0;
+  if (ga01) {
+    bg_alloc(M);
+    if (!M.bg_ready) ga01_lambda(s);
+  }
+  std::array<double, kNfreq> sg{};
   auto inject = [&]() {
     // Sources: the photons ray_source emits, into the source cell, isotropic
     double inj = 0;
     for (std::int64_t c = 0; c < nc; ++c) {
       if (!(static_cast<double>(G.sfr[c]) > u.sfr_min)) continue;
-      mk::inject_cell(static_cast<double>(G.Luv[c]), s.clk.dtsec_rt, u, &M.n[c], &M.e[c], nc, inj);
+      double add[kNfreq];
+      mk::inject_cell(static_cast<double>(G.Luv[c]), s.clk.dtsec_rt, u, &M.n[c], &M.e[c], nc, inj,
+                      ga01 ? add : nullptr);
+      if (ga01)
+        for (int g = 0; g < kNfreq; ++g) sg[g] += add[g];
     }
     M.injected += inj / s.cfg.nrtcr;
 
@@ -546,6 +656,17 @@ void moment_step_1(Simulation& s) {
     // were made (every cell is in launch mode, i.e. case A; no blocks, no pool)
     if (s.recomb && s.recomb->active()) {
       RecombState& Rc = *s.recomb;
+      if (ga01)
+        for (int g = 0; g < kNfreq; ++g)
+          sg[g] += plane_sum(Nrt, [&](int k) {
+            double t = 0;
+            const std::int64_t c0 = static_cast<std::int64_t>(k) * Nrt * Nrt;
+            for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(Nrt) * Nrt; ++c) {
+              const std::size_t kb = static_cast<std::size_t>(c) * kNfreq + g;
+              if (Rc.ngam[kb] > 0) t += static_cast<double>(Rc.ngam[kb]);
+            }
+            return t;
+          });
       const double rec = plane_sum(Nrt, [&](int k) {
         double t = 0;
         const std::int64_t c0 = static_cast<std::int64_t>(k) * Nrt * Nrt;
@@ -566,6 +687,27 @@ void moment_step_1(Simulation& s) {
       M.injected += rec / s.cfg.nrtcr;
       Rc.launched += rec / s.cfg.nrtcr;
     }
+
+    // otvet_background = ga01 (docs/otvet_background.md section 4a): every
+    // cell moves T_g = min(N_L,g, Lambda_g s_g) photons to the background,
+    // s_g the box mean of this substep's injection: G&A eq. 17's uniform
+    // source Lambda S of the background in absolute variables, clipped
+    // where their local field would go negative
+    if (ga01) {
+      for (int g = 0; g < kNfreq; ++g) {
+        const double T = M.bg_lambda[g] * (sg[g] / static_cast<double>(nc));
+        if (!(T > 0)) continue;
+        const std::int64_t o = g * nc;
+        const double moved = plane_sum(Nrt, [&](int k) {
+          double t = 0;
+          const std::int64_t c0 = o + static_cast<std::int64_t>(k) * Nrt * Nrt;
+          for (std::int64_t i = c0; i < c0 + static_cast<std::int64_t>(Nrt) * Nrt; ++i)
+            t += mk::ga01_transfer(M.n[i], M.fx[i], M.fy[i], M.fz[i], M.e[i], M.bn[i], M.be[i], T);
+          return t;
+        });
+        M.bg_moved += moved / s.cfg.nrtcr;
+      }
+    }
   };
   if (s.cfg.moment_inject == 0) inject();
 
@@ -583,22 +725,42 @@ void moment_step_1(Simulation& s) {
   for (int g = 0; g < kNfreq; ++g) qg[g] = ndir ? inject_per_L(s, g) : 0.0;
   const int nsub = s.cfg.moment_nsub;
   const double C = 1.0 / nsub;
+  const mk::Closure cl = !otvet ? mk::Closure::M1 : ndir ? mk::Closure::Split : mk::Closure::Otvet;
   for (int g = 0; g < kNfreq; ++g) {
     const float* ng = &M.n[g * nc];
     bool any = false;
     for (std::int64_t c = 0; c < nc && !any; ++c) any = ng[c] > 0;
     if (!any) continue;
-    for (int it = 0; it < nsub; ++it) transport_group(M, g, otvet, C, ndir, qg[g]);
+    const GroupField f = group_field(M, g, false);
+    for (int it = 0; it < nsub; ++it) transport_group(M, f, cl, C, ndir, qg[g]);
   }
+  // otvet_background = ga01: the background field, isotropic tensor
+  if (ga01)
+    for (int g = 0; g < kNfreq; ++g) {
+      const float* bg = &M.bn[g * nc];
+      bool any = false;
+      for (std::int64_t c = 0; c < nc && !any; ++c) any = bg[c] > 0;
+      if (!any) continue;
+      const GroupField f = group_field(M, g, true);
+      for (int it = 0; it < nsub; ++it) transport_group(M, f, mk::Closure::Iso, C, nullptr, 0.0);
+    }
   if (s.cfg.moment_inject == 1) inject();
   lap(s.timers.trace1);
   if (s.tdiag && s.tdiag->acc) moment_tensor_diag(M, *s.tdiag, otvet, ndir, qg.data());  // diagnostic
 
   // Deposit for radiative_physics: ngam = N, nu = E (= nu*ngam, divided by
   // ngam in radiative_physics), dx = sum over groups of F
+  // (otvet_background = ga01: of both fields)
+  if (ga01) {
 #pragma omp parallel for schedule(static) if (par::worth(nc))
-  for (std::int64_t c = 0; c < nc; ++c)
-    mk::deposit_cell(&M.n[c], &M.e[c], &M.fx[c], &M.fy[c], &M.fz[c], nc, grid_ref(G, c));
+    for (std::int64_t c = 0; c < nc; ++c)
+      mk::deposit_cell2(&M.n[c], &M.e[c], &M.fx[c], &M.fy[c], &M.fz[c], &M.bn[c], &M.be[c], &M.bfx[c],
+                        &M.bfy[c], &M.bfz[c], nc, grid_ref(G, c));
+  } else {
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+    for (std::int64_t c = 0; c < nc; ++c)
+      mk::deposit_cell(&M.n[c], &M.e[c], &M.fx[c], &M.fy[c], &M.fz[c], nc, grid_ref(G, c));
+  }
   (void)Nrt;
   lap(s.timers.sync);
 }
@@ -609,6 +771,7 @@ void moment_step_3(Simulation& s) {
   const RTGrid& G = s.rt;
   const int N = M.N;
   const std::int64_t nc = M.ncell;
+  const bool bg = !M.bn.empty();
   const double absorbed = plane_sum(N, [&](int k) {
     double t = 0;
     const std::int64_t c0 = static_cast<std::int64_t>(k) * N * N;
@@ -618,6 +781,14 @@ void moment_step_3(Simulation& s) {
         if (M.n[i] == 0) continue;
         t += mk::absorb_group(M.n[i], M.e[i], M.fx[i], M.fy[i], M.fz[i], G.fgam[c * kNfreq + g]);
       }
+    // otvet_background = ga01: the background shares the cell's fgam
+    if (bg)
+      for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(N) * N; ++c)
+        for (int g = 0; g < kNfreq; ++g) {
+          const std::int64_t i = g * nc + c;
+          if (M.bn[i] == 0) continue;
+          t += mk::absorb_group(M.bn[i], M.be[i], M.bfx[i], M.bfy[i], M.bfz[i], G.fgam[c * kNfreq + g]);
+        }
     return t;
   });
   M.absorbed += absorbed / s.cfg.nrtcr;
@@ -640,6 +811,13 @@ void moment_redshift(Simulation& s) {
       double l = 0;
       if (mk::redshift_cell(T, fscale, ngam_min, &M.n[c], &M.e[c], &M.fx[c], &M.fy[c], &M.fz[c], nc, l)) t += l;
     }
+    // otvet_background = ga01: the background, separately
+    if (!M.bn.empty())
+      for (std::int64_t c = c0; c < c0 + static_cast<std::int64_t>(N) * N; ++c) {
+        double l = 0;
+        if (mk::redshift_cell(T, fscale, ngam_min, &M.bn[c], &M.be[c], &M.bfx[c], &M.bfy[c], &M.bfz[c], nc, l))
+          t += l;
+      }
     return t;
   });
   M.lost += lost / s.cfg.nrtcr;
@@ -648,6 +826,12 @@ void moment_redshift(Simulation& s) {
               << " injected " << static_cast<float>(M.injected) << " absorbed "
               << static_cast<float>(M.absorbed) << " lost " << static_cast<float>(M.lost)
               << "\n";
+  if (s.raylog && !M.bn.empty()) {
+    double b = 0;
+    for (std::int64_t c = 0; c < nc; ++c) b = b + mk::photons_cell(&M.bn[c], nc);
+    *s.raylog << " Background : in flight " << static_cast<float>(b / s.cfg.nrtcr) << " moved "
+              << static_cast<float>(M.bg_moved) << " (both included above)\n";
+  }
   if (s.raylog && s.recomb && s.recomb->active())
     *s.raylog << " Recomb     : emitted " << static_cast<float>(s.recomb->launched)
               << " (included in injected)\n";

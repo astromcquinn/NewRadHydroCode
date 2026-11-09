@@ -130,13 +130,17 @@ void check_rt_backend_param(const Config& c) {
     throw std::runtime_error(
         "rt_backend = amrex needs legacy_rt = 0: sorted ray arrays cannot reproduce the "
         "original's zombie-ray thresholds (docs/design_parallel_and_encoding.md section 0.1)");
-  if (c.rt_method != RTMethod::Rays && !c.amrex_slab)
+  // (the moment hierarchy, amrex_max_level > 0, runs M1 on boxes: docs/moment_amr.md)
+  if (c.rt_method != RTMethod::Rays && !c.amrex_slab && c.amrex_max_level == 0)
     throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
   if (c.recomb_rad && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex does not implement recomb_rad with the rays yet");
   if (c.det_parallel && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex: deterministic_parallel applies to the serial backend only");
   if (c.N_rt_gas != 1) throw std::runtime_error("rt_backend = amrex needs N_rt_gas = 1");
+  if (c.otvet_background)
+    throw std::runtime_error("otvet_background = ga01 is implemented on the serial moment solver only "
+                             "(docs/otvet_background.md)");
 }
 
 int amrex_slab_planes(const Config& c, int N, int nranks) {

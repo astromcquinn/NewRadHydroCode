@@ -94,6 +94,38 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/healpix_vs_healpy.py
                    $<TARGET_FILE:healpix_tool> 1000000)
   set_tests_properties(healpix_vs_healpy PROPERTIES SKIP_RETURN_CODE 77)
+  # The photon-sink-by-density tool of docs/absorbers_closures.md on a
+  # synthetic cube: the code's alpha_B lookup, the rho_source factor, the
+  # binned sums and cuts, the periodic connected components and their HI
+  # columns (the component checks need scipy and are skipped without it)
+  add_test(NAME absorber_budget_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_budget.py
+                   --selftest)
+  set_tests_properties(absorber_budget_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
+  # igm_stats.py's analytic checks, with the per-segment tau_eff of --taueff
+  # on a synthetic snapshot (docs/igm_diagnostics.md, docs/taueff_21cmfast.md);
+  # skipped without scipy
+  add_test(NAME igm_stats_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/igm_stats.py
+                   --selftest)
+  set_tests_properties(igm_stats_selftest PROPERTIES TIMEOUT 120 LABELS analysis
+                       SKIP_RETURN_CODE 77)
+  # The 21cmFAST excursion-set criterion (B1 of docs/taueff_21cmfast.md) on a
+  # spherical overdensity: the ionised ball has the radius the criterion
+  # gives (with py21cmfast importable, also 21cmFAST itself against the numpy
+  # mirror); skipped without scipy
+  add_test(NAME excursion_set_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/excursion_set.py
+                   --selftest)
+  set_tests_properties(excursion_set_selftest PROPERTIES TIMEOUT 300 LABELS analysis
+                       SKIP_RETURN_CODE 77)
+  # The single-absorber problem generator (Phase 2 (c) of
+  # docs/absorbers_closures.md): the gas.bin record round trip against the
+  # kernel's gas state, the r^-2 profile, a written problem read back
+  add_test(NAME absorber_single_selftest
+           COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/analysis/absorber_single.py
+                   selftest)
+  set_tests_properties(absorber_single_selftest PROPERTIES TIMEOUT 120 LABELS analysis)
 
   # The runtime cosmology's IC tool, a Planck RT run and the preheating
   # floor on a cooling test (tests/cosmology_check.py; docs/production_run.md
@@ -787,11 +819,15 @@ if(Python3_Interpreter_FOUND)
                          LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   endforeach()
   # the alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md)
-  foreach(cl split screen_split cone)
+  foreach(cl split screen_split cone ga01)
     if(cl STREQUAL "split")
       set(clargs --set otvet_split=1)
     elseif(cl STREQUAL "screen_split")
       set(clargs --set otvet_closure=screen --set otvet_split=1)
+    elseif(cl STREQUAL "ga01")
+      # the isotropic background (docs/otvet_background.md) with a fixed
+      # Lambda: the box's is ~0 in this neutral problem
+      set(clargs --set otvet_background=ga01 --set otvet_background_fix=0.5)
     else()
       set(clargs --set otvet_closure=cone --set otvet_cone_nside=2)
     endif()
@@ -954,6 +990,13 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_tcap_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_tcap)
     set_tests_properties(plane_tcap PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full")
+    # plane_packet_rescale (docs/plane_parallel.md "Packet rescaling"): the
+    # sweep's packets in flight rescaled to the current RT substep, so
+    # Gamma_HI does not dip at the c_reduced switch (tests/plane_rescale_check.py)
+    add_test(NAME plane_rescale
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_rescale_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_BINARY_DIR}/plane_rescale)
+    set_tests_properties(plane_rescale PROPERTIES TIMEOUT 1800 LABELS "physics;plane;full" PROCESSORS 4)
     # the scaled-down DM20 problem (0.256 Mpc/h, 32^3, z_re = 8, Gamma_-12 =
     # 0.3, cooling on): the post-front temperature and the clumping factor
     # (~ minutes: label nightly)
@@ -1088,8 +1131,14 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_cone 13 --set rt_method=otvet
                      --set otvet_closure=cone --set otvet_cone_nside=2 --set recomb_case=A
                      --set recomb_rad=1)
-    set_tests_properties(restart_smoke_otvet_split restart_smoke_otvet_cone PROPERTIES TIMEOUT 900
-                         LABELS "restart;moments")
+    # the ga01 background field through the checkpoint (version 10)
+    add_test(NAME restart_smoke_otvet_ga01
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_ga01 13 --set rt_method=otvet
+                     --set otvet_background=ga01 --set otvet_background_fix=0.5)
+    set_tests_properties(restart_smoke_otvet_split restart_smoke_otvet_cone restart_smoke_otvet_ga01
+                         PROPERTIES TIMEOUT 900 LABELS "restart;moments")
     # tensor_dump (docs/otvet_closure.md section 1) is a pure diagnostic: the
     # other outputs byte-identical with and without it, for rays (with
     # recombination rays) and OTVET; and independent of the thread count
@@ -1808,6 +1857,18 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
       if(NOT RADRAY_NIGHTLY_TESTS)
         set_tests_properties(amrex_rt_amr_ifront PROPERTIES DISABLED TRUE)
       endif()
+      # the same with the moment RT (M1) on the levels (docs/moment_amr.md):
+      # the refined front against the uniform M1 runs at N and 2N
+      add_test(NAME amrex_moment_amr_ifront
+               COMMAND ${CMAKE_COMMAND}
+                 -DLAUNCH=${RADRAY_MPIEXEC} "-DLAUNCH_FLAGS=${RADRAY_MPIEXEC_FLAGS}"
+                 -DNPFLAG=${RADRAY_MPIEXEC_NP} -DNP=2 -DNT=2
+                 -DDRIVER=$<TARGET_FILE:radhydro> -DPYTHON=${Python3_EXECUTABLE}
+                 -DSRC=${PROJECT_SOURCE_DIR} -DOUT=${amrex_runs}/moment_amr_ifront -DN=32 -DHALF=4
+                 "-DSETS=--set;rt_method=m1" "-DSETS_UNI=--set;amrex_slab=1" "-DSETS_AMR=--set;amrex_slab=0;--set;amrex_max_grid_size=8"
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/rt_amr_ifront.cmake)
+      set_tests_properties(amrex_moment_amr_ifront PROPERTIES TIMEOUT 3600 LABELS "amrex;amr;moments;amrex_moments"
+                           ENVIRONMENT OMP_NUM_THREADS=2 PROCESSORS 2)
       # the 8 sources of uniform_8src, one level over a box where fronts
       # cross the level boundary and overlap there (rt_amr_ifront8.slurm's
       # BOX1), against uniform 32^3 and 64^3 (ifront_multi.py --check)
@@ -1925,6 +1986,12 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                      --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
     set_tests_properties(amrex_plane_full PROPERTIES TIMEOUT 3600 LABELS "amrex;plane;physics;full"
                          ENVIRONMENT OMP_NUM_THREADS=1 PROCESSORS 2)
+    add_test(NAME amrex_plane_rescale
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plane_rescale_check.py
+                     $<TARGET_FILE:radhydro> ${amrex_runs}/plane_rescale --amrex $<TARGET_FILE:radhydro>
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2)
+    set_tests_properties(amrex_plane_rescale PROPERTIES TIMEOUT 3600 LABELS "amrex;plane;physics;full"
+                         PROCESSORS 4)
     # amrex_slab = 1: the shared decomposition as z-slabs (P planes; 0 = N /
     # ranks), byte-identical to the host state on the default boxes; N = 16:
     # 3 ranks hold 2, 1, 1 slabs of 4; P = 2 is thinner than the hydro's
@@ -2073,6 +2140,55 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                            LABELS "amrex;amrex_state;moments;amrex_moments;restart" ENVIRONMENT OMP_NUM_THREADS=1
                            PROCESSORS ${np})
     endforeach()
+    # The moment RT on the refined levels (docs/moment_amr.md, M1): the smoke
+    # problem with two levels over a fixed region, byte-identical over 1, 2
+    # and 3 ranks and through a restart; every level on the hydro's boxes
+    # (the refined levels refuse slabs), the sums in fixed point
+    set(mamr_sets --set rt_method=m1 --set legacy_rt=0 --set legacy_physics=0 --set rt_backend=amrex
+                  --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                  --set pm_backend=amrex --set amrex_state=1 --set amrex_slab=0 --set amrex_max_grid_size=8
+                  --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=4,4,4,11,11,11
+                  --set movie_dz=0.5 --set movie_z0=25 --set fields=fHI,gammaHI,gammaHI_avg)
+    add_test(NAME amrex_moment_amr_ranks_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/moment_amr_ranks "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                     ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_sets}
+                     --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_moment_amr_ranks_smoke PROPERTIES TIMEOUT 3600
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_moment_amr_restart_smoke
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/moment_amr_restart 13 ${mamr_sets})
+    set_tests_properties(amrex_moment_amr_restart_smoke PROPERTIES TIMEOUT 2400
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1
+                         PROCESSORS 2)
+    # the same with the OTVET cone tensor (the tensor on the slab shadow of
+    # level 0, prolonged onto the levels)
+    set(mamr_cone_sets --set rt_method=otvet --set otvet_closure=cone --set otvet_cone_nside=2 --set amrex_slab_planes=4
+                       --set legacy_rt=0 --set legacy_physics=0 --set rt_backend=amrex
+                       --set hydro_scheme=unsplit --set hydro_backend=amrex --set amrex_hydro_max_grid_size=0
+                       --set pm_backend=amrex --set amrex_state=1 --set amrex_slab=0 --set amrex_max_grid_size=8
+                       --set amrex_max_level=2 --set amrex_refine_mass=1e9 --set amrex_refine_box=4,4,4,11,11,11
+                       --set movie_dz=0.5 --set movie_z0=25 --set fields=fHI,gammaHI,gammaHI_avg)
+    add_test(NAME amrex_moment_amr_ranks_smoke_cone
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/rank_check.py
+                     ${amrex_runs}/moment_amr_ranks_cone "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}"
+                     ${RADRAY_MPIEXEC_NP} "1 2 3" $<TARGET_FILE:radhydro>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke --quiet ${mamr_cone_sets}
+                     --set restart_every=1 --set restart_keep_latest=0)
+    set_tests_properties(amrex_moment_amr_ranks_smoke_cone PROPERTIES TIMEOUT 3600
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+    add_test(NAME amrex_moment_amr_restart_smoke_cone
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     --launch "${RADRAY_MPIEXEC}" "${RADRAY_MPIEXEC_FLAGS}" ${RADRAY_MPIEXEC_NP} 2
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${amrex_runs}/moment_amr_restart_cone 13 ${mamr_cone_sets})
+    set_tests_properties(amrex_moment_amr_restart_smoke_cone PROPERTIES TIMEOUT 2400
+                         LABELS "amrex;amrex_state;moments;amrex_moments;amr;restart" ENVIRONMENT OMP_NUM_THREADS=1
+                         PROCESSORS 2)
     add_test(NAME amrex_slab_restart_smoke
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke

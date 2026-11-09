@@ -426,6 +426,10 @@ def main():
         if a.plane_couple_courant > 0:
             lines += ["# every step from the turn-on at most this fraction of the hot gas's cell crossing",
                       f"plane_couple_courant = {a.plane_couple_courant:g}"]
+        if a.plane_transport == "sweep":
+            lines += ["# the packets in flight rescaled to the current RT substep (no Gamma waves across the",
+                      "# domains when dt_rt changes; docs/plane_parallel.md \"Packet rescaling\")",
+                      "plane_packet_rescale = 1"]
     if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
         lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
     if a.dt_max_myr > 0:

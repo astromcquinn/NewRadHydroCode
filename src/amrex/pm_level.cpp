@@ -1440,16 +1440,13 @@ struct PMLevel {
     // the spill reaches ng fine cells beyond the boxes (the deposits' ghost
     // layers), i.e. the parent cells within (ng + 2) / 2 of the coarsened box
     const int ng = M.acc.nGrow(), ngc = (ng + 2) / 2;
-    // pm_level_subcycle: a parent cell whose stencil spans several of the
-    // level's boxes gets one partial sum from each; truncating each partial
-    // by the division makes the total depend on how the boxes are cut (by
-    // the rank count: AmrMesh chops the refined grids by it). With the flag
-    // the partials carry their quotient and remainder (floor division) and
-    // are divided once after the sum: exact, layout-independent. (Without
-    // it the original truncation stays: byte-identical, docs/stage_g.md 6.9.)
-    const bool exact = subcycle;
-    const int ncr = exact ? 2 : 1;
-    LFab cr(ax::coarsen(M.ba, 2), M.dm, ncr, ngc);
+    // A parent cell whose stencil spans several of the level's boxes gets
+    // one partial sum from each; truncating each partial by the division
+    // would make the total depend on how the boxes are cut (by the rank
+    // count: AmrMesh chops the refined grids by it). The partials carry
+    // their floor quotient and remainder and are divided once after the
+    // sum: exact, layout-independent (docs/stage_g.md section 1 item 3).
+    LFab cr(ax::coarsen(M.ba, 2), M.dm, 2, ngc);
     cr.setVal(0);
     for (ax::MFIter mfi(cr); mfi.isValid(); ++mfi) {
       const ax::Box cbx = mfi.validbox();
@@ -1475,23 +1472,15 @@ struct PMLevel {
                 continue;  // another box's cell (it adds it) or beyond the reach of any CIC cloud
               sum += static_cast<i128>(v) * (kw[di + 1] * kw[dj + 1] * kw[dk + 1]);
             }
-        if (exact) {
-          const i128 S = sum * mul;
-          i128 q = S / 512, rem = S % 512;
-          if (rem < 0) {
-            rem += 512;
-            q -= 1;
-          }
-          c(i, j, k, 0) = static_cast<Long>(q);
-          c(i, j, k, 1) = static_cast<Long>(rem);
-        } else {
-          c(i, j, k) = static_cast<Long>((sum * mul) / 512);
+        const i128 S = sum * mul;
+        i128 q = S / 512, rem = S % 512;
+        if (rem < 0) {
+          rem += 512;
+          q -= 1;
         }
+        c(i, j, k, 0) = static_cast<Long>(q);
+        c(i, j, k, 1) = static_cast<Long>(rem);
       });
-    }
-    if (!exact) {
-      TOT(l - 1).ParallelAdd(cr, 0, 0, 1, ngc, 0, PER(l - 1));
-      return;
     }
     LFab R(BA(l - 1), DM(l - 1), 2, 0);
     R.setVal(0);

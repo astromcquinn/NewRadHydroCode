@@ -324,6 +324,18 @@ struct Config {
   double otvet_cone_smax = 8;
   int otvet_cone_budget = 1;
   double otvet_cone_blend = 4;
+  // The isotropic background of Gnedin & Abel 2001, eq. 17
+  // (docs/otvet_background.md; set_otvet_closure_param). New options, not
+  // in the original; the default keeps one field with the thin tensor:
+  //   otvet_background: 0 = none (default), 1 = ga01: a second field per
+  //                group with the isotropic tensor, which receives
+  //                min(N, Lambda_g s_g) of each cell's photons per substep
+  //                (s_g the box-mean injection), Lambda_g = exp(-0.611 N_rt
+  //                <tau_cell,g>) from the box's volume-mean opacity;
+  //   otvet_background_fix: Lambda in [0, 1] for every group instead of
+  //                the box's (tests); -1 (default) = from the box.
+  int otvet_background = 0;
+  double otvet_background_fix = -1;
 
   // params.txt rt_backend = serial (default) | amrex and the parameters of
   // the AMReX backend (set_rt_backend_param in rt_backend.hpp;
@@ -583,6 +595,20 @@ struct Config {
   double plane_z_re = -1;
   double plane_alpha = 1.5;
   double plane_nu_max_ry = 4.0;
+  // params.txt plane_packet_rescale (set_plane_param; docs/plane_parallel.md
+  // "Packet rescaling"; user request 2026-11-05). plane_transport = sweep
+  // only. A packet in flight holds the photons its face emitted in one RT
+  // substep (gamma * dtsec_rt at launch) and moves rt_cells_per_substep
+  // cells every substep, and a cell's rates are its absorbed photons over
+  // the current dtsec_rt. 0 (default) = as before: when dtsec_rt changes
+  // (a new hydro step, the c_reduced_schedule switch, a landing step) the
+  // packets launched at the old dtsec_rt give rates off by dt_old/dt_new
+  // until they leave the domain, a wave that crosses every domain. 1 = at
+  // the first substep with a new dtsec_rt, every packet in flight is
+  // multiplied by dt_new/dt_old, so it holds the photons of one current
+  // substep (the photon density follows F / c_reduced); the change counts
+  // as emitted in the photon bookkeeping (stats.txt plane_emitted).
+  bool plane_packet_rescale = false;
   // Caps on the hydro step (docs/zoom_turbulence.md section 4.4, the T4
   // test; timestep_core in cosmology.cpp), both off (0) by default:
   //   dt_max_myr:      the hydro step is at most this many Myr;

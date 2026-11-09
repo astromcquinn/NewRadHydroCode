@@ -160,6 +160,7 @@ face (`plane_faces = +x`).
 | `plane_alpha`, `plane_nu_max_ry` | 1.5, 4 | J_ν ∝ ν^−α between 1 Ry and ν_max |
 | `photon_consume_dense` | −1 | 1: every photoionisation consumes its photon (the original's `rho_source` factor, which lets cells denser than 50× the mean ionise without consuming photons, is off); 0: the original. −1 follows `legacy_physics` (on with `legacy_physics = 0`: P11, `docs/port_notes.md` §5b, user decision 2026-10-28), so the plane runs of `make_production.py` and the tests, all with `legacy_physics = 0`, have it on; the plane-parallel problems use 1 (user decision 2026-10-29) through it. Since 2026-10-28 a general key, parsed by the drivers rather than `set_plane_param` |
 | `dt_max_myr`, `rt_substeps_max` | 0, 0 | the step caps of the T4 test (below); in plane mode they act from the turn-on |
+| `plane_packet_rescale` | 0 | 1: the sweep's packets in flight are rescaled to the current RT substep when dt_rt changes (below, "Packet rescaling"; `plane_transport = sweep` only) |
 | `land_outputs` | 0 | 1: the hydro step before a `zdata1` output ends exactly on it (so runs with different step caps are compared at the same times), and the run ends once the last output is written (its clock can stop a few ulp above that redshift); the plane-parallel problems use 1 |
 | `plane_turnon_cfl`, `plane_turnon_temp`, `plane_turnon_courant` | 1, 2e4, 0.05 | the step that starts at `plane_z_re` is at most `plane_turnon_courant` × the CFL step with the sound speed of ionised gas at `plane_turnon_temp` (K) added (below; 2026-10-28; the T4 test needs a Courant fraction ≈ 0.05 to remove the turn-on lag, the default by the user's decision); `plane_turnon_cfl = 0` = the uncapped turn-on step of before |
 | `T_min`, `z_floor` | 0 (off), unset | the pre-heating option of §1: a temperature floor in K from z < `z_floor` on, in the RT cell physics and the hydro, a plain switch-on (user decision 2026-10-29; `docs/production_run.md` §10, `docs/thermal_history.md` §5). C26: 100 or 1000 K for z < 15; `make_production.py --T-min K` writes `z_floor = 15` |
@@ -216,6 +217,38 @@ the axis (`FillBoundary` before the advance), the deposits go into the
 level's fixed-point accumulator, and the fields follow their cells on a
 rebalance. Memory: faces × 5 floats per cell (two faces at 1024³: 43 GB
 over the ranks) against 80 B per ray in flight (170 GB).
+
+### Packet rescaling (`plane_packet_rescale`, 2026-11-05)
+
+A packet holds the photons its face emitted in one RT substep
+(N ∝ Γ_HI dt_rt at launch) and moves k cells every substep, whatever the
+substep's length; a cell's rates are its absorbed photons over the current
+dt_rt. When dt_rt changes, the packets launched at the old one give rates
+off by dt_old/dt_new until they leave the domain, a wave that crosses every
+domain at once and shows in the movies as the domain boxes sliding along
++x and +y. dt_rt changes at three places:
+- **the `c_reduced_schedule` switch.** 0.1c → 0.0025c makes dt_rt about
+  40× longer. In the C1 1024³ runs Γ_HI,V was 16× low at z = 6.99
+  (3.5×10⁻¹⁴ against 5.7×10⁻¹³ s⁻¹) and recovered by z ≈ 6.92;
+- **a hydro step cut short by a hot cell.** The substeps per step drop
+  (5 → 1) and their lengths vary from step to step. In the X-ray run a
+  ±11–15 % ripple in Γ crossed the domains at z ≈ 6.64;
+- **the step that lands on an output.** It is short, so its Γ_HI is
+  ~10× high (frames.txt at z = 6.4, 6.2), and its dim packets then cross
+  the domains.
+
+The total photons are conserved, so the time-averaged rate is right, but
+the instantaneous rate is not.
+
+`plane_packet_rescale = 1` (`plane_transport = sweep` only; serial and
+backend) multiplies every packet in flight by dt_new/dt_old at the first
+substep with a new dt_rt (`plane_packet_scale`, before the cast), so a
+packet always holds the photons of one current substep. Lowering ĉ then
+raises the photon density in flight, n_γ = F/ĉ. The change counts as
+emitted in the bookkeeping (`plane_emitted`), which therefore still
+closes. The default 0 is the behaviour before. The ray transport
+(`plane_transport = rays`, and the halo sources' rays outside this mode)
+has the same property and no rescaling.
 
 ### Spectrum and normalisation (`plane_spectrum`, `src/plane_parallel.cpp`)
 
@@ -325,6 +358,7 @@ slowed down.
 | `plane_xray` (`tests/plane_xray_check.py`, `radhydro`, 16³ Zel'dovich box) | `xray_heating = 1` before z_re = 9 at log L_X/SFR = 40.5: mass-weighted T 200 K at z_re; `plane_xray_substeps = 10`: 10 substeps per step before z_re, mass-weighted T and x_HII at z_re within 3 % of the light-crossing count (−1.6 %), T_V, T_M, x_HII,V at the end within 2 % |
 | `plane_tcap` (`tests/plane_tcap_check.py`, `radhydro`, 16³ Zel'dovich box) | `T_max = 1e15` byte-identical to off (every step's stats and fields); `T_max = 1.2e4` binds: the hydro clamps 3664 cell-substeps, the RT temperature after z_re at most T_max (11 981 K against 84 420 K uncapped), still ionised (x_HII,V = 0.99999) |
 | `plane_dm20` (nightly) | the scaled-down DM20 problem: 0.256 Mpc/h, 32³, z_re = 8, Γ_−12 = 0.3, cooling on, to z = 7: x_HII,V > 0.99, T_M of the ionised gas in 1–3 × 10⁴ K, the clumping factor in 1–10 |
+| `plane_rescale` (`tests/plane_rescale_check.py`, the `plane_full` box with sweep, `dt_max_myr = 0.3`, a movie frame every dz = 5e-4) | the default dips at the 0.1c → 0.01c switch (Γ_HI,V 5.98 → 2.06 × 10⁻¹², recovering as the domains refill); `plane_packet_rescale = 1` holds Γ_HI,V within 0.23 % of its value before the switch to the end, the bookkeeping closes to 2e-7, 1 and 4 threads give identical stats and frames; `amrex_plane_rescale`: the backend's Γ_HI,V history matches the serial run to 1e-4 |
 | `amrex_plane_rt`, `amrex_plane_full` | the same on the AMReX backend with 2 ranks; the full loop against the serial run (x_HII,V and T_M to 1e-4, fHI to 1e-3), and the capped turn-on step: the steps to it bit for bit those of the serial run (the later CFL steps to 4e-8) |
 
 The bitwise suite is untouched: every new flag defaults to the original.
