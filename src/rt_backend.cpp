@@ -137,6 +137,9 @@ void check_rt_backend_param(const Config& c) {
   if (c.det_parallel && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex: deterministic_parallel applies to the serial backend only");
   if (c.N_rt_gas != 1) throw std::runtime_error("rt_backend = amrex needs N_rt_gas = 1");
+  if (c.otvet_background)
+    throw std::runtime_error("otvet_background = ga01 is implemented on the serial moment solver only "
+                             "(docs/otvet_background.md)");
 }
 
 int amrex_slab_planes(const Config& c, int N, int nranks) {

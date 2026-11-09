@@ -44,7 +44,10 @@ constexpr char kMagic[8] = {'R', 'A', 'D', 'R', 'A', 'Y', 'C', 'K'};
 // as they were (amrex_rt_restore_levels; with the levels' fgam of the last
 // substep in the level directory, amrex_rt_write_levels); earlier
 // checkpoints restore them with dr recomputed from r, as before.
-constexpr std::int32_t kVersion = 9;
+// Version 10 (otvet_background = ga01, docs/otvet_background.md): the
+// background field of the moment RT (n, fx, fy, fz, e) and its cumulative
+// transfer after the star particles (empty when off).
+constexpr std::int32_t kVersion = 10;
 
 // The ray layout of versions <= 4
 struct RayV4 {
@@ -322,6 +325,22 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     // (amrex_pm_gather_stars before the call) and the running count
     o.pod(pm.nstar);
     o.vec(pm.stars);
+    // the ga01 background (version 10): the serial moment solver only
+    {
+      const MomentState* M = level_moments ? nullptr : s.moments.get();
+      const std::vector<float> nobg;
+      const std::vector<float>* b[5] = {&nobg, &nobg, &nobg, &nobg, &nobg};
+      if (M && !M->bn.empty()) {
+        b[0] = &M->bn;
+        b[1] = &M->bfx;
+        b[2] = &M->bfy;
+        b[3] = &M->bfz;
+        b[4] = &M->be;
+      }
+      for (int q = 0; q < 5; ++q) o.vec(*b[q]);
+      const double moved = M ? M->bg_moved : 0;
+      o.pod(moved);
+    }
     o.f.write(kMagic, 8);
     if (!o.f) throw std::runtime_error("error writing " + tmp);
   }
@@ -652,6 +671,27 @@ int read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::
   if (ver >= 8) {  // every rank reads the (small) star list; amrex_pm_load_stars keeps its own
     in.pod(pm.nstar);
     in.vec(pm.stars);
+  }
+  if (ver >= 10) {
+    // the ga01 background; empty when the writer had none (off, or the RT
+    // not started): then a fresh, empty background
+    std::vector<float> b[5];
+    for (int q = 0; q < 5; ++q) in.vec(b[q]);
+    double moved = 0;
+    in.pod(moved);
+    if (!b[0].empty() && !s.cfg.otvet_background)
+      throw std::runtime_error("checkpoint has an otvet_background field, this run has none: " + path);
+    if (!b[0].empty() && s.moments) {
+      MomentState& M = *s.moments;
+      const std::int64_t n = kNfreq * M.ncell;
+      std::vector<float>* dst[5] = {&M.bn, &M.bfx, &M.bfy, &M.bfz, &M.be};
+      for (int q = 0; q < 5; ++q) {
+        if (static_cast<std::int64_t>(b[q].size()) != n)
+          throw std::runtime_error("checkpoint: otvet_background field of the wrong size: " + path);
+        *dst[q] = std::move(b[q]);
+      }
+      M.bg_moved = moved;
+    }
   }
   in.f.read(m, 8);
   if (!in.f || std::memcmp(m, kMagic, 8) != 0)

@@ -14,6 +14,13 @@
 // dump's layout (10 float32 per cell: S0, S1 = 0, S2 = S0 h), with
 // otvet_split = 1 applied to the Gamma-weighted S0
 // (P = S0 I/3 + min(S0, N_dir)(h - I/3)), for tensor_compare.py --moment.
+//
+// --set otvet_background=ga01 (docs/otvet_background.md section 4c): the
+// pressure-only form of the ga01 background, the a priori proxy for it,
+// P = S0 h + min(S0, Lambda <S0>)(I/3 - h) with the thin h, <S0> the box
+// mean and Lambda the source-spectrum Gamma-weighted mean of Lambda_g =
+// exp(-0.611 N <tau_cell,g>) (tau_cell,g from rhog, fHI, fHeI and fHeII as
+// calc_rt_1), or otvet_background_fix. Also reads fHeI.bin, fHeII.bin.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -30,6 +37,8 @@
 #include "radray/cosmology.hpp"
 #include "radray/otvet_closure.hpp"
 #include "radray/parallel.hpp"
+#include "radray/rt_moments.hpp"
+#include "radray/rt_rates.hpp"
 
 using namespace radray;
 
@@ -140,6 +149,37 @@ int main(int argc, char** argv) {
     for (std::size_t c = 0; c < nc; ++c) xion[c] = 1.0f - fHI[c];
     in.xion = xion.data();
 
+    // ga01's pressure-only form: the background share Lambda <S0> per cell
+    double bg_share = -1;
+    if (cfg.otvet_background) {
+      const std::vector<float> fHeI = read_floats(dir + "/fHeI.bin", nc);
+      const std::vector<float> fHeII = read_floats(dir + "/fHeII.bin", nc);
+      const SigmaTable sig = photoion_sigma(cp::freq_init);
+      double tau[kNfreq] = {}, lam[kNfreq], s0 = 0;
+      for (std::size_t c = 0; c < nc; ++c) {
+        const double rg = static_cast<double>(rhog[c]) * u.rhob_avg;
+        const double nH = rg * cp::XHy / pc::mH_cgs, nHe = rg * cp::YHe / pc::mHe_cgs;
+        const double a = nH * static_cast<double>(fHI[c]), b = nHe * static_cast<double>(fHeI[c]),
+                     d = nHe * static_cast<double>(fHeII[c]);
+        for (int g = 0; g < kNfreq; ++g)
+          tau[g] += static_cast<double>(
+              static_cast<float>((((0.0 + a * sig[0][g]) + b * sig[1][g]) + d * sig[2][g]) * u.len_rt));
+        s0 += nw[c];
+      }
+      double wl = 0, ws = 0;
+      std::printf("ga01: Lambda_g");
+      for (int g = 0; g < kNfreq; ++g) {
+        tau[g] /= static_cast<double>(nc);
+        lam[g] = cfg.otvet_background_fix >= 0 ? cfg.otvet_background_fix : std::exp(-kGa01Path * N * tau[g]);
+        wl += in.q[g] * in.sigma18[g] * lam[g];
+        ws += in.q[g] * in.sigma18[g];
+        std::printf(" %.4g", lam[g]);
+      }
+      const double L = ws > 0 ? wl / ws : 0;
+      bg_share = L * s0 / static_cast<double>(nc);
+      std::printf("; Gamma-weighted Lambda %.4g, <S0> %.4g\n", L, s0 / static_cast<double>(nc));
+    }
+
     OtvetClosureOut out;
     for (int it = 0; it < repeat; ++it) {
       otvet_closure_tensor(p, method, in, out);
@@ -156,7 +196,11 @@ int main(int argc, char** argv) {
       const double S0 = nw[c];
       const float* h = &out.h[6 * c];
       double P[6];
-      if (!out.ndir.empty() && S0 > 0) {
+      if (bg_share >= 0 && S0 > 0) {
+        const double m = std::min(S0, bg_share);
+        for (int k = 0; k < 3; ++k) P[k] = S0 * static_cast<double>(h[k]) + m * (1.0 / 3 - static_cast<double>(h[k]));
+        for (int k = 3; k < 6; ++k) P[k] = (S0 - m) * static_cast<double>(h[k]);
+      } else if (!out.ndir.empty() && S0 > 0) {
         const double m = std::min(S0, qw * static_cast<double>(out.ndir[c]));
         for (int k = 0; k < 3; ++k) P[k] = (S0 - m) / 3 + m * static_cast<double>(h[k]);
         for (int k = 3; k < 6; ++k) P[k] = m * static_cast<double>(h[k]);
