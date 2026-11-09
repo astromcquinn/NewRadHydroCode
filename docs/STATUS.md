@@ -104,6 +104,14 @@
   `figures/taueff_21cmfast_*_snap*.png`). Normalised: medians within 2 %;
   width M1 +24 % at z = 5.47 and +11–14 % at z ≥ 6, thin OTVET −12–14 %
   after overlap, cone within 7 %.
+* **21cmFAST with our mass weighting** (B1m, `excursion_set.py run-mass`,
+  report B.1): E-INTEGRAL, ALPHA_STAR = a(z) − 1 = 0.43–0.46 from the
+  abundance matching, ALPHA_ESC = 0, POP2_ION tuned to x_V. It is now the
+  21cmFAST column of Figure 8, which shows only R_max = 15 Mpc (no
+  λ_mfp variant, no own-ICs B2: user, 2026-11-06). It agrees slightly
+  less well than constant ζ: more power at large scales, r(k) lower by
+  0.05–0.13 at k ≈ 0.5–1 h/Mpc. The source weighting is not what limits
+  21cmFAST here.
 * **Deferred (user, 2026-11-06):** the observed τ_eff distributions
   (Bosman+22) and the reference check are on hold; the comparison
   between methods is to be made at the same mean free path. Optional:

@@ -6,6 +6,7 @@
 #   PHASE=slabs      sbatch -c 28 --mem=120G tools/hyak/taueff_21cmfast.slurm  # Part A4: movie slabs + calibration
 #   PHASE=es         sbatch -c 10 --mem=40G  tools/hyak/taueff_21cmfast.slurm  # B1: the criterion on the suite's density
 #   PHASE=standalone sbatch -c 32 --mem=200G tools/hyak/taueff_21cmfast.slurm  # B2: 21cmFAST with its own ICs
+#   PHASE=es_mass    sbatch -c 40 --mem=180G tools/hyak/taueff_21cmfast.slurm  # B1m: E-INTEGRAL, our mass weighting
 #   PHASE=figures    sbatch -c 4  --mem=60G  tools/hyak/taueff_21cmfast.slurm  # Figure 8 (needs es, standalone)
 #
 # Run from the checkout. The 21cmFAST phases use the conda env
@@ -62,6 +63,14 @@ case "$PHASE" in
     python tools/analysis/excursion_set.py run "$RUNS/reion512_rays" --steps 61,69,74,78,84 \
       --out "$OUT/es" --rmax 15 --rmax-mfp "$RUNS/rt_methods_512/igm/igm_reion512_rays.json"
     ;;
+  es_mass)     # B1m: the mass-dependent sources (one step per process; 8 threads each)
+    use_21cmfast
+    for st in 61 69 74 78 84; do
+      srun -n 1 -c 8 --exclusive python tools/analysis/excursion_set.py run-mass "$RUNS/reion512_rays" \
+        --steps $st --out "$OUT/es" --pop2-start 4500 --threads 8 &
+    done
+    wait
+    ;;
   standalone)
     use_21cmfast
     python tools/analysis/excursion_set.py standalone "$RUNS/reion512_rays" --steps 61,69,74,78,84 \
@@ -71,10 +80,10 @@ case "$PHASE" in
     source tools/hyak/env.sh
     L=""; i=0
     for r in $NAMES; do L="$L $RUNS/reion512_$r:${LABELS[$i]}"; i=$((i + 1)); done
-    python3 tools/analysis/excursion_set.py figure "$OUT/es" $L --outdir "$OUT/es/fig_r15" --es rmax15
+    python3 tools/analysis/excursion_set.py figure "$OUT/es" $L --outdir "$OUT/es/fig_mass" --es rmax15_mass
     ;;
   *)
-    echo "PHASE must be taueff, slabs, es, standalone or figures" >&2
+    echo "PHASE must be taueff, slabs, es, es_mass, standalone or figures" >&2
     exit 1
     ;;
 esac
