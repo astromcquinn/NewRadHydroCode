@@ -236,7 +236,7 @@ SourceCatalog onthefly_catalog(const Config& cfg, const SimClock& clk, const Uni
 // is not a halo/source key. Keys: source_mode (legacy|onthefly), dir_halo,
 // fof_b, fof_min_npart, fof_so (0|1), sfr_model (global|dynamical|
 // abundance), tvir_min, m_min, l_per_sfr, sfr_history, write_catalogs
-// (directory), add_metals (0|1), and for sfr_model = abundance: am_l0, am_l1,
+// (directory), add_metals (0|1), fof_dt_myr, and for sfr_model = abundance: am_l0, am_l1,
 // am_l2, am_a0, am_a1, am_m0, am_m1, am_b, am_z0, am_zlo, am_zhi,
 // am_norm_z, am_norm_dl (comma-separated lists), xi_ion (log10), f_esc,
 // f_esc_beta, f_esc_z0, f_esc_max.

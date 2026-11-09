@@ -1,5 +1,59 @@
 // Port of rt_tools.f90, domain_tools.f90 (RT domains) and
 // halo_tools.f90 (calc_halo / add_halo_to_rt).
+//
+// Reading guide: the RT of one hydro step (rt_tools.f90 radiative_transfer;
+// docs/validation_spec.md; docs/port_notes.md section 1 has the routine map
+// and sections 5, 5a, 5b the quirks and the fixes referred to by B*/P* below).
+//
+//   radiative_transfer
+//     prep_rt         calc_rt_i: the gas averaged onto the RT grid (rhog, fHI,
+//                     fHeI, fHeII, temp); the ray free buffer (Nrbuf), or
+//                     moment_prep (the OTVET tensor of this hydro step)
+//     istep_rt = 1 .. nstep_rt     one RT cell of light travel per substep at
+//                                  the (reduced) speed of light; dt_rt = dt/nstep_rt
+//       rt_step_1     calc_rt_1: ngam, nu, dx, fgam, gamma, lambda zeroed; tau
+//                     of the (partly) ionised cells from the gas state (every
+//                     cell with legacy_rt = 0, B3/B4).
+//                     calc_ray_1: the histogram of the live rays' photon counts
+//                     gives the thresholds ngam_ray(1:64): a ray fainter than
+//                     ngam_ray(16) merges, one brighter than ngam_ray(32) may
+//                     split (rrk::classify); the F3 pool guard (legacy_rt = 0).
+//                     ray_tracing_1 over the domains: in each cell with rays or
+//                     a source, emit (ray_source), then for each ray of the
+//                     chain cast / split / merge / remove, and deposit its
+//                     photons along its path (ray_cast_1): ngam, nu*ngam and
+//                     dx*ngam per cell crossed.
+//       rt_step_2     radiative_physics, k-plane by k-plane: photo_cell solves
+//                     the ionisation balance, photo-heating and cooling of the
+//                     gas cells of each RT cell with the deposited photons
+//                     (kernels/rt_cell.hpp), limits the photoionisations to the
+//                     photons available and leaves the transmitted fraction
+//                     fgam per group.
+//       rt_step_3     ray_tracing_3: ray_cast_3 attenuates each ray by the fgam
+//                     of the cells on its path, moves it one cell
+//                     (rt_cells_per_substep cells) and deletes it when faint;
+//                     accumulate_rt_stats sums the substep into rt_save.
+//       the clock advances by dt_rt
+//     post_rt         ray_redshifting (or moment_redshift): the spectra over
+//                     the hydro step; calc_rt_f: gas -> RT grid and tau; the
+//                     ray PDFs of ray.log.
+//
+// Chains and snapshots: the rays of a cell form a doubly linked list through
+// Ray::next/prev whose head and tail are rt_grid%htoc_ray(3:4) (live, updated
+// by ray_insert_* and ray_remove) and htoc_ray(1:2) (the snapshot a sweep
+// iterates, taken by the sync at the end of rt_step_1 and rt_step_3). A ray
+// relinked into another cell during a sweep lands behind that cell's snapshot
+// tail, so no ray is processed twice in one sweep; the daughters of a split
+// and a merged ray are cast at once (ray_cast_split, ray_cast_merge), and the
+// emission of a source moves the snapshot head (ray_source).
+//
+// The alternatives switched in here: rt_method = m1 | otvet (moment_step_1/3
+// replace the casting, rt_moments.hpp; the physics is the same photo_cell),
+// rt_backend = amrex (the whole substep on the AMReX level, rt_backend.hpp),
+// deterministic_parallel = 1 (the colour-ordered domain sweep det_sweep,
+// independent of the thread count), plane_parallel = 1 (face sources,
+// plane_parallel.hpp), recomb_rad = 1 (recombination rays, recomb_rad.hpp)
+// and xray_heating (a uniform X-ray background inside photo_cell).
 #include "radray/rt.hpp"
 #include "radray/plane_parallel.hpp"
 

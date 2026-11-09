@@ -1,4 +1,23 @@
 // Moment-based radiative transfer (rt_moments.hpp, docs/rt_moments.md).
+//
+// Reading guide (the equations and the scheme are in rt_moments.hpp):
+//   set_rt_method_param ...   the params.txt keys of the moment RT and its closures
+//   otvet_kernel, compute_otvet_tensor
+//                             the thin OTVET tensor h = P / tr P from the sources
+//                             (direct sum, or the FFT of src/rt_moments_fft.cpp)
+//   moment_init, moment_prep  the state; once per hydro step the tensor (thin, or
+//                             the screen / cone / split of otvet_closure.hpp)
+//   transport_group           one GLF subcycle of one group (mk::flux_cell and
+//                             mk::glf_cell, kernels/moment_cell.hpp)
+//   moment_step_1             the rt_step_1 of the moments: calc_rt_1, the source
+//                             injection (moment_inject: before or after the
+//                             transport), moment_nsub subcycles per group, then the
+//                             deposit for radiative_physics (ngam = N, nu*ngam = E,
+//                             dx = the sum over groups of F)
+//   moment_step_3             the rt_step_3: N, F, E scaled by photo_cell's fgam
+//   moment_redshift           post_rt: the group spectra redshifted cell by cell
+// The photon budget (injected, absorbed, lost) is kept in photons per H atom of
+// the box, like rt_stat%ngam, and written to ray.log after each hydro step.
 #include "radray/rt_moments.hpp"
 #include "radray/otvet_closure.hpp"
 #include "radray/recomb_rad.hpp"

@@ -1,3 +1,19 @@
+// The RT validation problems' input and output (include/radray/io.hpp,
+// docs/validation_spec.md): params.txt parsing into ProblemParams
+// (read_params, and set_param for the drivers' --set key=value), the problem
+// inputs gas.bin (the gas state at z_init) and sources.txt (the RT sources),
+// and the per-step validation outputs of rt_driver: the rt_grid and gas
+// fields as raw float32 files, stats.txt and rt_stats.txt, in the layout of
+// the gfortran harness (reference/fortran/harness) so that
+// tools/compare/compare.py can check them bit for bit.
+//
+// The flat ProblemParams fields are the keys the RT driver itself applies
+// to Config; the keys of the parameter groups owned by other modules (the
+// RT method and moment solvers, the RT backend, the plane-parallel mode,
+// the cosmology) go through their set_*_param functions into the Config
+// ProblemParams::rtm, which the drivers copy into the simulation's Config.
+// Unknown keys are ignored, as in the Fortran harness. radhydro has its own
+// parser (apps/radhydro.cpp) that calls the same group functions.
 #include "radray/io.hpp"
 
 #include "radray/cosmology.hpp"
@@ -16,6 +32,7 @@
 namespace radray {
 
 namespace {
+// leading and trailing blanks of a key or value
 std::string trim(const std::string& s) {
   const auto a = s.find_first_not_of(" \t\r\n");
   if (a == std::string::npos) return "";
@@ -23,6 +40,8 @@ std::string trim(const std::string& s) {
   return s.substr(a, b - a + 1);
 }
 
+// the binary files are raw little-endian float32 (docs/validation_spec.md);
+// no byte swapping is implemented
 bool little_endian() {
   const std::uint32_t one = 1;
   unsigned char b;
@@ -31,6 +50,10 @@ bool little_endian() {
 }
 }  // namespace
 
+// One `key = value` entry (a params.txt line or a --set argument). The
+// string-valued keys (the dump directory, the method and backend names, the
+// plane-parallel keys) are matched before the Fortran-exponent rewrite
+// below, which would turn a 'd' in their values into 'e'.
 void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   const std::string key = trim(key_in);
   val = trim(val);
@@ -42,7 +65,8 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   if (set_rt_backend_param(p.rtm, key, val)) return;  // rt_backend.hpp
   if (set_plane_param(p.rtm, key, val)) return;       // plane_parallel.hpp
   for (auto& ch : val)
-    if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents
+    if (ch == 'd' || ch == 'D') ch = 'e';  // accept Fortran exponents (1d-4)
+  // from here on the values are numbers (or the share | exposure names)
   // omegam, omegab, hubble0, sigma8, ns, T_min, z_floor (cosmology.hpp)
   if (set_cosmology_param(p.rtm, key, val)) return;
   if (key == "N")
@@ -53,12 +77,14 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.da_sim = std::stod(val);
   else if (key == "nsteps")
     p.nsteps = std::stoi(val);
-  else if (key == "nray_max_factor")
+  else if (key == "nray_max_factor")  // the ray pool: Nray_max = nray_max_factor * N^3
     p.nray_max_factor = std::stoi(val);
   else if (key == "box") {
     p.box = std::stod(val);
     if (!(p.box > 0)) throw std::runtime_error("box must be > 0");
   }
+  // the ray snapshots of the compression study (ray_dump.hpp) and the lossy
+  // ray-precision experiment (ray_quant.hpp); research only
   else if (key == "ray_dump_every")
     p.ray_dump_every = std::stoll(val);
   else if (key == "ray_dump_at")
@@ -71,6 +97,9 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
     p.ray_quant_struct = std::stoi(val);
   else if (key == "ray_quant_offbits")
     p.ray_quant_offbits = std::stoi(val);
+  // the mirrored legacy flags (also in the Fortran harness) and the C++-only
+  // options, each documented at its Config field (config.hpp); the drivers
+  // copy them into s.cfg after init_simulation
   else if (key == "legacy_rt") {
     p.legacy_rt = std::stoi(val);
     if (p.legacy_rt != 0 && p.legacy_rt != 1)
@@ -125,6 +154,9 @@ void set_param(ProblemParams& p, const std::string& key_in, std::string val) {
   }
 }
 
+// params.txt: `key = value` per line, '#' to the end of the line is a
+// comment, lines without '=' are skipped; the defaults of ProblemParams
+// stand for every key not listed.
 ProblemParams read_params(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open " + path);
@@ -140,6 +172,10 @@ ProblemParams read_params(const std::string& path) {
   return p;
 }
 
+// gas.bin: float32 (9, N, N, N) in Fortran order (component fastest, then
+// i, j, k): u_gas(1:5) then w_gas(1:4) per cell, in code units at z_init.
+// The file must hold exactly 9 N^3 values; gas.u / gas.w are the host's
+// (5, N^3) and (4, N^3) arrays.
 void read_gas(const std::string& path, GasGrid& gas) {
   if (!little_endian()) throw std::runtime_error("big-endian hosts not supported");
   std::ifstream in(path, std::ios::binary);
@@ -156,6 +192,9 @@ void read_gas(const std::string& path, GasGrid& gas) {
   }
 }
 
+// sources.txt: `i j k Luv sfr` per line, 1-based RT cell indices, '#'
+// comments, Fortran exponents accepted. The driver assigns them to
+// rt_grid%Luv / %sfr as halo_tools.f90: add_halo_to_rt would.
 std::vector<Source> read_sources(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open " + path);
@@ -180,6 +219,8 @@ std::vector<Source> read_sources(const std::string& path) {
   return v;
 }
 
+// One field as raw little-endian float32, in memory order (the host arrays
+// are already in Fortran order with the component index fastest).
 void write_raw_f32(const std::string& path, const std::vector<float>& v) {
   if (!little_endian()) throw std::runtime_error("big-endian hosts not supported");
   std::ofstream out(path, std::ios::binary);
@@ -187,6 +228,12 @@ void write_raw_f32(const std::string& path, const std::vector<float>& v) {
   out.write(reinterpret_cast<const char*>(v.data()), v.size() * sizeof(float));
 }
 
+// <dir>/<field>.bin for the rt_grid fields (N^3, (Nfreq, N^3) or (3, N^3))
+// and the gas (u_gas (5, N^3), w_gas (4, N^3)), then stats.txt, the keys of
+// docs/validation_spec.md: the clock, the live ray count, the ray counters
+// of ray_save (RayStat: casts ncst1, merges nmrg1, splits nspl1, deletions
+// ndel1, as the harness writes them) and the photon total of the live rays
+// in double. %.17g keeps every double exactly.
 void write_step_output(const std::string& dir, const Simulation& s) {
   const RTGrid& G = s.rt;
   const auto P = [&](const char* name) { return dir + "/" + name + ".bin"; };
@@ -212,6 +259,7 @@ void write_step_output(const std::string& dir, const Simulation& s) {
   std::fprintf(fp, "redshift = %.17g\n", s.clk.redshift);
   std::fprintf(fp, "scalefactor = %.17g\n", s.clk.scalefactor);
   std::fprintf(fp, "nstep_rt = %d\n", s.clk.nstep_rt);
+  // live rays = allocated slots minus the free list of rt_step_1's save
   std::fprintf(fp, "nray_active = %lld\n",
                static_cast<long long>(s.rays.Nray - s.rays.save.nfree));
   std::fprintf(fp, "ncst1 = %lld\n", static_cast<long long>(rv.ncst1));
@@ -227,7 +275,12 @@ void write_step_output(const std::string& dir, const Simulation& s) {
   std::fclose(fp);
 
   // rt_stats.txt: the extra diagnostics written by the Fortran harness
-  // (reference/harness/src/rt_harness.f90: write_step_output), same keys.
+  // (reference/fortran/harness/src/rt_harness.f90: write_step_output), same
+  // keys: the timestep quantities, the mean densities and RT cell volume of
+  // the Units, the pool size, the fill counts, the step's RTStat sums (the
+  // source totals, the per-species photon, ionisation, collision and
+  // recombination counters, the mean rates, the optical depths) and the
+  // ngam_ray threshold table (64 entries, rays.hpp).
   fp = std::fopen((dir + "/rt_stats.txt").c_str(), "w");
   if (!fp) throw std::runtime_error("cannot write rt_stats.txt in " + dir);
   const RTStat& v = s.rt_save;

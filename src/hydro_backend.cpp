@@ -1,4 +1,16 @@
-// hydro_backend parameters (hydro_backend.hpp); AMReX-free.
+// The parameters of the hydro backend switch (include/radray/hydro_backend.hpp,
+// docs/stage_e_hydro.md): hydro_backend = serial (the unsplit step on the
+// host arrays, src/hydro_unsplit.cpp) | amrex (the same step on AMReX
+// MultiFabs, src/amrex/hydro_level.cpp, MPI + OpenMP). Also the parameters
+// of the refined gas hierarchy of Stage F (amrex_max_level and the AMReX
+// gridding parameters, docs/stage_f.md section 1) and of the star-formation
+// sink (sf_overdensity, sf_efficiency; docs/stage_f.md section 2), which
+// only exist on that backend. This file is AMReX-free and part of every
+// build: set_hydro_backend_param is called by the hydro_driver and radhydro
+// parameter parsers, the copy / summary / check functions by the drivers
+// after the parameters are read. The meaning of every parameter is
+// documented at its Config field (include/radray/config.hpp). The level's
+// entry points live in src/amrex/hydro_level.cpp or its stub.
 #include "radray/hydro_backend.hpp"
 
 #include <cstdio>
@@ -10,6 +22,8 @@
 
 namespace radray {
 
+// One params.txt entry: true if key belongs to this group (the value is
+// validated and stored, a bad value throws), false for any other key.
 bool set_hydro_backend_param(Config& c, const std::string& key, const std::string& val) {
   if (key == "hydro_backend") {
     if (val == "serial")
@@ -20,13 +34,21 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
       throw std::runtime_error("hydro_backend must be serial or amrex");
     return true;
   }
+  // box size of the hydro level's own decomposition; 0 = amrex_max_grid_size
+  // (required with amrex_state = 1, where the three levels share one
+  // decomposition, check_amrex_state_param)
   if (key == "amrex_hydro_max_grid_size") {
     c.amrex_hydro_max_grid_size = std::stoi(val);
     if (c.amrex_hydro_max_grid_size != 0 && c.amrex_hydro_max_grid_size < 4)
       throw std::runtime_error("amrex_hydro_max_grid_size must be >= 4 (or 0: amrex_max_grid_size)");
     return true;
   }
-  // Stage F: the hierarchy (docs/stage_f.md section 1)
+  // Stage F: the hierarchy (docs/stage_f.md section 1). amrex_max_level is
+  // the number of refined levels (0 = the single-level Stage E step);
+  // amrex_refine_mass the Lagrangian tagging threshold (a level-l cell is
+  // refined above amrex_refine_mass * 8^l times the mean gas density);
+  // amrex_regrid_every counts hydro calls (two per radhydro step); the rest
+  // are AMReX's gridding parameters of the refined levels.
   if (key == "amrex_max_level") {
     c.amrex_max_level = std::stoi(val);
     if (c.amrex_max_level < 0 || c.amrex_max_level > 8) throw std::runtime_error("amrex_max_level must be 0..8");
@@ -62,8 +84,11 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
     if (!(c.amrex_grid_eff > 0 && c.amrex_grid_eff <= 1)) throw std::runtime_error("amrex_grid_eff must be in (0, 1]");
     return true;
   }
+  // a fixed region refined to amrex_max_level in addition to the density
+  // criterion (the zoom and test hierarchies of docs/stage_f.md)
   if (key == "amrex_refine_box") {
-    // i0,j0,k0,i1,j1,k1[,i0,...] (level-0 cells, inclusive): one box per level
+    // i0,j0,k0,i1,j1,k1[,i0,...] (level-0 cells, inclusive): one box per level;
+    // a malformed number empties the list so that the message below is thrown
     std::vector<int> v;
     std::size_t pos = 0;
     try {
@@ -83,7 +108,9 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
     c.amrex_refine_nbox = static_cast<int>(v.size() / 6);
     return true;
   }
-  // the star-formation sink (docs/stage_f.md section 2)
+  // the star-formation sink (docs/stage_f.md section 2): a cell above the gas
+  // overdensity sf_overdensity loses min(1, sf_efficiency dt / t_ff) of its
+  // mass per hydro call (to a star particle with amrex_state = 1)
   if (key == "sf_overdensity") {
     c.sf_overdensity = std::stod(val);
     if (!(c.sf_overdensity >= 0)) throw std::runtime_error("sf_overdensity must be >= 0 (0 = off)");
@@ -97,6 +124,7 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
   return false;
 }
 
+// Every field of the group, from the parsed Config into the simulation's.
 void copy_hydro_backend_param(const Config& from, Config& to) {
   to.hydro_backend = from.hydro_backend;
   to.amrex_hydro_max_grid_size = from.amrex_hydro_max_grid_size;
@@ -113,6 +141,7 @@ void copy_hydro_backend_param(const Config& from, Config& to) {
   to.sf_efficiency = from.sf_efficiency;
 }
 
+// One line for the run header (hydro_driver, radhydro).
 std::string hydro_backend_summary(const Config& c) {
   if (!use_amrex_hydro(c)) return "hydro_backend = serial";
   std::string s = "hydro_backend = amrex (max_grid_size = " +
@@ -127,6 +156,8 @@ std::string hydro_backend_summary(const Config& c) {
   return s + ")";
 }
 
+// Refuses what the backend does not implement; called once by the drivers
+// after all parameters are set.
 void check_hydro_backend_param(const Config& c) {
   if (c.sf_overdensity > 0 && !use_amrex_hydro(c))
     throw std::runtime_error("sf_overdensity > 0 (the star-formation sink) needs hydro_backend = amrex");
@@ -136,6 +167,8 @@ void check_hydro_backend_param(const Config& c) {
   if (c.hydro_scheme != HydroScheme::Unsplit)
     throw std::runtime_error("hydro_backend = amrex needs hydro_scheme = unsplit (the legacy split scheme "
                              "with its pencil FFT stays on the serial code)");
+  // AMReX requires every box of a hierarchy to be a multiple of the
+  // blocking factor, level 0's boxes included
   if (c.amrex_max_level > 0) {
     if (c.amrex_fine_max_grid_size % c.amrex_blocking_factor != 0)
       throw std::runtime_error("amrex_fine_max_grid_size must be a multiple of amrex_blocking_factor");

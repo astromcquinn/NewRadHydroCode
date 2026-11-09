@@ -1,5 +1,36 @@
 // Port of ray_tracing_tools.f90 (default code path: RAYFAST and FREQ1
 // undefined). See include/radray/ray_tracing.hpp for conventions.
+//
+// The ray (rays.hpp, rrk::RayP): the HEALPix level nside and pixel ipix (NESTED
+// scheme) give its direction bin; dx is its actual unit direction (the pixel
+// centre plus the deviation inherited from its ancestors), x its position in
+// RT cells (periodic, 0..N), r the distance travelled from the effective
+// origin, dr = rmax(nside) - r the distance left until it must split, and nu,
+// ngam the 5-group spectrum (photons per <nH> and RT cell volume).
+//
+// Adaptive splitting (the adaptive ray tracing of Abel & Wandelt 2002 as used
+// by Trac & Cen 2007): level nside has 12 nside^2 rays, so one ray covers
+// 4 pi r^2 / (12 nside^2) cell faces at distance r, and
+// rmax_from_nside(nside) = nside sqrt(3 / (pi ray_per_cell)) is the radius
+// where that area reaches 1 / ray_per_cell (ray_per_cell = 1). Past it
+// (dr < 0) a ray splits into 4 daughters at level 2 nside (the 4 NESTED
+// children of its pixel, a quarter of the photons each; rrk::split), unless
+// it is fainter than ngam_ray(32). A ray fainter than ngam_ray(16) is merged
+// with the other faint rays of its cell whose directions fall in the same
+// cone (the 48 pixels of nside_merge = 2; rrk::merge_add / merge_finish:
+// photon-weighted position, direction, radius and spectrum, the level then
+// follows the mean radius). Rays below ngam_min, and rays at nside_max, are
+// removed. The thresholds ngam_ray(16), ngam_ray(32) are recomputed every
+// substep from the photon histogram of all live rays (calc_ngam_ray in
+// rt_tools.cpp), which is how the pool keeps its size.
+//
+// The substep (rt_tools.cpp has the whole sequence): ray_tracing_1 emits,
+// classifies and deposits (ray_cast_1: the photons shared over the cells of
+// the path, segment lengths from ray_segment), the physics runs, then
+// ray_tracing_3 attenuates every ray by the cells' fgam, advances it by its
+// path and relinks it to its new home cell (ray_cast_3). The storage is the
+// Fortran allocator reproduced (RayState, rays.hpp); deterministic_parallel = 1
+// replaces it by per-thread free lists (det_take / det_give).
 #include "radray/ray_tracing.hpp"
 
 #include <algorithm>

@@ -1,7 +1,7 @@
 // Abundance matching of halo UV luminosities to observed high-redshift UV
 // luminosity functions (docs/abundance_matching.md).
 //
-//  1. UVLuminosityFunction: Schechter or double-power-law fits, one entry
+//  1. LFEntry: Schechter or double-power-law fits, one entry
 //     per (redshift, reference), read from a text table (data/uv_lf/).
 //  2. abundance_match: at the redshift of an entry, M_UV(M_halo) from
 //     n_halo(>M) = n_gal(<M_UV), with an analytic halo mass function
@@ -57,7 +57,7 @@ struct LFEntry {
 };
 
 // Text table, one entry per line, '#' starts a comment:
-//   z  form(schechter|dpl)  Mstar  phistar  alpha  beta  M_bright  M_faint
+//   z  form(schechter|dpl|schechter_curv)  Mstar  phistar  alpha  beta  M_bright  M_faint
 //   weight  ref  status(confirmed|unconfirmed)
 // beta is ignored (write 0) for Schechter entries.
 std::vector<LFEntry> read_lf_table(const std::string& path);
