@@ -118,6 +118,42 @@
   the criterion at 21cmFAST's usual resolution (R_BUBBLE_MIN = 0.62 Mpc,
   ~1 Mpc cells).
 
+## In progress 2026-11-06: the moment RT on the refined levels (Thread C stage 2, branch `moment-amr`)
+
+* **Why:** the user's decision after `docs/absorbers_closures.md` (an AMR
+  run with M1 or the OTVET cone where the absorbers are resolved); the
+  moment RT on the AMReX backend ran on level 0 only. Design and status:
+  `docs/moment_amr.md`.
+* **Built:** `MomentHierarchy` in `src/amrex/moment_level.cpp` (the
+  levels follow the gas state's grids; the base level on the hydro's
+  boxes with fixed-point sums, since the refined levels refuse slabs; a
+  level's units, covered mask and budgets in base units; the sources on
+  the finest cells; the coarse-first subcycling with the fine ghosts
+  interpolated in time between the parent's old and new moments; the
+  refluxing of the GLF face fluxes in fixed point; average-down of
+  moments, cells, gas and `gammaHI_avg`; the OTVET tensor on a slab
+  shadow of level 0 prolonged onto the levels; the checkpoint's level
+  directory). Tests: `amrex_moment_amr_{ranks,restart}_smoke{,_cone}`
+  (byte-identical over 1/2/3 ranks and through a restart),
+  `amrex_moment_amr_ifront` (the refined M1 front against the uniform
+  runs at N and 2N). The transport conserves photons to 10⁻¹¹ per substep
+  (`RADRAY_MOMENT_AMR_DEBUG`).
+* **Found on the way:** the parent's covered cells counted the children's
+  absorption again (3× with three levels); a refined level injected with
+  the base cell's volume (8× too few photons, caught by the I-front
+  test); without refluxing, and with the fine level run before its
+  parent, photons were created at the coarse-fine faces (6 % of the
+  injection over the I-front run).
+* **Queued 2026-11-07 (user: match the rays' refined run and report ⟨Γ⟩
+  and λ_mfp, each method refined against its uniform twin):**
+  `fesc512_b2.5_amr_otvet_cone` (5 nodes, job 43012838) and
+  `fesc512_b2.5_uniform_otvet_cone` (1 node, job 43012839), the rays'
+  runs' parameters plus the cone keys (`tools/hyak/amr_moment_runs.sh`),
+  the binary `$RUNS/moment_amr_bin/radhydro`; they start once the four C1
+  1024³ runs release the group's cores (~11-10) and after the
+  maintenance of 11-10/11. Then `igm_stats.py` on the four runs. M1 on
+  the levels is built and tested too (not queued).
+
 ## Done 2026-11-06: the photon sink by density of the 512³ suite, why the closures do not change ⟨Γ_HI⟩ (branch `absorbers-wu21`)
 
 * **The question** (for the paper's §5): Wu, McQuinn & Eisenstein 2021
