@@ -4,6 +4,7 @@
 // clock update) restricted to what the RT step needs.
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <iosfwd>
 #include <string>
@@ -67,6 +68,12 @@ struct Units {
   // The hydro's temperature floor in the units of Tgas_min:
   // Config::thermal_floor / temp1_unit (1/temp1_unit, i.e. 1 K, by default)
   double Thydro_min = 0;
+  // The temperature cap (Config::T_max; infinite = off): temp_cap for the
+  // RT cell physics [K], Thydro_max for the hydro (thermal energy per unit
+  // density, T_max / temp2_unit: the cap is T_max in ionised gas and ~2
+  // T_max in neutral gas, where temp1_unit applies)
+  double temp_cap = HUGE_VAL;
+  double Thydro_max = HUGE_VAL;
 
   double len_rt = 0, vol_rt = 0;
   double sfr_min = 0, ngam_min = 0, fgam_min = 0, seg_min = 0;

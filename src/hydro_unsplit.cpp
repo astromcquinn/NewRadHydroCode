@@ -239,12 +239,12 @@ struct SlabFaces {
 
 // the tallies of finalize_cell's flags over one substep (UnsplitCounters)
 struct SubstepCounts {
-  std::int64_t from_e = 0, synced = 0, floor_T = 0, floor_rho = 0, reset = 0;
+  std::int64_t from_e = 0, synced = 0, floor_T = 0, floor_rho = 0, reset = 0, cap_T = 0;
 };
 
 // One substep of length dt on the padded state (ghosts filled)
 SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_min,
-                      double Tmin, bool p_old) {
+                      double Tmin, double Tmax, bool p_old) {
   const int n = W.n;
   const double dtdx = dt;  // dx = 1 cell
   const bool par_ok = par::worth(static_cast<long long>(n) * n * n);
@@ -295,9 +295,9 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
   }
 
   // 3. floors, dual-energy selection and synchronisation; back into U, S
-  std::int64_t n_from_e = 0, n_synced = 0, n_floor_T = 0, n_floor_rho = 0, n_reset = 0;
+  std::int64_t n_from_e = 0, n_synced = 0, n_floor_T = 0, n_floor_rho = 0, n_reset = 0, n_cap_T = 0;
 #pragma omp parallel for schedule(static) if (par_ok) \
-    reduction(+ : n_from_e, n_synced, n_floor_T, n_floor_rho, n_reset)
+    reduction(+ : n_from_e, n_synced, n_floor_T, n_floor_rho, n_reset, n_cap_T)
   for (int k = 0; k < n; ++k)
     for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i) {
@@ -310,7 +310,7 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
         double* U = &W.U[c * NV];
         for (int m = 0; m < NV; ++m) U[m] = W.Un[cn * NV + m];
         double eD = W.Sn[cn * NS];
-        const rrh::CellFlags f = rrh::finalize_cell(U, eD, Enb, Enb1, de, rho_min, Tmin);
+        const rrh::CellFlags f = rrh::finalize_cell(U, eD, Enb, Enb1, de, rho_min, Tmin, Tmax);
         W.S[c * NS] = eD;
         for (int s = 1; s < NS; ++s) W.S[c * NS + s] = W.Sn[cn * NS + s];
         n_from_e += f.from_e;
@@ -318,8 +318,9 @@ SubstepCounts substep(Work& W, double dt, const rrh::DualEnergy& de, double rho_
         n_floor_T += f.floor_T;
         n_floor_rho += f.floor_rho;
         n_reset += f.reset;
+        n_cap_T += f.cap_T;
       }
-  return SubstepCounts{n_from_e, n_synced, n_floor_T, n_floor_rho, n_reset};
+  return SubstepCounts{n_from_e, n_synced, n_floor_T, n_floor_rho, n_reset, n_cap_T};
 }
 
 // Largest signal speed over the interior (after select_pass)
@@ -401,6 +402,8 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
   // (the unsplit scheme never shifts the frame), nothing to fold
   if (!cfg.amrex_state && fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   hs.dt_hy = dt;
+  if (use_amrex_hydro(cfg) && cfg.T_max > 0)
+    throw std::runtime_error("T_max needs the host unsplit hydro (hydro_backend = host)");
   if (use_amrex_hydro(cfg)) {  // the same step on the AMReX level (hydro_backend.hpp)
     amrex_hydro_step(cfg, un, dt, scalefactor, gas, hs);
     return;
@@ -427,6 +430,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
                            cfg.dual_e_self && cfg.dual_energy};
   const double rho_min = un.Dgas_min;
   const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
+  const double Tmax = un.Thydro_max;  // T_max (infinite = off)
 
   // sub-cycling: the CFL step from the current (ghost-filled, selected) state,
   // then nsub equal substeps that cover what remains (the -1e-9 absorbs
@@ -445,12 +449,13 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
     int nsub = static_cast<int>(std::ceil(remaining / dt_cfl - 1e-9));
     if (nsub < 1) nsub = 1;
     const double dt_sub = nsub == 1 ? remaining : remaining / nsub;
-    const SubstepCounts sc = substep(W, dt_sub, de, rho_min, Tmin, cfg.dual_p_old);
+    const SubstepCounts sc = substep(W, dt_sub, de, rho_min, Tmin, Tmax, cfg.dual_p_old);
     C.cells_from_e += sc.from_e;
     C.cells_synced += sc.synced;
     C.floor_T += sc.floor_T;
     C.floor_rho += sc.floor_rho;
     C.cells_reset += sc.reset;
+    hs.cap_T += sc.cap_T;
     ++nsub_call;
     remaining = nsub == 1 ? 0.0 : remaining - dt_sub;
   }
@@ -472,10 +477,55 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
       }
 }
 
+// The star-formation sink on the serial unsplit hydro (docs/stage_f.md
+// section 2; the AMReX level's hydro_level.cpp sink without the star
+// particles): a cell with rho > sf_overdensity Dgas_avg loses
+// f = min(1, sf_efficiency dt/t_ff) of its mass at constant specific
+// quantities (rho, the momenta, e and the species scale by 1 - f; E loses
+// f (KE + e)), t_ff = (3 pi/4)/sqrt(a rho/Dgas_avg) in code time as on the
+// level. The mass leaves the gas and the gravity (the serial PM has no
+// star particles); hs.ucounters counts it. Per cell, so the result does
+// not depend on the thread count; the counters are summed per k-plane in
+// order.
+static void serial_sink(const Config& cfg, const Units& un, double dt, double a, GasGrid& gas, HydroState& hs) {
+  const int n = gas.N;
+  const double avg = un.Dgas_avg, thr = avg * cfg.sf_overdensity, eff = cfg.sf_efficiency;
+  std::vector<double> mk(n, 0.0);
+  std::vector<std::int64_t> ek(n, 0);
+  const bool par_ok = par::worth(static_cast<std::int64_t>(n) * n * n);
+#pragma omp parallel for schedule(static) if (par_ok)
+  for (int k = 0; k < n; ++k)
+    for (int j = 0; j < n; ++j)
+      for (int i = 0; i < n; ++i) {
+        const std::int64_t c = gas.cell(i + 1, j + 1, k + 1);
+        float* u = &gas.u[c * 5];
+        const double rho = u[0];
+        if (!(rho > thr)) continue;
+        const double tff = (3 * M_PI / 4) / std::sqrt(a * rho / avg);
+        const double f = std::min(1.0, eff * dt / tff);
+        if (!(f > 0)) continue;
+        const double keep = 1 - f;
+        const double ke = 0.5 * (double(u[1]) * u[1] + double(u[2]) * u[2] + double(u[3]) * u[3]) / rho;
+        u[4] = static_cast<float>(u[4] - f * (ke + double(gas.e[c])));
+        for (int m = 0; m < 4; ++m) u[m] = static_cast<float>(u[m] * keep);
+        gas.e[c] = static_cast<float>(gas.e[c] * keep);
+        float* w = &gas.w[c * 4];
+        for (int s = 0; s < 4; ++s) w[s] = static_cast<float>(w[s] * keep);
+        mk[k] += f * rho / avg;
+        ek[k] += 1;
+      }
+  for (int k = 0; k < n; ++k) {
+    hs.ucounters.sink_mass += mk[k];
+    hs.ucounters.sink_events += ek[k];
+  }
+}
+
 void hydro_half_step(const Config& cfg, const Units& un, const SimClock& clk, HydroHalf half,
                      GasGrid& gas, HydroState& hs) {
   if (cfg.hydro_scheme == HydroScheme::Unsplit) {
     hydro_step_unsplit(cfg, un, clk.dt_sim / 2, gas, hs, clk.scalefactor);
+    if (cfg.sf_overdensity > 0 && !use_amrex_hydro(cfg))
+      serial_sink(cfg, un, clk.dt_sim / 2, clk.scalefactor, gas, hs);
     return;
   }
   if (half == HydroHalf::First) {

@@ -154,6 +154,11 @@ void calc_sim_var(const Config& cfg, const SimClock& clk, Units& u) {
     u.Thydro_min = f::max(u.Thydro_min, cfg.T_min / u.temp1_unit);
   }
 
+  if (cfg.T_max > 0) {
+    u.temp_cap = cfg.T_max;
+    u.Thydro_max = cfg.T_max / u.temp2_unit;  // ionised gas: never below T_max there
+  }
+
   u.Tgas_min = u.temp_floor / u.temp1_unit;
   u.Tgas_max = u.temp_max / u.temp1_unit;
 
@@ -337,6 +342,22 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
         }
       }
     }
+    // plane_couple_courant > 0 (config.hpp; docs/plane_parallel.md): every
+    // step from the turn-on on is at most plane_couple_courant dx / c_hot,
+    // the coupling interval of the RT heating and cooling with the hydro as
+    // a fraction of the hot gas's cell crossing (dx = x_unit, so dt_sim =
+    // C / c_hot in code units). A function of a only (restarts repeat it).
+    if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_couple_courant > 0 && u != nullptr &&
+        mode != TimestepMode::Fixed) {
+      const double a_re = 1 / (1 + cfg.plane_z_re);
+      if (a >= a_re * (1 - 1e-9)) {
+        const double mu_inv = 2 * XHy + 3 * YHe / 4.0;
+        const double c_hot = std::sqrt(gamma_ideal * k_cgs * cfg.plane_turnon_temp * mu_inv / mH_cgs) / u->vel_unit;
+        double da_c = 0, dty = 0;
+        calc_da_from_dt(cfg.cosmo, a, da_c, cfg.plane_couple_courant / c_hot, dty);
+        if (da_c < da_cap) da_cap = da_c;
+      }
+    }
     if (da_cap < clk.da_sim) {
       clk.da_sim = da_cap;
       calc_dt_from_da(cfg.cosmo, a, clk.da_sim, clk.dt_sim, clk.dt_yr);
@@ -376,6 +397,12 @@ TimestepInfo timestep_core(const Config& cfg, TimestepMode mode, double da_fixed
                  clk.nstep_rt, dl_c / dl_rt * cscale, cscale, cfg.rt_cells_per_substep);
     clk.nstep_rt = 1;
   }
+  // plane_xray_substeps > 0 (plane mode, before plane_z_re): the X-ray-only
+  // RT steps take a fixed count (no rays to carry); the carry above is kept
+  // for the steps after the turn-on
+  if (cfg.plane_parallel && cfg.plane_z_re >= 0 && cfg.plane_xray_substeps > 0 &&
+      a < 1 / (1 + cfg.plane_z_re) * (1 - 1e-9))
+    clk.nstep_rt = cfg.plane_xray_substeps;
   clk.dt_rt = clk.dt_sim / clk.nstep_rt;
   clk.dtyr_rt = clk.dt_yr * (clk.dt_rt / clk.dt_sim);
   clk.dtsec_rt = clk.dt_sec * (clk.dt_rt / clk.dt_sim);
@@ -482,6 +509,12 @@ namespace radray {
 
 bool set_cosmology_param(Config& cfg, const std::string& key, const std::string& val) {
   if (set_cosmology_key(cfg.cosmo, key, val)) return true;
+  if (key == "T_max") {
+    const double v = std::stod(val);
+    if (!(v >= 0)) throw std::runtime_error("T_max must be >= 0 (kelvin; 0 = off)");
+    cfg.T_max = v;
+    return true;
+  }
   if (key == "T_min" || key == "z_floor") {
     std::size_t n = 0;
     const double v = std::stod(val, &n);
@@ -501,6 +534,7 @@ void copy_cosmology_param(const Config& from, Config& to) {
   to.cosmo.derive();
   to.T_min = from.T_min;
   to.z_floor = from.z_floor;
+  to.T_max = from.T_max;
   if (to.T_min > 0 && !(to.z_floor >= 0))
     throw std::runtime_error("T_min > 0 needs z_floor >= 0: the floor applies at z < z_floor");
 }
@@ -513,6 +547,11 @@ std::string cosmology_summary(const Config& cfg) {
     char buf[96];
     std::snprintf(buf, sizeof buf, "%sT_min = %g K at z < %g", s.empty() ? "" : "; ", cfg.T_min,
                   cfg.z_floor);
+    s += buf;
+  }
+  if (cfg.T_max > 0) {
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%sT_max = %g K", s.empty() ? "" : "; ", cfg.T_max);
     s += buf;
   }
   return s;

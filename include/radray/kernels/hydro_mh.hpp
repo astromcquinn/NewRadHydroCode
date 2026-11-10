@@ -417,12 +417,16 @@ RR_HD void update_from_faces(const double U[NV], const double S[NS], const FaceD
 // cells whose pressure comes from the internal energy, when that changes E
 // by at most eta1 E (so that the stored total energy carries the
 // dual-energy temperature wherever that is cheap; docs/hydro_unsplit.md
-// section 2). Counters: floor_rho, floor_T, synced, from_e, reset.
+// section 2). Counters: floor_rho, floor_T, synced, from_e, reset. Tmax
+// (Config::T_max, infinite = off, a no-op) caps both energies like the
+// floor; counter cap_T.
 struct CellFlags {
   bool floor_rho = false, floor_T = false, synced = false, from_e = false, reset = false;
+  bool cap_T = false;
 };
 RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double Enb1_max,
-                              const DualEnergy& de, double rho_min, double Tmin) {
+                              const DualEnergy& de, double rho_min, double Tmin,
+                              double Tmax = HUGE_VAL) {
   CellFlags f;
   if (!(U[0] >= rho_min)) {
     U[0] = rho_min;
@@ -439,6 +443,12 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double E
     U[4] = ke + emin;
     f.floor_T = true;
   }
+  const double emax = U[0] * Tmax;
+  if (eT > emax) {
+    eT = emax;
+    U[4] = ke + emax;
+    f.cap_T = true;
+  }
   if (de.eta1 > 0) {
     if (eT > de.eta2 * (de.eta2_local ? U[4] : Enb_max)) {
       eD = eT;
@@ -447,6 +457,10 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double E
     if (!(eD >= emin)) {
       eD = emin;
       f.floor_T = true;
+    }
+    if (eD > emax) {
+      eD = emax;
+      f.cap_T = true;
     }
     if (!(eT > de.eta1 * (de.eta1_local ? U[4] : Enb_max))) {
       // pressure from e (the floor of E - KE above does not count, E - KE

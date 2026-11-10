@@ -135,7 +135,13 @@ def main():
                          "after the transport, so they are absorbed in their own cell first "
                          "(moment_inject; default 1, docs/rt_moments.md); 0: before, the original "
                          "order, which leaves dense source cells neutral")
-    ap.add_argument("--data-files", default="nodm", choices=("all", "norays", "nodm", "dm", "gas"),
+    ap.add_argument("--diag-dz", type=float, default=0.0,
+                    help="on-the-fly E(k) of the gas velocity and the T-Delta histogram every dz "
+                         "(diag_dz, Diag/; plane-parallel unsplit runs on the host grids; 0: off)")
+    ap.add_argument("--fields-at-data1", type=int, default=1, choices=(0, 1),
+                    help="0: no step_NNNN field files at the zdata1 outputs (P(k), the "
+                         "diagnostics and the movie only; fields still at the last step)")
+    ap.add_argument("--data-files", default="nodm", choices=("all", "norays", "nodm", "dm", "gas", "none"),
                     help="files of the zdata1 snapshots besides the fields: nodm (default, user "
                          "decision 2026-10-18: Gas and RT/rt_grid, no particles; they stay in "
                          "the checkpoints), norays (DM, Gas, RT/rt_grid), gas (only Gas/u_gas, enough for igm_stats.py without "
@@ -185,6 +191,10 @@ def main():
                     help="overdensity above which cooling and SN heating are suppressed "
                          "(cool_suppress_overdensity, docs/stage_f.md); 200: the original (default, "
                          "no line written); 0: off (dense gas cools)")
+    ap.add_argument("--sn-heating", type=int, default=0, choices=(0, 1),
+                    help="photo_cell's SN heating above rho_source = 50 times the mean in "
+                         "photoheated gas (sn_heating); 0 (default, user decision 2026-10-30: "
+                         "no SN heating in any run): off; 1: the original")
     ap.add_argument("--amrex-max-level", type=int, default=0,
                     help="refinement levels of the gas hierarchy (amrex_max_level, docs/stage_f.md; "
                          "--backend amrex only); 0: none (default, no line written)")
@@ -241,6 +251,10 @@ def main():
                     help="Gamma_HI in the source cells in 1e-12 s^-1 (default 0.3, C26)")
     ap.add_argument("--plane-z-re", type=float, default=7.0, help="the turn-on redshift (default 7)")
     ap.add_argument("--plane-alpha", type=float, default=1.5, help="J_nu ~ nu^-alpha (default 1.5)")
+    ap.add_argument("--plane-couple-courant", type=float, default=0.15,
+                    help="with --plane-parallel: every step from the turn-on is at most this fraction of "
+                         "the cell crossing of 2e4 K gas (plane_couple_courant; default 0.15, user "
+                         "decision 2026-10-30; 0: off)")
     ap.add_argument("--dt-max-myr", type=float, default=0.0,
                     help="cap on the hydro step in Myr from the turn-on (0: off; the T4 test)")
     ap.add_argument("--rt-substeps-max", type=int, default=0,
@@ -348,10 +362,10 @@ def main():
     lines += [
         f"movie_dz = {a.movie_dz:g}",
         f"movie_fields = {a.movie_fields}",
-    ] + ([f"movie_slab = {a.movie_slab}"] if a.movie_slab > 0 else []) + [
+    ] + ([f"diag_dz = {a.diag_dz:g}"] if a.diag_dz > 0 else []) + ([f"movie_slab = {a.movie_slab}"] if a.movie_slab > 0 else []) + [
         f"restart_every = {a.restart_every}",
     ] + ([f"restart_keep = {a.restart_keep}"] if a.restart_keep > 0 else []) + [
-        "fields_at_data1 = 1",
+        f"fields_at_data1 = {a.fields_at_data1}",
         f"fields = {a.fields}",
         f"data_files = {a.data_files}",
         f"recomb_case = {a.recomb_case}",
@@ -375,6 +389,8 @@ def main():
         lines.append(f"ray_deposit = {a.ray_deposit}")
     if a.cool_suppress_overdensity != 200.0:
         lines.append(f"cool_suppress_overdensity = {a.cool_suppress_overdensity:g}")
+    if a.sn_heating != 1:
+        lines.append(f"sn_heating = {a.sn_heating}")
     if a.amrex_max_level > 0 or a.sf_overdensity > 0:
         if a.backend != "amrex":
             sys.exit("--amrex-max-level and --sf-overdensity need --backend amrex")
@@ -407,6 +423,13 @@ def main():
                   "land_outputs = 1"]
         if a.plane_alpha != 1.5:
             lines.append(f"plane_alpha = {a.plane_alpha:g}")
+        if a.plane_couple_courant > 0:
+            lines += ["# every step from the turn-on at most this fraction of the hot gas's cell crossing",
+                      f"plane_couple_courant = {a.plane_couple_courant:g}"]
+        if a.plane_transport == "sweep":
+            lines += ["# the packets in flight rescaled to the current RT substep (no Gamma waves across the",
+                      "# domains when dt_rt changes; docs/plane_parallel.md \"Packet rescaling\")",
+                      "plane_packet_rescale = 1"]
     if a.plane_parallel or a.dt_max_myr > 0 or a.rt_substeps_max > 0:
         lines.append("max_steps = 100000")  # the step caps (and short post-ionisation CFL steps) need more than the original's 1000
     if a.dt_max_myr > 0:

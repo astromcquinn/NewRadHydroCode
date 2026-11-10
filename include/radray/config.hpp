@@ -79,6 +79,17 @@ struct Config {
   // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
   double T_min = 0;
   double z_floor = -1;
+  // Temperature cap (params.txt T_max, kelvin; user decision 2026-11-04 for
+  // the C1 1024^3 reruns): the unsplit hydro clamps the thermal energy of
+  // every cell to T_max at the end of each CFL substep (both E - KE and the
+  // dual-energy e; the ionised gas's mean molecular weight, temp2_unit, so
+  // ~2 T_max in neutral gas), and the RT cell
+  // physics clamps its temperature to T_max after the heating. A handful of
+  // low-density cells at c_s ~ 10^4 km/s (~10^9 K) otherwise set the global
+  // step and the hydro substeps. T_max = 0 (default) is off and
+  // bit-identical; hydro_scheme = unsplit on the host grids only. No
+  // Fortran mirror (a new flag).
+  double T_max = 0;
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
 
@@ -190,6 +201,14 @@ struct Config {
   // cools; the star-formation sink is then the guard). Not tied to
   // legacy_physics; no Fortran mirror (a new flag).
   double cool_suppress_overdensity = 200.0;
+
+  // params.txt sn_heating: photo_cell's SN heating (T > 1e4 K and rho >
+  // rho_source = 50 times the mean: eSN eSF rho / t_dyn c^2, the original's
+  // sub-grid feedback, applied with or without sources). 1 (default) is the
+  // original; 0 switches it off (user decision 2026-10-30: no SN heating in
+  // any run; make_production.py writes 0; docs/plane_parallel.md). Not tied
+  // to legacy_physics; no Fortran mirror (a new flag).
+  bool sn_heating = true;
 
   // params.txt thermal_init = floor (default, the original) | recfast
   // (docs/thermal_history.md, quirk T1 of docs/port_notes.md 5b). floor:
@@ -576,6 +595,20 @@ struct Config {
   double plane_z_re = -1;
   double plane_alpha = 1.5;
   double plane_nu_max_ry = 4.0;
+  // params.txt plane_packet_rescale (set_plane_param; docs/plane_parallel.md
+  // "Packet rescaling"; user request 2026-11-05). plane_transport = sweep
+  // only. A packet in flight holds the photons its face emitted in one RT
+  // substep (gamma * dtsec_rt at launch) and moves rt_cells_per_substep
+  // cells every substep, and a cell's rates are its absorbed photons over
+  // the current dtsec_rt. 0 (default) = as before: when dtsec_rt changes
+  // (a new hydro step, the c_reduced_schedule switch, a landing step) the
+  // packets launched at the old dtsec_rt give rates off by dt_old/dt_new
+  // until they leave the domain, a wave that crosses every domain. 1 = at
+  // the first substep with a new dtsec_rt, every packet in flight is
+  // multiplied by dt_new/dt_old, so it holds the photons of one current
+  // substep (the photon density follows F / c_reduced); the change counts
+  // as emitted in the photon bookkeeping (stats.txt plane_emitted).
+  bool plane_packet_rescale = false;
   // Caps on the hydro step (docs/zoom_turbulence.md section 4.4, the T4
   // test; timestep_core in cosmology.cpp), both off (0) by default:
   //   dt_max_myr:      the hydro step is at most this many Myr;
@@ -627,6 +660,23 @@ struct Config {
   int plane_turnon_cfl = 1;
   double plane_turnon_temp = 2e4;
   double plane_turnon_courant = 0.05;
+  // params.txt plane_couple_courant (set_plane_param; docs/plane_parallel.md
+  // "Turn-on and the step caps"; user decision 2026-10-30). Plane-parallel
+  // mode only. Every step from plane_z_re on is at most plane_couple_courant
+  // dx / c_hot (dx the proper cell, c_hot as for the turn-on step): the RT
+  // heating and cooling meet the hydro once per step, and with the CFL step
+  // (~0.45 dx / c_hot after the turn-on) gas next to a cooling clump can be
+  // drained and heated numerically within one coupling interval (the hot
+  // cells of the C1 ladder). A cap that scales with the cell, unlike
+  // dt_max_myr. 0 (default) = off; make_production.py --plane-parallel
+  // writes 0.15.
+  double plane_couple_courant = 0;
+  // params.txt plane_xray_substeps (set_plane_param; docs/plane_parallel.md):
+  // plane-parallel mode with xray_heating only. Before plane_z_re the RT
+  // runs only for the uniform X-ray background (no rays), so each hydro step
+  // takes this many RT substeps instead of the light crossings at c_reduced.
+  // 0 (default): the light crossings, the original count.
+  int plane_xray_substeps = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

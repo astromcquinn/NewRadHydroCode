@@ -76,6 +76,9 @@ struct PlaneState {
   std::vector<std::vector<float>> field;
   __int128 inflight_fx = 0;
   double inflight() const;
+  // plane_packet_rescale = 1: the dtsec_rt the packets in flight were last
+  // scaled to (0 = none yet: the turn-on, a restart)
+  double dtsec_packets = 0;
 };
 __int128 plane_to_fx(double v);
 
@@ -117,5 +120,10 @@ void plane_write_spectrum(const std::string& dir, const Simulation& s);
 std::vector<int> plane_face_list(int faces);
 void plane_sweep_cast(Simulation& s);
 void plane_sweep_advance(Simulation& s);
+// plane_packet_rescale = 1 (Config): the factor dtsec_rt / dtsec_packets
+// to multiply the packets in flight by before this substep's cast, 1 when
+// dtsec_rt is unchanged, the flag is off or nothing was in flight; records
+// dtsec_rt. Called once per substep by the serial sweep and the backend.
+double plane_packet_scale(Simulation& s);
 
 }  // namespace radray

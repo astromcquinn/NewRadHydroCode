@@ -303,6 +303,8 @@ struct PhysCtx {
   // cooling and SN heating are suppressed ((x0/x)^2, (x0/x)^1.5); 200 is
   // the original, 0 switches the suppression off.
   double cool_suppress = 200.0;
+  // Config::sn_heating: false switches the SN heating off (true = the original)
+  bool sn_heating = true;
   // recomb_case = A: ia = 0 (alpha_rec(1:3), coef_cool(1:3)); B (the
   // original): 3. The host lowers it to 3 for cells on the spot
   // (recomb_rad). want_nrab: count the ground-state recombinations
@@ -630,7 +632,7 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
 
   // SN heating
   double sn_rate;
-  if (tmp > 1e4 && rhog / u.rhob_avg > rho_source) {
+  if (X.sn_heating && tmp > 1e4 && rhog / u.rhob_avg > rho_source) {
     const double d = rhog / u.rhob_avg;
     const double x = rrf::max(1 - std::exp(-(d - rho_source) / rho_source), 0.0);
     const double tdyn = std::sqrt(3 * pi / (32 * G_cgs * rhog));
@@ -680,6 +682,10 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   tmp = (g - 1) * eth / k_cgs / neff;
   if (tmp < u.temp_floor) {  // temp_min, or the preheating floor (above)
     tmp = u.temp_floor;
+    eth = neff * k_cgs * tmp / (g - 1);
+  }
+  if (tmp > u.temp_cap) {  // the temperature cap (Config::T_max; infinite = off)
+    tmp = u.temp_cap;
     eth = neff * k_cgs * tmp / (g - 1);
   }
 

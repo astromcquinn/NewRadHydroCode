@@ -6,10 +6,10 @@
 
 The sections are in the order they were written. By topic:
 
-- **RT methods and closures (the paper):** τ_eff and 21cmFAST (2026-11-06, `taueff-21cmfast`, PR #28); the photon sink by density, the single absorber, P11 on/off (2026-11-06, `absorbers-wu21`, PR #29); the uniform 512³ suite (2026-10-22, `rt-suite-512`); `gammaHI_avg` and the suite's launch script (2026-10-18); the unified suite assessed (2026-10-17); the reduced speed of light by ionisation state (2026-10-17, `c-schedule`); a falling escape fraction (2026-10-17, `fesc-evolution`); a better Eddington tensor for OTVET (2026-10-13, `otvet-closure`, PR #35); the moment RT on AMReX (2026-10-14, `moments-amrex`); M1's neutral source cells (2026-10-12, `m1-clumps`); rays, M1 and OTVET at 40 Mpc/h (2026-10-12, `rt-methods-512`); rays crossing k cells per substep (2026-10-12, `rt-multicell`, PR #27); recombination radiation with the moments and helium lines, case A recombination (2026-10-10, `recomb-moments`, `recomb-radiation`); the moment RT itself (2026-10-10, `claude/elegant-bell-rqd3l1`); `gammaHI_avg` for the moments on `rt_backend = amrex` (2026-10-26). OTVET with the isotropic background of Gnedin & Abel 2001, `otvet_background = ga01` (2026-11-08, `otvet-background`, PR #32). Open PR: #31 (the moments on the refined levels).
+- **RT methods and closures (the paper):** τ_eff and 21cmFAST (2026-11-06, `taueff-21cmfast`, PR #28); the photon sink by density, the single absorber, P11 on/off (2026-11-06, `absorbers-wu21`, PR #29); the uniform 512³ suite (2026-10-22, `rt-suite-512`); `gammaHI_avg` and the suite's launch script (2026-10-18); the unified suite assessed (2026-10-17); the reduced speed of light by ionisation state (2026-10-17, `c-schedule`); a falling escape fraction (2026-10-17, `fesc-evolution`); a better Eddington tensor for OTVET (2026-10-13, `otvet-closure`, PR #35); the moment RT on AMReX (2026-10-14, `moments-amrex`); M1's neutral source cells (2026-10-12, `m1-clumps`); rays, M1 and OTVET at 40 Mpc/h (2026-10-12, `rt-methods-512`); rays crossing k cells per substep (2026-10-12, `rt-multicell`, PR #27); recombination radiation with the moments and helium lines, case A recombination (2026-10-10, `recomb-moments`, `recomb-radiation`); the moment RT itself (2026-10-10, `claude/elegant-bell-rqd3l1`); `gammaHI_avg` for the moments on `rt_backend = amrex` (2026-10-26). OTVET with the isotropic background of Gnedin & Abel 2001, `otvet_background = ga01` (2026-11-08, `otvet-background`, PR #32); the moment RT on the refined levels (2026-11-06/07, `moment-amr`, PR #31, merged 2026-11-09).
 - **AMReX backends and AMR (Stages D to G):** the RT levels through a rechopping regrid (2026-10-31); the refined levels' gravity on their own timescale (2026-10-31, `stage-g-subcycle`); rank 0 without the full grid copy (2026-10-29); the AMReX RT's checkpoints with a partial refined region (2026-10-29); Stage G, the level Poisson solve (2026-10-22); two refined levels rank-independent (2026-10-22); `fesc512_b2.5_amr` against its control (2026-10-22); rays at the refinement boundaries (2026-10-21); refined-run crash fix, `fields_levels` (2026-10-16); Stage F3 with 8 sources (2026-10-14) and Stage F3 (2026-10-15); Stage F decisions, F1 and F2 (2026-10-14, PR #40); Stage E2 on klone (2026-10-13, PR #38); Stage E4, load balancing (2026-10-13, PR #37); Stage E3, the state on the levels (2026-10-13, PR #34); Stage E2, the PM gravity on AMReX (2026-10-12); Stage E prerequisites and Stage E1, the unsplit hydro on AMReX (2026-10-12); Stage D, the ray-tracing RT on AMReX (2026-10-11, PR #24); the framework spike (Stage C, PR #11).
 - **Hydro and thermal physics:** the unsplit hydro's over-cooled cells, `dual_e_self` (2026-10-27); the preheating floor `T_min`/`z_floor` in the hydro (2026-10-29, PR #12); `thermal_init = recfast`, `thermal_floor`, the thermal history before heating, X-ray preheating (2026-10-26, `xray-preheating`); `land_outputs = 1` (2026-10-30, PR #19); dense gas consumes photons, P11 (2026-10-28, `photon-consume-legacy`).
-- **Plane-parallel RT-domain mode (the C1 ladder):** the turn-on step (2026-10-28, `plane-turnon-step`); the problems' floor 0.1 K (2026-10-29); the mode itself, rays and the sweep transport (2026-10-26, `claude/eager-sagan-h6a0tu`). Open PRs: #26 (`plane_packet_rescale`), #18 (the C1 ladder from C26's ICs).
+- **Plane-parallel RT-domain mode (the C1 ladder):** the turn-on step (2026-10-28, `plane-turnon-step`); the problems' floor 0.1 K (2026-10-29); the mode itself, rays and the sweep transport (2026-10-26, `claude/eager-sagan-h6a0tu`). the sweep's packets rescaled when dt_rt changes (2026-11-05, `claude/plane-packet-rescale`, PR #26, merged 2026-11-09); the C1 ladder from C26's ICs (`claude/wizardly-allen-b2oci5`, PR #18, merged 2026-11-09).
 - **Initial conditions and gravity:** linear growth from MUSIC ICs (2026-10-29, `music-linear-growth`); zoom ICs from MUSIC (2026-10-23, `zoom-ics`); MUSIC on klone (2026-10-23); the zoom-in turbulence plan and a PR audit (2026-10-22); `pm_refine` (2026-10-11/12).
 - **Production runs, movies, diagnostics:** the 256³ production run (2026-10-10, `production-256`); `movie_slab` (2026-10-11); `redshift_per_distance` (2026-10-10); IGM diagnostics (2026-10-10); `fesc-z` (2026-10-11); measured production costs (PR #10); the nightly workflow (2026-10-12).
 - **Repository:** the Fortran split for a public repository (2026-10-26, `fortran-split`); branches and PRs merged on 2026-10-09; "Threads to launch"; Next; Open questions for the user; Known limits.
@@ -53,11 +53,9 @@ The sections are in the order they were written. By topic:
 * **README:** the status paragraph (2026-10-09) brought up to date; the
   layout lists the moment RT, the closures and the backends.
 * **Branches and PRs** (state on 2026-11-09): PR #32 (`otvet-background`)
-  merged into `main` on 2026-11-09; PR #31 (`moment-amr`) CI
-  green, merges cleanly, its cone runs pending; PR #26
-  (`claude/plane-packet-rescale`) CI green, merges cleanly; PR #18
-  (`claude/wizardly-allen-b2oci5`, the C1 ladder) conflicts with `main`
-  in `docs/STATUS.md` only and needs a merge of `main` first;
+  merged into `main` on 2026-11-09; PRs #31 (`moment-amr`), #26
+  (`claude/plane-packet-rescale`) and #18 (`claude/wizardly-allen-b2oci5`,
+  the C1 ladder) merged into `main` on 2026-11-09 as well;
   `claude/beautiful-archimedes-kcgsvx` (gamma_profile.py, 2 commits) has
   no PR. 23 remote branches are already merged into `main` and can be
   deleted (`git branch -r --merged origin/main`).
@@ -178,6 +176,42 @@ The sections are in the order they were written. By topic:
   the criterion at 21cmFAST's usual resolution (R_BUBBLE_MIN = 0.62 Mpc,
   ~1 Mpc cells).
 
+## In progress 2026-11-06: the moment RT on the refined levels (Thread C stage 2, branch `moment-amr`)
+
+* **Why:** the user's decision after `docs/absorbers_closures.md` (an AMR
+  run with M1 or the OTVET cone where the absorbers are resolved); the
+  moment RT on the AMReX backend ran on level 0 only. Design and status:
+  `docs/moment_amr.md`.
+* **Built:** `MomentHierarchy` in `src/amrex/moment_level.cpp` (the
+  levels follow the gas state's grids; the base level on the hydro's
+  boxes with fixed-point sums, since the refined levels refuse slabs; a
+  level's units, covered mask and budgets in base units; the sources on
+  the finest cells; the coarse-first subcycling with the fine ghosts
+  interpolated in time between the parent's old and new moments; the
+  refluxing of the GLF face fluxes in fixed point; average-down of
+  moments, cells, gas and `gammaHI_avg`; the OTVET tensor on a slab
+  shadow of level 0 prolonged onto the levels; the checkpoint's level
+  directory). Tests: `amrex_moment_amr_{ranks,restart}_smoke{,_cone}`
+  (byte-identical over 1/2/3 ranks and through a restart),
+  `amrex_moment_amr_ifront` (the refined M1 front against the uniform
+  runs at N and 2N). The transport conserves photons to 10⁻¹¹ per substep
+  (`RADRAY_MOMENT_AMR_DEBUG`).
+* **Found on the way:** the parent's covered cells counted the children's
+  absorption again (3× with three levels); a refined level injected with
+  the base cell's volume (8× too few photons, caught by the I-front
+  test); without refluxing, and with the fine level run before its
+  parent, photons were created at the coarse-fine faces (6 % of the
+  injection over the I-front run).
+* **Queued 2026-11-07 (user: match the rays' refined run and report ⟨Γ⟩
+  and λ_mfp, each method refined against its uniform twin):**
+  `fesc512_b2.5_amr_otvet_cone` (5 nodes, job 43012838) and
+  `fesc512_b2.5_uniform_otvet_cone` (1 node, job 43012839), the rays'
+  runs' parameters plus the cone keys (`tools/hyak/amr_moment_runs.sh`),
+  the binary `$RUNS/moment_amr_bin/radhydro`; they start once the four C1
+  1024³ runs release the group's cores (~11-10) and after the
+  maintenance of 11-10/11. Then `igm_stats.py` on the four runs. M1 on
+  the levels is built and tested too (not queued).
+
 ## Done 2026-11-06: the photon sink by density of the 512³ suite, why the closures do not change ⟨Γ_HI⟩ (branch `absorbers-wu21`)
 
 * **The question** (for the paper's §5): Wu, McQuinn & Eisenstein 2021
@@ -262,6 +296,26 @@ The sections are in the order they were written. By topic:
   (39 kpc/h, the suite's particle mass kept so the sources are the
   same) with the three methods, ≈ 70–75 node-hours, 0.35–0.4 TB, a
   trend point only.
+
+## Done 2026-11-05: the plane-parallel sweep's packets rescaled to the current RT substep (branch `claude/plane-packet-rescale`)
+
+The user saw the domain boxes slide along +x +y in the C1 1024³ movies
+(z ≈ 6.6). The cause: a sweep packet holds the photons of one RT substep
+at launch and moves k cells per substep however long it is, while the
+cell rates divide by the current dt_rt, so every change of dt_rt sent a
+Γ wave across all the domains at once. The worst case is the 0.1c → 0.0025c
+switch at z = 7, after which Γ_HI,V was 16× low. Hot-cell-shortened steps
+gave ±11–15 % ripples, and the landing steps gave ~10× spikes.
+`plane_packet_rescale = 1` (default 0; sweep, serial and AMReX) rescales
+the packets in flight by dt_new/dt_old (`docs/plane_parallel.md` "Packet
+rescaling"). Tests `plane_rescale` and `amrex_plane_rescale` pass; in the
+16³ test the default's Γ dip at the switch (5.98 → 2.06 × 10⁻¹²) becomes
+0.23 %. `make_production.py --plane-parallel` writes the flag. The four
+running C1 1024³ runs keep the old behaviour (user decision 2026-11-05):
+they will be rerun with the flag after the Nov 10–11 maintenance. The
+512³ halo-source runs have the same property in their rays, but only
+≲ 5 % changes of dt_rt per step (interpolated ĉ), so the bias is a few
+per cent and makes no pattern.
 
 ## Done 2026-10-31: the RT levels survive a rechopping regrid (branch `claude/elegant-volta-wekhho`)
 
@@ -365,6 +419,110 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   `_ranks_smoke`, `_restart_smoke`, `_identity_smoke`; nightly `_rt_ranks`,
   `_rt_restart`, `_collapse`, `amrex_pm_zoom_t1_subcycle`).
 
+
+## Done 2026-10-30: the C1 ladder from C26's ICs; the open PRs stacked (branch `claude/wizardly-allen-b2oci5`)
+
+* **The PRs, stacked in merge order** (user request): each open PR edits
+  the top of this file, so each was merged with the one before it and its
+  conflicts resolved: #17 (`rank0-no-mirror`, unchanged) → #13
+  (`plane-turnon-step`) → #14 (`photon-consume-legacy`) → #15
+  (`music-linear-growth`) → #11 (`claude/modest-mendel-8k29sb`); #6
+  (`compare-movie-res`) merges on its own. Merged in this order, each PR
+  merges cleanly; until its predecessors are on `main` its diff shows
+  theirs too. (All five merged by 2026-11-02; #18 merged with
+  `main` on 2026-11-04.) Besides the documents:
+  * #13 against the runtime cosmology of `main` (PR #8):
+    `calc_da_from_dt` now takes the `Cosmology`; the turn-on cap passes
+    `cfg.cosmo` (a compile error after the merge, no change of results).
+  * #14 on top of PR #12: the plane-parallel problems no longer write the
+    explicit `photon_consume_dense = 1` (`legacy_physics = 0` turns it on,
+    P11); the documents say both.
+  * #11 against #17: `read_checkpoint` returns its version (#11) and skips
+    the grid blocks under `amrex_state = 1` (#17). The serial build
+    compiles; the AMReX build (rt_level.cpp has both PRs' changes, merged
+    without conflict) and the `amrex_state`/`level_solve` restart tests
+    are to be run on klone before #11 merges.
+  * Fast suite on the top of the stack (#15 with #17, #13, #14; cloud
+    container, serial build, no `reference/fortran`): 166/166 pass (the
+    live Fortran comparisons are not built without the submodule; CI runs
+    them).
+* **`tools/hyak/c1_ladder.sh`, C26's set-up by default (`ICS=music`):**
+  MUSIC in uniform mode (`c2_uniform.conf` at level log2 N, `seed[10] =
+  MUSIC_SEED` = 2026, so the rungs share their modes with each other and
+  with the 128³ linear-growth box of #15) from z = 300 with CAMB's separate
+  CDM and baryon transfer functions, the C26 cosmology (0.305, 0.048, 0.68,
+  σ8 0.82, n_s 0.9667), converted by `music_convert.py`, and
+  `thermal_init = recfast` with the table of that cosmology
+  (`make_recfast_table.py --out`, `recfast_table`); the steps of
+  `tools/hyak/linear_growth.slurm`. `THERMAL=floor` for the floor history;
+  `ICS=zeldovich` gives the ladder of before (z = 100, original cosmology:
+  `params.txt` and ICs byte-identical to the old script's at 64³).
+  `make` runs MUSIC and CAMB (on a compute node, or `MAKE_SBATCH=1`
+  submits it); `run` refuses a MUSIC rung without its ICs. recfast is
+  refused with `amrex_state = 1`, so with recfast every rung, 512³
+  included, runs the serial build on the whole node (no ray pool with the
+  sweep transport, ~100 GB at 512³); `THERMAL=floor` or `BACKEND_512=amrex`
+  gives the 512³ rung the backend.
+* **Checked here:** a 64³ problem as the MUSIC branch writes it (the C26
+  cosmology, z_init = 300, recfast with a table from CAMB 2.0.5; Zel'dovich
+  ICs of the same cosmology standing in for MUSIC, which this container
+  may not build) runs: mean-density gas at 465 K at z = 200, RECFAST's
+  table 466 K (the floor history: 366 K). MUSIC itself and the conversion
+  are those of #15's linear-growth runs on klone.
+* **Decided (user, 2026-10-30):** no `dt_max_myr` in the production
+  plane-parallel problems; the short turn-on step of #13 is the fix
+  (`docs/PLAN.md`).
+* **Found, left:** in the plane-parallel mode the stats before z_re print
+  `xHII_M = T_M = -nan` and the `temp` field is 0: the RT grid is not
+  filled before the RT turns on (the gas temperatures are in
+  `Log/hydro.log`). Diagnostic only.
+* **On klone (2026-10-30 evening):**
+  * **PR #11 with #17** (`claude/modest-mendel-8k29sb` at `acdf4e2`) on
+    the AMReX build: `-L "amrex_state|level_solve|amrex_plane"` 35/35, and
+    the refined-level nightly tests `amrex_pm_level_solve_rt_ranks`,
+    `amrex_pm_level_solve_rt_restart`, `amrex_state_full64_vs_serial`
+    pass. No fixes needed (reported on #11).
+  * **The C1 ladder from C26's ICs** (`docs/plane_parallel.md`, "The C1
+    ladder from C26's ICs"; runs in
+    `/gscratch/astro/mcquinn/radhydro/runs/c1_c26`). 64³: the RECFAST
+    history to ≤ 0.6 % to z = 15, a 0.81-Myr turn-on step, the fronts
+    across the domains in the first step at ~2 × 10⁴ K, E(k) like the
+    Zel'dovich rung from z ≈ 6.2 on (the old rung lagged before that).
+  * **Found: SN heating in source-free boxes.** The original's sub-grid
+    SN heating (T > 10⁴ K, Δ > 50) acts without sources, and with
+    `cool_suppress_overdensity = 0` it exploded the photoheated minihalo
+    gas at 128³/256³. **Decided (user):** no SN heating in any run: new
+    key `sn_heating` (default 1 = the original, byte-identical),
+    `make_production.py` writes 0. The 128³–512³ rungs were cancelled
+    (kept as `run_sn1`).
+  * **Found: numerical hot cells** next to cooling clumps with the long
+    post-turn-on CFL steps of the unsplit hydro. **Decided (user):** a
+    coupling cap that scales with the cell, new key
+    `plane_couple_courant` = 0.15 (every step from z_re ≤ 0.15 Δx/c_hot;
+    default off; `make_production.py --plane-parallel` writes it).
+    `plane_full` checks it.
+  * **Relaunched** all four rungs with both (21:25). Done
+    (2026-10-31): 64³ 10 min / 0.29 GB, 128³ 2 h 39 / 2.1 GB, 256³
+    5 h 40 / 15.7 GB (to z = 4), 512³ 22 h 13 / 110 GB on 192 threads
+    (stopped at z = 5). T_V, T_M converge to 1–1.5 % per doubling;
+    ⟨v²⟩ at z = 6: 54, 66, 73, 78 (km/s)² (after the 2026-11-01 cosmology fix of `velocity_power.py`). **512³ shows a k^−5/3
+    range**: slopes −1.5 … −1.95 at 0.25–1 h/kpc for z = 6.2–5; the
+    dissipation cutoff is numerical (~10 cells per wavelength). 1024³
+    extrapolates to ~350 h on one 192-core node and ~0.9 TB (fits one
+    1.5-TB cpu-g2 node with the serial build). Data and figures:
+    `docs/data/plane/c1_c26_*`, `docs/figures/plane_c1_c26_*`.
+  * **Found: late hot cells** (a near-empty 10⁸ K cell beside a clump
+    cooling without limit): 128³ from z ≈ 4.15, 256³ from z ≈ 4.9,
+    512³ from z ≈ 5.1. **Decided (user):** the ladder ends at z = 5 for
+    now, and sinks are tried alongside. New: `sf_overdensity > 0` on
+    the serial unsplit hydro (mass loss, no particles; default 0
+    byte-identical). At 128³ to z = 4, thresholds 3 000× and 1 000×
+    remove the episode, take 2.0 % and 3.1 % of the gas, change T_V by
+    ≤ 0.25 % and E(k) by ≤ 1.5–2.7 % at z = 5.
+  * **Open:** 256³/512³ with the sink (ask first); whether the sink
+    threshold should scale with N; the C26 Fig. 3 comparison
+    (digitised points from the user); PREHEAT variants and 1024³ (ask
+    first).
 ## Done 2026-10-30: `land_outputs = 1` ends the run on its last output (branch `land-outputs-end`, PR #19)
 
 - **Symptom:** the nightly `plane_dm20` failed every night from its
@@ -3420,8 +3578,10 @@ In the cloud (branch + PR each):
    > table, and open the PR.
 7. ~~**Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).~~
    Done 2026-10-26 (above); open: the C1 ladder on klone (the local 64³
-   rung and the T4 test are run here), the C26 Fig. 3 comparison needs
-   the paper's E(k) points (`velocity_power.py --ref`).
+   rung and the T4 test are run here; since 2026-10-30 from C26's MUSIC
+   ICs with recfast), the C26 Fig. 3 comparison needs the paper's E(k)
+   points (`velocity_power.py --ref`); for C2 at 1024³ on the backend,
+   `thermal_init = recfast` on the levels of `amrex_state = 1`.
 8. Smaller: ~~the stored-RT-reference platform policy~~ decided
    2026-10-12 (skip on klone, label `platform_ref`); the 2 % growth
    deficit; ~~the unsplit open items (Sedov radius convergence, cold-gas
