@@ -134,7 +134,20 @@ Run with `ctest -L moments`, about 40 s.
 Produced by `tools/analysis/rt_methods.py build/rt_driver WORKDIR --threads 4`,
 which writes `docs/figures/rt_methods_ifront.png`, `rt_methods_maps.png` and
 `rt_methods.txt`. All runs use N = 32, c_reduced = 0.1 and
-legacy_rt = legacy_physics = 0.
+legacy_rt = legacy_physics = 0 (with B17 `photon_conserve` and P11
+`photon_consume_dense`).
+
+*Rerun 2026-11-10 with two changes.* (1) The rays now rotate their HEALPix
+frame for every source and RT substep, `ray_rotate = 3`, as every production
+run since 2026-10-10 does (the B16 fix, `docs/port_notes.md`). The rays with
+the original fixed frame (`ray_rotate = 0`) are kept as a fourth column,
+"rays, fixed frame" (`rays0` in `rt_methods.txt`). (2) Since the first
+version of this section (2026-10-10), `legacy_physics = 0` has gained B17
+and P11, which changes every method's numbers. With `photon_conserve = 0
+photon_consume_dense = 0` the script's runs reproduce the old table exactly
+(the box at step 60: M1 0.5692, the fixed-frame rays 0.5252). Together they
+lower the box's x_HII at step 60 from 0.525 to 0.468 for the rays and from
+0.569 to 0.545 for M1 (for M1 alone: B17 gives 0.553, P11 0.560).
 
 ![I-front](figures/rt_methods_ifront.png)
 
@@ -142,52 +155,102 @@ legacy_rt = legacy_physics = 0.
 
 | Method | Error at ĉt = 2 cells | at 6 cells | at 10 cells | at 30 cells |
 |---|---|---|---|---|
-| rays | −1% | +4.7% | +3.9% | +1.9% |
-| M1 | +63% | +16% | +8.7% | +2.5% |
-| OTVET | +63% | +15% | +7.0% | +1.6% |
+| rays | +1.9% | +3.8% | +1.7% | +0.2% |
+| rays, fixed frame | −1.2% | +3.1% | +1.4% | +0.1% |
+| M1 | +61% | +15% | +7.4% | +1.7% |
+| OTVET | +61% | +14% | +6.0% | +0.8% |
 
-The first-order scheme spreads the photons over a few cells: the numerical
-diffusion of upwind at C = 1/4 is σ ≈ 2 cells after 6 substeps. The moment
-fronts therefore run ahead of the finite-c solution while they are small,
-and converge to it, and to the rays, as R grows. The photon budget is exact
-(§2), so the ionised volume is right once the front is resolved.
+The rotation hardly changes the rays' mean radius, but it halves the
+spread of the front over directions: the radius of the partly ionised cells
+at ĉt = 30 is 7.99 ± 0.17 cells with the rotation and 8.03 ± 0.32 without
+(M1 7.99 ± 0.20, OTVET 7.93 ± 0.28).
+
+**Why the moment fronts run ahead early.** The radius is taken from the
+ionised volume. While the recombinations are negligible, that volume
+counts the photons absorbed, which are the photons emitted minus those still
+in flight. The first-order scheme smears the radiation over a few cells:
+the numerical diffusion of upwind at C = 1/4 is σ ≈ 2 cells after 6 substeps.
+So part of the photons reaches neutral gas sooner than ĉ allows, and
+fewer are in flight than with the rays (`rt_methods.txt`, "I-front ahead
+of the finite-c solution"):
+
+| ĉt [cells] | photons in flight, M1 / OTVET (rays = 1) | ionised volume beyond r = ĉt + 0.87, M1 / OTVET |
+|---|---|---|
+| 2 | 0.42 / 0.43 | 17% / 19% |
+| 4 | 0.66 / 0.69 | 1.8% / 2.2% |
+| 6 | 0.66 / 0.70 | 0.0% / 0.1% |
+| 10 | 0.74 / 0.79 | 0 |
+| 30 | 0.83 / 0.91 | 0 |
+
+- **First substeps:** the photons move faster than light. The `moment_nsub`
+  = 4 subcycles of a substep reach 4 cells while light travels 1, and at
+  ĉt = 2 a sixth of the ionised volume lies outside the light cone.
+- **Later:** nothing is ionised outside the light cone, but the front is
+  thicker: 1.45× (M1) and 1.3× (OTVET) as many cells with 0.3 < x_HII < 0.7
+  at ĉt = 30. The
+  photons are absorbed across that thicker front, so fewer of them stay in
+  flight.
+
+  The excess volume this leaves is a shrinking fraction of the volume as R
+  grows. So the error falls from +61% to 1–2%, and the moment fronts
+  converge to the finite-c solution and to the rays. The photon budget is
+  exact (§2), so the ionised volume is right once the front is resolved.
 
 ![maps](figures/rt_methods_maps.png)
 
 Maps of x_HII in the plane through the sources, after 15 steps:
 
 - **Shadow.** A 3× brighter source, and a clump of radius 2 cells at 50× the
-  mean density, 4 cells away.
-  - All three methods cast a shadow. The mean x_HII on the axis behind the
-    clump is 0.000 for the rays, 0.061 for M1 and 0.008 for OTVET.
-  - At the same distance beside the clump it is 0.52, 0.39 and 0.32.
+  mean density, 4 cells away. This is a point-source test of our own, not
+  Iliev et al. 2006 Test 3 (§5).
+  - Every method casts a shadow. The mean x_HII on the axis behind the
+    clump is 0.000 for the rays (with or without the rotation), 0.054 for
+    M1 and 0.005 for OTVET.
+  - At the same distance beside the clump it is 0.40 (rays), 0.50 (fixed
+    frame), 0.36 (M1) and 0.29 (OTVET). These cells are at the edge of the
+    front, 9–12 cells from the source, so the number mostly measures how
+    the front's edge falls on them.
   - OTVET's radial tensor keeps the shadow sharpest. M1 fills it in a little:
     its flux direction relaxes towards isotropy behind the obstacle.
-  - The rays' front shows neutral holes at large radius, where the HEALPix
-    sampling gets sparse.
-- **Two sources** 12 cells apart. The fronts agree: the width of the ionised
-  region through the midpoint is 7 cells with every method, and through a
-  source it is 13, 13 and 15 cells. The classic M1 failure, where crossing
-  beams merge, needs beams that cross; two isotropic point sources do not
-  provoke it at this resolution.
+  - **Holes.** With the fixed frame the rays leave neutral holes inside the
+    front, in the gaps between the 192 HEALPix directions (B16): 33 of the
+    2385 cells at r < R − 2 outside the clump's shadow are neutral
+    (x_HII < 0.5). With `ray_rotate = 3` there are none, as for M1 and
+    OTVET.
+- **Two sources** 12 cells apart. The width of the ionised region through
+  the midpoint is 7 cells for the rays, M1 and OTVET (5 with the fixed
+  frame). Through a source it is 13, 13 and 15 cells. The classic M1
+  failure, where crossing beams merge, needs beams that cross; two
+  isotropic point sources do not provoke it at this resolution.
 - **16 sources in a lognormal field** (`tests/problems/lognormal_16src`,
   60 steps):
 
-| step | x_HII (volume): rays / M1 / OTVET | x_HII (mass) | partly ionised cells | cells off by > 0.1 vs rays |
+| step | x_HII (volume): rays / M1 / OTVET | x_HII (mass) | partly ionised cells | cells off by > 0.1 vs rays: fixed frame / M1 / OTVET |
 |---|---|---|---|---|
-| 10 | 0.021 / 0.058 / 0.056 | 0.084 / 0.093 / 0.094 | 2% / 7% / 7% | – / 7% / 7% |
-| 20 | 0.101 / 0.149 / 0.142 | 0.152 / 0.169 / 0.169 | 6% / 13% / 13% | – / 12% / 10% |
-| 40 | 0.310 / 0.359 / 0.344 | 0.293 / 0.315 / 0.310 | 12% / 21% / 20% | – / 18% / 16% |
-| 60 | 0.525 / 0.569 / 0.552 | 0.434 / 0.456 / 0.450 | 15% / 24% / 24% | – / 22% / 19% |
+| 10 | 0.014 / 0.054 / 0.053 | 0.068 / 0.087 / 0.088 | 2% / 7% / 7% | 0.7% / 8% / 7% |
+| 20 | 0.078 / 0.139 / 0.132 | 0.131 / 0.160 / 0.159 | 5% / 13% / 12% | 2.6% / 13% / 12% |
+| 40 | 0.266 / 0.340 / 0.321 | 0.259 / 0.300 / 0.293 | 11% / 20% / 20% | 5.1% / 19% / 17% |
+| 60 | 0.468 / 0.545 / 0.520 | 0.391 / 0.438 / 0.427 | 15% / 24% / 24% | 6.2% / 23% / 20% |
+
+  The frame rotation leaves the global fractions unchanged (the fixed frame
+  gives x_HII = 0.468 at step 60 as well), but moves 6% of the cells by more
+  than 0.1. That is the rays' own sampling noise, the floor against which
+  the moment methods' 20–23% should be read.
 
   The moment methods start ahead, while the fronts are a few cells across,
-  as in the I-front test. Later they are 5–8% (M1) and 4–5% (OTVET) above
-  the rays in x_HII. Their fronts are thicker: about 1.6× as many partly
-  ionised cells. The median temperatures agree at step 60 (16 000–16 300 K).
-  OTVET is the closer of the two to the rays everywhere.
+  as in the I-front test. Later they are 16% (M1) and 11% (OTVET) above the
+  rays in x_HII at step 60. With B17 and P11 off they were 8% and 5% above:
+  the two fixes slow the rays more than the moments.
+  The moment fronts are thicker: 1.6× as many partly ionised cells. The
+  median temperature at step 60 is 13 900 K for the rays, 16 000 K for M1
+  and 15 600 K for OTVET. With x_HII ≈ 0.5 the median sits at the edge of
+  the ionised gas and follows the ionised fraction. OTVET is the closer of
+  the two to the rays everywhere.
 
 **Cost** (the box, 60 steps of one RT substep each, whole run including
-output; 4-core container):
+output; 4-core container; measured 2026-10-10, before B17 and P11 and with
+the fixed frame; the frame rotation costs nothing measurable,
+`rt_methods.txt`):
 
 | | 1 thread | 4 threads |
 |---|---|---|
@@ -278,7 +341,21 @@ OTVET runs of `docs/rt_methods_512.md` used 0; they are not rerun.
 - **No recombination radiation** (as with the rays, where it is off).
 - **Not validated against the Iliev et al. 2006/2009 tests** quantitatively.
   That would be the next step, with plane-parallel sources for the shadow
-  test (Test 3).
+  test (Test 3). The shadow test of §4 is our own point-source set-up and
+  has no published counterpart. The published shadow problems with M1 and
+  OTVET results are, *from memory and unchecked (no journal access)*:
+  - Iliev et al. 2006, Test 3: a plane-parallel flux on a dense uniform
+    clump, I-front trapping and the shadow, with Gnedin's OTVET among the
+    codes compared;
+  - Iliev et al. 2009, Test 7: the same clump with hydrodynamics
+    (photoevaporation);
+  - for M1, Test 3 in RAMSES-RT (Rosdahl et al. 2013) and the shadow tests
+    of González, Audit & Huynh 2007 (HERACLES) and Aubert & Teyssier 2008
+    (ATON);
+  - for OTVET in SPH, the point-source shadow of Petkova & Springel 2009.
+
+  The moment RT has no plane-parallel sources yet: `docs/plane_parallel.md`
+  is a ray mode, and the OTVET tensor is built from point sources.
 - **AMR, MPI and GPU** (ROADMAP): the moment solver is a 7-point stencil on
   the grid, with a ghost layer of one cell per subcycle. It is a natural fit
   for every one of them, and for the "moment hand-over in transparent
@@ -417,7 +494,10 @@ Each run's own movie (x_HII, T, ρ and τ_es) is
     this level.
 - **Fronts.** The moment fronts are smooth, while the rays' are ragged:
   - the rays' HEALPix sampling leaves holes at large radius, worst at 0.01c
-    (§4);
+    (§4). These ray runs (2026-10-09) predate `ray_rotate`: they use the
+    fixed frame, and the holes are B16. With `ray_rotate = 3`, the
+    production setting since 2026-10-10, they are gone (§4, the shadow
+    holes; `docs/rt_methods_512.md` and `docs/rt_suite_512.md` use it);
   - the moment methods have up to 1.4× as many partly ionised cells
     (5.9% against 4.2%) while the bubbles grow;
   - at overlap the fraction of partly ionised cells is the same for all

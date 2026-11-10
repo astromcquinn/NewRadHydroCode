@@ -1,47 +1,72 @@
 I-front (uniform, c_reduced = 0.1): R [cells] and R/R_pred - 1
- step  c_hat t  R_pred           rays             M1          OTVET
-    1     2.00   1.771  1.755 (-0.009)  2.889 (+0.631)  2.888 (+0.631)
-    2     4.00   2.948  3.196 (+0.084)  3.670 (+0.245)  3.605 (+0.223)
-    3     6.01   3.772  3.950 (+0.047)  4.392 (+0.164)  4.338 (+0.150)
-    4     8.01   4.406  4.586 (+0.041)  4.909 (+0.114)  4.828 (+0.096)
-    5    10.02   4.928  5.122 (+0.039)  5.357 (+0.087)  5.275 (+0.070)
-    6    12.03   5.379  5.568 (+0.035)  5.767 (+0.072)  5.676 (+0.055)
-    7    14.05   5.777  5.947 (+0.029)  6.127 (+0.061)  6.030 (+0.044)
-    8    16.06   6.135  6.316 (+0.030)  6.463 (+0.053)  6.366 (+0.038)
-    9    18.08   6.462  6.637 (+0.027)  6.755 (+0.045)  6.664 (+0.031)
-   10    20.10   6.764  6.950 (+0.027)  7.035 (+0.040)  6.947 (+0.027)
-   11    22.12   7.044  7.202 (+0.023)  7.302 (+0.037)  7.211 (+0.024)
-   12    24.14   7.304  7.457 (+0.021)  7.541 (+0.032)  7.456 (+0.021)
-   13    26.17   7.549  7.696 (+0.020)  7.778 (+0.030)  7.689 (+0.019)
-   14    28.20   7.781  7.931 (+0.019)  7.994 (+0.027)  7.911 (+0.017)
-   15    30.23   8.002  8.151 (+0.019)  8.203 (+0.025)  8.127 (+0.016)
+ step  c_hat t  R_pred           rays          rays0             M1          OTVET
+    1     2.00   1.766  1.799 (+0.019)  1.745 (-0.012)  2.843 (+0.609)  2.845 (+0.611)
+    2     4.00   2.933  3.151 (+0.074)  3.128 (+0.066)  3.591 (+0.224)  3.546 (+0.209)
+    3     6.01   3.753  3.896 (+0.038)  3.868 (+0.031)  4.313 (+0.149)  4.262 (+0.136)
+    4     8.01   4.386  4.503 (+0.026)  4.495 (+0.025)  4.823 (+0.100)  4.756 (+0.084)
+    5    10.02   4.912  4.995 (+0.017)  4.979 (+0.014)  5.274 (+0.074)  5.205 (+0.060)
+    6    12.03   5.365  5.443 (+0.015)  5.440 (+0.014)  5.683 (+0.059)  5.595 (+0.043)
+    7    14.05   5.764  5.812 (+0.008)  5.813 (+0.009)  6.037 (+0.048)  5.957 (+0.034)
+    8    16.06   6.123  6.184 (+0.010)  6.158 (+0.006)  6.371 (+0.041)  6.287 (+0.027)
+    9    18.08   6.453  6.499 (+0.007)  6.493 (+0.006)  6.673 (+0.034)  6.590 (+0.021)
+   10    20.10   6.752  6.782 (+0.005)  6.794 (+0.006)  6.953 (+0.030)  6.872 (+0.018)
+   11    22.12   7.032  7.065 (+0.005)  7.056 (+0.003)  7.218 (+0.027)  7.136 (+0.015)
+   12    24.14   7.295  7.327 (+0.004)  7.307 (+0.002)  7.464 (+0.023)  7.386 (+0.013)
+   13    26.17   7.541  7.559 (+0.002)  7.546 (+0.001)  7.695 (+0.020)  7.618 (+0.010)
+   14    28.20   7.772  7.781 (+0.001)  7.778 (+0.001)  7.920 (+0.019)  7.842 (+0.009)
+   15    30.23   7.993  8.005 (+0.002)  8.002 (+0.001)  8.126 (+0.017)  8.059 (+0.008)
+
+I-front at step 15: radius of the partly ionised cells (0.3 < x_HII < 0.7), mean +- rms over the cells
+  rays   r = 7.99 +- 0.17 (332 cells)
+  rays0  r = 8.03 +- 0.32 (342 cells)
+  M1     r = 7.99 +- 0.20 (480 cells)
+  OTVET  r = 7.93 +- 0.28 (432 cells)
+
+I-front ahead of the finite-c solution: ionised volume beyond c_hat t + 0.87 [cells] (fraction of the ionised volume), photons in flight / the rays'
+  step  1 c_hat t  2.00: rays   0.0 (0.0%) 1.00   rays0   0.0 (0.0%) 1.01   M1  16.1 (16.7%) 0.42   OTVET  18.5 (19.2%) 0.43
+  step  2 c_hat t  4.00: rays   0.0 (0.0%) 1.00   rays0   0.0 (0.0%) 1.01   M1   3.4 (1.8%) 0.66   OTVET   4.2 (2.2%) 0.69
+  step  3 c_hat t  6.01: rays   0.0 (0.0%) 1.00   rays0   0.0 (0.0%) 1.01   M1   0.1 (0.0%) 0.66   OTVET   0.2 (0.1%) 0.70
+  step  5 c_hat t 10.02: rays   0.0 (0.0%) 1.00   rays0   0.0 (0.0%) 1.01   M1   0.0 (0.0%) 0.74   OTVET   0.0 (0.0%) 0.79
+  step 10 c_hat t 20.10: rays   0.0 (0.0%) 1.00   rays0   0.0 (0.0%) 0.99   M1   0.0 (0.0%) 0.80   OTVET   0.0 (0.0%) 0.88
+  step 15 c_hat t 30.23: rays   0.0 (0.0%) 1.00   rays0   0.0 (0.0%) 1.00   M1   0.0 (0.0%) 0.83   OTVET   0.0 (0.0%) 0.91
 
 Shadow: mean x_HII on the axis behind the clump (i = 23..26, j = k = 16), beside it at the same distance (i = 23..26, j = 16 +- 6), and in front (i = 17)
-  rays   behind 0.000   beside 0.517   in front 1.000   ionised volume 5492.7 cells
-  M1     behind 0.061   beside 0.387   in front 1.000   ionised volume 5562.8 cells
-  OTVET  behind 0.008   beside 0.318   in front 1.000   ionised volume 5400.8 cells
+  rays   behind 0.000   beside 0.395   in front 1.000   ionised volume 5111.9 cells
+  rays0  behind 0.000   beside 0.504   in front 1.000   ionised volume 5139.5 cells
+  M1     behind 0.054   beside 0.364   in front 1.000   ionised volume 5358.3 cells
+  OTVET  behind 0.005   beside 0.288   in front 1.000   ionised volume 5216.6 cells
+Shadow holes: neutral cells (x_HII < 0.5) at r < R - 2 outside the 45-degree cone behind the clump
+  rays      0 of 2385 cells (R = 10.69)
+  rays0    33 of 2385 cells (R = 10.71)
+  M1        0 of 2537 cells (R = 10.86)
+  OTVET     0 of 2409 cells (R = 10.76)
 
 Pair: extent of the ionised region (x_HII > 0.5) along y through the midpoint (i = 16) and through a source (i = 10), in cells
   rays   midpoint   7   source  13
+  rays0  midpoint   5   source  13
   M1     midpoint   7   source  13
   OTVET  midpoint   7   source  15
 
-Box (lognormal_16src, legacy_rt = legacy_physics = 0): volume- and mass-weighted x_HII, fraction of partly ionised cells (0.05 < x < 0.95), median T [K], cells with |x_HII - x_HII(rays)| > 0.1
-  step 10 rays   0.0212 0.0836 0.020      1.5   0 of 32768
-  step 20 rays   0.1014 0.1519 0.059      1.5   0 of 32768
-  step 40 rays   0.3103 0.2933 0.124     87.1   0 of 32768
-  step 60 rays   0.5252 0.4344 0.154  16238.7   0 of 32768
-  step 10 M1     0.0577 0.0928 0.072      1.5   2440 of 32768
-  step 20 M1     0.1486 0.1688 0.129      4.6   3782 of 32768
-  step 40 M1     0.3587 0.3150 0.209   3448.4   5773 of 32768
-  step 60 M1     0.5692 0.4564 0.242  16292.0   7134 of 32768
-  step 10 OTVET  0.0562 0.0937 0.072      1.5   2388 of 32768
-  step 20 OTVET  0.1418 0.1694 0.126      3.1   3419 of 32768
-  step 40 OTVET  0.3438 0.3103 0.202   2499.3   5170 of 32768
-  step 60 OTVET  0.5522 0.4497 0.238  16090.3   6255 of 32768
+Box (lognormal_16src, legacy_rt = legacy_physics = 0): volume- and mass-weighted x_HII, fraction of partly ionised cells (0.05 < x < 0.95), median T [K], cells with |x_HII - x_HII(rays)| > 0.1 (rays: ray_rotate = 3)
+  step 10 rays   0.0140 0.0682 0.017      1.5   0 of 32768
+  step 20 rays   0.0783 0.1314 0.052      1.5   0 of 32768
+  step 40 rays   0.2663 0.2586 0.111     10.1   0 of 32768
+  step 60 rays   0.4677 0.3908 0.149  13868.8   0 of 32768
+  step 10 rays0  0.0141 0.0680 0.016      1.5   214 of 32768
+  step 20 rays0  0.0791 0.1315 0.053      1.5   866 of 32768
+  step 40 rays0  0.2658 0.2588 0.112      5.9   1676 of 32768
+  step 60 rays0  0.4677 0.3913 0.149  13717.1   2039 of 32768
+  step 10 M1     0.0538 0.0872 0.070      1.5   2486 of 32768
+  step 20 M1     0.1385 0.1595 0.126      3.0   4160 of 32768
+  step 40 M1     0.3400 0.2999 0.204   2369.4   6210 of 32768
+  step 60 M1     0.5450 0.4379 0.242  16013.7   7632 of 32768
+  step 10 OTVET  0.0527 0.0875 0.070      1.5   2452 of 32768
+  step 20 OTVET  0.1319 0.1588 0.122      2.1   3813 of 32768
+  step 40 OTVET  0.3212 0.2927 0.198   1526.7   5524 of 32768
+  step 60 OTVET  0.5201 0.4273 0.238  15627.5   6618 of 32768
 
 Wall-clock seconds (rt_driver, whole run)
-  ifront  rays   0.34  M1   0.26  OTVET   0.30
-  shadow  rays   0.50  M1   0.33  OTVET   0.34
-  pair    rays   0.41  M1   0.61  OTVET   0.28
-  box     rays  18.04  M1   1.41  OTVET   2.71
+  ifront  rays   0.38  rays0   0.38  M1   0.25  OTVET   0.33
+  shadow  rays   0.54  rays0   0.54  M1   0.30  OTVET   0.28
+  pair    rays   0.49  rays0   0.44  M1   0.28  OTVET   0.26
+  box     rays  13.71  rays0  13.31  M1   1.56  OTVET   1.61
