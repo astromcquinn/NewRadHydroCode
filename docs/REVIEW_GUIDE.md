@@ -49,7 +49,7 @@ flag's name before changing it.
 | Method | Selected by | Code | Documents | Tests |
 |---|---|---|---|---|
 | adaptive rays (the original) | `rt_method = rays` (default) | `src/rt_tools.cpp`, `src/ray_tracing.cpp`, `include/radray/rays.hpp`, `kernels/ray_kernels.hpp`, `kernels/rt_cell.hpp` | `port_notes.md`, `validation_spec.md`, `parallel.md`, `rt_multicell.md` | `ref_*`, `ref_legacy0_*`, `ref_fixed_*` (byte comparison with the Fortran outputs), `rays`, `end_to_end*`, `thread_rt_*`, `photon_conserve`, `ifront_rsla*` |
-| M1 | `rt_method = m1` | `src/rt_moments.cpp`, `kernels/moment_cell.hpp` | `rt_moments.md` | `moments`, `thread_rt_m1_lognormal_16src`, `restart_smoke_m1_inject`, `gamma_avg_m1` |
+| M1 | `rt_method = m1` | `src/rt_moments.cpp`, `kernels/moment_cell.hpp` | `rt_moments.md` | `moments`, `thread_rt_m1_lognormal_16src`, `restart_smoke_m1_inject0`, `gamma_avg_m1` |
 | OTVET, thin tensor | `rt_method = otvet` | `compute_otvet_tensor` in `rt_moments.cpp`, `src/rt_moments_fft.cpp` | `rt_moments.md` | `otvet_fft_threads_*`, `thread_rt_otvet_*`, `tensor_dump_otvet` |
 | OTVET closures: split, screen, cone | `otvet_split = 1`, `otvet_closure = screen \| cone` | `src/otvet_closure.cpp`, `include/radray/otvet_closure.hpp` | `otvet_closure.md` sections 4, 5 | `restart_smoke_otvet_split`, `restart_smoke_otvet_cone`, `tensor_dump_otvet_cone`, `tensor_dump_otvet_split`, `thread_rt_otvet_{split,screen,cone}_*` |
 | OTVET with an isotropic background | `otvet_background = ga01` | PR #32 (branch `otvet-background`) | `otvet_background.md` on that branch | on that branch |

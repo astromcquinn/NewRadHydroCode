@@ -14,6 +14,8 @@ emission are the same, and the gaps between them leave grid-aligned holes in
 the fronts at large radius. The fixed frame is run as well ("rays, fixed
 frame") to show what the rotation changes; the moment methods have no rays
 and ignore the key.
+The moment methods run with the default moment_inject = 1 (the source
+photons are injected after the transport, docs/rt_moments.md section 5a).
 
   ifront   one source (Luv = 8e28) in the centre, 15 steps of da = 2e-4:
            the I-front radius from the ionised volume, against the finite-c

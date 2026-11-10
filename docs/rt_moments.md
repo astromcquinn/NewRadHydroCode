@@ -18,7 +18,7 @@ radhydro   <problem> <out> --set rt_method=otvet
 | `rt_method` | `rays` (default), `m1`, `otvet` | radiative transfer method |
 | `moment_nsub` | integer ≥ 3, default 4 | transport subcycles per RT substep (Courant number 1/`moment_nsub`) |
 | `otvet_tensor` | `auto` (default), `direct`, `fft` | how the OTVET tensor is summed over the sources |
-| `moment_inject` | `0` (default), `1` | when a substep's source and recombination photons enter the moments: 0 before the transport (the first implementation), 1 after it, so they are absorbed in their own cell first (§5a; `make_production.py` writes 1) |
+| `moment_inject` | `1` (default since 2026-11-10), `0` | when a substep's source and recombination photons enter the moments: 1 after the transport, so they are absorbed in their own cell first; 0 before it (the first implementation, which leaves dense source cells neutral) (§5a) |
 
 All other parameters keep their meaning. `c_reduced` sets the light speed of
 the moment solver too. `legacy_physics` selects the atomic physics, as with
@@ -135,19 +135,27 @@ Produced by `tools/analysis/rt_methods.py build/rt_driver WORKDIR --threads 4`,
 which writes `docs/figures/rt_methods_ifront.png`, `rt_methods_maps.png` and
 `rt_methods.txt`. All runs use N = 32, c_reduced = 0.1 and
 legacy_rt = legacy_physics = 0 (with B17 `photon_conserve` and P11
-`photon_consume_dense`).
+`photon_consume_dense`). The moment methods use the default
+`moment_inject = 1` (§5a).
 
-*Rerun 2026-11-10 with two changes.* (1) The rays now rotate their HEALPix
-frame for every source and RT substep, `ray_rotate = 3`, as every production
-run since 2026-10-10 does (the B16 fix, `docs/port_notes.md`). The rays with
-the original fixed frame (`ray_rotate = 0`) are kept as a fourth column,
-"rays, fixed frame" (`rays0` in `rt_methods.txt`). (2) Since the first
-version of this section (2026-10-10), `legacy_physics = 0` has gained B17
-and P11, which changes every method's numbers. With `photon_conserve = 0
-photon_consume_dense = 0` the script's runs reproduce the old table exactly
-(the box at step 60: M1 0.5692, the fixed-frame rays 0.5252). Together they
-lower the box's x_HII at step 60 from 0.525 to 0.468 for the rays and from
-0.569 to 0.545 for M1 (for M1 alone: B17 gives 0.553, P11 0.560).
+*Rerun 2026-11-10 with three changes:*
+1. **The rays rotate their HEALPix frame** for every source and RT substep,
+   `ray_rotate = 3`, as every production run since 2026-10-10 does (the
+   B16 fix, `docs/port_notes.md`). The rays with the original fixed frame
+   (`ray_rotate = 0`) are kept as a fourth column, "rays, fixed frame"
+   (`rays0` in `rt_methods.txt`).
+2. **The moments inject after the transport,** `moment_inject = 1`, the
+   default since 2026-11-10. The numbers with the old order, 0, are quoted
+   below as "inject 0".
+3. **B17 and P11.** Since the first version of this section (2026-10-10),
+   `legacy_physics = 0` has gained B17 and P11, which changes every
+   method's numbers.
+   - With `photon_conserve = 0 photon_consume_dense = 0` (and
+     `moment_inject = 0`) the script's runs reproduce the old table exactly
+     (the box at step 60: M1 0.5692, the fixed-frame rays 0.5252).
+   - Together B17 and P11 lower the box's x_HII at step 60 from 0.525 to
+     0.468 for the rays and from 0.569 to 0.545 for M1 with inject 0. For
+     that M1 run alone: B17 gives 0.553, P11 0.560.
 
 ![I-front](figures/rt_methods_ifront.png)
 
@@ -157,44 +165,49 @@ lower the box's x_HII at step 60 from 0.525 to 0.468 for the rays and from
 |---|---|---|---|---|
 | rays | +1.9% | +3.8% | +1.7% | +0.2% |
 | rays, fixed frame | −1.2% | +3.1% | +1.4% | +0.1% |
-| M1 | +61% | +15% | +7.4% | +1.7% |
-| OTVET | +61% | +14% | +6.0% | +0.8% |
+| M1 | +36% | +6.5% | +3.0% | +0.3% |
+| OTVET | +36% | +4.6% | +1.6% | −0.6% |
+| M1, inject 0 | +61% | +15% | +7.4% | +1.7% |
+| OTVET, inject 0 | +61% | +14% | +6.0% | +0.8% |
 
 The rotation hardly changes the rays' mean radius, but it halves the
 spread of the front over directions: the radius of the partly ionised cells
 at ĉt = 30 is 7.99 ± 0.17 cells with the rotation and 8.03 ± 0.32 without
-(M1 7.99 ± 0.20, OTVET 7.93 ± 0.28).
+(M1 7.95 ± 0.21, OTVET 7.84 ± 0.29).
 
 **Why the moment fronts run ahead early.** The radius is taken from the
 ionised volume. While the recombinations are negligible, that volume
 counts the photons absorbed, which are the photons emitted minus those still
-in flight. The first-order scheme smears the radiation over a few cells:
-the numerical diffusion of upwind at C = 1/4 is σ ≈ 2 cells after 6 substeps.
-So part of the photons reaches neutral gas sooner than ĉ allows, and
-fewer are in flight than with the rays (`rt_methods.txt`, "I-front ahead
-of the finite-c solution"):
+in flight. Fewer photons in flight than with the rays means a larger volume
+(`rt_methods.txt`, "I-front ahead of the finite-c solution"):
 
-| ĉt [cells] | photons in flight, M1 / OTVET (rays = 1) | ionised volume beyond r = ĉt + 0.87, M1 / OTVET |
-|---|---|---|
-| 2 | 0.42 / 0.43 | 17% / 19% |
-| 4 | 0.66 / 0.69 | 1.8% / 2.2% |
-| 6 | 0.66 / 0.70 | 0.0% / 0.1% |
-| 10 | 0.74 / 0.79 | 0 |
-| 30 | 0.83 / 0.91 | 0 |
+| ĉt [cells] | photons in flight, M1 / OTVET (rays = 1) | inject 0 | ionised volume beyond r = ĉt + 0.87, M1 / OTVET | inject 0 |
+|---|---|---|---|---|
+| 2 | 0.65 / 0.67 | 0.42 / 0.43 | 11% / 13% | 17% / 19% |
+| 4 | 0.88 / 0.89 | 0.66 / 0.69 | 0.5% / 0.6% | 1.8% / 2.2% |
+| 6 | 0.87 / 0.91 | 0.66 / 0.70 | 0.0% / 0.0% | 0.0% / 0.1% |
+| 10 | 0.90 / 0.96 | 0.74 / 0.79 | 0 | 0 |
+| 30 | 0.95 / 1.03 | 0.83 / 0.91 | 0 | 0 |
 
-- **First substeps:** the photons move faster than light. The `moment_nsub`
-  = 4 subcycles of a substep reach 4 cells while light travels 1, and at
-  ĉt = 2 a sixth of the ionised volume lies outside the light cone.
-- **Later:** nothing is ionised outside the light cone, but the front is
-  thicker: 1.45× (M1) and 1.3× (OTVET) as many cells with 0.3 < x_HII < 0.7
-  at ĉt = 30. The
-  photons are absorbed across that thicker front, so fewer of them stay in
-  flight.
+Two things put the moment photons into neutral gas early.
+- **The injection order** (§5a). With inject 0 the source's photons are
+  transported 4 subcycles before anything absorbs them. The source cell
+  itself barely absorbs, and the photons start spread over the
+  neighbouring cells. Injecting after the transport removes about half of
+  the early lead.
+- **The first-order scheme's numerical diffusion** (upwind at C = 1/4:
+  σ ≈ 2 cells after 6 substeps), which remains with inject 1:
+  - In the first substeps photons move faster than light. The
+    `moment_nsub` = 4 subcycles of a substep reach 4 cells while light
+    travels 1, and at ĉt = 2 a tenth of the ionised volume lies outside
+    the light cone.
+  - Later nothing is ionised outside the light cone, but the front is
+    thicker: about 1.5× as many cells with 0.3 < x_HII < 0.7 at ĉt = 30.
 
-  The excess volume this leaves is a shrinking fraction of the volume as R
-  grows. So the error falls from +61% to 1–2%, and the moment fronts
-  converge to the finite-c solution and to the rays. The photon budget is
-  exact (§2), so the ionised volume is right once the front is resolved.
+The excess volume becomes a smaller fraction of the volume as R grows, and
+the moment fronts converge to the finite-c solution and to the rays. The
+photon budget is exact (§2), so the ionised volume is right once the front
+is resolved.
 
 ![maps](figures/rt_methods_maps.png)
 
@@ -204,10 +217,10 @@ Maps of x_HII in the plane through the sources, after 15 steps:
   mean density, 4 cells away. This is a point-source test of our own, not
   Iliev et al. 2006 Test 3 (§5).
   - Every method casts a shadow. The mean x_HII on the axis behind the
-    clump is 0.000 for the rays (with or without the rotation), 0.054 for
-    M1 and 0.005 for OTVET.
+    clump is 0.000 for the rays (with or without the rotation), 0.044 for
+    M1 and 0.004 for OTVET (inject 0: 0.054 and 0.005).
   - At the same distance beside the clump it is 0.40 (rays), 0.50 (fixed
-    frame), 0.36 (M1) and 0.29 (OTVET). These cells are at the edge of the
+    frame), 0.34 (M1) and 0.25 (OTVET). These cells are at the edge of the
     front, 9–12 cells from the source, so the number mostly measures how
     the front's edge falls on them.
   - OTVET's radial tensor keeps the shadow sharpest. M1 fills it in a little:
@@ -219,33 +232,36 @@ Maps of x_HII in the plane through the sources, after 15 steps:
     OTVET.
 - **Two sources** 12 cells apart. The width of the ionised region through
   the midpoint is 7 cells for the rays, M1 and OTVET (5 with the fixed
-  frame). Through a source it is 13, 13 and 15 cells. The classic M1
-  failure, where crossing beams merge, needs beams that cross; two
-  isotropic point sources do not provoke it at this resolution.
+  frame), and through a source 13 cells for all three (OTVET 15 with
+  inject 0). The classic M1 failure, where crossing beams merge, needs
+  beams that cross; two isotropic point sources do not provoke it at this
+  resolution.
 - **16 sources in a lognormal field** (`tests/problems/lognormal_16src`,
   60 steps):
 
 | step | x_HII (volume): rays / M1 / OTVET | x_HII (mass) | partly ionised cells | cells off by > 0.1 vs rays: fixed frame / M1 / OTVET |
 |---|---|---|---|---|
-| 10 | 0.014 / 0.054 / 0.053 | 0.068 / 0.087 / 0.088 | 2% / 7% / 7% | 0.7% / 8% / 7% |
-| 20 | 0.078 / 0.139 / 0.132 | 0.131 / 0.160 / 0.159 | 5% / 13% / 12% | 2.6% / 13% / 12% |
-| 40 | 0.266 / 0.340 / 0.321 | 0.259 / 0.300 / 0.293 | 11% / 20% / 20% | 5.1% / 19% / 17% |
-| 60 | 0.468 / 0.545 / 0.520 | 0.391 / 0.438 / 0.427 | 15% / 24% / 24% | 6.2% / 23% / 20% |
+| 10 | 0.014 / 0.029 / 0.029 | 0.068 / 0.072 / 0.071 | 2% / 5% / 5% | 0.7% / 4.0% / 4.0% |
+| 20 | 0.078 / 0.098 / 0.095 | 0.131 / 0.141 / 0.140 | 5% / 10% / 10% | 2.6% / 7.1% / 7.0% |
+| 40 | 0.266 / 0.290 / 0.281 | 0.259 / 0.274 / 0.270 | 11% / 19% / 19% | 5.1% / 14% / 14% |
+| 60 | 0.468 / 0.496 / 0.482 | 0.391 / 0.410 / 0.404 | 15% / 24% / 23% | 6.2% / 19% / 18% |
 
   The frame rotation leaves the global fractions unchanged (the fixed frame
   gives x_HII = 0.468 at step 60 as well), but moves 6% of the cells by more
   than 0.1. That is the rays' own sampling noise, the floor against which
-  the moment methods' 20–23% should be read.
+  the moment methods' 18–19% should be read.
 
   The moment methods start ahead, while the fronts are a few cells across,
-  as in the I-front test. Later they are 16% (M1) and 11% (OTVET) above the
-  rays in x_HII at step 60. With B17 and P11 off they were 8% and 5% above:
-  the two fixes slow the rays more than the moments.
-  The moment fronts are thicker: 1.6× as many partly ionised cells. The
-  median temperature at step 60 is 13 900 K for the rays, 16 000 K for M1
-  and 15 600 K for OTVET. With x_HII ≈ 0.5 the median sits at the edge of
-  the ionised gas and follows the ionised fraction. OTVET is the closer of
-  the two to the rays everywhere.
+  as in the I-front test. At step 60 they are 6% (M1) and 3% (OTVET) above
+  the rays in x_HII.
+  - With inject 0 they were 16% and 11% above, with 23% and 20% of the
+    cells off by more than 0.1.
+  - With inject 0 and B17 and P11 off they were 8% and 5% above.
+  - The moment fronts are thicker: 1.6× as many partly ionised cells.
+  - The median temperature at step 60 is 13 900 K for the rays, 15 100 K
+    for M1 and 14 600 K for OTVET. With x_HII ≈ 0.5 the median sits at the
+    edge of the ionised gas and follows the ionised fraction.
+  - OTVET is the closer of the two to the rays everywhere.
 
 **Cost** (the box, 60 steps of one RT substep each, whole run including
 output; 4-core container; measured 2026-10-10, before B17 and P11 and with
@@ -312,9 +328,19 @@ absorbed in the cell that emitted them before they move on (128³,
 - OTVET's HI hardly changes: its tensor already points away from the
   source, and its neutral source cells at z ≈ 6.9 ionised before overlap.
 
-The default stays 0 (ground rule: defaults keep the first implementation);
-`make_production.py --moment-inject` writes 1 by default. The 512³ M1 and
-OTVET runs of `docs/rt_methods_512.md` used 0; they are not rerun.
+**The default is 1 since 2026-11-10** (user decision, `docs/PLAN.md`). Until
+then it was 0, the first implementation; `make_production.py` wrote 1, and
+the 512³ suite (`docs/rt_suite_512.md`) and the plane-parallel C1/T4 runs
+used it. The moment RT is new code, so ground rule 3 (defaults keep the
+original) does not bind it, and `moment_inject = 0` stays available.
+- The 512³ M1 and OTVET runs of `docs/rt_methods_512.md`, the 256³ runs
+  of §6, and the `rt_driver` comparisons of §4 before 2026-11-10 used 0.
+  They are not rerun.
+- Checkpoints do not store the key. A run started with the old default
+  and restarted from its `params.txt` with the new binary changes order at
+  the restart unless `moment_inject = 0` is added.
+- `make_production.py` now writes the key explicitly
+  (`--moment-inject 0|1`, default 1).
 
 ## 5. Caveats and open questions
 
