@@ -661,10 +661,10 @@ void code_cone(IO& io, Models& M, QRay& q) {
   q.ipix = (static_cast<std::uint32_t>(cone) << sh) | low;
 }
 
-// Codes one ray (values in q on encode; filled in q on decode). `ctx_rec`
-// supplies the cell context (tau), which the decoder also has.
+// Codes one ray (values in q on encode; filled in q on decode). The context
+// is the cell and the previous ray's class, which the decoder also has.
 template <class IO>
-void code_ray(IO& io, Models& M, QRay& q, const RayDumpRecord& ctx_rec, long long cell,
+void code_ray(IO& io, Models& M, QRay& q, long long cell,
               int prev_cls, BlockState& bs, const Geometry& g, int nsrc_bits) {
   const int N = g.N;
   q.cls = io.sym(M.cls, prev_cls, q.cls, gClass);
@@ -951,7 +951,7 @@ void train(Models& M, const Snapshot& s, const QuantOpts& o) {
     int prev_cls = 3;
     for (int j = 0; j < n; ++j) {
       QRay q = qs[i0 + j];
-      code_ray(io, M, q, s.rec[i0 + j], c, prev_cls, bs, g, nsrc_bits_of(g));
+      code_ray(io, M, q, c, prev_cls, bs, g, nsrc_bits_of(g));
       prev_cls = q.cls;
     }
   }
@@ -1008,7 +1008,7 @@ EncodeResult encode(Models& M, const Snapshot& s, const std::vector<QRay>& qs, s
     int prev_cls = 3;
     for (int j = 0; j < n; ++j) {
       QRay q = qs[i0 + j];
-      code_ray(io, M, q, s.rec[i0 + j], c, prev_cls, bs, g, nsrc_bits_of(g));
+      code_ray(io, M, q, c, prev_cls, bs, g, nsrc_bits_of(g));
       prev_cls = q.cls;
     }
     nblock += n;
@@ -1046,7 +1046,7 @@ double decode(Models& M, const Snapshot& s, const Encoded& E, std::vector<QRay>&
       for (int j = 0; j < n; ++j) {
         QRay& q = qout[ir];
         // cell context (tau) comes from the grid; take it from the record
-        code_ray(io, M, q, s.rec[ir], c, prev_cls, bs, g, nsrc_bits_of(g));
+        code_ray(io, M, q, c, prev_cls, bs, g, nsrc_bits_of(g));
         prev_cls = q.cls;
         reconstruct(q, c, g, rout[ir]);
         ++ir;

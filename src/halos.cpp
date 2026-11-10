@@ -267,7 +267,6 @@ double particle_mass_msun(i64 npart_total, double box, const Cosmology& c) {
 
 HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u) {
   HaloUnits h;
-  const i64 Npart = static_cast<i64>(cfg.Ndm) * cfg.Ndm * cfg.Ndm;
   h.L = cfg.Ndm;
   h.box = cfg.box;
   h.pos_to_mpch = cfg.x_dm_box;                       // box/ndmr
@@ -275,7 +274,6 @@ HaloUnits make_halo_units(const Config& cfg, const SimClock& clk, const Units& u
   const double x_dm_gas = static_cast<double>(cfg.Ngas) / cfg.Ndm;
   h.vel_to_kms = x_dm_gas * u.vel_unit / 1e5;         // pm_tools.f90 summarize_dm
   h.mpart_msun = u.Msun_unit;                         // calc_sim_var
-  (void)Npart;
   h.redshift = clk.redshift;
   h.cosmo = cfg.cosmo;
   h.hubble0 = cfg.cosmo.hubble0;

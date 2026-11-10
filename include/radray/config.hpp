@@ -505,7 +505,9 @@ struct Config {
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for
   // the outputs (amrex_state.hpp, docs/stage_e_state.md). Needs the three
-  // backends, hydro_scheme = unsplit, rt_method = rays.
+  // backends and hydro_scheme = unsplit; the moment methods need
+  // amrex_slab = 1 or the hierarchy, and recomb_rad works with them only
+  // (check_amrex_state_param).
   bool amrex_state = false;
   // params.txt amrex_balance = 0 (default) | 1: with amrex_state = 1, the
   // shared decomposition is rebalanced before every RT step on the cost

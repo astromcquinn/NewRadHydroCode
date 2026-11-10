@@ -80,7 +80,7 @@ moved kernels (their maintained successor is `src/amrex/rt_level.cpp`).
 
 | File | What |
 |---|---|
-| `include/radray/rt_backend.hpp`, `src/rt_backend.cpp` | the switch and its parameters (AMReX-free): `rt_backend = serial \| amrex`, `ray_encoding = float \| rstruct`, `amrex_max_grid_size` (16), `amrex_ghosts` (2), `amrex_redist_local` (3; 0 = global Redistribute); `check_rt_backend_param` refuses `legacy_rt = 1`, `rt_method ≠ rays`, `recomb_rad`, `deterministic_parallel`; the process functions (`backend_init/finalize`, `io_rank`, …) |
+| `include/radray/rt_backend.hpp`, `src/rt_backend.cpp` | the switch and its parameters (AMReX-free): `rt_backend = serial \| amrex`, `ray_encoding = float \| rstruct`, `amrex_max_grid_size` (16), `amrex_ghosts` (2), `amrex_redist_local` (3; 0 = global Redistribute); `check_rt_backend_param` refused `legacy_rt = 1`, `rt_method ≠ rays`, `recomb_rad`, `deterministic_parallel` at this milestone (since then it allows `m1 \| otvet` on z-slabs or the hierarchy, with `recomb_rad`, and the group has more keys: the current list is in `include/radray/rt_backend.hpp`); the process functions (`backend_init/finalize`, `io_rank`, …) |
 | `src/amrex/rt_level.cpp` | the level (C++20; target `radray_amrex`, links `AMReX::amrex`) |
 | `src/amrex/ray_encoding.hpp` | `FloatEnc` and `RStructEnc`: ray ↔ particle components |
 | `src/amrex/rt_level_stub.cpp` | the no-AMReX build: the level functions throw |

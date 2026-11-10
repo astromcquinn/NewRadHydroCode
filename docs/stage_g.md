@@ -419,7 +419,8 @@ cumulative timers):
   by only ~0.5 per V-cycle. Reproduced here with one level of 144³ cells
   (`amrex_refine_box=28,28,28,99,99,99` on the 128³ problem, 2 ranks):
   20 cycles, residual 5.6e-7, 1.4 s per step; with
-  `pm_mlmg_bottom_sweeps = 64` (now the default) 8 cycles, 3.5e-11,
+  `pm_mlmg_bottom_sweeps = 64` (the default then; it is 8 since the change
+  below) 8 cycles, 3.5e-11,
   0.65 s per step. The sweeps run on the tiny bottom grid, cost nothing
   measurable on a level that coarsens to 2 cells, and keep the solve
   deterministic (no dot products). With the fix the klone level solve

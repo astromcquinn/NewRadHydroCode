@@ -27,8 +27,9 @@
 namespace radray {
 
 // params.txt keys hydro_scheme (legacy | unsplit), unsplit_cfl, dual_energy,
-// dual_eta1, dual_eta2 (Config). Returns false for any other key. Throws on
-// a bad value.
+// dual_eta1, dual_eta2, dual_nb_radius, dual_reset_rule, dual_eta2_local,
+// dual_p_old, dual_e_self, dual_eta1_local (Config). Returns false for any
+// other key. Throws on a bad value.
 bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::string& val);
 // Copies those fields (the drivers parse into a scratch Config first).
 void copy_hydro_scheme(const Config& from, Config& to);

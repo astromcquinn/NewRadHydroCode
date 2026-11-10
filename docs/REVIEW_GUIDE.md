@@ -244,47 +244,43 @@ a few analysis self-tests skip (return 77) without SciPy or matplotlib.
   paragraph is the newest-first summary and the index below it points at
   the sections by topic.
 
-## 6. Stale comments and small things found on 2026-11-09 (not changed)
+## 6. Stale comments and small things found on 2026-11-09 (fixed 2026-11-10)
 
-Found while commenting; none affects a result. Worth a minute each when
-the file is next touched.
+Found while commenting; none affected a result. Fixed on 2026-11-10 (branch
+`claude/trusting-feynman-2w7i8q`), except the last open item:
 
-- `include/radray/rt_backend.hpp` (the parameter list and the check's
-  comment), `include/radray/hydro_backend.hpp`, `include/radray/pm_backend.hpp`:
-  the "Parameters:" lists omit the newer keys (`amrex_moment_stats`,
-  `amrex_split_on_entry`, the Stage F `amrex_*` refinement keys,
-  `sf_overdensity`, `pm_level_solve`, `pm_mlmg_*`, `pm_level_subcycle`);
-  the check comment still says `rt_method != rays` is refused, while
-  `check_rt_backend_param` allows `m1 | otvet` with `amrex_slab = 1`.
-  `docs/stage_d.md` line 83 repeats the old list.
-- `include/radray/amrex_state.hpp` and `config.hpp` (near `amrex_state`)
-  say `amrex_state = 1` needs `rt_method = rays, recomb_rad = 0`;
-  `check_amrex_state_param` allows the moment methods on slabs and
-  `recomb_rad` with them.
-- `include/radray/hydro_unsplit.hpp` (`set_hydro_scheme_param`): the key
-  list omits `dual_nb_radius`, `dual_reset_rule`, `dual_eta2_local`,
-  `dual_p_old`, `dual_e_self`, `dual_eta1_local`.
-- `include/radray/xray_background.hpp` near line 130: a comment on the
-  Shull & van Steenberg fractions with no declaration after it (the
-  function is `rrk::xray_secondary` in `kernels/rt_cell.hpp`).
-  `include/radray/plane_parallel.hpp` line 83: "plane_check" is
-  `check_plane_param`.
-- `docs/stage_g.md` line 420 says `pm_mlmg_bottom_sweeps = 64` is the
-  default; `config.hpp` has 8 and line 476 of the same document agrees
-  with 8.
-- `docs/pm_refine.md` line 348: the FoF cache is checkpoint version 7
-  (`src/checkpoint.cpp`); `halos.hpp` said 5 (corrected).
-- `src/halos.cpp` `make_halo_units`: `Npart` is computed and discarded.
-- `src/io.cpp`: `photon_conserve` and `photon_consume_dense` accept -1
-  (follow `legacy_physics`) but the error text says "must be 0 or 1".
-- `src/abundance_matching.cpp` line 384: `rms_dex` includes the
-  monotonicity penalty, so it is the documented rms only when the
-  penalty is zero.
-- Coefficients written from memory and still marked so in the code:
-  `rrk::xray_secondary` (`kernels/rt_cell.hpp`), the Tinker 2008 mass
+- Parameter lists brought up to date: `include/radray/rt_backend.hpp`
+  (`amrex_moment_stats`, `amrex_moment_fft_threads`, `amrex_split_on_entry`,
+  `amrex_ghost_rule`; the check's comment now lists what
+  `check_rt_backend_param` refuses), `hydro_backend.hpp` (the Stage F
+  `amrex_*` refinement keys, `sf_overdensity`, `sf_efficiency`),
+  `pm_backend.hpp` (`amrex_pk`, `pm_gas_levels`, `pm_level_solve`,
+  `pm_mlmg_*`, `pm_level_subcycle`), `hydro_unsplit.hpp` (the `dual_*`
+  keys). `docs/stage_d.md` §2.1 now says its list was that of Milestone 2.
+- `amrex_state.hpp` and `config.hpp` state `check_amrex_state_param`'s
+  actual rules (the moment methods on slabs or the hierarchy, `recomb_rad`
+  with them only).
+- `xray_background.hpp`: the orphan comment now points to
+  `rrk::xray_secondary`; `plane_parallel.hpp` names `check_plane_param`.
+- `docs/stage_g.md`: `pm_mlmg_bottom_sweeps = 64` was the default *then*
+  (8 now). `docs/pm_refine.md`: checkpoints of versions 1–6 (not 1–4) are
+  read with an empty FoF cache.
+- `src/halos.cpp` `make_halo_units`: the unused `Npart` removed.
+- `src/io.cpp`, `apps/radhydro.cpp`: the `photon_conserve` and
+  `photon_consume_dense` errors say -1 is accepted.
+- `src/abundance_matching.cpp`: `rms_dex` is the weighted rms of the
+  residuals without the monotonicity penalty (the minimised cost is
+  unchanged, so the fits are too).
+- Compiler warnings of the Release build removed: `checkpoint.cpp`
+  (the `memset` that zeroes `DriverState`'s padding, which a
+  value-initialisation would not guarantee, now goes through `void*`),
+  `tests/test_rays.cpp` (`1e50f`, which is +inf in float, is now `1e30f`),
+  `tools/ray_compression/ray_codec.cpp` (the unused `ctx_rec` parameter
+  of `code_ray` removed).
+- **Open:** coefficients written from memory and still marked so in the
+  code: `rrk::xray_secondary` (`kernels/rt_cell.hpp`), the Tinker 2008 mass
   function (`mass_function.hpp`), the HS03 constants (`halo_sources.cpp`).
-  None of them enters the RT-methods comparison.
-- Compiler warnings of the Release build: `checkpoint.cpp` line 256
-  (`memset` of a non-trivial type), `tests/test_rays.cpp` line 430 (a
-  float literal out of range), `tools/ray_compression/ray_codec.cpp`
-  (an unused parameter).
+  None of them enters the RT-methods comparison. Checking them needs the
+  papers (Shull & van Steenberg 1985 or Ricotti, Gnedin & Shull 2002;
+  Tinker et al. 2008; Hernquist & Springel 2003), which the network here
+  cannot reach.

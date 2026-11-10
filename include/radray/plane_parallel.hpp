@@ -83,7 +83,7 @@ struct PlaneState {
 __int128 plane_to_fx(double v);
 
 // plane_init: fills Simulation::plane from cfg (after init_rt); a no-op
-// without the mode. plane_check: the parameter rules (throws).
+// without the mode. check_plane_param: the parameter rules (throws).
 void plane_init(Simulation& s);
 void check_plane_param(const Config& c);
 

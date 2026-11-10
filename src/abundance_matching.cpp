@@ -22,6 +22,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace radray {
 
@@ -355,7 +356,9 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
   double wsum = 0;
   for (const auto* p : use) wsum += p->weight;
 
-  auto cost = [&](const std::vector<double>& v) {
+  // the weighted mean square of the log L residuals and the monotonicity
+  // penalty; the fit minimises their sum (cost)
+  auto cost_parts = [&](const std::vector<double>& v) {
     LuvModel m = start;
     for (int k = 0; k < nd; ++k) m.p[idx[k]] = v[k];
     double s = 0;
@@ -370,7 +373,11 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
       const double a = m.p[3] + m.p[4] * (std::clamp(z, m.z_lo, m.z_hi) - m.z0);
       pen += std::min(0.0, a) * std::min(0.0, a);
     }
-    return s / wsum + 1e3 * pen;
+    return std::make_pair(s / wsum, pen);
+  };
+  auto cost = [&](const std::vector<double>& v) {
+    const auto [msq, pen] = cost_parts(v);
+    return msq + 1e3 * pen;
   };
 
   std::vector<double> x0(nd);
@@ -438,8 +445,8 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
     x0 = s[b];
   }
   for (int k = 0; k < nd; ++k) r.model.p[idx[k]] = x0[k];
-  // the weighted rms of the residuals when the monotonicity penalty is zero
-  r.rms_dex = std::sqrt(cost(x0));
+  // the weighted rms of the residuals, without the monotonicity penalty
+  r.rms_dex = std::sqrt(cost_parts(x0).first);
   r.iterations = iters;
   return r;
 }
