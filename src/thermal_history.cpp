@@ -1,4 +1,14 @@
 // thermal_init = recfast (thermal_history.hpp, docs/thermal_history.md).
+//
+// The RECFAST table lookups (recfast_T and recfast_xe: the temperature of
+// the ICs and the residual electron fraction), the replacement table of
+// another cosmology (recfast_table = FILE, load_recfast_table) and the
+// per-step residual-electron Compton coupling (compton_residual_step, which
+// apps/radhydro.cpp calls after both hydro halves and before the RT, with
+// coef_cool(14) of the atomic rates, when thermal_init == 1). New physics
+// (quirk T1 of docs/port_notes.md section 5b): with the default
+// thermal_init = floor, the original's start at the floor, nothing here is
+// called from the step.
 #include "radray/thermal_history.hpp"
 
 #include <algorithm>
@@ -23,6 +33,7 @@ std::vector<std::array<double, 3>> g_rows;
 Cosmology g_cosmo;
 
 // log-linear interpolation of column col in ln(1+z)
+// (col 1: x_e, col 2: T_gas; the compiled table or the loaded file)
 double table(double z, int col) {
   const int n = g_rows.empty() ? kRecfastRows : static_cast<int>(g_rows.size());
   auto R = [&](int i, int c) { return g_rows.empty() ? kRecfast[i][c] : g_rows[i][c]; };
@@ -38,6 +49,7 @@ double table(double z, int col) {
   return -1;  // above the table
 }
 
+// relative agreement to 1e-6: the file's cosmology against the run's
 bool same(double a, double b) { return std::abs(a - b) <= 1e-6 * std::abs(b); }
 }  // namespace
 
@@ -49,6 +61,8 @@ void load_recfast_table(const std::string& path, const Cosmology& c) {
   std::string line;
   while (std::getline(in, line)) {
     if (line.empty()) continue;
+    // the one header line read is '# cosmology omegam=.. omegab=.. hubble0=..';
+    // every other comment is skipped
     if (line[0] == '#') {
       std::istringstream ss(line.substr(1));
       std::string w;
@@ -79,27 +93,40 @@ void load_recfast_table(const std::string& path, const Cosmology& c) {
   if (!same(c.omegam, static_cast<float>(om)) || !same(c.omegab, static_cast<float>(ob)) ||
       !same(c.hubble0, static_cast<float>(h)))
     throw std::runtime_error("recfast_table: " + path + " is for another cosmology than the run's (" + c.summary() + ")");
+  // increasing z, as table() expects
   std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a[0] < b[0]; });
   g_rows = std::move(rows);
   g_cosmo = c;
 }
 
+// the compiled table is for the default Cosmology (cosmo_parameters.f90)
 bool recfast_table_matches(const Cosmology& c) {
   const Cosmology& t = g_rows.empty() ? Cosmology{} : g_cosmo;
   return t.omegam == c.omegam && t.omegab == c.omegab && t.hubble0 == c.hubble0;
 }
 
+// above the table (z > 2000) the gas is tightly coupled: T = T_CMB(z)
 double recfast_T(double z) {
   const double T = table(z, 2);
   return T > 0 ? T : cp::Tcmb0 * (1 + z);
 }
 
+// above the table: the value at the table's top
 double recfast_xe(double z) {
   const double x = table(z, 1);
   if (x > 0) return x;
   return g_rows.empty() ? kRecfast[kRecfastRows - 1][1] : g_rows.back()[1];
 }
 
+// One hydro step of T <- T_CMB + (T - T_CMB) exp(-dt/t_C) on every cell
+// (header): a is the middle of the step and gives T_CMB and x_e,res; n_e,add
+// is what the cell's own electrons lack of x_e,res n_H; 1/t_C = (gamma-1) C14
+// n_e,add T_CMB^4 / (k n_tot) with n_tot = n_H + n_He + n_e (the cell's own
+// electrons). The thermal energy is read as photo_gas_cell reads it (from e
+// when the dual-energy field exists, else u(5) - KE with the KE in float as
+// the hydro computes it) and written back to both. The ionisation state is
+// unchanged. Cells without density, without missing electrons or without
+// thermal energy are skipped and not counted.
 std::int64_t compton_residual_step(const Units& u, double a, double dt_sec, double C14,
                                    GasGrid& gas) {
   using namespace pc;

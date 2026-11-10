@@ -1,5 +1,19 @@
 // Abundance matching to observed UV luminosity functions
 // (see include/radray/abundance_matching.hpp, docs/abundance_matching.md).
+//
+// The offline half of sfr_model = abundance: apps/am_fit reads the LF table
+// (data/uv_lf/lf_params.txt, read_lf_table), matches n_halo(>M) = n_gal(<M_UV)
+// at every entry's redshift (abundance_match), fits the smooth L_UV(M, z) of
+// LuvModel to the matched points (fit_luv_model, fit_highz_norm) and writes
+// its parameters as params.txt lines (LuvModel::to_params: am_l0 .. am_b,
+// am_z0, am_zlo, am_zhi, am_norm_z, am_norm_dl). At run time only LuvModel is
+// used: halo_sources.cpp assign_sources evaluates luv() per halo (the am_*
+// keys are parsed by set_halo_param) and xray_background.cpp integrates it
+// over the mass function. New code, not a port of anything in the Fortran.
+//
+// Units: halo masses in Msun (the mass function works in Msun/h and
+// (Mpc/h)^-3, converted with h = cosmo.hubble0), number densities in
+// comoving Mpc^-3 (not h^3 Mpc^-3), L_UV in erg/s/Hz, magnitudes AB.
 #include "radray/abundance_matching.hpp"
 
 #include <algorithm>
@@ -16,6 +30,8 @@ constexpr double kLn10 = 2.302585092994045684;
 constexpr double kPi = 3.141592653589793238462643383279502884;
 constexpr double kPc = 3.0856775814913673e18;  // cm
 constexpr double kM_lo = -30, kM_hi = -5;      // LF integration range
+// step of that grid (12500 points): the trapezoid of CumulativeLF and the
+// upper bound of the step of LFEntry::n_brighter
 constexpr double kdM = 0.002;
 
 // Linear interpolation of y(x) on an increasing grid; clamps outside.
@@ -57,6 +73,11 @@ struct CumulativeLF {
 };
 
 // Cumulative halo density n(>M) on a log grid (Msun), Mpc^-3
+// The mass function is evaluated in Msun/h and (Mpc/h)^-3 and converted
+// with h; with an enabled SimHMF the analytic dn/dlnM is multiplied by its
+// FoF correction R(N, z) (docs/abundance_matching.md section 1). The grid
+// runs from 10^lo to 10^16.5 Msun in 0.02 dex and is integrated from the
+// top down, so logn[n] = -300 stands for n(>10^16.5 Msun) = 0.
 struct CumulativeHMF {
   std::vector<double> logM, logn;
   CumulativeHMF(const MassFunction& mf, double z, MassFunction::Kind k, double lo, double h,
@@ -85,6 +106,7 @@ struct CumulativeHMF {
 
 // ---------------------------------------------------------------------------
 
+// M_UV <-> L_nu (erg/s/Hz): the AB definition at 10 pc (header)
 double luv_from_muv(double M_uv) {
   const double d = 10 * kPc;
   return 4 * kPi * d * d * std::pow(10.0, -0.4 * (M_uv + 48.60));
@@ -95,6 +117,9 @@ double muv_from_luv(double L_uv) {
   return -2.5 * std::log10(L_uv / (4 * kPi * d * d)) - 48.60;
 }
 
+// phi(M_UV) in Mpc^-3 mag^-1 for the three forms of the table (header); the
+// SchechterCurved factor applies faintward of M_UV = -16 only, with the
+// curvature delta stored in beta.
 double LFEntry::phi(double M) const {
   const double dM = M - Mstar;
   if (form == Form::Schechter || form == Form::SchechterCurved) {
@@ -107,6 +132,8 @@ double LFEntry::phi(double M) const {
   return phistar / (std::pow(10.0, 0.4 * (alpha + 1) * dM) + std::pow(10.0, 0.4 * (beta + 1) * dM));
 }
 
+// n(<M_UV) by the trapezoid rule over [kM_lo, M_uv], with the step shrunk
+// from kdM so that whole intervals cover the range.
 double LFEntry::n_brighter(double M_uv) const {
   const int n = std::max(1, static_cast<int>(std::ceil((M_uv - kM_lo) / kdM)));
   const double h = (M_uv - kM_lo) / n;
@@ -115,6 +142,8 @@ double LFEntry::n_brighter(double M_uv) const {
   return s * h;
 }
 
+// One LFEntry per non-comment line (the column order is in the header); a
+// parse error names the file and the line.
 std::vector<LFEntry> read_lf_table(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open " + path);
@@ -150,6 +179,8 @@ std::vector<LFEntry> read_lf_table(const std::string& path) {
   return out;
 }
 
+// The FoF correction of the header: R = r_inf / (1 + (N/N_c)^-p) with
+// N = M / m_part and N_c = Nc0 ((1+z)/7)^q; zero below nmin particles.
 double SimHMF::factor(double M, double z) const {
   if (!enabled) return 1;
   const double N = M / mpart_msun;
@@ -158,6 +189,8 @@ double SimHMF::factor(double M, double z) const {
   return r_inf / (1 + std::pow(N / Nc, -p));
 }
 
+// key = value lines of fit_fof_hmf.py's output ('#' starts a comment): keys
+// mpart_msun (required), fof_r_inf, fof_p, fof_Nc0, fof_q, nmin.
 SimHMF SimHMF::read(const std::string& path) {
   std::ifstream in(path);
   if (!in) throw std::runtime_error("cannot open " + path);
@@ -185,18 +218,29 @@ SimHMF SimHMF::read(const std::string& path) {
   return s;
 }
 
+// Meurer et al. (1999) IRX-beta: A_UV = irx_a + irx_b beta_UV, with beta_UV
+// linear in M_obs around -19.5 and no negative extinction.
 double DustModel::A_uv(double M_obs) const {
   if (!enabled) return 0;
   const double beta = beta0 + dbeta_dM * (M_obs + 19.5);
   return std::max(0.0, irx_a + irx_b * beta);
 }
 
+// n(>M) is the bottom node of a CumulativeHMF starting at M (no SimHMF
+// correction here).
 double halo_n_above(const MassFunction& mf, double h, double M_msun, double z,
                     MassFunction::Kind k) {
   CumulativeHMF c(mf, z, k, std::log10(M_msun), h);
   return std::pow(10.0, c.logn.front());
 }
 
+// One LF entry: for each halo mass of the opt grid, n_halo(>M) from the
+// cumulative mass function (whose grid starts 0.1 dex below logM_min, so the
+// interpolation never clamps at the bottom) and the observed magnitude with
+// the same cumulative density, M_obs = n_gal^-1(n_halo). Masses outside the
+// LF table's density range (M_at gives NaN) produce no point. The intrinsic
+// magnitude removes the dust; in_range / in_shape mark the points the high-z
+// normalisation and the shape fit use (header).
 std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt) {
   MassFunction mf(opt.cosmo);
   mf.tinker_zmax_evol = opt.tinker_zmax_evol;
@@ -229,6 +273,8 @@ std::vector<AMPoint> abundance_match(const LFEntry& e, const AMOptions& opt) {
 // Parametric model
 // ---------------------------------------------------------------------------
 
+// The high-z normalisation offset of the header: 0 up to z_hi, then piecewise
+// linear through (z_hi, 0) and the knots, held at the last knot beyond it.
 double LuvModel::dlogL_norm(double z) const {
   if (norm_z.empty() || !(z > z_hi)) return 0;
   double za = z_hi, da = 0;
@@ -244,6 +290,8 @@ double LuvModel::log_luv(double logM, double z) const {
   return log_luv_shape(logM, z) + dlogL_norm(z);
 }
 
+// The double power law of the header in log10, with L_p, a and M_p evaluated
+// at the redshift clamped to [z_lo, z_hi].
 double LuvModel::log_luv_shape(double logM, double z) const {
   const double x = std::clamp(z, z_lo, z_hi) - z0;
   const double logLp = p[0] + p[1] * x + p[2] * x * x;
@@ -263,12 +311,15 @@ double LuvModel::luv(double M, double z) const {
   return std::pow(10.0, log_luv(std::log10(M), z));
 }
 
+// params.txt keys of p[0..7] (parsed by set_halo_param, halo_sources.cpp)
 const char* LuvModel::name(int i) {
   static const char* n[kNpar] = {"am_l0", "am_l1", "am_l2", "am_a0",
                                  "am_a1", "am_m0", "am_m1", "am_b"};
   return n[i];
 }
 
+// params.txt lines; am_zlo / am_zhi only when they clamp, the knots only when
+// set, so a default model round-trips to the same text
 std::string LuvModel::to_params() const {
   std::ostringstream s;
   s.precision(10);
@@ -288,6 +339,8 @@ std::string LuvModel::to_params() const {
 
 FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
                         const std::array<bool, LuvModel::kNpar>& free) {
+  // the points: in_shape, positive weight, at or below the shape's z_hi (the
+  // entries above it only set the normalisation, fit_highz_norm)
   std::vector<const AMPoint*> use;
   for (const auto& p : pts)
     if (p.in_shape && p.weight > 0 && p.z <= start.z_hi) use.push_back(&p);
@@ -324,6 +377,10 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
   for (int k = 0; k < nd; ++k) x0[k] = start.p[idx[k]];
 
   // Nelder-Mead with restarts from the current best
+  // Nelder-Mead: 4 restarts of up to 20000 iterations each, the initial
+  // simplex displaced by 0.2 in every free parameter (0.5 dex in m0, the pivot
+  // mass); the standard reflection (t = -1), expansion (-2), outside / inside
+  // contraction (-0.5 / +0.5) and shrink towards the best vertex.
   int iters = 0;
   for (int restart = 0; restart < 4 && nd > 0; ++restart) {
     std::vector<std::vector<double>> s(nd + 1, x0);
@@ -381,11 +438,14 @@ FitResult fit_luv_model(const std::vector<AMPoint>& pts, const LuvModel& start,
     x0 = s[b];
   }
   for (int k = 0; k < nd; ++k) r.model.p[idx[k]] = x0[k];
+  // the weighted rms of the residuals when the monotonicity penalty is zero
   r.rms_dex = std::sqrt(cost(x0));
   r.iterations = iters;
   return r;
 }
 
+// One knot per distinct redshift above z_hi among the in_range points: the
+// weighted mean of logL_AM - log_luv_shape at that redshift (header).
 LuvModel fit_highz_norm(const std::vector<AMPoint>& pts, const LuvModel& shape) {
   LuvModel m = shape;
   m.norm_z.clear();
@@ -408,6 +468,10 @@ LuvModel fit_highz_norm(const std::vector<AMPoint>& pts, const LuvModel& shape) 
   return m;
 }
 
+// phi(M_UV) = dn/dM_UV as a central difference of the cumulative halo
+// density over +-0.01 mag, with M_halo(M_UV) the inversion of L(M) after
+// the dust is re-applied; the halo grid starts at 10^6 Msun (the lower
+// bound of the inversion).
 std::vector<double> model_lf(const LuvModel& m, double z, const std::vector<double>& M_uv,
                              const AMOptions& opt) {
   MassFunction mf(opt.cosmo);

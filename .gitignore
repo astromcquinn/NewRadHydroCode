@@ -10,3 +10,6 @@ build-*/
 /ctest-*.log
 # the SIGTERM call stacks of a killed MPI run (rt_level.cpp sigterm_backtrace)
 Backtrace.*
+# klone build logs (tools/hyak/build*.sh)
+/build.cmake.log
+/build.make.log

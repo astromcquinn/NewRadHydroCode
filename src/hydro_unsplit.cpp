@@ -29,6 +29,11 @@ using rrh::NV;
 // --------------------------------------------------------------------------
 // Parameters
 // --------------------------------------------------------------------------
+// params.txt keys hydro_scheme, unsplit_cfl and the dual_* keys
+// (docs/hydro_unsplit.md section 5); range checks throw, an unknown key
+// returns false. dual_e_self_set records an explicit dual_e_self: without
+// it thermal_init = recfast turns dual_e_self on (apps/radhydro.cpp,
+// docs/thermal_history.md section 4).
 bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::string& val) {
   auto bad = [&](const std::string& what) {
     throw std::runtime_error(key + ": " + what + " (got '" + val + "')");
@@ -147,6 +152,7 @@ struct Work {
   }
 };
 
+// one Work per process, resized when the grid size changes
 Work& work(int n) {
   static std::unique_ptr<Work> w;
   if (!w) w = std::make_unique<Work>();
@@ -219,6 +225,8 @@ inline void compute_face(const Work& W, int ia, int ja, int ka, int d, double dt
 }
 
 // Thread-local face buffers of one slab
+// (the x and y faces of slab k, and its two z faces: fz0 at k-1/2, fz1 at
+// k+1/2)
 struct SlabFaces {
   std::vector<Face> fx, fy, fz0, fz1;
   void resize(int n) {
@@ -229,6 +237,7 @@ struct SlabFaces {
   }
 };
 
+// the tallies of finalize_cell's flags over one substep (UnsplitCounters)
 struct SubstepCounts {
   std::int64_t from_e = 0, synced = 0, floor_T = 0, floor_rho = 0, reset = 0, cap_T = 0;
 };
@@ -354,6 +363,8 @@ bool fold_frame(GasGrid& gas, HydroState& hs) {
   return true;
 }
 
+// dual_energy = 0: eta1 = 0 turns the formulation off in the kernel (the
+// thermal energy is always E - KE)
 double eta1_of(const Config& cfg) { return cfg.dual_energy ? cfg.dual_eta1 : 0.0; }
 
 }  // namespace
@@ -421,6 +432,10 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
   const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
   const double Tmax = un.Thydro_max;  // T_max (infinite = off)
 
+  // sub-cycling: the CFL step from the current (ghost-filled, selected) state,
+  // then nsub equal substeps that cover what remains (the -1e-9 absorbs
+  // round-off at an exact multiple); the CFL is re-evaluated after each
+  // substep, so a step that heats the gas shortens the following ones
   double remaining = dt;
   std::int64_t nsub_call = 0;
   while (remaining > 0) {

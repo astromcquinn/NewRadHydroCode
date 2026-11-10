@@ -52,10 +52,10 @@ struct RayDumpConfig {
 std::vector<std::int64_t> parse_substep_list(const std::string& s);
 
 // Turns on provenance tracking; call after init_simulation and before the
-// first RT step. Stores cfg in s.raydump.
+// first RT step. Stores cfg in s.raydump_state.
 void ray_dump_enable(Simulation& s, const RayDumpConfig& cfg);
 
-// Called by radiative_transfer after each rt_step_3 when s.raydump is set.
+// Called by radiative_transfer after each rt_step_3 when s.raydump_state is set.
 void ray_dump_after_substep(Simulation& s);
 
 // Writes one snapshot of the current live rays (used by the above).

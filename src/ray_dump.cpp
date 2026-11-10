@@ -1,4 +1,17 @@
-// Optional ray snapshots (include/radray/ray_dump.hpp).
+// Optional ray snapshots for the ray-compression study
+// (include/radray/ray_dump.hpp, docs/ray_compression.md). Off by default;
+// params.txt ray_dump_dir with ray_dump_every and/or ray_dump_at turn it on
+// in rt_driver and radhydro (ray_dump_enable, before the first RT step).
+// radiative_transfer (src/rt_tools.cpp) then advances the global substep
+// counter before rt_step_1 and calls ray_dump_after_substep after rt_step_3,
+// on the serial ray backend only (not the moment RT, not rt_backend = amrex).
+// A snapshot is every live ray in the cell chains, cell order then chain
+// order, with its provenance (RayProv, filled by ray_source, ray_cast_split
+// and ray_cast_merge when tracking is on) and its cell's state, as a numpy
+// structured array <stem>.npy plus a JSON sidecar <stem>.json with the run's
+// parameters and the step's bookkeeping; tools/ray_compression reads them.
+// Nothing here is read by the RT, so results are bit-identical with the
+// dump on or off (the ray_dump_* CTests).
 #include "radray/ray_dump.hpp"
 
 #include <algorithm>
@@ -15,7 +28,8 @@ namespace radray {
 
 namespace {
 
-// numpy dtype of RayDumpRecord (little endian, no padding)
+// numpy dtype of RayDumpRecord (little endian, no padding): field by field
+// the struct of ray_dump.hpp, whose static_assert pins the 180-byte size
 const char* kDescr =
     "[('cell', '<i4'), ('chainpos', '<i4'), ('nside', '<i4'), ('ipix', '<i4'), "
     "('r', '<f4'), ('dr', '<f4'), ('x', '<f4', (3,)), ('dx', '<f4', (3,)), "
@@ -25,7 +39,9 @@ const char* kDescr =
     "('c_fHI', '<f4'), ('c_fHeI', '<f4'), ('c_fHeII', '<f4'), ('c_temp', '<f4'), "
     "('c_rhog', '<f4')]";
 
-// .npy version 1.0 header for a 1-D structured array of n records
+// .npy version 1.0 header for a 1-D structured array of n records: magic,
+// version, little-endian header length, then the dict padded with spaces so
+// that the data start on a 64-byte boundary (the format's alignment rule)
 std::string npy_header(std::int64_t n) {
   std::ostringstream d;
   d << "{'descr': " << kDescr << ", 'fortran_order': False, 'shape': (" << n << ",), }";
@@ -42,6 +58,7 @@ std::string npy_header(std::int64_t n) {
   return out + h;
 }
 
+// a JSON array of doubles; %.17g round-trips every value exactly
 void json_doubles(std::ostream& o, const double* v, int n) {
   o << "[";
   char buf[40];
@@ -54,6 +71,7 @@ void json_doubles(std::ostream& o, const double* v, int n) {
 
 }  // namespace
 
+// ray_dump_at: substep numbers separated by blanks and/or commas
 std::vector<std::int64_t> parse_substep_list(const std::string& s0) {
   std::string s = s0;
   for (auto& ch : s)
@@ -65,6 +83,9 @@ std::vector<std::int64_t> parse_substep_list(const std::string& s0) {
   return v;
 }
 
+// Turns the dump on: the provenance side array gets one slot per ray storage
+// slot (1-based like the pool, hence Nray_max + 1) and is filled from now
+// on, so rays created earlier would have no origin.
 void ray_dump_enable(Simulation& s, const RayDumpConfig& cfg) {
   if (!cfg.enabled()) return;
   if (s.rays.Nray > 0)
@@ -76,6 +97,8 @@ void ray_dump_enable(Simulation& s, const RayDumpConfig& cfg) {
   s.rays.prov.reset(s.rays.Nray_max + 1);
 }
 
+// After rt_step_3 of every substep: write a snapshot if this global substep
+// is selected (every n-th, or listed in ray_dump_at), named by its number.
 void ray_dump_after_substep(Simulation& s) {
   RayDump* d = s.raydump_state.get();
   if (!d) return;
@@ -91,6 +114,11 @@ void ray_dump_after_substep(Simulation& s) {
   ++d->ndumped;
 }
 
+// One snapshot: walks every cell's live chain (htoc_ray(3, c) the head,
+// htoc_ray(4, c) the tail, grid.hpp) and copies each ray's fields, its
+// provenance and the cell's state after the substep; on the way it collects
+// the source cells (the RT's criterion sfr > sfr_min) and the volume
+// fraction of HII for the sidecar.
 void ray_dump_write(const Simulation& s, const std::string& stem) {
   const RTGrid& G = s.rt;
   const RayState& R = s.rays;
@@ -149,6 +177,7 @@ void ray_dump_write(const Simulation& s, const std::string& stem) {
   }
   xhii_vol /= static_cast<double>(G.ncell);
 
+  // the records as one unpadded block after the numpy header
   {
     std::ofstream out(stem + ".npy", std::ios::binary);
     if (!out) throw std::runtime_error("cannot write " + stem + ".npy");
@@ -157,6 +186,10 @@ void ray_dump_write(const Simulation& s, const std::string& stem) {
     out.write(reinterpret_cast<const char*>(rec.data()),
               static_cast<std::streamsize>(rec.size() * sizeof(RayDumpRecord)));
   }
+  // the sidecar: the grid and the flags that shape the rays, the clock and
+  // the substep of the snapshot, the thresholds of the ray bookkeeping, the
+  // sources and the ngam_ray threshold table of merging and splitting (64
+  // entries, rays.hpp)
   {
     std::ofstream o(stem + ".json");
     char buf[64];

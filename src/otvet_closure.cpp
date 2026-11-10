@@ -2,6 +2,39 @@
 // docs/otvet_closure.md). The numpy prototypes are
 // tools/analysis/tensor_compare.py (split, screened kernel) and
 // tools/analysis/cone_tensor.py (cones, budget cutoff).
+//
+// Reading guide:
+//   Parameters        set_otvet_closure_param, check_otvet_closure_param,
+//                     otvet_closure_params, otvet_closure_summary
+//   Pieces            otvet_healpix_dirs (ring-scheme pixel centres),
+//                     otvet_min_eigenvalue; the FFT kernels screen_fill
+//                     (e^{-r/lambda} d d^T / r^4 over the 27 nearest images plus
+//                     the isotropic continuum of the images beyond) and near_fill
+//                     (the thin kernel inside 2 r_c, switched off smoothly from
+//                     r_c); the mip-map pyramid, the trilinear periodic sample and
+//                     the separable Gaussian of the blend; normalise (h = P / tr P)
+//                     and normalise_safe (isotropic below the FFT noise floor,
+//                     eigenvalues clamped to >= 0)
+//   OtvetCone         the cone march: from each receiver (a cell of the grid
+//                     coarsened by otvet_cone_coarse) along 12 nside^2 HEALPix
+//                     directions from r_c out to smax boxes, sampling mip levels
+//                     that grow with the cone width, accumulating the emissivity
+//                     seen per half-octave distance bin, attenuated by the
+//                     Gamma-weighted transmission of the HI column (capped per
+//                     cell at otvet_cone_taucap); budget: the lambda_x for which
+//                     the direct light in the ionised cells equals the photons
+//                     the moment solution holds there
+//   otvet_closure_tensor
+//                     thin (+ split): the original tensor and tr P; screen: the
+//                     screened kernel with lambda from the budget or fixed; cone:
+//                     the near field (FFT) plus the cone part prolonged from the
+//                     receivers, then the blend h_s + G_sigma (h_cone - h_s) with
+//                     the split thin tensor h_s
+//
+// "The photon budget": the moment solution's Gamma-weighted photons
+// sum_g sigma_g N_g per cell (OtvetClosureIn::nw) are the number that the
+// direct light of the sources (tr P, in the same units through q_g) must add
+// up to; this fixes lambda (screen) and lambda_x (cone) with no second solve.
 #include "radray/otvet_closure.hpp"
 
 #include <algorithm>

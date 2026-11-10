@@ -246,6 +246,7 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/movie_tool)
   set_tests_properties(movie_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+  if(RADRAY_HAVE_PM)  # radhydro is built only with FFTW3f
   # Zoom ICs from MUSIC (tools/ics/music_convert.py, music_ladder.py;
   # docs/zoom_turbulence.md section 4.1): the converter and the generator on
   # a committed two-level MUSIC zoom (numpy only), and the code run from its
@@ -267,6 +268,7 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/music/ladder_check.py
                      ${CMAKE_CURRENT_BINARY_DIR}/music_ladder ${RADRAY_MUSIC} ${PROJECT_SOURCE_DIR})
     set_tests_properties(music_ladder PROPERTIES TIMEOUT 900 LABELS music)
+  endif()
   endif()
 
   # I-front in a uniform medium, c_reduced = 0.1 vs 1, against the finite-c
@@ -363,6 +365,8 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_BINARY_DIR}/redshift_distance)
   set_tests_properties(redshift_distance_smoke PROPERTIES TIMEOUT 600 LABELS physics)
 
+  # (radhydro: built only with FFTW3f, RADRAY_HAVE_PM)
+  if(RADRAY_HAVE_PM)
   # cool_suppress_overdensity (Stage F, docs/stage_f.md section 2): 200 is
   # the original (bitwise the default); 0 switches the dense-gas cooling
   # suppression off and must run
@@ -405,6 +409,7 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke ${PROJECT_SOURCE_DIR}/tools/ics/make_ics.py)
   set_tests_properties(cosmology_default_identity cosmology_default_identity_fixes cosmology_planck_full
                        PROPERTIES TIMEOUT 900 LABELS "physics;cosmology")
+  endif()
 
   # Reduced speed of light (c_reduced = 0.1, docs/production_run.md) with the
   # recommended flags, against reference/harness/outputs_c0.1_fixed

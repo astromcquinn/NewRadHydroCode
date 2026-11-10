@@ -1,5 +1,16 @@
 // On-the-fly FoF halo finder (see include/radray/halos.hpp and
 // docs/halos_and_sources.md).
+//
+// Replaces the external halo finder whose catalogs the original read
+// (io_tools.f90 read_halo): find_halos runs on the DM particles xv_dm at the
+// end of every hydro step with RT (halo_sources.cpp onthefly_catalog and
+// cached_catalog, source_mode = onthefly) and apps/find_halos runs it on a
+// snapshot. New code, not a port of any Fortran routine; the only numbers
+// taken from the Fortran are the unit conversions of make_halo_units
+// (cosmo_tools.f90 calc_sim_var, pm_tools.f90 summarize_dm). Thread-count
+// independent by construction (header): a lock-free union-find whose roots
+// are the smallest member index, members in ascending index order,
+// fixed-order sums per halo and a fully determined final sort.
 #include "radray/halos.hpp"
 #include "radray/fortran.hpp"
 
@@ -23,6 +34,7 @@ using i64 = std::int64_t;
 // Minimum-image separation along one axis (any |d|, any wrap count).
 inline double min_image(double d, double L) { return d - L * std::nearbyint(d / L); }
 
+// x into [0, L) for any wrap count; a result rounded up to L maps to 0
 inline double wrap(double x, double L) {
   if (x >= 0 && x < L) return x;
   double y = x - L * std::floor(x / L);
@@ -88,6 +100,10 @@ struct CellGrid {
   }
 };
 
+// nc = min(floor(L / rmin), ncell_max) cells per side, so every cell is at
+// least rmin wide and a search of radius rmin needs only the 26 neighbours.
+// The cell of each particle is found in parallel; the counting sort itself
+// (counts, prefix sum, scatter) is serial and stable in particle index.
 CellGrid build_grid(const float* pos, i64 n, int stride, double L, double rmin, int ncell_max) {
   CellGrid g;
   g.L = L;
@@ -140,6 +156,9 @@ inline double dist2(const float* a, const float* b, double L) {
   return dx * dx + dy * dy + dz * dz;
 }
 
+// The FofGroups contract of the header: label[p] = root (smallest member
+// index), the groups with >= nmin members in ascending label order, their
+// members in ascending particle index (a counting sort by group).
 FofGroups collect_groups(UnionFind& uf, i64 n, i64 nmin) {
   FofGroups G;
   G.label.resize(n);
@@ -180,6 +199,10 @@ FofGroups collect_groups(UnionFind& uf, i64 n, i64 nmin) {
 // FoF
 // ---------------------------------------------------------------------------
 
+// Cells in parallel (dynamic schedule: clustered cells carry most of the
+// pairs); each unordered cell pair once (c2 >= c), each particle pair of a
+// cell once (b > a). The unions commute, so the schedule and the thread
+// count do not affect the partition.
 FofGroups fof_partition(const float* pos, i64 npart, int stride, double L, double ll,
                         i64 nmin, int ncell_max) {
   if (!(L > 0) || !(ll > 0)) throw std::invalid_argument("fof_partition: L and ll must be > 0");
@@ -218,6 +241,7 @@ FofGroups fof_partition(const float* pos, i64 npart, int stride, double L, doubl
   return collect_groups(uf, npart, nmin);
 }
 
+// every pair, for the tests (header)
 FofGroups fof_partition_bruteforce(const float* pos, i64 npart, int stride, double L, double ll,
                                    i64 nmin) {
   UnionFind uf(npart);
@@ -266,6 +290,7 @@ double delta_vir_bryan_norman(double omegam_z) {
   return 18 * pc::pi * pc::pi + 82 * x - 39 * x * x;
 }
 
+// R_phys from M and delta_crit rho_crit(z), then proper cm -> comoving Mpc/h
 double virial_radius_mpch(double M, double delta_crit, const HaloUnits& hu) {
   // M = 4pi/3 delta rho_crit R_phys^3
   const double Mg = M * pc::Msun_cgs;
@@ -273,6 +298,7 @@ double virial_radius_mpch(double M, double delta_crit, const HaloUnits& hu) {
   return Rphys * (1 + hu.redshift) / pc::Mpc2cm * hu.hubble0;
 }
 
+// T = mu m_H G M / (2 k R_phys) with R given comoving in Mpc/h
 double virial_temperature(double M, double R_mpch, double mu, const HaloUnits& hu) {
   const double Rphys = R_mpch / hu.hubble0 * pc::Mpc2cm / (1 + hu.redshift);
   return mu * pc::mH_cgs * pc::G_cgs * M * pc::Msun_cgs / (2 * pc::k_cgs * Rphys);
@@ -295,6 +321,9 @@ void centre_of_mass(const float* xv, const i64* mem, i64 n, double L, double c[3
   for (int d = 0; d < 3; ++d) c[d] = wrap(x0[d] + s[d] / n, L);
 }
 
+// The member with the lowest softened potential -sum 1/sqrt(r^2 + eps^2)
+// over every step-th member (step = ceil(n / nmax): exact for n <= nmax);
+// the caller passes eps = 0.1 ll.
 void potential_minimum(const float* xv, const i64* mem, i64 n, double L, double eps,
                        i64 nmax, double c[3]) {
   const i64 step = (n + nmax - 1) / nmax;
@@ -317,6 +346,7 @@ void potential_minimum(const float* xv, const i64* mem, i64 n, double L, double 
   for (int d = 0; d < 3; ++d) c[d] = wrap(x[d], L);
 }
 
+// mean member velocity in particle units, summed in member order
 void mean_velocity(const float* xv, const i64* mem, i64 n, double v[3]) {
   double s[3] = {0, 0, 0};
   for (i64 a = 0; a < n; ++a)
@@ -330,6 +360,7 @@ void gather_sphere(const float* xv, const CellGrid& g, const double c[3], double
   out.clear();
   const int nc = g.nc;
   const double cs = g.L / nc;
+  // neighbour radius in cells, capped at nc/2 (the whole periodic box)
   const int nr = std::min(nc / 2, static_cast<int>(std::ceil(r / cs)));
   std::vector<i64> nb;
   neighbour_cells(g, g.cell1(c[0]), g.cell1(c[1]), g.cell1(c[2]), nr, nb);
@@ -349,6 +380,11 @@ void gather_sphere(const float* xv, const CellGrid& g, const double c[3], double
 
 }  // namespace
 
+// FoF partition, then per group (in parallel, any schedule: every halo is
+// computed from its own member list and the shared read-only grid):
+// centre, mean velocity, the optional SO refinement, then the catalog units
+// and the virial R and T. Positions are in particle units (DM grid cells)
+// until the conversion with hu at the end.
 std::vector<Halo> find_halos(const float* xv, i64 npart, const HaloUnits& hu,
                              const HaloFinderParams& p) {
   if (npart <= 0) return {};
@@ -410,7 +446,11 @@ std::vector<Halo> find_halos(const float* xv, i64 npart, const HaloUnits& hu,
         double rs = std::max(std::sqrt(rmax2), 2 * rvir_pu) + spacing;
         i64 kso = 0;
         double rso = 0;
+        // so_iterations re-centrings on the centre of mass inside R_SO; the last
+        // pass only measures (the break before centre_of_mass)
         for (int it = 0; it <= p.so_iterations; ++it) {
+          // grow the search sphere (x2, up to 0.45 L) until the outermost crossing is
+          // strictly inside it, so no particle beyond it could extend R_SO
           for (;;) {
             gather_sphere(xv, grid, c, rs, sph);
             kso = 0;
@@ -455,6 +495,7 @@ std::vector<Halo> find_halos(const float* xv, i64 npart, const HaloUnits& hu,
   res.reserve(ng);
   for (i64 gi = 0; gi < ng; ++gi)
     if (keep[gi]) res.push_back(out[gi]);
+  // descending M, then descending N, then ascending id: fully determined
   std::sort(res.begin(), res.end(), [](const Halo& A, const Halo& B) {
     if (A.M != B.M) return A.M > B.M;
     if (A.N != B.N) return A.N > B.N;

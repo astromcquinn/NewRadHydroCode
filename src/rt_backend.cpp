@@ -1,4 +1,16 @@
-// rt_backend parameters (rt_backend.hpp); AMReX-free.
+// The parameters of the RT backend switch (include/radray/rt_backend.hpp,
+// docs/stage_d.md): rt_backend = serial (the original's ray chains,
+// src/ray_tracing.cpp) | amrex (the sorted-ray-array RT on an AMReX level,
+// src/amrex/rt_level.cpp, MPI + OpenMP). This file is AMReX-free and part of
+// every build: it parses this group's params.txt keys into a Config
+// (set_rt_backend_param, called by set_param in src/io.cpp, by radhydro and
+// by pm_driver for amrex_max_grid_size), copies the group between Configs
+// (the drivers fill s.cfg from ProblemParams::rtm), prints the run header's
+// one-line summary and refuses the combinations the level does not implement
+// (check_rt_backend_param). The meaning of every parameter is documented at
+// its Config field (include/radray/config.hpp). The process functions
+// (backend_init, io_rank, ...) and the level's entry points declared in the
+// header live in src/amrex/rt_level.cpp or its stub rt_level_stub.cpp.
 #include "radray/rt_backend.hpp"
 
 #include <algorithm>
@@ -6,6 +18,9 @@
 
 namespace radray {
 
+// One params.txt entry: true if key belongs to this group (the value is
+// then validated and stored, a bad value throws), false for any other key.
+// Combinations of parameters are checked later, in check_rt_backend_param.
 bool set_rt_backend_param(Config& c, const std::string& key, const std::string& val) {
   if (key == "rt_backend") {
     if (val == "serial")
@@ -30,6 +45,9 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
     if (c.amrex_max_grid_size < 4) throw std::runtime_error("amrex_max_grid_size must be >= 4");
     return true;
   }
+  // ghost layers of the level's optical depth and deposit arrays: a ray
+  // moves at most 2 cells per substep with rt_cells_per_substep = 1; the
+  // level raises the value to k + 1 for k cells per substep (the summary)
   if (key == "amrex_ghosts") {
     c.amrex_ghosts = std::stoi(val);
     if (c.amrex_ghosts < 2) throw std::runtime_error("amrex_ghosts must be >= 2 (the ray reach)");
@@ -44,6 +62,9 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
       throw std::runtime_error("amrex_slab must be 0 or 1");
     return true;
   }
+  // the moment RT on the level (rt_method = m1 | otvet, src/amrex/moment_level.cpp,
+  // docs/stage_e_moments.md): exact keeps the serial summation order of the
+  // statistics, fixed uses decomposition-independent fixed-point sums
   if (key == "amrex_moment_stats") {
     if (val == "exact")
       c.amrex_moment_stats = 0;
@@ -58,12 +79,17 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
     if (c.amrex_moment_fft_threads < 0) throw std::runtime_error("amrex_moment_fft_threads must be >= 0");
     return true;
   }
+  // z-slabs (amrex_slab = 1): k-planes per slab; 0 = about N / ranks
+  // (amrex_slab_planes below), an even number
   if (key == "amrex_slab_planes") {
     c.amrex_slab_planes = std::stoi(val);
     if (c.amrex_slab_planes < 0 || c.amrex_slab_planes % 2 != 0)
       throw std::runtime_error("amrex_slab_planes must be 0 (about N / ranks) or a positive even number");
     return true;
   }
+  // Stage F3, the rays across refinement levels (docs/stage_f.md section 3;
+  // both act only with amrex_max_level > 0): splitting on arrival in a finer
+  // level, and the deposit of a fine ray in a ghost cell outside its level
   if (key == "amrex_split_on_entry") {
     c.amrex_split_on_entry = std::stoi(val);
     if (c.amrex_split_on_entry != 0 && c.amrex_split_on_entry != 1)
@@ -71,6 +97,7 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
     return true;
   }
   if (key == "amrex_ghost_rule") {
+    // by name or by the Config code (0..3)
     if (val == "sqrt" || val == "0") c.amrex_ghost_rule = 0;
     else if (val == "parent" || val == "1") c.amrex_ghost_rule = 1;
     else if (val == "half" || val == "2") c.amrex_ghost_rule = 2;
@@ -78,6 +105,8 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
     else throw std::runtime_error("amrex_ghost_rule must be sqrt, parent, half or conserve");
     return true;
   }
+  // cells a ray may cross per substep for the neighbour-only Redistribute
+  // of the rays; 0 = AMReX's global Redistribute (docs/stage_d.md)
   if (key == "amrex_redist_local") {
     c.amrex_redist_local = std::stoi(val);
     if (c.amrex_redist_local < 0) throw std::runtime_error("amrex_redist_local must be >= 0");
@@ -86,6 +115,8 @@ bool set_rt_backend_param(Config& c, const std::string& key, const std::string& 
   return false;
 }
 
+// Every field of the group, from the parsed ProblemParams::rtm into the
+// simulation's Config (the drivers, after init_simulation).
 void copy_rt_backend_param(const Config& from, Config& to) {
   to.rt_backend = from.rt_backend;
   to.ray_encoding = from.ray_encoding;
@@ -100,6 +131,8 @@ void copy_rt_backend_param(const Config& from, Config& to) {
   to.amrex_ghost_rule = from.amrex_ghost_rule;
 }
 
+// One line for the run header (rt_driver, radhydro): the values the level
+// will actually use, not the raw parameters.
 std::string rt_backend_summary(const Config& c) {
   if (!use_amrex(c)) return "rt_backend = serial";
   // the values the level uses: at least the reach k+1 of one substep for
@@ -118,6 +151,9 @@ std::string rt_backend_summary(const Config& c) {
          std::to_string(c.amrex_redist_local > 0 ? std::max(c.amrex_redist_local, reach) : 0) + ")";
 }
 
+// Refuses what the level does not implement; called once by the drivers
+// after all parameters are set. The serial backend only needs the float
+// ray layout (rstruct is the level's compact encoding, docs/stage_d.md).
 void check_rt_backend_param(const Config& c) {
   if (!use_amrex(c)) {
     if (c.ray_encoding != RayEncoding::Float)
@@ -135,14 +171,19 @@ void check_rt_backend_param(const Config& c) {
     throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex needs amrex_slab = 1 (z-slabs)");
   if (c.recomb_rad && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex does not implement recomb_rad with the rays yet");
+  // deterministic_parallel is the serial backend's thread scheme (docs/parallel.md);
+  // the level is rank- and thread-independent by construction
   if (c.det_parallel && c.rt_method == RTMethod::Rays)
     throw std::runtime_error("rt_backend = amrex: deterministic_parallel applies to the serial backend only");
+  // the level holds one gas cell per RT cell (no averaging of N_rt_gas^3 cells)
   if (c.N_rt_gas != 1) throw std::runtime_error("rt_backend = amrex needs N_rt_gas = 1");
   if (c.otvet_background)
     throw std::runtime_error("otvet_background = ga01 is implemented on the serial moment solver only "
                              "(docs/otvet_background.md)");
 }
 
+// The k-planes per slab of amrex_slab = 1 (gs::make_decomposition builds
+// the slabs; the moment RT's decomposition, docs/stage_e_moments.md).
 int amrex_slab_planes(const Config& c, int N, int nranks) {
   if (c.amrex_slab_planes > 0) return c.amrex_slab_planes;
   // about N / ranks, even, dividing N (N even); at least 2

@@ -25,7 +25,7 @@ struct RayDump;  // radray/ray_dump.hpp
 struct MomentState;  // radray/rt_moments.hpp
 struct RecombState;  // radray/recomb_rad.hpp
 struct AmrexRT;
-struct AmrexState;      // src/amrex/rt_level.cpp (rt_backend = amrex)
+struct AmrexState;      // src/amrex/gas_state.hpp (amrex_state = 1: the gas on the levels)
 struct TensorDiag;   // radray/rt_tensor_diag.hpp
 
 // radhydro_global.f90: rt_stat_type

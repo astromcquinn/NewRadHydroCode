@@ -492,7 +492,13 @@ RR_HD int photo_gas_cell(float* uu, float* ww, float* ee, const float gng[5], co
   double ngam[5];
   for (int n = 0; n < 5; ++n) ngam[n] = static_cast<double>(gng[n]) * u.nH_avg;
 
-  // Maximum photoionization rate in 1/s
+  // Maximum photoionization rate in 1/s. ngam is the photon number of the RT
+  // cell per <nH> and RT cell volume (rt_grid%ngam), so ngam*nH_avg is the
+  // photon number density n_gamma, and len_rt*cells/dtsec_rt is the (reduced)
+  // speed of light c_hat at which those photons stream through the cell
+  // during the substep: Gamma = n_gamma sigma c_hat. The same expression
+  // serves the rays (ngam = the photons deposited along the path) and the
+  // moment RT (ngam = N, rt_moments.hpp).
   double gamma_pht[3][5], gamma_max[3][5];
   for (int inu = 0; inu < 5; ++inu)
     for (int sp = 0; sp < 3; ++sp)

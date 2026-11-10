@@ -1,5 +1,15 @@
 // MKL DFTI semantics on FFTW3f (see fft.hpp). Every call below has an exact
 // counterpart in reference/harness_common/mkl_dfti_shim.f90.
+//
+// Callers: fft_3d is the PM's Poisson solve (src/pm.cpp; the init_fft of
+// apps/pm_driver.cpp and apps/radhydro.cpp); Fft1d is the 1-D descriptor of
+// the legacy hydro's smooth (src/hydro.cpp); fft_1d is unused by the
+// original. The plans are what make this port and the Fortran harnesses
+// agree bit for bit (docs/port_notes_pm.md section 2): FFTW_ESTIMATE |
+// FFTW_UNALIGNED, so the plan depends neither on the data nor on the array
+// address. The threaded plan of nthreads > 1 (pm_refine > 1,
+// docs/pm_refine.md) is a new option; nthreads = 1 is the original's
+// serial arithmetic.
 #include "radray/fft.hpp"
 
 #include <fftw3.h>
@@ -44,6 +54,7 @@ struct PlanThreads {
 };
 }  // namespace
 
+// RADRAY_FFTW_OMP: CMake found and linked libfftw3f_omp
 bool fft_threaded() {
 #ifdef RADRAY_FFTW_OMP
   return true;
@@ -52,6 +63,10 @@ bool fft_threaded() {
 #endif
 }
 
+// fft_tools.f90 fft_3d, in place on a(n1+2, n2, n3): 'f' r2c unnormalised,
+// 'b' c2r times the real(4) bscale (the layout notes of the header). The
+// backward scaling loop is threaded only with a threaded plan (pt.on), so
+// the default serial path is the original's.
 void fft_3d(char c, int n1, int n2, int n3, float* a, int nthreads) {
   fftwf_complex* ac = reinterpret_cast<fftwf_complex*>(a);
   const PlanThreads pt(nthreads);
@@ -88,6 +103,9 @@ void fft_3d(char c, int n1, int n2, int n3, float* a, int nthreads) {
   }
 }
 
+// One pair of plans per descriptor (DftiCommitDescriptor) on an aligned FFTW
+// buffer of n+2 floats; the data are copied through that buffer, so the
+// caller's array alignment never changes the plan.
 Fft1d::Fft1d(int n, float bscale) : n_(n), bscale_(bscale) {
   buf_ = fftwf_alloc_real(static_cast<std::size_t>(n + 2));
   if (!buf_) throw std::bad_alloc();
@@ -119,6 +137,7 @@ void Fft1d::backward(float* x) {
   for (int i = 0; i < n_; ++i) x[i] = buf_[i] * bscale_;
 }
 
+// one descriptor per call, as the original creates and frees one
 void fft_1d(char c, int n, float* a) {
   switch (c) {
     case 'f': {
