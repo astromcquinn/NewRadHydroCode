@@ -66,6 +66,11 @@ The sections are in the order they were written. By topic:
   `docs/rt_moments.md` §5. Our test has no published counterpart. Iliev
   et al. 2006 Test 3 would need plane-parallel sources in the moment RT,
   which it does not have.
+* **`docs/REVIEW_GUIDE.md` §6 fixed:** the stale parameter lists and
+  comments of 2026-11-09, the unused `Npart`, the `photon_conserve` error
+  text, `rms_dex` without the penalty and the three Release-build warnings.
+  Open: the from-memory coefficients (need the papers). Fast suite 176/176
+  with FFTW installed (3 skipped for optional tools).
 * **Not changed:** the ctest RT tests (`ifront_rsla*` and the stored
   references) keep `ray_rotate = 0`, since they check the original bit for
   bit. The 256³ klone ray runs of §6 (2026-10-09) used the fixed frame and
