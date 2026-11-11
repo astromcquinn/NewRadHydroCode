@@ -499,7 +499,11 @@ int read_checkpoint(const std::string& path, Simulation& s, HydroState& hs, pm::
     for (int q = 0; q < 5; ++q) in.vec(v[q]);
     double budget[3];
     in.pod(budget);
-    if (use_moments(s.cfg)) {
+    // all five empty: written before the RT started (moment_init runs with
+    // the first RT step), so the state stays unallocated as in a run that
+    // never stopped
+    const bool prert = v[0].empty() && v[1].empty() && v[2].empty() && v[3].empty() && v[4].empty();
+    if (use_moments(s.cfg) && !prert) {
       moment_init(s);
       MomentState& M = *s.moments;
       const std::int64_t n = kNfreq * M.ncell;
