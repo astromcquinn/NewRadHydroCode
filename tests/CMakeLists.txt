@@ -1143,7 +1143,20 @@ if(Python3_Interpreter_FOUND)
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_ga01 13 --set rt_method=otvet
                      --set otvet_background=ga01 --set otvet_background_fix=0.5)
+    # a checkpoint written before the RT starts (the moment state still
+    # unallocated, written as empty fields): M1 and OTVET with ga01
+    add_test(NAME restart_smoke_m1_prert
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_prert 2 --set rt_method=m1
+                     --set legacy_rt=0 --set legacy_physics=0 --set moment_inject=1)
+    add_test(NAME restart_smoke_otvet_ga01_prert
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                     $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/otvet_ga01_prert 2 --set rt_method=otvet
+                     --set otvet_background=ga01)
     set_tests_properties(restart_smoke_otvet_split restart_smoke_otvet_cone restart_smoke_otvet_ga01
+                         restart_smoke_m1_prert restart_smoke_otvet_ga01_prert
                          PROPERTIES TIMEOUT 900 LABELS "restart;moments")
     # tensor_dump (docs/otvet_closure.md section 1) is a pure diagnostic: the
     # other outputs byte-identical with and without it, for rays (with
