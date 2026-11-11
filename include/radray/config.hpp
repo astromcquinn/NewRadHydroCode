@@ -291,15 +291,17 @@ struct Config {
   //   otvet_tensor: how the OTVET tensor is summed over the sources:
   //                0 = auto, 1 = direct sum, 2 = FFT convolution;
   //   moment_inject: when the source and recombination photons of an RT
-  //                substep enter the moments: 0 = before the transport
-  //                (default; a source cell's photons are mostly moved to its
-  //                neighbours before photo_cell absorbs anything), 1 = after
-  //                it, so they are absorbed in their own cell first, as the
-  //                rays' photons are (docs/rt_moments.md).
+  //                substep enter the moments: 1 = after the transport
+  //                (default since 2026-11-10, user decision), so they are
+  //                absorbed in their own cell first, as the rays' photons
+  //                are; 0 = before it (the first implementation: a source
+  //                cell's photons are mostly moved to its neighbours before
+  //                photo_cell absorbs anything, and dense source cells stay
+  //                neutral; docs/rt_moments.md section 5a).
   RTMethod rt_method = RTMethod::Rays;
   int moment_nsub = 4;
   int otvet_tensor = 0;
-  int moment_inject = 0;
+  int moment_inject = 1;
   // Alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md;
   // set_otvet_closure_param). New options, not in the original; the
   // defaults keep the thin minimum-image tensor:
@@ -503,7 +505,9 @@ struct Config {
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for
   // the outputs (amrex_state.hpp, docs/stage_e_state.md). Needs the three
-  // backends, hydro_scheme = unsplit, rt_method = rays.
+  // backends and hydro_scheme = unsplit; the moment methods need
+  // amrex_slab = 1 or the hierarchy, and recomb_rad works with them only
+  // (check_amrex_state_param).
   bool amrex_state = false;
   // params.txt amrex_balance = 0 (default) | 1: with amrex_state = 1, the
   // shared decomposition is rebalanced before every RT step on the cost

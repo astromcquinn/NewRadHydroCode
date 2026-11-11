@@ -1115,14 +1115,15 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/recomb_otvet 13 --set rt_method=otvet
                      --set recomb_case=A --set recomb_rad=1 --set recomb_rad_lines=1)
     set_tests_properties(restart_smoke_recomb_otvet PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
-    # moment_inject = 1: sources and recombination photons injected after the
-    # transport (docs/rt_moments.md section 5a)
-    add_test(NAME restart_smoke_m1_inject
+    # moment_inject = 0: sources and recombination photons injected before
+    # the transport, the first implementation (the default is 1 since
+    # 2026-11-10; docs/rt_moments.md section 5a)
+    add_test(NAME restart_smoke_m1_inject0
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
                      $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
-                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject 13 --set rt_method=m1
-                     --set recomb_case=A --set recomb_rad=1 --set moment_inject=1)
-    set_tests_properties(restart_smoke_m1_inject PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+                     ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject0 13 --set rt_method=m1
+                     --set recomb_case=A --set recomb_rad=1 --set moment_inject=0)
+    set_tests_properties(restart_smoke_m1_inject0 PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
     # the alternative OTVET tensors (otvet_closure.hpp): the split and the
     # cone's photon budget read the checkpointed N
     add_test(NAME restart_smoke_otvet_split
@@ -1327,7 +1328,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
   # (case; problem; settings; configurations: all, or the short list "few")
   foreach(mcase "m1;lognormal_16src;rt_method=m1,nsteps=4;all"
                 "m1;uniform_8src;rt_method=m1,nsteps=4;all"
-                "m1inj;lognormal_16src;rt_method=m1,nsteps=4,moment_inject=1,moment_nsub=4;all"
+                "m1inj0;lognormal_16src;rt_method=m1,nsteps=4,moment_inject=0,moment_nsub=4;all"
                 "otvet;lognormal_16src;rt_method=otvet,nsteps=4;all"
                 "otvetfft;lognormal_16src;rt_method=otvet,nsteps=4,otvet_tensor=fft;few"
                 "split;lognormal_16src;rt_method=otvet,nsteps=4,otvet_split=1;few"
@@ -1339,7 +1340,7 @@ if(RADRAY_HAVE_AMREX AND Python3_Interpreter_FOUND)
                 "conenoblend;lognormal_16src;rt_method=otvet,nsteps=4,otvet_closure=cone,otvet_cone_blend=0;cone"
                 "conelamx;lognormal_16src;rt_method=otvet,otvet_closure=cone,otvet_cone_rc=1,otvet_cone_coarse=2;cone2"
                 "m1recomb;lognormal_16src;rt_method=m1,nsteps=4,recomb_case=A,recomb_rad=1,recomb_rad_lines=1;few"
-                "m1recombinj;lognormal_16src;rt_method=m1,nsteps=4,moment_inject=1,recomb_case=A,recomb_rad=1;few"
+                "m1recombinj0;lognormal_16src;rt_method=m1,nsteps=4,moment_inject=0,recomb_case=A,recomb_rad=1;few"
                 "conerecomb;uniform_8src;rt_method=otvet,otvet_closure=cone,recomb_case=A,recomb_rad=1;cone")
     list(GET mcase 0 mtag)
     list(GET mcase 1 prob)

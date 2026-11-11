@@ -18,12 +18,18 @@ namespace radray {
 struct Simulation;
 
 // Parameters: rt_backend, ray_encoding, amrex_max_grid_size, amrex_ghosts,
-// amrex_redist_local, amrex_slab, amrex_slab_planes; false for any other key.
+// amrex_redist_local, amrex_slab, amrex_slab_planes, amrex_moment_stats,
+// amrex_moment_fft_threads, amrex_split_on_entry, amrex_ghost_rule; false
+// for any other key. (The refinement keys amrex_max_level, amrex_refine_*
+// etc. are the gas hierarchy's, hydro_backend.hpp.)
 bool set_rt_backend_param(Config& c, const std::string& key, const std::string& val);
 void copy_rt_backend_param(const Config& from, Config& to);
 std::string rt_backend_summary(const Config& c);
-// Throws for a combination the backend does not implement (legacy_rt = 1,
-// rt_method != rays, recomb_rad, deterministic_parallel).
+// Throws for a combination the backend does not implement or a build
+// without AMReX: legacy_rt = 1; rt_method = m1 | otvet without amrex_slab = 1
+// on a single level; recomb_rad with the rays; deterministic_parallel with
+// the rays; N_rt_gas != 1; otvet_background. With the serial backend it
+// only refuses ray_encoding = rstruct.
 void check_rt_backend_param(const Config& c);
 // amrex_slab = 1: the k-planes per slab for an N^3 grid on nranks ranks
 // (amrex_slab_planes, or for 0 about N / nranks: even, dividing N, >= 2)

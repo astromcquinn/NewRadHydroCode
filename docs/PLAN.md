@@ -2019,3 +2019,15 @@ report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
   case-B set (rays, thin, split, cone, ga01; ≈ 8 node-hours in all) since
   the October case-A suite predates P11 under `legacy_physics = 0`
   (`docs/otvet_background.md` §9).
+
+## `moment_inject = 1` the default (2026-11-10)
+
+* **User decision:** the moment RT injects a substep's source and
+  recombination photons after the transport by default
+  (`moment_inject = 1`, `docs/rt_moments.md` §5a). Production already used
+  it (`make_production.py`). The moment RT is new code, not the
+  original, so the ground rule that defaults keep the original does not
+  bind it; `moment_inject = 0` keeps the first implementation.
+* The tests that covered 1 explicitly now cover 0
+  (`restart_smoke_m1_inject0`, the AMReX cases `m1inj0`, `m1recombinj0`);
+  every other moment test runs with the new default.

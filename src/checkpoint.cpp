@@ -256,7 +256,7 @@ void write_checkpoint(const std::string& path, const Simulation& s, const HydroS
     // raw write of d would copy whatever the stack held there, so identical
     // runs would give checkpoints that differ in those bytes.
     DriverState dz;
-    std::memset(&dz, 0, sizeof dz);
+    std::memset(static_cast<void*>(&dz), 0, sizeof dz);  // padding too (not a value-init)
     dz.idata1 = d.idata1;
     dz.idata2 = d.idata2;
     dz.data1_out = d.data1_out;

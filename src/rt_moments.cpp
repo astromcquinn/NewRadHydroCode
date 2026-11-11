@@ -120,7 +120,7 @@ std::string rt_method_summary(const Config& c) {
     if (c.rt_method == RTMethod::OTVET)
       s += std::string(", otvet_tensor = ") +
            (c.otvet_tensor == 0 ? "auto" : c.otvet_tensor == 1 ? "direct" : "fft");
-    if (c.moment_inject) s += ", moment_inject = 1";
+    if (!c.moment_inject) s += ", moment_inject = 0";
     const std::string cl = otvet_closure_summary(c);  // otvet_closure.hpp
     if (!cl.empty()) s += ", " + cl;
     s += ")";

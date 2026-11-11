@@ -280,12 +280,12 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   } else if (key == "photon_conserve") {
     P.photon_conserve = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_conserve < -1 || P.photon_conserve > 1)
-      throw std::runtime_error("photon_conserve must be 0 or 1");
+      throw std::runtime_error("photon_conserve must be -1 (follow legacy_physics), 0 or 1");
   }
   else if (key == "photon_consume_dense") {
     P.photon_consume_dense = std::stoi(val);  // -1: follow legacy_physics (the default)
     if (P.photon_consume_dense < -1 || P.photon_consume_dense > 1)
-      throw std::runtime_error("photon_consume_dense must be 0 or 1");
+      throw std::runtime_error("photon_consume_dense must be -1 (follow legacy_physics), 0 or 1");
   }
   else if (key == "redshift_per_distance") {
     P.redshift_per_distance = std::stoi(val);

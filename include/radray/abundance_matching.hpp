@@ -167,7 +167,7 @@ struct LuvModel {
 
 struct FitResult {
   LuvModel model;
-  double rms_dex = 0;  // weighted rms of log L residuals over the used points
+  double rms_dex = 0;  // weighted rms of log L residuals over the used points (without the monotonicity penalty)
   int npoints = 0;
   int iterations = 0;
 };

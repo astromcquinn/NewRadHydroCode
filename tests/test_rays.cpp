@@ -427,7 +427,7 @@ static void test_ray_rotate() {
   for (int mode : {0, 3}) {
     auto sp2 = make_sim(8);
     Simulation& t = *sp2;
-    t.rt.Luv[c] = 1e50f;
+    t.rt.Luv[c] = 1e30f;
     t.cfg.ray_rotate = mode;
     t.cfg.ray_rotate_seed = 11;
     t.clk.istep_rt = 1;

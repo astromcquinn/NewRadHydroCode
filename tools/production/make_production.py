@@ -133,8 +133,9 @@ def main():
                     help="M1/OTVET (rt_method set by tools/hyak/rt_methods_runs.sh; ignored by "
                          "the rays): 1 = source and recombination photons enter the moments "
                          "after the transport, so they are absorbed in their own cell first "
-                         "(moment_inject; default 1, docs/rt_moments.md); 0: before, the original "
-                         "order, which leaves dense source cells neutral")
+                         "(moment_inject; default 1, also the code's default since 2026-11-10, "
+                         "docs/rt_moments.md); 0: before, the first implementation, which "
+                         "leaves dense source cells neutral")
     ap.add_argument("--diag-dz", type=float, default=0.0,
                     help="on-the-fly E(k) of the gas velocity and the T-Delta histogram every dz "
                          "(diag_dz, Diag/; plane-parallel unsplit runs on the host grids; 0: off)")
@@ -376,8 +377,7 @@ def main():
             lines.append(f"recomb_rad_cell_onspot = {a.recomb_rad_cell_onspot:g}")
     elif a.recomb_rad and a.recomb_case == "B":
         sys.exit("--recomb-rad 1 needs --recomb-case A (case B already absorbs them on the spot)")
-    if a.moment_inject:
-        lines.append("moment_inject = 1")
+    lines.append(f"moment_inject = {a.moment_inject}")
     if a.ra_max > 0:
         lines.append(f"ra_max = {a.ra_max:g}")
     lines.append(f"redshift_per_distance = {a.redshift_per_distance}")
