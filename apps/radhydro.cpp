@@ -460,6 +460,8 @@ void write_f32(const std::string& path, const float* p, std::size_t n) {
   std::ofstream out(path, std::ios::binary);
   if (!out) throw std::runtime_error("cannot write " + path);
   out.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n * sizeof(float)));
+  out.close();
+  if (!out) report_output_write_failure(path);
 }
 
 // A raw float32 file written in pieces, e.g. from the slabs streamed to
@@ -488,7 +490,7 @@ struct F32Out {
   void close() {
     if (!out.is_open()) return;
     out.close();
-    if (!out) throw std::runtime_error("error writing " + path);
+    if (!out) report_output_write_failure(path);
   }
 };
 
@@ -2157,6 +2159,9 @@ int main(int argc, char** argv) {
       if (use_amrex_hydro(cfg)) std::printf(" %s\n", amrex_hydro_timers().c_str());
       if (cfg.amrex_balance) std::printf(" balance: remapped in %lld of %lld RT steps\n",
                                          static_cast<long long>(balance_moves), static_cast<long long>(s.clk.istep));
+      if (output_write_failures() > 0)
+        std::fprintf(stderr, "radhydro: error: %lld snapshot/movie writes failed during the run (see above)\n",
+                     output_write_failures());
     }
     if (cfg.hydro_scheme == HydroScheme::Unsplit && io) {
       const UnsplitCounters& U = hs.ucounters;
