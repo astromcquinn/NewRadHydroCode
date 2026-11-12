@@ -22,6 +22,7 @@
 #include "radray/rt_backend.hpp"
 #include "radray/rt_moments.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -229,7 +230,23 @@ void write_raw_f32(const std::string& path, const std::vector<float>& v) {
   std::ofstream out(path, std::ios::binary);
   if (!out) throw std::runtime_error("cannot write " + path);
   out.write(reinterpret_cast<const char*>(v.data()), v.size() * sizeof(float));
+  out.close();
+  if (!out) report_output_write_failure(path);
 }
+
+namespace {
+std::atomic<long long> g_output_write_failures{0};
+}
+
+void report_output_write_failure(const std::string& path) {
+  const long long n = ++g_output_write_failures;
+  std::fprintf(stderr, "radhydro: error: writing %s failed (disk full or quota exceeded?); "
+                       "the file is incomplete, the run continues (%lld failed writes so far)\n",
+               path.c_str(), n);
+  std::fflush(stderr);
+}
+
+long long output_write_failures() { return g_output_write_failures.load(); }
 
 // <dir>/<field>.bin for the rt_grid fields (N^3, (Nfreq, N^3) or (3, N^3))
 // and the gas (u_gas (5, N^3), w_gas (4, N^3)), then stats.txt, the keys of
