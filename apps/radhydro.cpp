@@ -894,10 +894,10 @@ int main(int argc, char** argv) {
                                           cfg.hydro_scheme != HydroScheme::Unsplit))
       throw std::runtime_error("diag_dz > 0 and movie_fields vmag need the host grids (amrex_state = 0), "
                                "Nrt = Ngas, hydro_scheme = unsplit and diag_nbins >= 1");
-    if (cfg.T_max > 0 && (cfg.hydro_scheme != HydroScheme::Unsplit || use_amrex_hydro(cfg) ||
+    if (cfg.T_max > 0 && (cfg.hydro_scheme != HydroScheme::Unsplit ||
                           !(cfg.T_max > cfg.T_min && cfg.T_max > cfg.thermal_floor)))
-      throw std::runtime_error("T_max > 0 needs the host unsplit hydro (hydro_scheme = unsplit, "
-                               "hydro_backend = host) and T_max above T_min and thermal_floor");
+      throw std::runtime_error("T_max > 0 needs the unsplit hydro (hydro_scheme = unsplit) "
+                               "and T_max above T_min and thermal_floor");
     init_hydro(cfg, s.gas, hs);                        // init_hydro
     // amrex_pk = level: the power spectrum on the levels, so rank 0 keeps
     // only the particles of the host PM arrays (the halo finder's)
@@ -955,6 +955,9 @@ int main(int argc, char** argv) {
     const std::vector<double> zdata1 = read_zdata(P.zdata1, pdir + "/zdata1.txt", true);
     const std::vector<double> zdata2 = read_zdata(P.zdata2, pdir + "/zdata2.txt", false);
     if (zdata1.empty()) throw std::runtime_error("no zdata1 output redshifts");
+    if (cfg.T_max > 0 && zdata1.back() < 4 && !cfg.T_max_low_z)
+      throw std::runtime_error("T_max > 0 in a run that ends below z = 4: the cap removes the shock-heated "
+                               "warm-hot IGM (WHIM); set T_max_low_z = 1 to run it anyway (config.hpp)");
     std::vector<double> adata1, adata2;
     for (double z : zdata1) adata1.push_back(1 / (1 + z));
     for (double z : zdata2) adata2.push_back(1 / (1 + z));

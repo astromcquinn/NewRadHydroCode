@@ -515,6 +515,12 @@ bool set_cosmology_param(Config& cfg, const std::string& key, const std::string&
     cfg.T_max = v;
     return true;
   }
+  if (key == "T_max_low_z") {
+    const int v = std::stoi(val);
+    if (v != 0 && v != 1) throw std::runtime_error("T_max_low_z must be 0 or 1");
+    cfg.T_max_low_z = v == 1;
+    return true;
+  }
   if (key == "T_min" || key == "z_floor") {
     std::size_t n = 0;
     const double v = std::stod(val, &n);
@@ -535,6 +541,7 @@ void copy_cosmology_param(const Config& from, Config& to) {
   to.T_min = from.T_min;
   to.z_floor = from.z_floor;
   to.T_max = from.T_max;
+  to.T_max_low_z = from.T_max_low_z;
   if (to.T_min > 0 && !(to.z_floor >= 0))
     throw std::runtime_error("T_min > 0 needs z_floor >= 0: the floor applies at z < z_floor");
 }

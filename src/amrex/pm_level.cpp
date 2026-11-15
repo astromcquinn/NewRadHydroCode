@@ -1364,7 +1364,7 @@ struct PMLevel {
     const int ng = A.nGrow();
     const double nd = ndmr;
     const double cells_per_dm = x_dm_m * static_cast<double>(1 << l);  // the level's cells per DM-grid cell
-    Long unpred = 0;
+    Long unpred = 0, bad_seen = bad;
     for (ax::MFIter mfi(A); mfi.isValid(); ++mfi) {
       const ax::Box bx = mfi.validbox();
       const ax::Box gbx = ax::grow(bx, ng);
@@ -1427,6 +1427,34 @@ struct PMLevel {
         for (int t = 0; t < nt; ++t) sum += buf[static_cast<std::size_t>(t) * ngc + idx];
         a(i, j, k) += sum;
       });
+      if (bad > bad_seen) {  // the failure path only: name the tile's first offending particles
+        const int lo3[3] = {glo.x, glo.y, glo.z}, hi3[3] = {ghi.x, ghi.y, ghi.z};
+        int shown = 0;
+        for (int n = 0; n < np && shown < 4; ++n) {
+          const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
+          const int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
+          const rpk::Cic c = rpk::cic_weights(g, x);
+          const int ci[3] = {near_image(c.i1 - 1, h[0], NN), near_image(c.j1 - 1, h[1], NN),
+                             near_image(c.k1 - 1, h[2], NN)};
+          bool out = false;
+          for (int d = 0; d < 3; ++d)
+            if (ci[d] < lo3[d] || ci[d] + 1 > hi3[d] || h[d] < lo3[d] + ng || h[d] > hi3[d] - ng) out = true;
+          if (!out) continue;
+          ++shown;
+          std::fprintf(stderr,
+                       "deposit_level %d rank %d box [%d %d %d]-[%d %d %d] ng %d particle %d/%d id %lld type %d "
+                       "x %.9g %.9g %.9g v %.9g %.9g %.9g pos %.9g %.9g %.9g home %d %d %d cic %d %d %d m %.6g a %.6g\n",
+                       l, ax::ParallelDescriptor::MyProc(), bx.smallEnd(0), bx.smallEnd(1), bx.smallEnd(2),
+                       bx.bigEnd(0), bx.bigEnd(1), bx.bigEnd(2), ng, n, np,
+                       static_cast<long long>(ax::ParticleIDWrapper(pd.m_idcpu[n])), pd.m_idata[kType][n],
+                       x[0], x[1], x[2], pd.m_rdata[kV][n], pd.m_rdata[kV + 1][n], pd.m_rdata[kV + 2][n],
+                       pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n], h[0], h[1], h[2], ci[0], ci[1],
+                       ci[2], pd.m_rdata[kM][n], pd.m_rdata[kA][n]);
+        }
+        std::fprintf(stderr, "deposit_level %d rank %d: %lld bad corners in this tile, %d particles shown\n", l,
+                     ax::ParallelDescriptor::MyProc(), static_cast<long long>(bad - bad_seen), shown);
+        bad_seen = bad;
+      }
     }
     const double t1 = now();
     A.SumBoundary(PER(l));  // fold the ghost deposits into their owners (int64: exact)

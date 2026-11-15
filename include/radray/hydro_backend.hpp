@@ -29,7 +29,7 @@ namespace radray {
 // of Stage F (docs/stage_f.md): amrex_max_level, amrex_refine_mass,
 // amrex_regrid_every, amrex_fine_max_grid_size, amrex_blocking_factor,
 // amrex_n_error_buf, amrex_grid_eff, amrex_refine_box; the star-formation
-// sink: sf_overdensity, sf_efficiency; false for any other key.
+// sink: sf_overdensity, sf_efficiency, sf_max_fraction; false for any other key.
 bool set_hydro_backend_param(Config& c, const std::string& key, const std::string& val);
 void copy_hydro_backend_param(const Config& from, Config& to);
 std::string hydro_backend_summary(const Config& c);
