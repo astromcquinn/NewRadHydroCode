@@ -79,6 +79,12 @@ struct DualEnergy {
   // so e is not evolved as itself there and drifts (docs/hydro_unsplit.md
   // section 7, U7).
   bool e_self = false;
+  // floor_rho_reset: a cell whose density falls below the floor is reset to
+  // rest at the temperature floor (momenta 0, E = e = rho_min Tmin) instead
+  // of keeping its momenta and energies, which over a floored density are
+  // an arbitrarily fast and hot near-vacuum (the late AMR pair, 2026-11-14).
+  // Off: the original.
+  bool floor_reset = false;
 };
 
 RR_HD double kinetic_energy(const double U[NV]) {
@@ -431,6 +437,11 @@ RR_HD CellFlags finalize_cell(double U[NV], double& eD, double Enb_max, double E
   if (!(U[0] >= rho_min)) {
     U[0] = rho_min;
     f.floor_rho = true;
+    if (de.floor_reset) {
+      U[1] = U[2] = U[3] = 0.0;
+      U[4] = rho_min * Tmin;
+      eD = rho_min * Tmin;
+    }
   }
   const double ke = kinetic_energy(U);
   const double emin = U[0] * Tmin;

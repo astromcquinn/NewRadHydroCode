@@ -138,7 +138,7 @@ AMREX_FORCE_INLINE void get_face(ax::Array4<double const> const& f, int i, int j
 }
 
 struct Counts {
-  Long v[5] = {0, 0, 0, 0, 0};  // from_e, synced, floor_T, floor_rho, reset
+  Long v[6] = {0, 0, 0, 0, 0, 0};  // from_e, synced, floor_T, floor_rho, reset, cap_T
 };
 
 // One level of the hierarchy
@@ -285,6 +285,7 @@ class HydroLevel {
   bool have_prev0 = false;
   ax::Vector<ax::BCRec> bcs;
   double rho_avg = 0;  // the mean gas density (tagging)
+  double Tmax = HUGE_VAL;  // the hydro's T_max cap of this call (thermal energy per unit density)
   std::vector<SinkEvent> events;  // the sink's events of the last call (this rank)
   double mass0 = 0;  // the gas mass of level 0 after the last call (double sum; diagnostic)
   // pm_level_subcycle (docs/stage_g.md section 6): this call's refined levels
@@ -910,6 +911,7 @@ class HydroLevel {
     double t4 = now();
     T.fill += t4 - t3;
     Counts c;
+    const double tmax = Tmax;
     for (ax::MFIter mfi(L.U); mfi.isValid(); ++mfi) {
       auto u = L.U.array(mfi);
       auto en = L.En.const_array(mfi);
@@ -922,7 +924,7 @@ class HydroLevel {
         double Uc[NV];
         for (int m = 0; m < NV; ++m) Uc[m] = u(i, j, k, m);
         double eD = u(i, j, k, NV);
-        const rrh::CellFlags f = rrh::finalize_cell(Uc, eD, Enb, Enb1, de, rho_min, Tmin);
+        const rrh::CellFlags f = rrh::finalize_cell(Uc, eD, Enb, Enb1, de, rho_min, Tmin, tmax);
         for (int m = 0; m < NV; ++m) u(i, j, k, m) = Uc[m];
         u(i, j, k, NV) = eD;
         if (f.from_e) ax::HostDevice::Atomic::Add(cv + 0, Long(1));
@@ -930,6 +932,7 @@ class HydroLevel {
         if (f.floor_T) ax::HostDevice::Atomic::Add(cv + 2, Long(1));
         if (f.floor_rho) ax::HostDevice::Atomic::Add(cv + 3, Long(1));
         if (f.reset) ax::HostDevice::Atomic::Add(cv + 4, Long(1));
+        if (f.cap_T) ax::HostDevice::Atomic::Add(cv + 5, Long(1));
       });
     }
     T.finalize += now() - t4;
@@ -973,7 +976,7 @@ class HydroLevel {
       if (lev > 0 || lev < finest) pmsub::solve(lev, t + dt, L.U);
       if (lev > 0) pmsub::kick(lev, L.U, 0, dt / 2, de.eta1, rho_min);
     }
-    for (int m = 0; m < 5; ++m) total_c.v[m] += sc.v[m];
+    for (int m = 0; m < 6; ++m) total_c.v[m] += sc.v[m];
     if (lev < finest) {
       LevelData& F = levels[static_cast<std::size_t>(lev) + 1];
       const double t0 = now();
@@ -1004,6 +1007,77 @@ class HydroLevel {
     if (sub) pmsub::regroup(lev);
   }
 
+  // RADRAY_HYDRO_SCAN (diagnostic, read-only; set in the environment): at
+  // each stage of a call (copy-in, push-down, regrid, after the substeps,
+  // after the sink), every level's valid cells with a non-finite component,
+  // rho <= 0 or rho > 1e8 rho_avg (up to 3 printed per rank and stage), and
+  // the holes (rho < 1e-3 rho_avg) and hot cells (e/rho > 1e3) of a finite
+  // state (up to 2, "hydro_hole" lines); rank 0 prints the global counts.
+  // It found the near-vacuum blowup of the late AMR pair (2026-11-14,
+  // docs/stage_f.md section 2).
+  void scan(const char* where, double ravg) {
+    Long nbad = 0, nhole = 0, nhot = 0;
+    int shown = 0, shown_h = 0;
+    double emax_all = 0;
+    const int me = ax::ParallelDescriptor::MyProc();
+    for (int lev = 0; lev <= finest; ++lev) {
+      for (ax::MFIter mfi(U(lev)); mfi.isValid(); ++mfi) {
+        auto u = U(lev).const_array(mfi);
+        const ax::Box bx = mfi.validbox();
+        const auto lo = ax::lbound(bx), hi = ax::ubound(bx);
+        for (int k = lo.z; k <= hi.z; ++k)
+          for (int j = lo.y; j <= hi.y; ++j)
+            for (int i = lo.x; i <= hi.x; ++i) {
+              bool b = !(u(i, j, k, 0) > 0) || u(i, j, k, 0) > 1e8 * ravg;
+              for (int m = 0; m < NC && !b; ++m)
+                if (!std::isfinite(u(i, j, k, m))) b = true;
+              // holes (rho < 1e-3 rho_avg) and very hot cells (e/rho > 1e3:
+              // ~1e4 times the photoionised value) of a finite state
+              if (!b) {
+                const double r = u(i, j, k, 0), eor = u(i, j, k, NV) / r;
+                const bool hole = r < 1e-3 * ravg, hot = eor > 1e3;
+                if (hole) ++nhole;
+                if (hot) ++nhot;
+                emax_all = std::max(emax_all, eor);
+                if ((hole || hot) && shown_h < 2) {
+                  ++shown_h;
+                  double nmin = 1e300, nmax = 0;
+                  for (int d = 0; d < 3; ++d)
+                    for (int sg = -1; sg <= 1; sg += 2) {
+                      const int ii = i + (d == 0) * sg, jj = j + (d == 1) * sg, kk = k + (d == 2) * sg;
+                      if (ii < lo.x || ii > hi.x || jj < lo.y || jj > hi.y || kk < lo.z || kk > hi.z) continue;
+                      nmin = std::min(nmin, u(ii, jj, kk, 0));
+                      nmax = std::max(nmax, u(ii, jj, kk, 0));
+                    }
+                  std::fprintf(stderr, "hydro_hole %s call %lld rank %d lev %d cell %d %d %d: e/rho %.4g nb rho %.4g..%.4g:", where,
+                               static_cast<long long>(T.calls), me, lev, i, j, k, eor, nmin, nmax);
+                  for (int m = 0; m < NC; ++m) std::fprintf(stderr, " %.6g", u(i, j, k, m));
+                  std::fprintf(stderr, "\n");
+                }
+                continue;
+              }
+              ++nbad;
+              if (shown < 3) {
+                ++shown;
+                std::fprintf(stderr, "hydro_scan %s call %lld rank %d lev %d box [%d %d %d]-[%d %d %d] cell %d %d %d:", where,
+                             static_cast<long long>(T.calls), me, lev, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z, i, j, k);
+                for (int m = 0; m < NC; ++m) std::fprintf(stderr, " %.6g", u(i, j, k, m));
+                std::fprintf(stderr, "\n");
+              }
+            }
+      }
+    }
+    Long tot = nbad;
+    ax::ParallelDescriptor::ReduceLongSum(tot);
+    ax::ParallelDescriptor::ReduceLongSum(nhole);
+    ax::ParallelDescriptor::ReduceLongSum(nhot);
+    ax::ParallelDescriptor::ReduceRealMax(emax_all);
+    if (ax::ParallelDescriptor::IOProcessor())
+      std::fprintf(stderr, "hydro_scan %s call %lld: %lld bad cells, %lld holes, %lld hot, max e/rho %.4g (finest %d, rho_avg %.6g)\n", where,
+                   static_cast<long long>(T.calls), static_cast<long long>(tot), static_cast<long long>(nhole),
+                   static_cast<long long>(nhot), emax_all, finest, ravg);
+  }
+
   void step(const Config& cfg, const Units& un, double dt, double scalefactor, GasGrid& gas, HydroState& hs) {
     events.clear();
     if (state)
@@ -1012,9 +1086,15 @@ class HydroLevel {
       copy_in(gas);
     copy_in_fine();
     rho_avg = un.Dgas_avg;
+    const bool do_scan = std::getenv("RADRAY_HYDRO_SCAN") != nullptr;
+    if (do_scan) scan("copy_in", rho_avg);
     if (max_level > 0) {
       push_down();
-      if (T.calls % regrid_every == 0 || finest == 0) regrid();
+      if (do_scan) scan("push_down", rho_avg);
+      if (T.calls % regrid_every == 0 || finest == 0) {
+        regrid();
+        if (do_scan) scan("regrid", rho_avg);
+      }
     }
     // pm_level_subcycle: the PM levels and particles after the regrid, every
     // level's potential at the call's start
@@ -1027,9 +1107,10 @@ class HydroLevel {
     }
     const rrh::DualEnergy de{cfg.dual_energy ? cfg.dual_eta1 : 0.0, cfg.dual_eta2, cfg.dual_eta1_local,
                              cfg.dual_nb_radius, cfg.dual_reset_rule, cfg.dual_eta2_local,
-                             cfg.dual_e_self && cfg.dual_energy};
+                             cfg.dual_e_self && cfg.dual_energy, cfg.floor_rho_reset};
     const double rho_min = un.Dgas_min;
     const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
+    Tmax = un.Thydro_max;                // T_max (infinite = off), as on the host
     UnsplitCounters& C = hs.ucounters;
     Counts total_c;
     double remaining = dt;
@@ -1053,6 +1134,15 @@ class HydroLevel {
       // the sub-cycling arithmetic of hydro_step_unsplit, unchanged
       const double dt_cfl = cfg.unsplit_cfl / smax;
       C.dt_cfl_min = std::min(C.dt_cfl_min, dt_cfl);
+      // a substep count no int holds (a runaway signal speed) would fall
+      // back to nsub = 1, one substep over the whole interval: stop instead
+      if (!(remaining / dt_cfl < 1e8)) {
+        char msg[256];
+        std::snprintf(msg, sizeof msg,
+                      "hydro_step_unsplit (amrex): runaway signal speed %.6g (dt_cfl %.6g for %.6g remaining, call %lld)",
+                      smax, dt_cfl, remaining, static_cast<long long>(T.calls + 1));
+        throw std::runtime_error(msg);
+      }
       int nsub = static_cast<int>(std::ceil(remaining / dt_cfl - 1e-9));
       if (nsub < 1) nsub = 1;
       const double dt_sub = nsub == 1 ? remaining : remaining / nsub;
@@ -1064,19 +1154,22 @@ class HydroLevel {
     if (pmsub::active()) pmsub::done();
     sub = false;
     const double t1 = now();
-    ax::ParallelDescriptor::ReduceLongSum(total_c.v, 5);
+    ax::ParallelDescriptor::ReduceLongSum(total_c.v, 6);
     T.reduce += now() - t1;
     C.cells_from_e += total_c.v[0];
     C.cells_synced += total_c.v[1];
     C.floor_T += total_c.v[2];
     C.floor_rho += total_c.v[3];
     C.cells_reset += total_c.v[4];
+    hs.cap_T += total_c.v[5];
     C.calls += 1;
     C.substeps += nsub_call;
     C.max_substeps = std::max(C.max_substeps, static_cast<std::int64_t>(nsub_call));
     T.substeps += nsub_call;
     T.calls += 1;
+    if (do_scan) scan("advance", rho_avg);
     sink(cfg, dt, scalefactor);
+    if (do_scan) scan("sink", rho_avg);
     mass0 = U(0).sum(0);  // (MultiFab::sum: valid cells, reduced; order-dependent at 1e-16)
     remember_level0();
     if (state)
@@ -1088,7 +1181,7 @@ class HydroLevel {
 
   // The star-formation sink (docs/stage_f.md section 2): on every level's
   // cells not covered by a finer level, a cell with rho/rho_avg >
-  // sf_overdensity loses f = min(1, sf_efficiency dt/t_ff) of its mass at
+  // sf_overdensity loses f = min(sf_max_fraction, sf_efficiency dt/t_ff) of its mass at
   // constant specific quantities (rho, the momenta, e and the species
   // scale by 1 - f; E loses f (KE + e)), t_ff = (3 pi/4)/sqrt(a x_tot) in
   // code time with x_tot = rho/Dgas_avg (the gas traces the total matter;
@@ -1099,6 +1192,7 @@ class HydroLevel {
     const double t0 = now();
     const double thr = rho_avg * cfg.sf_overdensity;
     const double eff = cfg.sf_efficiency;
+    const double fmax = cfg.sf_max_fraction;  // 1 = the original (a cell can be emptied)
     const double inv_avg = 1.0 / rho_avg;
     for (int lev = finest; lev >= 0; --lev) {
       LevelData& L = levels[static_cast<std::size_t>(lev)];
@@ -1122,7 +1216,7 @@ class HydroLevel {
               if (!(rho > thr)) continue;
               const double xtot = rho * inv_avg;
               const double tff = (3 * M_PI / 4) / std::sqrt(a * xtot);
-              const double f = std::min(1.0, eff * dt / tff);
+              const double f = std::min(fmax, eff * dt / tff);
               if (!(f > 0)) continue;
               const double keep = 1 - f;
               const double ke = 0.5 * (u(i, j, k, 1) * u(i, j, k, 1) + u(i, j, k, 2) * u(i, j, k, 2) +

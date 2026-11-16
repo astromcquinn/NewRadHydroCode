@@ -87,9 +87,14 @@ struct Config {
   // physics clamps its temperature to T_max after the heating. A handful of
   // low-density cells at c_s ~ 10^4 km/s (~10^9 K) otherwise set the global
   // step and the hydro substeps. T_max = 0 (default) is off and
-  // bit-identical; hydro_scheme = unsplit on the host grids only. No
-  // Fortran mirror (a new flag).
+  // bit-identical; hydro_scheme = unsplit, on the host grids or the AMReX
+  // levels (hydro_backend = amrex, since 2026-11-15). No Fortran mirror (a
+  // new flag). A cap removes the shock-heated warm-hot gas (the WHIM) of the
+  // low-redshift IGM, so radhydro refuses it in a run whose last zdata1
+  // output is below z = 4 unless T_max_low_z = 1 (user, 2026-11-15: the cap
+  // is for the z >= 5 runs only).
   double T_max = 0;
+  bool T_max_low_z = false;
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
 
@@ -263,6 +268,11 @@ struct Config {
   //                in thermal-dominated cells (2), only if E - KE <= eta1
   //                max_{+-1} E (3). docs/hydro_unsplit.md section 2.
   int dual_reset_rule = 0;
+  //   floor_rho_reset: 1 = a cell below the density floor is reset to rest
+  //                at the temperature floor (rrh::DualEnergy::floor_reset);
+  //                0 (default) = the original, which keeps its momenta and
+  //                energies
+  bool floor_rho_reset = false;
   //   dual_eta2_local: 1 = the eta2 test against the cell's own E (Nyx's
   //                resync); dual_p_old: 1 = the old-time cell pressure in
   //                the -p div v work term (Bryan et al. 2014 eq. 43) instead
@@ -501,6 +511,11 @@ struct Config {
   // original).
   double sf_overdensity = 0;
   double sf_efficiency = 1;
+  // the largest fraction of a cell's mass one sink event takes: 1 (default,
+  // the original) lets f = 1 empty a cell, a near-vacuum next to dense gas
+  // that the hydro can heat without bound (2026-11-14, the late AMR pair);
+  // < 1 keeps (1 - sf_max_fraction) of it
+  double sf_max_fraction = 1;
   // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for

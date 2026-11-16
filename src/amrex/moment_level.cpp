@@ -1628,6 +1628,10 @@ struct MomentLevel : CellLevel {
     X.dtsec_rt = s.clk.dtsec_rt;
     X.cells = s.cfg.rt_cells_per_substep << lev;  // the crossing speed of this level's cell
     X.photon_conserve = s.cfg.photon_conserve;
+    // as the rays' levels (rt_level.cpp) and the serial physics (rt_tools.cpp):
+    // without these two the moment levels kept the defaults (200, on)
+    X.cool_suppress = s.cfg.cool_suppress_overdensity;
+    X.sn_heating = s.cfg.sn_heating;
     X.photon_consume_dense = s.cfg.photon_consume_dense;
     X.ia = s.cfg.recomb_case_A ? 0 : 3;
     X.want_nrab = recomb;

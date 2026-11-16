@@ -12,10 +12,13 @@ z = 8.5 three times:
     clamps cells (timing.txt "# cap_T" > 0), the RT temperature field is at
     most T_max (1e-4) at every output after z_re, where the uncapped run
     exceeds 1.3 T_max, and the box is still ionised (x_HII,V > 0.99).
+  * T_max in a run whose last zdata1 output is below z = 4 is refused
+    (the WHIM; T_max_low_z = 1 overrides).
 """
 import filecmp
 import glob
 import os
+import subprocess
 import sys
 
 import numpy as np
@@ -60,6 +63,14 @@ def main():
     check(tmax_o > 1.3 * cap, f"uncapped max T after z_re {tmax_o:.4g} K > 1.3 T_max")
     check(tmax_c <= cap * (1 + 1e-4), f"capped max T after z_re {tmax_c:.6g} K <= T_max = {cap:g}")
     check(st_cap[-1]["xHII_V"][0] > 0.99, f"ionised at the end: x_HII,V = {st_cap[-1]['xHII_V'][0]:.5f}")
+
+    # a cap in a run that ends below z = 4 (it would remove the WHIM) is
+    # refused unless T_max_low_z = 1; the refusal comes before the first step
+    low = os.path.join(work, "lowz")
+    os.makedirs(low, exist_ok=True)
+    cmd = [exe, prob, low, "--quiet", "--set", f"T_max={cap}", "--set", "zdata1=15 12 3.5"]
+    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+    check(r.returncode != 0 and "WHIM" in r.stdout, "T_max refused in a run ending below z = 4")
 
     if FAILS:
         print(f"{len(FAILS)} FAILED")

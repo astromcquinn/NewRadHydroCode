@@ -121,6 +121,12 @@ bool set_hydro_backend_param(Config& c, const std::string& key, const std::strin
     if (!(c.sf_efficiency > 0 && c.sf_efficiency <= 1e6)) throw std::runtime_error("sf_efficiency must be > 0");
     return true;
   }
+  if (key == "sf_max_fraction") {
+    c.sf_max_fraction = std::stod(val);
+    if (!(c.sf_max_fraction > 0 && c.sf_max_fraction <= 1))
+      throw std::runtime_error("sf_max_fraction must be in (0, 1]");
+    return true;
+  }
   return false;
 }
 
@@ -139,6 +145,7 @@ void copy_hydro_backend_param(const Config& from, Config& to) {
   to.amrex_refine_nbox = from.amrex_refine_nbox;
   to.sf_overdensity = from.sf_overdensity;
   to.sf_efficiency = from.sf_efficiency;
+  to.sf_max_fraction = from.sf_max_fraction;
 }
 
 // One line for the run header (hydro_driver, radhydro).
@@ -152,7 +159,7 @@ std::string hydro_backend_summary(const Config& c) {
          std::to_string(c.amrex_fine_max_grid_size) + "/" + std::to_string(c.amrex_blocking_factor);
   if (c.sf_overdensity > 0)
     s += ", sink above " + std::to_string(c.sf_overdensity) + " x mean, efficiency " + std::to_string(c.sf_efficiency) +
-         " per t_ff";
+         " per t_ff" + (c.sf_max_fraction < 1 ? ", at most " + std::to_string(c.sf_max_fraction) + " of a cell" : std::string());
   return s + ")";
 }
 

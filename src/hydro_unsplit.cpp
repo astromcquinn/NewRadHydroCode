@@ -61,6 +61,10 @@ bool set_hydro_scheme_param(Config& cfg, const std::string& key, const std::stri
   } else if (key == "dual_reset_rule") {
     cfg.dual_reset_rule = std::stoi(val);
     if (cfg.dual_reset_rule < 0 || cfg.dual_reset_rule > 4) bad("must be 0..4");
+  } else if (key == "floor_rho_reset") {
+    const int v = std::stoi(val);
+    if (v != 0 && v != 1) bad("must be 0 or 1");
+    cfg.floor_rho_reset = v == 1;
   } else if (key == "dual_eta2_local") {
     const int v = std::stoi(val);
     if (v != 0 && v != 1) bad("must be 0 or 1");
@@ -94,6 +98,7 @@ void copy_hydro_scheme(const Config& from, Config& to) {
   to.dual_nb_radius = from.dual_nb_radius;
   to.dual_reset_rule = from.dual_reset_rule;
   to.dual_eta2_local = from.dual_eta2_local;
+  to.floor_rho_reset = from.floor_rho_reset;
   to.dual_p_old = from.dual_p_old;
   to.dual_e_self = from.dual_e_self;
   to.dual_e_self_set = from.dual_e_self_set;
@@ -110,6 +115,7 @@ std::string hydro_scheme_summary(const Config& cfg) {
          ", dual_reset_rule = " + std::to_string(cfg.dual_reset_rule) +
          ", dual_eta2_local = " + (cfg.dual_eta2_local ? "1" : "0") +
          ", dual_p_old = " + (cfg.dual_p_old ? "1" : "0") +
+         (cfg.floor_rho_reset ? ", floor_rho_reset = 1" : "") +
          (cfg.dual_e_self ? ", dual_e_self = 1" : "");
 }
 
@@ -402,8 +408,6 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
   // (the unsplit scheme never shifts the frame), nothing to fold
   if (!cfg.amrex_state && fold_frame(gas, hs)) hs.ucounters.frame_shift = 1;
   hs.dt_hy = dt;
-  if (use_amrex_hydro(cfg) && cfg.T_max > 0)
-    throw std::runtime_error("T_max needs the host unsplit hydro (hydro_backend = host)");
   if (use_amrex_hydro(cfg)) {  // the same step on the AMReX level (hydro_backend.hpp)
     amrex_hydro_step(cfg, un, dt, scalefactor, gas, hs);
     return;
@@ -427,7 +431,7 @@ void hydro_step_unsplit(const Config& cfg, const Units& un, double dt, GasGrid& 
 
   const rrh::DualEnergy de{eta1_of(cfg),        cfg.dual_eta2,       cfg.dual_eta1_local,
                            cfg.dual_nb_radius,   cfg.dual_reset_rule, cfg.dual_eta2_local,
-                           cfg.dual_e_self && cfg.dual_energy};
+                           cfg.dual_e_self && cfg.dual_energy, cfg.floor_rho_reset};
   const double rho_min = un.Dgas_min;
   const double Tmin = un.Thydro_min;  // thermal_floor (1 K by default)
   const double Tmax = un.Thydro_max;  // T_max (infinite = off)
@@ -502,7 +506,7 @@ static void serial_sink(const Config& cfg, const Units& un, double dt, double a,
         const double rho = u[0];
         if (!(rho > thr)) continue;
         const double tff = (3 * M_PI / 4) / std::sqrt(a * rho / avg);
-        const double f = std::min(1.0, eff * dt / tff);
+        const double f = std::min(cfg.sf_max_fraction, eff * dt / tff);
         if (!(f > 0)) continue;
         const double keep = 1 - f;
         const double ke = 0.5 * (double(u[1]) * u[1] + double(u[2]) * u[2] + double(u[3]) * u[3]) / rho;

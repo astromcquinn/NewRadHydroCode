@@ -433,9 +433,13 @@ dual-energy e, converted with temp2_unit, the ionised gas's mean
 molecular weight, so the cap is T_max in ionised gas and ~2 T_max in
 neutral gas) and the RT cell physics' temperature after the heating and
 cooling. The hydro's count of clamped cell-substeps is printed at the end
-(stdout and timing.txt `# cap_T`). Host unsplit hydro only (refused for
-the split scheme and the AMReX hydro). The user's choice for the C1
-reruns: 3 × 10⁵ K, far above the photoheated gas.
+(stdout and timing.txt `# cap_T`). The unsplit hydro only (refused for
+the split scheme), on the host grids and, since 2026-11-15, on the AMReX
+levels (docs/stage_f.md section 2). The user's choice for the C1
+reruns: 3 × 10⁵ K, far above the photoheated gas. The cap is for runs that
+end at z ≥ 5 only: at low redshift it would remove the shock-heated
+warm-hot IGM, so radhydro refuses `T_max` in a run whose last `zdata1`
+output is below z = 4 unless `T_max_low_z = 1` (user, 2026-11-15).
 
 ### Tools
 
