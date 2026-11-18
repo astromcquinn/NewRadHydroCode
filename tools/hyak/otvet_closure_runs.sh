@@ -16,6 +16,8 @@
 #   cone         otvet_closure = cone (nside 4, coarse 4, r_c 8, budget,
 #                blend 4: the defaults)
 #   conenb       otvet_closure = cone, otvet_cone_blend = 0
+#   conenb2      otvet_closure = cone, otvet_cone_blend = 0, otvet_cone_coarse = 2
+#                (receivers every 2 cells)
 #   ga01         otvet_background = ga01 (the thin tensor plus the isotropic
 #                background of Gnedin & Abel 2001, docs/otvet_background.md)
 # Environment: DRYRUN=1 (make the directories, print the sbatch commands),
@@ -45,6 +47,7 @@ for tag in "$@"; do
     screensplit) extra="otvet_closure = screen;otvet_split = 1" ;;
     cone) extra="otvet_closure = cone" ;;
     conenb) extra="otvet_closure = cone;otvet_cone_blend = 0" ;;
+    conenb2) extra="otvet_closure = cone;otvet_cone_blend = 0;otvet_cone_coarse = 2" ;;
     ga01) extra="otvet_background = ga01" ;;
     *) echo "unknown closure tag $tag"; exit 2 ;;
   esac
