@@ -722,3 +722,37 @@ blocks of `figures/moment_transfer.txt`):
   k ≤ 2 h/Mpc is likely smaller than a converged M1 solver's.
 - Not tested: a less diffusive flux; the rays' own high-k power against the
   64-rays-per-cell cap (Wu et al. 2021, §5.2.3).
+
+## 8. Convergence runs for the Γ fluctuations (set up, not run)
+
+*2026-11-20, asked by the user.* `tools/hyak/rt_convergence.sh` (klone;
+phases `ics`, `res`, `rays`, `post`; `DRYRUN=1` prints the jobs). Both
+series use the 512³ suite's `make_production.py` arguments in a 20 Mpc/h
+box.
+
+- **Why M1 first.** Linear theory with the GLF term at λ = L (formulas of
+  §7): the scheme raises M1's T by 1.2 / 1.9 / 4.5 at kλ = 14 / 30 / 60 at
+  512³ (3.4 / 9 / 20 at 32³) and changes OTVET's by ≤ 6 % (512³; 0.6–1.07
+  at 32³–128³). The screen and cone were not put through the test.
+- **`res`: the gas / RT grid N = 128, 256, 512 at fixed dark matter.**
+  512³ particles on the 512³ PM mesh in every run (`pm_refine` = 4, 2, 1);
+  `make_ics.py --Ndm 512 --phases-from-ndm 256` gives a byte-identical
+  `xv_dm.init` for every `--Ngas` (checked at Ndm = 32, Ngas = 8, 16, 32),
+  so the halos and sources match up to the gas's gravity. Rays and M1 at
+  each N (`rtconv_N<N>_rays`, `..._rays_m1`). Measure P_Γ(M1)/P_Γ(rays) at
+  fixed k against N. Prediction of §7: the ratio falls with N at
+  k ≳ 1 h/Mpc after overlap, and M1 overtakes the rays at kΔx ≈ 1.3 at
+  every N. Confound: the gas resolution changes the absorbers and λ, so
+  compare at matched x_V and quote λ.
+- **`rays`: the ray budget at N = 256**, `nray_max_factor` = 8, 32, 64,
+  120 beside the suite's 15 (`rtconv_N256_rays_f<F>`), reference f120.
+  Rays outside the brightest quarter of the pool merge into the 48 cones
+  of `nside_merge` = 2 per cell and only the brightest half may split
+  (`calc_ngam_ray`), so the live rays per cell are a fraction of
+  `nray_max_factor`: **the suite's 15 is well below the 64 per cell that
+  Wu et al. 2021 §5.2.3 take for this code** (ℓ ≈ 8, converged for
+  k ≲ ℓ/λ). `nray_max_factor`·N³ < 2³¹ caps the 512³ suite at 15.
+  Not varied: `nside_merge` (no params.txt key; 4 would need one).
+- Checked here: every phase with `DRYRUN=1`; `radhydro` runs 3 steps of
+  the new N = Ndm/4, `pm_refine` = 4 combination (N = 8, Ndm = 32).
+  Nothing was submitted.

@@ -33,6 +33,16 @@ The user asked whether our Γ-fluctuation trends contradict arXiv:2504.10571
   T to 0.73–1.15.
 - Found: M1's small-scale Γ power at long λ is set by the first-order GLF
   diffusion (plateau T ≈ 1.5 Δx/λ), so it depends on resolution and scheme.
+- Resolution test of the uniform-opacity transport (32³–128³, λ = L): M1
+  crosses above the exact T at kΔx ≈ 1.3 at every resolution and not at
+  all with `moment_inject = 0`; at fixed kλ its T falls toward the linear
+  solution. M1's Γ power above k ≈ 1 h/Mpc after overlap is numerical.
+- **Set up, not run:** `tools/hyak/rt_convergence.sh` (§8): M1 and rays at
+  N = 128, 256, 512 with fixed dark matter in 20 Mpc/h, and the rays at
+  `nray_max_factor` = 8–120 at 256³. To do on klone: `ics`, `res`, `rays`,
+  then `post`.
+- Paper (`astromcquinn/RT_closure`, `main`): the Gnedin 2025 comparison,
+  M1's numerical high-k power and the convergence caveat are in.
 - Open: a T_ΓL(k) figure of the 512³ runs against their own source field
   (needs the cubes on klone); an HLL or second-order flux to see the
   continuum M1.
