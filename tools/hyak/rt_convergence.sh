@@ -54,7 +54,8 @@
 # default $RUNS/rtconv_ics_N<N>, and for 256 the suite's pre-check ICs
 # $RUNS/rt512cal256/ics when they exist), THREADS (192), EXE
 # (build/radhydro), SBATCH_ARGS_<N> (defaults below), MAKE_EXTRA, DRYRUN=1,
-# OVERWRITE=1 (as rt_suite512.sh).
+# OVERWRITE=1 (as rt_suite512.sh), SCRATCH (/gscratch/scrubbed/$USER/rtconv:
+# where run/ and run.log of every run are written; none for $RUNS).
 set -eu
 RUNS="${RUNS:-/gscratch/astro/$USER/radhydro/runs}"
 RES="${RES:-128 256 512}"
@@ -67,6 +68,11 @@ EXE="${EXE:-build/radhydro}"
 SBATCH_ARGS_128="${SBATCH_ARGS_128:---exclusive --cpus-per-task=192 --mem=200G --time=12:00:00}"
 SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=400G --time=2-00:00:00}"
 SBATCH_ARGS_512="${SBATCH_ARGS_512:---exclusive --cpus-per-task=192 --mem=800G --time=4-00:00:00}"
+# the runs' outputs (run/, run.log) go to SCRATCH/<name>, linked from the
+# run directory (user decision 2026-11-20: /gscratch/scrubbed; purged after
+# 21 days without access, so analyse and copy the tables in time);
+# SCRATCH=none keeps them under $RUNS
+SCRATCH="${SCRATCH:-/gscratch/scrubbed/$USER/rtconv}"
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
@@ -131,8 +137,12 @@ need_ics() {  # need_ics N: stop unless the ICs of N exist or their job is queue
 }
 
 launch() {  # launch DIR N NAME: a whole node on reion_production.slurm, after the ICs job of N if any
-  local dep=()
+  local dep=() sc
   [ -z "${ICSJOB[$2]:-}" ] || dep=(--dependency="afterok:${ICSJOB[$2]}")
+  if [ "$SCRATCH" != none ] && [ ! -e "$1/run" ]; then
+    sc="$SCRATCH/$(basename "$1")"; mkdir -p "$sc/run"
+    ln -s "$sc/run" "$1/run"; ln -sfn "$sc/run.log" "$1/run.log"
+  fi
   submit_job $(sbatch_args "$2") "${dep[@]}" --job-name="$3" --output="$1/slurm-%j.out" \
     --export=ALL,PROB="$1",THREADS="$THREADS",EXE="$EXE",POST=sbatch tools/hyak/reion_production.slurm
   RUNJOBS="$RUNJOBS:$JID"
