@@ -12,7 +12,8 @@
 #        ICs with identical particles (make_ics.py --Ndm 512 --phases-from-ndm
 #        256: xv_dm.init is byte-identical for every --Ngas), so the halos
 #        and with them the sources are the same up to the gas's gravity. For
-#        each N the rays and M1: $RUNS/rtconv_N<N>_rays, ..._rays_m1.
+#        each N the rays, M1 and M1 with moment_inject = 0:
+#        $RUNS/rtconv_N<N>_rays, ..._rays_m1, ..._rays_m1_inj0.
 #        N = 256 is the suite's cell size (its pre-check configuration).
 #        The measurement: P_Gamma(M1)/P_Gamma(rays) at fixed k against N.
 #        The uniform-opacity test predicts that M1's ratio falls with N at
@@ -158,7 +159,7 @@ EOF
   done
 }
 do_res() {
-  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays" "$RUNS/rtconv_N${n}_rays_m1"); done
+  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays" "$RUNS/rtconv_N${n}_rays_m1" "$RUNS/rtconv_N${n}_rays_m1_inj0"); done
   clear_dirs "${dirs[@]}"
   for n in $RES; do
     need_ics "$n"
@@ -173,6 +174,15 @@ do_res() {
       echo "ics = $(ics_dir "$n")"; echo "rt_method = m1"; } > "$m/params.txt"
     ln -s "$(ics_dir "$n")" "$m/ics"
     launch "$m" "$n" "rtconv${n}_m1"
+    # M1 with the sources injected before the transport (moment_inject = 0):
+    # without the current substep's photons in the source cells, a white
+    # term 1 - exp(-dx/lambda) in T(k) (docs/rt_moments.md section 7)
+    m="${d}_m1_inj0"; mkdir -p "$m"
+    { echo "# $(basename "$d") with rt_method = m1, moment_inject = 0 (tools/hyak/rt_convergence.sh)"
+      grep -Ev '^[[:space:]]*(ics|moment_inject)[[:space:]]*=' "$d/params.txt"
+      echo "ics = $(ics_dir "$n")"; echo "rt_method = m1"; echo "moment_inject = 0"; } > "$m/params.txt"
+    ln -s "$(ics_dir "$n")" "$m/ics"
+    launch "$m" "$n" "rtconv${n}_m1i0"
   done
 }
 do_rays() {
@@ -195,7 +205,7 @@ do_post() {
   out="$RUNS/rtconv_post"; mkdir -p "$out"
   cmds=()
   for n in $RES; do
-    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
+    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 $RUNS/rtconv_N${n}_rays_m1_inj0/run:M1_inject0 --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
   done
   # the ray budgets: the largest first (the reference), then the others and the res series' 15
   ref=""; rest=""

@@ -753,8 +753,10 @@ box.
   512³ particles on the 512³ PM mesh in every run (`pm_refine` = 4, 2, 1);
   `make_ics.py --Ndm 512 --phases-from-ndm 256` gives a byte-identical
   `xv_dm.init` for every `--Ngas` (checked at Ndm = 32, Ngas = 8, 16, 32),
-  so the halos and sources match up to the gas's gravity. Rays and M1 at
-  each N (`rtconv_N<N>_rays`, `..._rays_m1`). Measure P_Γ(M1)/P_Γ(rays) at
+  so the halos and sources match up to the gas's gravity. Rays, M1 and
+  M1 with `moment_inject = 0` at each N (`rtconv_N<N>_rays`, `..._rays_m1`,
+  `..._rays_m1_inj0`; the last added on the user's request, to measure the
+  white injection term of §7 in full runs). Measure P_Γ(M1)/P_Γ(rays) at
   fixed k against N. Prediction of §7: the ratio falls with N at
   k ≳ 1 h/Mpc after overlap, and M1 overtakes the rays at kΔx ≈ 1.3 at
   every N. Confound: the gas resolution changes the absorbers and λ, so
