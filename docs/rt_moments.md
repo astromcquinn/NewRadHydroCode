@@ -786,3 +786,28 @@ box.
 - Above kΔx ≈ 1 inject 0 falls to 0.03–0.08 of exact: its source photons
   are spread over ~2 cells by the 4 subcycles before Γ is evaluated. That
   is the smoothing behind the neutral source cells of §5a, not M1.
+
+**The same series at λ = L/4 (2026-11-20; the user: λ = L is a strange
+case).** λ = L was chosen to mimic the suite after overlap, but there the
+lowest mode is already at kλ = 6.3 and OTVET's box-normalised tensor term
+dominates. At λ = L/4 (32³–256³, λ = 8–64 cells) the series starts at
+kλ = 1.6, where every run agrees with the theory:
+
+![convergence, lambda = L/4](figures/moment_transfer_convergence_l4.png)
+
+*M1 with `moment_inject = 1` (left) and 0 (middle), OTVET (right). Table:
+[`figures/moment_transfer_convergence_l4.txt`](figures/moment_transfer_convergence_l4.txt).*
+
+- **kλ ≲ 2: converged and correct.** M1 is within 2–13 % of its continuum
+  theory at every N, OTVET within 6 %.
+- **M1, inject 1:** T/T(continuum) at kλ ≈ 10 is 5.1 / 3.5 / 2.4 / 1.8 at
+  32³ / 64³ / 128³ / 256³, at kλ ≈ 20: 17 / 9.6 / 7.7 / 4.6. Roughly first
+  order in Δx; it equals the exact T at kΔx ≈ 1.25 at every N.
+- **M1, inject 0:** within 15 % of the continuum for kλ ≤ 5 at every N
+  and 1.1–1.7 at kλ ≈ 10; then the source smoothing cuts it off.
+- **OTVET is not converged here either**, unlike at λ = L: T/T(continuum)
+  at kλ ≈ 10 is 1.8 / 1.6 / 1.4 / 1.2 and at kλ ≈ 20: 3.1 / 2.2 / 2.0 / 1.6.
+  With λ < L its tensor term is small (it grows as λ/L), so its mid-k
+  solution is M1-like and is lifted by the same two terms. The lift brings
+  it to within 0.77–1.15 of the *exact* T at these resolutions, by
+  accident. "OTVET is converged" above holds for λ ≳ L only.
