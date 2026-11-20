@@ -621,3 +621,73 @@ Findings:
     few substeps per hydro step, it costs 38% more.
 - **Next for speed:** `radiative_physics`. Beyond that, a second-order
   transport would sharpen the fronts (§5).
+
+## 7. Constant-opacity transfer function, and Gnedin 2025
+
+*Written 2026-11-20 (branch `claude/dreamy-ride-nchi0z`), on the user's
+question whether the Γ fluctuations of §6 and `docs/rt_suite_512.md` §6
+contradict Gnedin 2025 (arXiv:2504.10571), where M1 and OTVET both follow
+T_ΓL(k) = (P_Γ/P_L)^½ = arctan(kλ)/(kλ).*
+
+**Test.** `tools/analysis/moment_transfer.cpp` runs the solver's own
+transport (`mk::flux_cell`, `mk::glf_cell`, `otvet_fft_convolve`,
+`moment_nsub` = 4, `moment_inject` = 1) to the steady state in a medium of
+uniform mean free path λ: each substep ends with N, F *= exp(−Δx/λ) instead
+of `photo_cell`. `moment_transfer.py` compares T(k) = (P_N/P_L)^½ with:
+- exact: arctan(kλ)/(kλ) (Gnedin 2025, eq. 2);
+- M1 linearised (D = I/3): 1/(1 + k²λ²/3);
+- OTVET linearised: (1 + 2π²kλ²/(3L_O))/(1 + k²λ²/3), L_O = 7.66 L for the
+  minimum-image cube (Wu, McQuinn & Eisenstein 2021, eqs. 5.14–5.15 without
+  the opacity response; rederived here);
+- the same two with the scheme's numerical diffusion. Per unit ĉ/Δx the
+  first-order GLF flux adds ½∇² to both moment equations, which replaces κ
+  by q = κ + ½|k|²Δx (discretely κ − ½Σ(2cos k_d − 2)) in the flux equation
+  and in the loss term: T_M1 = κ/(q + |s|²/3q), s_d = sin k_d.
+
+![transfer](figures/moment_transfer.png)
+
+*T(k) for λ = L/8 (top; 128³) and λ = 2.5 L (bottom; 64³, the λ/L of the
+512³ runs at z ≈ 5.4), with 20–30 sources (left) and every cell a source
+(right). Grey line: 1 − exp(−Δx/λ), the photons a source injected in the
+current substep. All cases (also λ = L and 2000–3000 sources):
+[`figures/moment_transfer.txt`](figures/moment_transfer.txt).*
+
+**Results.**
+- **The implementation solves the equations it claims.** With every cell a
+  source M1 equals the isotropic closure to 4 digits, and both closures
+  follow their linear theory with the GLF term: to 3–10 % for kλ ≤ 5 at
+  λ = L/8, to 10–25 % at λ ≥ L for M1 (above it), and to 5–10 % for OTVET
+  at k ≥ 3 fundamentals. `ctest -L moments`: 26 of 26 pass.
+- **λ ≪ L (Gnedin's regime: his fitted λ is 0.3–1 cMpc/h in a 20 cMpc/h
+  box, at x_HI = 0.99–0.17).** Both closures follow arctan(kλ)/(kλ):
+  T/T_exact at kλ = 2–20 is 0.74–0.95 (M1) and 0.88–1.03 (OTVET) with dense
+  sources, and 0.89–1.05 (M1) and 0.96–1.28 (OTVET) with 30 sources. A few
+  sources per λ³ is M1's exact case (one beam per cell). **This agrees with
+  his Fig. 5 and 7.**
+- **λ ≳ L (our runs after overlap).** M1 is 0.42× (λ = L) and 0.24×
+  (λ = 2.5 L) the exact T at the box scale; OTVET is 1.6–2.3× and 3.4–5×.
+  In power: M1 0.17 and 0.06, OTVET 3–5 and 11–26. The 512³ suite at
+  z = 4.99 has M1 0.04–0.07 and OTVET 11.6–14 times the rays' P_Γ at
+  k ≤ 2 h/Mpc: **the production numbers are those of the closures at
+  λ ≈ 2.5 L, not a bug.** Gnedin 2025 shows no ALTAIR run in this regime.
+- **During reionization the 512³ runs agree with each other as his do.**
+  From `figures/rt_suite_512_pk.txt`, T_M1/T_OTVET = 0.73–1.15 at
+  x_V = 0.49 and 0.79 over k = 0.16–47 h/Mpc, and both are 0.8–1.3× the
+  rays' at k ≤ 4 h/Mpc. It is 0.5–0.7 at x_V = 0.97 and 0.05–0.16 after
+  overlap.
+
+**Two numerical effects in our M1 at long λ** (neither changes the above):
+- **M1's small-scale T is set by the GLF diffusion, not by the closure.**
+  For k > (2/λΔx)^½ the flux equation is damped by the numerical term, and
+  T flattens near 1.5 Δx/λ instead of falling as 3/(kλ)². At λ = 2.5 L on
+  64³ this is 5–100× the continuum M1 value. A less diffusive flux (HLL,
+  second order) would lower M1's P_Γ further, and the plateau moves with
+  resolution.
+- **The injection floor.** With `moment_inject = 1` the photons of the
+  current substep sit in the source cell: a white term T = 1 − exp(−Δx/λ),
+  which exceeds the exact T for kΔx ≳ 1.5 (the flat last bins of
+  `rt_suite_512_pk.txt`).
+
+Both give a plateau in T(k) at high k. Thesan's unexplained plateau in
+Gnedin's Fig. 4–5 has that shape, but it starts at scales far above the
+cell: not tested, a guess only.
