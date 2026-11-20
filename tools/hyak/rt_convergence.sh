@@ -43,8 +43,11 @@
 #   tools/hyak/rt_convergence.sh post   # gamma_power.py on every set ->
 #                                       # $RUNS/rtconv_post/{N<N>,rays}/gamma_pk*.txt
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs), RES
-# ("128 256 512"), RAYFACTORS ("8 32 64 120"), F6 (0.135), BETA (2.5),
-# AM_PARAMS (data/uv_lf/am_params_128_10mpc.txt), ICS_<N> (the ICs of N;
+# ("128 256 512"), RAYFACTORS ("8 32 64 120"), F6 (0.10), BETA (2.5),
+# AM_PARAMS (data/uv_lf/am_params_st_fof.txt; with F6 and the continuous
+# c-hat schedule these are the late-end suite's, $RUNS/reion512late, not
+# rt_suite512.sh's own defaults: the 128-box table is wrong for this
+# particle mass), ICS_<N> (the ICs of N;
 # default $RUNS/rtconv_ics_N<N>, and for 256 the suite's pre-check ICs
 # $RUNS/rt512cal256/ics when they exist), THREADS (192), EXE
 # (build/radhydro), SBATCH_ARGS_<N> (defaults below), MAKE_EXTRA, DRYRUN=1,
@@ -53,13 +56,13 @@ set -eu
 RUNS="${RUNS:-/gscratch/astro/$USER/radhydro/runs}"
 RES="${RES:-128 256 512}"
 RAYFACTORS="${RAYFACTORS:-8 32 64 120}"
-F6="${F6:-0.135}"
+F6="${F6:-0.10}"
 BETA="${BETA:-2.5}"
-AM_PARAMS="${AM_PARAMS:-data/uv_lf/am_params_128_10mpc.txt}"
+AM_PARAMS="${AM_PARAMS:-data/uv_lf/am_params_st_fof.txt}"
 THREADS="${THREADS:-192}"
 EXE="${EXE:-build/radhydro}"
 SBATCH_ARGS_128="${SBATCH_ARGS_128:---exclusive --cpus-per-task=192 --mem=200G --time=12:00:00}"
-SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=400G --time=1-00:00:00}"
+SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=400G --time=2-00:00:00}"
 SBATCH_ARGS_512="${SBATCH_ARGS_512:---exclusive --cpus-per-task=192 --mem=800G --time=4-00:00:00}"
 NDM=512; BOX=20
 export EXE THREADS
@@ -111,7 +114,7 @@ make_params() {  # make_params DIR N [more make_production.py arguments]: rt_sui
     --xi-ion 25.38 --movie-slab 8 --movie-fields fHI,temp,rhog,gammaHI,gammaHI_avg \
     --fields fHI,fHeI,fHeII,temp,rhog,gammaHI,gammaHI_avg --zdata1 "15 7 6.5 6.25 6 5.75 5.5 5.25 5" \
     --restart-every 10 --restart-keep 1 --data-files gas --cool-suppress-overdensity 200 \
-    --recomb-case B --recomb-rad 0 "$@" ${MAKE_EXTRA:-} > /dev/null
+    --recomb-case B --recomb-rad 0 --c-schedule-interp 1 "$@" ${MAKE_EXTRA:-} > /dev/null
   grep -Eq "^Ndm = $NDM\$" "$dir/params.txt" || { echo "Ndm = $NDM missing in $dir/params.txt"; exit 1; }
 }
 
