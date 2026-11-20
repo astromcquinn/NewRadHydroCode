@@ -659,11 +659,20 @@ current substep. All cases (also λ = L and 2000–3000 sources):
   λ = L/8, to 10–25 % at λ ≥ L for M1 (above it), and to 5–10 % for OTVET
   at k ≥ 3 fundamentals. `ctest -L moments`: 26 of 26 pass.
 - **λ ≪ L (Gnedin's regime: his fitted λ is 0.3–1 cMpc/h in a 20 cMpc/h
-  box, at x_HI = 0.99–0.17).** Both closures follow arctan(kλ)/(kλ):
-  T/T_exact at kλ = 2–20 is 0.74–0.95 (M1) and 0.88–1.03 (OTVET) with dense
-  sources, and 0.89–1.05 (M1) and 0.96–1.28 (OTVET) with 30 sources. A few
-  sources per λ³ is M1's exact case (one beam per cell). **This agrees with
-  his Fig. 5 and 7.**
+  box, read off his Fig. 5, at x_HI = 0.99–0.17).** Two cases, with
+  different reasons for the agreement with arctan(kλ)/(kλ) at kλ = 2–20:
+  - *30 sources (0.06 per λ³):* T/T_exact = 0.89–1.05 (M1) and 0.96–1.28
+    (OTVET). One beam per cell is M1's exact case. At kλ = 10 M1 is 1.7×
+    its linear theory with the GLF term, so this is not the scheme.
+  - *Every cell a source (4096 per λ³):* 0.74–0.95 (M1) and 0.88–1.03
+    (OTVET), **but through the numerical diffusion.** The continuum linear
+    M1 is 0.2 of exact at kλ = 10 (0.030 against 0.148); the GLF term
+    lifts it for kλ > (2λ/Δx)^½ = 5.7. A resolution artifact, not evidence
+    that M1 follows the exact form.
+
+  Which of these (or the shared ionized/neutral pattern, which dominates
+  P_Γ during reionization) makes his Fig. 5 and 7 and our 512³ runs agree
+  is **not established**.
 - **λ ≳ L (our runs after overlap).** M1 is 0.42× (λ = L) and 0.24×
   (λ = 2.5 L) the exact T at the box scale; OTVET is 1.6–2.3× and 3.4–5×.
   In power: M1 0.17 and 0.06, OTVET 3–5 and 11–26. The 512³ suite at
@@ -676,7 +685,7 @@ current substep. All cases (also λ = L and 2000–3000 sources):
   rays' at k ≤ 4 h/Mpc. It is 0.5–0.7 at x_V = 0.97 and 0.05–0.16 after
   overlap.
 
-**Two numerical effects in our M1 at long λ** (neither changes the above):
+**Two numerical effects** (the first is also what lifts the dense case at λ = L/8):
 - **M1's small-scale T is set by the GLF diffusion, not by the closure.**
   For k > (2/λΔx)^½ the flux equation is damped by the numerical term, and
   T flattens near 1.5 Δx/λ instead of falling as 3/(kλ)². At λ = 2.5 L on

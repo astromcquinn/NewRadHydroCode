@@ -24,8 +24,10 @@ The user asked whether our Γ-fluctuation trends contradict arXiv:2504.10571
   linearised closures (Wu, McQuinn & Eisenstein 2021 eqs. 5.14–5.15) with
   the GLF numerical diffusion. Not a ctest (built by hand, line in the
   file's header).
-- No bug found. Both closures follow their linear theory; at λ = L/8 both
-  follow arctan(kλ)/(kλ) to 5–25 % (Gnedin's regime, during reionization);
+- No bug found. Both closures follow their linear theory; at λ = L/8 M1
+  follows arctan(kλ)/(kλ) to 11 % with 0.06 sources per λ³ (its exact case),
+  and to 25 % with every cell a source only through the GLF diffusion
+  (continuum M1: 0.2 of exact at kλ = 10);
   at λ = 2.5 L M1 has 0.06× and OTVET 11–26× the exact power, the 512³
   numbers after overlap. During reionization the 512³ M1 and OTVET agree in
   T to 0.73–1.15.
