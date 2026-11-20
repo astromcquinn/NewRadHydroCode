@@ -723,10 +723,25 @@ blocks of `figures/moment_transfer.txt`):
 - Not tested: a less diffusive flux; the rays' own high-k power against the
   64-rays-per-cell cap (Wu et al. 2021, §5.2.3).
 
+![convergence](figures/moment_transfer_convergence.png)
+
+*The same test for both closures (λ = L, every cell a source,
+`moment_inject = 1`). Left: M1 at 32³, 64³ and 128³, and 64³ with
+`moment_inject = 0`. Middle: OTVET. Right: the linear theory with the GLF
+term over the continuum one, for k along the diagonal. Data:
+[`figures/moment_transfer_convergence.txt`](figures/moment_transfer_convergence.txt).*
+
+- **OTVET is converged in this test, M1 is not.** OTVET's T at kλ ≈ 14
+  and 30 is 1.77–1.93 of exact at all three resolutions and 0.97–1.12 of
+  its continuum linear theory. M1's is 0.59 / 0.39 / 0.26 of exact at
+  kλ ≈ 14 (4.4 / 2.9 / 1.9 of its continuum theory) and 0.88 / 0.59 / 0.32
+  at kλ ≈ 30.
+
 ## 8. Convergence runs for the Γ fluctuations (set up, not run)
 
 *2026-11-20, asked by the user.* `tools/hyak/rt_convergence.sh` (klone;
-phases `ics`, `res`, `rays`, `post`; `DRYRUN=1` prints the jobs). Both
+`all` chains everything with job dependencies, or the phases `ics`, `res`,
+`rays`, `post` one by one; `DRYRUN=1` prints the jobs). Both
 series use the 512³ suite's `make_production.py` arguments in a 20 Mpc/h
 box.
 

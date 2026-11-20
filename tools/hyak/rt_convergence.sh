@@ -32,6 +32,11 @@
 #        the 512^3 suite itself cannot go above 15.
 #
 # usage (repository root, a klone login node, after tools/hyak/build_hyak.sh):
+#   tools/hyak/rt_convergence.sh all    # everything in one go: the ICs jobs,
+#                                       # every run after its ICs
+#                                       # (--dependency=afterok), the analysis
+#                                       # after all the runs (afterany)
+# or phase by phase:
 #   tools/hyak/rt_convergence.sh ics    # the ICs jobs (one per N without ICs)
 #   tools/hyak/rt_convergence.sh res    # the rays and M1 at every N of RES
 #   tools/hyak/rt_convergence.sh rays   # the ray budgets at N = 256
@@ -59,11 +64,21 @@ SBATCH_ARGS_512="${SBATCH_ARGS_512:---exclusive --cpus-per-task=192 --mem=800G -
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
-case "$phase" in ics|res|rays|post) ;; *) sed -n 2,50p "$0"; exit 2 ;; esac
+case "$phase" in all|ics|res|rays|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
+declare -A ICSJOB=()   # N -> the job making its ICs (phase all)
+RUNJOBS=""             # the run jobs submitted, for the analysis' dependency
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_hyak.sh first"; exit 1; }
 [ -f "$AM_PARAMS" ] || { echo "$AM_PARAMS missing"; exit 1; }
 
 submit() { if [ "${DRYRUN:-0}" = 1 ]; then echo "DRYRUN: $*"; else "$@"; fi; }
+JID=""
+submit_job() {  # submit_job SBATCH-ARGS...: sbatch, the job id in JID (DRY<n> with DRYRUN=1)
+  if [ "${DRYRUN:-0}" = 1 ]; then
+    DRYN=$((${DRYN:-0} + 1)); JID="DRY$DRYN"; echo "DRYRUN [$JID]: sbatch $*"
+  else
+    JID="$(sbatch --parsable "$@")"; JID="${JID%%;*}"; echo "job $JID: ${*: -1}"
+  fi
+}
 
 clear_dirs() {
   local d stop=0
@@ -100,21 +115,24 @@ make_params() {  # make_params DIR N [more make_production.py arguments]: rt_sui
   grep -Eq "^Ndm = $NDM\$" "$dir/params.txt" || { echo "Ndm = $NDM missing in $dir/params.txt"; exit 1; }
 }
 
-need_ics() {  # need_ics N: stop unless the ICs of N exist (DRYRUN only warns)
+need_ics() {  # need_ics N: stop unless the ICs of N exist or their job is queued (DRYRUN only warns)
   local d; d="$(ics_dir "$1")"
+  [ -z "${ICSJOB[$1]:-}" ] || return 0
   if [ ! -f "$d/xv_dm.init" ] || [ ! -f "$d/u_gas.init" ]; then
     echo "no ICs at $d: run the ics phase first"
     [ "${DRYRUN:-0}" = 1 ] || exit 1
   fi
 }
 
-launch() {  # launch DIR N NAME: a whole node on reion_production.slurm
-  submit sbatch $(sbatch_args "$2") --job-name="$3" --output="$1/slurm-%j.out" \
+launch() {  # launch DIR N NAME: a whole node on reion_production.slurm, after the ICs job of N if any
+  local dep=()
+  [ -z "${ICSJOB[$2]:-}" ] || dep=(--dependency="afterok:${ICSJOB[$2]}")
+  submit_job $(sbatch_args "$2") "${dep[@]}" --job-name="$3" --output="$1/slurm-%j.out" \
     --export=ALL,PROB="$1",THREADS="$THREADS",EXE="$EXE",POST=sbatch tools/hyak/reion_production.slurm
+  RUNJOBS="$RUNJOBS:$JID"
 }
 
-case "$phase" in
-ics)
+do_ics() {
   for n in $RES; do
     d="$(ics_dir "$n")"
     [ -f "$d/xv_dm.init" ] && { echo "N = $n: ICs at $d"; continue; }
@@ -136,10 +154,10 @@ cd "$PWD"
 source tools/hyak/env.sh
 python3 tools/ics/make_ics.py "$d" --kind zeldovich --Ngas $n --Ndm $NDM --z-init 100 --box $BOX --seed 7 --phases-from-ndm 256
 EOF
-    submit sbatch "$job"
+    submit_job "$job"; ICSJOB[$n]="$JID"
   done
-  ;;
-res)
+}
+do_res() {
   dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays" "$RUNS/rtconv_N${n}_rays_m1"); done
   clear_dirs "${dirs[@]}"
   for n in $RES; do
@@ -156,8 +174,8 @@ res)
     ln -s "$(ics_dir "$n")" "$m/ics"
     launch "$m" "$n" "rtconv${n}_m1"
   done
-  ;;
-rays)
+}
+do_rays() {
   n=256; need_ics "$n"
   dirs=(); for f in $RAYFACTORS; do dirs+=("$RUNS/rtconv_N${n}_rays_f$f"); done
   clear_dirs "${dirs[@]}"
@@ -172,8 +190,8 @@ rays)
     ln -s "$(ics_dir "$n")" "$d/ics"
     launch "$d" "$n" "rtconv_f$f"
   done
-  ;;
-post)
+}
+do_post() {
   out="$RUNS/rtconv_post"; mkdir -p "$out"
   cmds=()
   for n in $RES; do
@@ -185,9 +203,23 @@ post)
     if [ -z "$ref" ]; then ref="$RUNS/rtconv_N256_rays_f$f/run:f$f"; else rest="$rest $RUNS/rtconv_N256_rays_f$f/run:f$f"; fi
   done
   cmds+=("python3 tools/analysis/gamma_power.py $ref $RUNS/rtconv_N256_rays/run:f15$rest --outdir $out/rays --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
+  local dep=()
+  [ -z "$RUNJOBS" ] || dep=(--dependency="afterany$RUNJOBS")
   for c in "${cmds[@]}"; do
-    submit sbatch --account=astro --partition=cpu-g2 --cpus-per-task=16 --mem=128G --time=02:00:00 \
+    submit sbatch "${dep[@]}" --account=astro --partition=cpu-g2 --cpus-per-task=16 --mem=128G --time=02:00:00 \
       --job-name=rtconv_post --output="$out/post-%j.out" --wrap="cd $PWD && source tools/hyak/env.sh && $c"
   done
+}
+
+case "$phase" in
+ics) do_ics ;;
+res) do_res ;;
+rays) do_rays ;;
+post) do_post ;;
+all)
+  # the 256^3 ray-budget runs need N = 256 ICs even when RES leaves it out
+  case " $RES " in *" 256 "*) ;; *) RES="$RES 256" do_ics ;; esac
+  do_ics; do_res; do_rays; do_post
+  echo "submitted: ICs ${ICSJOB[*]:-(present)}; runs ${RUNJOBS#:}; the tables will be in $RUNS/rtconv_post/{N<N>,rays}/gamma_pk.txt"
   ;;
 esac
