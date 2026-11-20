@@ -700,3 +700,25 @@ current substep. All cases (also λ = L and 2000–3000 sources):
 Both give a plateau in T(k) at high k. Thesan's unexplained plateau in
 Gnedin's Fig. 4–5 has that shape, but it starts at scales far above the
 cell: not tested, a guess only.
+
+**Resolution test (2026-11-20, on the user's remark that M1 has more Γ
+power than the rays at high k, against Wu et al. 2021, Fig. 4).** Every
+cell a source, λ = L, `moment_inject = 1`, at 32³, 64³ and 128³ (the last
+blocks of `figures/moment_transfer.txt`):
+
+| | 32³ | 64³ | 128³ |
+|---|---|---|---|
+| M1 = exact at kΔx | 1.30 | 1.3 | 1.3–1.4 |
+| the same in kλ | 42 | 84 | 180 |
+| T_M1/T_exact at kλ ≈ 14 (linear M1: 0.13) | 0.59 | 0.39 | 0.27 |
+
+- **The crossing is fixed in kΔx, not in kλ: numerical.** The 512³ suite
+  after overlap has M1 overtaking the rays at kΔx ≈ 1.4 (k ≈ 17.6 h/Mpc).
+- **With `moment_inject = 0` (64³) there is no crossing**: T_M1/T_exact is
+  0.24–0.27 for kΔx = 0.2–1 and falls to 0.03 at the Nyquist corner. The
+  excess over exact is the source cells' own-substep photons.
+- **M1 is not converged at any k > 1/λ**: at fixed kλ its T falls toward
+  the linear solution with resolution. The suite's M1 deficit at
+  k ≤ 2 h/Mpc is likely smaller than a converged M1 solver's.
+- Not tested: a less diffusive flux; the rays' own high-k power against the
+  64-rays-per-cell cap (Wu et al. 2021, §5.2.3).
