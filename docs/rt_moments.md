@@ -753,8 +753,10 @@ box.
   512³ particles on the 512³ PM mesh in every run (`pm_refine` = 4, 2, 1);
   `make_ics.py --Ndm 512 --phases-from-ndm 256` gives a byte-identical
   `xv_dm.init` for every `--Ngas` (checked at Ndm = 32, Ngas = 8, 16, 32),
-  so the halos and sources match up to the gas's gravity. Rays and M1 at
-  each N (`rtconv_N<N>_rays`, `..._rays_m1`). Measure P_Γ(M1)/P_Γ(rays) at
+  so the halos and sources match up to the gas's gravity. Rays, M1 and
+  M1 with `moment_inject = 0` at each N (`rtconv_N<N>_rays`, `..._rays_m1`,
+  `..._rays_m1_inj0`; the last added on the user's request, to measure the
+  white injection term of §7 in full runs). Measure P_Γ(M1)/P_Γ(rays) at
   fixed k against N. Prediction of §7: the ratio falls with N at
   k ≳ 1 h/Mpc after overlap, and M1 overtakes the rays at kΔx ≈ 1.3 at
   every N. Confound: the gas resolution changes the absorbers and λ, so
@@ -771,3 +773,41 @@ box.
 - Checked here: every phase with `DRYRUN=1`; `radhydro` runs 3 steps of
   the new N = Ndm/4, `pm_refine` = 4 combination (N = 8, Ndm = 32).
   Nothing was submitted.
+
+**Injection order at three resolutions (2026-11-20, added to §7's test).**
+`moment_inject = 0` at 32³, 64³, 128³ (λ = L, every cell a source):
+- **T(inject 1) − T(inject 0) = 1 − exp(−Δx/λ) to 1–4 % at every k and
+  resolution.** `moment_inject = 1` is the inject-0 field plus a white
+  term, the photons of the current substep in their source cell.
+- T/T(continuum linear M1) at kλ ≈ 11 / 14 / 30 / 57: inject 0 gives
+  1.2 / 1.4 / 2.6 / 6.7 at 128³ (inject 1: 1.5 / 1.9 / 4.6 / 15), and
+  1.7 / 2.2 / 4.1 / – at 32³ (2.9 / 4.4 / 15 / –). Inject 0 is nearer
+  the continuum M1 but not converged either: what remains is the GLF term.
+- Above kΔx ≈ 1 inject 0 falls to 0.03–0.08 of exact: its source photons
+  are spread over ~2 cells by the 4 subcycles before Γ is evaluated. That
+  is the smoothing behind the neutral source cells of §5a, not M1.
+
+**The same series at λ = L/4 (2026-11-20; the user: λ = L is a strange
+case).** λ = L was chosen to mimic the suite after overlap, but there the
+lowest mode is already at kλ = 6.3 and OTVET's box-normalised tensor term
+dominates. At λ = L/4 (32³–256³, λ = 8–64 cells) the series starts at
+kλ = 1.6, where every run agrees with the theory:
+
+![convergence, lambda = L/4](figures/moment_transfer_convergence_l4.png)
+
+*M1 with `moment_inject = 1` (left) and 0 (middle), OTVET (right). Table:
+[`figures/moment_transfer_convergence_l4.txt`](figures/moment_transfer_convergence_l4.txt).*
+
+- **kλ ≲ 2: converged and correct.** M1 is within 2–13 % of its continuum
+  theory at every N, OTVET within 6 %.
+- **M1, inject 1:** T/T(continuum) at kλ ≈ 10 is 5.1 / 3.5 / 2.4 / 1.8 at
+  32³ / 64³ / 128³ / 256³, at kλ ≈ 20: 17 / 9.6 / 7.7 / 4.6. Roughly first
+  order in Δx; it equals the exact T at kΔx ≈ 1.25 at every N.
+- **M1, inject 0:** within 15 % of the continuum for kλ ≤ 5 at every N
+  and 1.1–1.7 at kλ ≈ 10; then the source smoothing cuts it off.
+- **OTVET is not converged here either**, unlike at λ = L: T/T(continuum)
+  at kλ ≈ 10 is 1.8 / 1.6 / 1.4 / 1.2 and at kλ ≈ 20: 3.1 / 2.2 / 2.0 / 1.6.
+  With λ < L its tensor term is small (it grows as λ/L), so its mid-k
+  solution is M1-like and is lifted by the same two terms. The lift brings
+  it to within 0.77–1.15 of the *exact* T at these resolutions, by
+  accident. "OTVET is converged" above holds for λ ≳ L only.

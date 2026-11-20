@@ -12,7 +12,8 @@
 #        ICs with identical particles (make_ics.py --Ndm 512 --phases-from-ndm
 #        256: xv_dm.init is byte-identical for every --Ngas), so the halos
 #        and with them the sources are the same up to the gas's gravity. For
-#        each N the rays and M1: $RUNS/rtconv_N<N>_rays, ..._rays_m1.
+#        each N the rays, M1 and M1 with moment_inject = 0:
+#        $RUNS/rtconv_N<N>_rays, ..._rays_m1, ..._rays_m1_inj0.
 #        N = 256 is the suite's cell size (its pre-check configuration).
 #        The measurement: P_Gamma(M1)/P_Gamma(rays) at fixed k against N.
 #        The uniform-opacity test predicts that M1's ratio falls with N at
@@ -40,6 +41,8 @@
 #   tools/hyak/rt_convergence.sh ics    # the ICs jobs (one per N without ICs)
 #   tools/hyak/rt_convergence.sh res    # the rays and M1 at every N of RES
 #   tools/hyak/rt_convergence.sh rays   # the ray budgets at N = 256
+#   tools/hyak/rt_convergence.sh inj0   # only the M1 moment_inject = 0 runs, beside
+#                                       # a res series that is already submitted
 #   tools/hyak/rt_convergence.sh post   # gamma_power.py on every set ->
 #                                       # $RUNS/rtconv_post/{N<N>,rays}/gamma_pk*.txt
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs), RES
@@ -67,7 +70,7 @@ SBATCH_ARGS_512="${SBATCH_ARGS_512:---exclusive --cpus-per-task=192 --mem=800G -
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
-case "$phase" in all|ics|res|rays|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
+case "$phase" in all|ics|res|rays|inj0|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
 declare -A ICSJOB=()   # N -> the job making its ICs (phase all)
 RUNJOBS=""             # the run jobs submitted, for the analysis' dependency
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_hyak.sh first"; exit 1; }
@@ -135,6 +138,19 @@ launch() {  # launch DIR N NAME: a whole node on reion_production.slurm, after t
   RUNJOBS="$RUNJOBS:$JID"
 }
 
+make_inj0() {  # make_inj0 N: the M1 sibling of rtconv_N<N>_rays with moment_inject = 0, launched
+  local n="$1" d="$RUNS/rtconv_N${1}_rays" m
+  # M1 with the sources injected before the transport (moment_inject = 0):
+  # without the current substep's photons in the source cells, a white
+  # term 1 - exp(-dx/lambda) in T(k) (docs/rt_moments.md section 7)
+  m="${d}_m1_inj0"; mkdir -p "$m"
+  { echo "# $(basename "$d") with rt_method = m1, moment_inject = 0 (tools/hyak/rt_convergence.sh)"
+    grep -Ev '^[[:space:]]*(ics|moment_inject)[[:space:]]*=' "$d/params.txt"
+    echo "ics = $(ics_dir "$n")"; echo "rt_method = m1"; echo "moment_inject = 0"; } > "$m/params.txt"
+  ln -s "$(ics_dir "$n")" "$m/ics"
+  launch "$m" "$n" "rtconv${n}_m1i0"
+}
+
 do_ics() {
   for n in $RES; do
     d="$(ics_dir "$n")"
@@ -161,7 +177,7 @@ EOF
   done
 }
 do_res() {
-  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays" "$RUNS/rtconv_N${n}_rays_m1"); done
+  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays" "$RUNS/rtconv_N${n}_rays_m1" "$RUNS/rtconv_N${n}_rays_m1_inj0"); done
   clear_dirs "${dirs[@]}"
   for n in $RES; do
     need_ics "$n"
@@ -176,6 +192,7 @@ do_res() {
       echo "ics = $(ics_dir "$n")"; echo "rt_method = m1"; } > "$m/params.txt"
     ln -s "$(ics_dir "$n")" "$m/ics"
     launch "$m" "$n" "rtconv${n}_m1"
+    make_inj0 "$n"
   done
 }
 do_rays() {
@@ -198,7 +215,7 @@ do_post() {
   out="$RUNS/rtconv_post"; mkdir -p "$out"
   cmds=()
   for n in $RES; do
-    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
+    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 $RUNS/rtconv_N${n}_rays_m1_inj0/run:M1_inject0 --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
   done
   # the ray budgets: the largest first (the reference), then the others and the res series' 15
   ref=""; rest=""
@@ -218,6 +235,16 @@ case "$phase" in
 ics) do_ics ;;
 res) do_res ;;
 rays) do_rays ;;
+inj0)
+  # only the moment_inject = 0 siblings, for a res series submitted before
+  # they were added (the base's params.txt must exist)
+  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays_m1_inj0"); done
+  clear_dirs "${dirs[@]}"
+  for n in $RES; do
+    [ -f "$RUNS/rtconv_N${n}_rays/params.txt" ] || { echo "$RUNS/rtconv_N${n}_rays/params.txt missing: run res first"; exit 1; }
+    need_ics "$n"; make_inj0 "$n"
+  done
+  ;;
 post) do_post ;;
 all)
   # the 256^3 ray-budget runs need N = 256 ICs even when RES leaves it out
