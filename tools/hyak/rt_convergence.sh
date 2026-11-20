@@ -54,8 +54,8 @@
 # default $RUNS/rtconv_ics_N<N>, and for 256 the suite's pre-check ICs
 # $RUNS/rt512cal256/ics when they exist), THREADS (192), EXE
 # (build/radhydro), SBATCH_ARGS_<N> (defaults below), MAKE_EXTRA, DRYRUN=1,
-# OVERWRITE=1 (as rt_suite512.sh), SCRATCH (/gscratch/scrubbed/$USER/rtconv:
-# where run/ and run.log of every run are written; none for $RUNS).
+# OVERWRITE=1 (as rt_suite512.sh), SCRATCH (none: run/ and run.log under
+# $RUNS; a directory to write them there instead).
 set -eu
 RUNS="${RUNS:-/gscratch/astro/$USER/radhydro/runs}"
 RES="${RES:-128 256 512}"
@@ -68,11 +68,11 @@ EXE="${EXE:-build/radhydro}"
 SBATCH_ARGS_128="${SBATCH_ARGS_128:---exclusive --cpus-per-task=192 --mem=200G --time=12:00:00}"
 SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=400G --time=2-00:00:00}"
 SBATCH_ARGS_512="${SBATCH_ARGS_512:---exclusive --cpus-per-task=192 --mem=800G --time=4-00:00:00}"
-# the runs' outputs (run/, run.log) go to SCRATCH/<name>, linked from the
-# run directory (user decision 2026-11-20: /gscratch/scrubbed; purged after
-# 21 days without access, so analyse and copy the tables in time);
-# SCRATCH=none keeps them under $RUNS
-SCRATCH="${SCRATCH:-/gscratch/scrubbed/$USER/rtconv}"
+# SCRATCH=<dir>: the runs' outputs (run/, run.log) go to <dir>/<name>, linked
+# from the run directory. Default none ($RUNS): /gscratch/scrubbed was tried
+# on 2026-11-20 and refused the checkpoint writes at 99 % full ("disk quota
+# exceeded"; three 512^3 runs died), so the user moved the runs back.
+SCRATCH="${SCRATCH:-none}"
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
