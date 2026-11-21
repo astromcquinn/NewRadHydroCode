@@ -42,8 +42,8 @@
 #   tools/hyak/rt_convergence.sh res    # the rays and M1 at every N of RES
 #   tools/hyak/rt_convergence.sh rays   # the ray budgets at N = 256
 #   tools/hyak/rt_convergence.sh inj0   # only the M1 moment_inject = 0 runs, beside
-#   tools/hyak/rt_convergence.sh otvet  # only the plain OTVET siblings (moment_inject = 1), likewise
 #                                       # a res series that is already submitted
+#   tools/hyak/rt_convergence.sh otvet  # only the plain OTVET siblings (moment_inject = 1), likewise
 #   tools/hyak/rt_convergence.sh post   # gamma_power.py on every set ->
 #                                       # $RUNS/rtconv_post/{N<N>,rays}/gamma_pk*.txt
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs), RES
