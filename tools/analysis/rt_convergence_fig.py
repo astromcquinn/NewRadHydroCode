@@ -131,6 +131,7 @@ def res_series(groups, box, igm, outdir):
                                           r0["gamma_med_ion"], mfp(igm, r0)))
             dx = box / N
             for lab, ls in (("M1", "-"), ("M1_inject0", "--"), ("OTVET", "-."), ("M1_order2", (0, (4, 1, 1, 1, 1, 1))),
+                            ("OTVET_order2", (0, (1, 2))),
                             ("rays", ":")):
                 if lab not in g["runs"] or lab == g["reference"]:
                     continue
@@ -218,7 +219,7 @@ def res_series(groups, box, igm, outdir):
     ax[1, 0].set_ylabel(r"$r(k)$ with the rays")
     ax[2, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the ray runs")
     ax[3, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the M1 runs")
-    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), "
+    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), OTVET order 2 (sparse dots), "
                  "f = 15 rays where not the reference (dotted) against the "
                  r"ray reference; thin vertical lines: $k\Delta x = 1.3$", fontsize=9)
     fig.tight_layout()
