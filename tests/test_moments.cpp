@@ -592,6 +592,117 @@ void test_ga01_threads() {
 
 }  // namespace
 
+// moment_order = 2 (docs/rt_moments.md section 9)
+//
+// The point pulse of test_vacuum: N and E conserved, realizable, and the
+// shell sharper than the first-order one
+void test_order2_vacuum(RTMethod m) {
+  double r2[3] = {0, 0, 0};
+  for (int order : {1, 2}) {
+    const int N = 16;
+    auto sp = make_sim(N, m);
+    Simulation& s = *sp;
+    s.cfg.moment_order = order;
+    s.cfg.moment_nsub = 6;
+    MomentState& M = *s.moments;
+    const std::int64_t c0 = s.rt.cell(8, 8, 8);
+    for (int g = 0; g < kNfreq; ++g) {
+      M.n[g * M.ncell + c0] = 1.0f;
+      M.e[g * M.ncell + c0] = static_cast<float>(cp::freq_init[g]);
+    }
+    moment_prep(s);
+    const double n0 = total(M.n), e0 = total(M.e);
+    for (int it = 0; it < 5; ++it) {
+      moment_step_1(s);
+      CHECK_CLOSE(total(M.n), n0, 2e-6);
+      CHECK_CLOSE(total(M.e), e0, 2e-6);
+      CHECK(realizable(M));
+    }
+    // rms width of the shell about its mean radius
+    double w = 0, r1 = 0, rr = 0;
+    for (int k = 1; k <= N; ++k)
+      for (int j = 1; j <= N; ++j)
+        for (int i = 1; i <= N; ++i) {
+          const double r = std::sqrt(double((i - 8) * (i - 8) + (j - 8) * (j - 8) + (k - 8) * (k - 8)));
+          const double v = M.n[s.rt.cell(i, j, k)];
+          w += v;
+          r1 += r * v;
+          rr += r * r * v;
+        }
+    r1 /= w;
+    r2[order] = std::sqrt(rr / w - r1 * r1);
+    std::printf("  %s point pulse, moment_order = %d: mean radius %.3f, rms width %.3f cells\n", rt_method_name(m),
+                order, r1, r2[order]);
+  }
+  CHECK(r2[2] < r2[1]);
+}
+
+// A free-streaming M1 beam with a smooth profile is advected at c_hat: the
+// L1 error after a quarter of the box falls by more than 3 per doubling of N
+// (second order; the limiter clips the extrema), and the beam stays flat
+// across
+void test_order2_advect() {
+  double err[3] = {0, 0, 0};
+  int ie = 0;
+  for (int N : {16, 32, 64}) {
+    const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
+    std::vector<float> n(nc), fx(nc), fy(nc, 0.0f), fz(nc, 0.0f), e(nc), work;
+    auto prof = [&](double x) { return 1.0 + 0.5 * std::sin(2 * M_PI * x / N); };
+    for (std::int64_t c = 0; c < nc; ++c) {
+      n[c] = fx[c] = e[c] = static_cast<float>(prof(double(c % N)));
+    }
+    float* U[5] = {n.data(), fx.data(), fy.data(), fz.data(), e.data()};
+    const int nsub = 6, cells = N / 4;
+    for (int it = 0; it < cells * nsub; ++it) moment_transport2(N, U, 0 /* M1 */, nullptr, nullptr, 0.0, 1.0 / nsub, work);
+    double e1 = 0;
+    bool flat = true;
+    for (std::int64_t c = 0; c < nc; ++c) {
+      e1 += std::fabs(n[c] - prof(double(c % N) - cells));
+      flat = flat && n[c] == n[c % N] && fy[c] == 0 && fz[c] == 0;
+    }
+    err[ie++] = e1 / nc;
+    CHECK(flat);
+  }
+  std::printf("  moment_order = 2 advection: L1 error %.3e, %.3e, %.3e at N = 16, 32, 64 (ratios %.2f, %.2f)\n", err[0],
+              err[1], err[2], err[0] / err[1], err[1] / err[2]);
+  CHECK(err[1] / err[2] > 3.0);
+  CHECK(err[2] < 2e-3);
+}
+
+// thread independence of the second-order transport
+void test_order2_threads(RTMethod m) {
+  std::vector<float> ref;
+  for (int nt : {1, 3}) {
+    par::set_threads(nt);
+    auto sp = make_sim(32, m);
+    Simulation& s = *sp;
+    s.cfg.moment_order = 2;
+    s.cfg.moment_nsub = 6;
+    MomentState& M = *s.moments;
+    std::mt19937 rng(11);
+    std::uniform_real_distribution<float> U(0, 1);
+    for (std::size_t i = 0; i < M.n.size(); ++i) {
+      M.n[i] = U(rng) < 0.05f ? U(rng) : 0.0f;
+      M.fx[i] = 0.5f * M.n[i] * (U(rng) - 0.5f);
+      M.e[i] = 20 * M.n[i];
+    }
+    s.rt.sfr[s.rt.cell(3, 4, 5)] = 1;
+    s.rt.Luv[s.rt.cell(3, 4, 5)] = 1;
+    moment_prep(s);
+    for (int it = 0; it < 3; ++it) moment_step_1(s);
+    CHECK(realizable(M));
+    std::vector<float> all = M.n;
+    all.insert(all.end(), M.fx.begin(), M.fx.end());
+    all.insert(all.end(), M.fz.begin(), M.fz.end());
+    all.insert(all.end(), M.e.begin(), M.e.end());
+    if (ref.empty())
+      ref = all;
+    else
+      CHECK(all == ref);
+  }
+  par::set_threads(1);
+}
+
 int main() {
   test_vacuum(RTMethod::M1);
   test_vacuum(RTMethod::OTVET);
@@ -607,5 +718,10 @@ int main() {
   test_ga01_uniform();
   test_ga01_box_lambda();
   test_ga01_threads();
+  test_order2_vacuum(RTMethod::M1);
+  test_order2_vacuum(RTMethod::OTVET);
+  test_order2_advect();
+  test_order2_threads(RTMethod::M1);
+  test_order2_threads(RTMethod::OTVET);
   TEST_MAIN_END();
 }

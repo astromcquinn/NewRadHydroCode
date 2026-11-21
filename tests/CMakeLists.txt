@@ -1124,6 +1124,16 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject0 13 --set rt_method=m1
                      --set recomb_case=A --set recomb_rad=1 --set moment_inject=0)
     set_tests_properties(restart_smoke_m1_inject0 PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+    # moment_order = 2: the second-order transport in the full loop, both
+    # closures (docs/rt_moments.md section 9)
+    foreach(m m1 otvet)
+      add_test(NAME restart_smoke_${m}_order2
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/${m}_order2 13 --set rt_method=${m}
+                       --set moment_order=2 --set moment_nsub=6)
+      set_tests_properties(restart_smoke_${m}_order2 PROPERTIES TIMEOUT 600 LABELS "restart;moments")
+    endforeach()
     # the alternative OTVET tensors (otvet_closure.hpp): the split and the
     # cone's photon budget read the checkpointed N
     add_test(NAME restart_smoke_otvet_split

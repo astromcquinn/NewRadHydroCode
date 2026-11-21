@@ -18,6 +18,7 @@ radhydro   <problem> <out> --set rt_method=otvet
 | `rt_method` | `rays` (default), `m1`, `otvet` | radiative transfer method |
 | `moment_nsub` | integer ≥ 3, default 4 | transport subcycles per RT substep (Courant number 1/`moment_nsub`) |
 | `otvet_tensor` | `auto` (default), `direct`, `fft` | how the OTVET tensor is summed over the sources |
+| `moment_order` | `1` (default), `2` | transport scheme: 1 = first-order GLF; 2 = MC-limited linear reconstruction, GLF flux of the face states, two-stage step; needs `moment_nsub ≥ 6`, uniform grid only (§9) |
 | `moment_inject` | `1` (default since 2026-11-10), `0` | when a substep's source and recombination photons enter the moments: 1 after the transport, so they are absorbed in their own cell first; 0 before it (the first implementation, which leaves dense source cells neutral) (§5a) |
 
 All other parameters keep their meaning. `c_reduced` sets the light speed of
@@ -128,6 +129,7 @@ Run with `ctest -L moments`, about 40 s.
 | `ifront_rsla_m1`, `ifront_rsla_otvet` | the I-front against the finite-c solution (as `ifront_rsla`), checked from R = 5 cells (`--rmin 5`) |
 | `thread_rt_m1_lognormal_16src`, `thread_rt_otvet_lognormal_16src` | byte-identical outputs for 1, 2 and 4 threads |
 | `restart_smoke_m1`, `restart_smoke_otvet` | bit-identical restart of the full loop |
+| `restart_smoke_m1_order2`, `restart_smoke_otvet_order2` | the same with `moment_order = 2` (§9; its unit tests are in `moments`) |
 
 ## 4. Comparison with the rays
 
@@ -811,3 +813,87 @@ kλ = 1.6, where every run agrees with the theory:
   solution is M1-like and is lifted by the same two terms. The lift brings
   it to within 0.77–1.15 of the *exact* T at these resolutions, by
   accident. "OTVET is converged" above holds for λ ≳ L only.
+
+## 9. Second-order transport (`moment_order = 2`)
+
+§7 found that M1's small-scale power is set by two numerical terms: the
+diffusion of the first-order GLF flux, (ĉΔx/2)∇² on both moment equations,
+and the white floor of `moment_inject = 1`. `moment_order = 2` removes the
+first to leading order. The default `moment_order = 1` is unchanged, bit for
+bit.
+
+**Scheme** (`moment_transport2`, `src/rt_moments.cpp`; kernels `mc_slope`,
+`face_flux`, `muscl_flux` in `kernels/moment_cell.hpp`):
+
+- Linear reconstruction of N, F, E in each cell with the monotonized-central
+  limiter, per component and per axis.
+- The two face states are made realizable (N ≥ 0, |F| ≤ N, E ≥ 0), each gets
+  the closure of its own state (M1: of its N, F; OTVET and the split: the
+  tensor h and N_dir of its own cell), and the face flux is GLF:
+  Φ = ½(f(U_L) + f(U_R)) − ½(U_R − U_L).
+- Unsplit in the three axes, two stages (Heun, SSP-RK2); each stage ends with
+  the realizability clamp of the first-order kernel.
+- Needs `moment_nsub ≥ 6` (the code refuses otherwise): positivity of the
+  unsplit limited update needs half the first-order Courant number, C ≤ 1/6.
+- Uniform grid only. `rt_backend = amrex` refuses it.
+- Applies to M1, OTVET, the split/cone closures and the `ga01` background
+  field. Photons and energy are conserved to rounding as before (flux form).
+
+Where the limiter is inactive the scheme's diffusion is fourth order: in the
+linear model of §7, q = κ + Σ_d (2 − 2 cos k_d)²/8 replaces
+q = κ + Σ_d (1 − cos k_d), and the gradient is s̃_d = sin k_d (3 − cos k_d)/2
+(curves "lin+MUSCL" of `moment_transfer.py`).
+
+**Tests** (`tests/test_moments.cpp`, label `moments`):
+
+| Test | Result |
+|---|---|
+| point pulse in vacuum, 5 substeps | photons conserved, realizable; mean radius 5.04 cells (M1) and 4.78 (OTVET) against 5.85 and 5.92 at first order (the front moves 5); rms width 1.11 and 0.80 against 1.85 and 1.48 |
+| smooth wave advected one period (isotropic closure) | L1 error 1.21e-2, 3.39e-3, 9.29e-4 at N = 16, 32, 64: ratios 3.6 per doubling |
+| thread independence | identical for 1, 2, 4 threads, M1 and OTVET |
+| `restart_smoke_m1_order2`, `restart_smoke_otvet_order2` | the full loop restarts bit-identically |
+
+**Uniform-opacity transfer function** (`moment_transfer <...> 2`, 64³ and
+128³, every cell a source, λ = L/4 and L;
+`docs/figures/moment_transfer_order2.txt`). T relative to the continuum
+linear M1, 128³:
+
+| kΔx | λ = L/4: order 1 | order 2 | order 1, inject 0 | order 2, inject 0 | λ = L: order 1 | order 2 | order 1, inject 0 | order 2, inject 0 |
+|---|---|---|---|---|---|---|---|---|
+| 0.11 | 1.13 | 1.06 | 1.01 | 0.93 | 1.84 | 1.37 | 1.36 | 0.88 |
+| 0.19 | 1.56 | 1.28 | 1.20 | 0.90 | 3.69 | 2.22 | 2.19 | 0.73 |
+| 0.34 | 2.89 | 1.96 | 1.71 | 0.76 | 9.41 | 5.04 | 4.59 | 0.34 |
+| 0.63 | 6.89 | 4.38 | 2.98 | 0.46 | 26.4 | 15.0 | 10.4 | 1.44 (r < 0) |
+| 1.14 | 17.1 | 13.3 | 4.15 | 0.80 | 68.8 | 51.8 | 16.1 | 3.66 (r < 0) |
+| exact, kΔx = 0.63 | 10.0 | | | | 40.6 | | | |
+
+- **With the default `moment_inject = 1` the gain is modest.** Order 2
+  lowers M1's T by 1.1–1.9 at kΔx = 0.1–0.8; it stays 2–15 times the
+  continuum M1 at kΔx = 0.3–0.6, because what is left is the white floor of
+  the injection, which the transport order does not touch. M1 still crosses
+  the exact T at kΔx ≈ 1.3–1.5.
+- **With `moment_inject = 0` order 2 removes the excess** and undershoots:
+  0.9 of the continuum at kΔx = 0.1–0.2, 0.3–0.8 at kΔx = 0.3–0.5 (order 1:
+  1.0–2.2 and 1.7–7). The linear model predicts 1.0–1.4 there; the deficit
+  is nonlinear. The sources of this test are white noise, the least
+  favourable input for a limiter (an extremum in every other cell, where the
+  slope is set to zero). At λ = L and kΔx = 0.5–1.1 the response is
+  anticorrelated with the sources (r = −0.4 to −0.8) at |T| below the
+  continuum M1's, which is itself 30–70 times below the exact T there. Not
+  understood in detail; it is a regime where M1 has almost no response.
+- **OTVET changes little**: at λ = L its T is within 0.9–1.2 of its
+  continuum at either order (its tensor term dominates); at λ = L/4 order 2
+  lowers the lift from 1.2–2.1 to 1.1–1.8 at kΔx = 0.2–0.8.
+- The mean ⟨N⟩/(⟨L⟩λ) is the same for both orders.
+
+**Cost.** Per RT substep the transport does 6 subcycles of 2 stages, each
+with 6 closure evaluations per cell (two face states per axis) against one
+at first order. Measured: the transfer driver's transport is 10 times
+(M1) to 17 times (OTVET) slower at 128³; the full-loop smoke tests take
+73 s against 6 s. Memory: 15 more floats per cell (two stage copies and the
+face fluxes of one group). Reconstructing the pressure tensor from one
+closure evaluation per cell would cut most of this; not done.
+
+**Not done:** no production run yet with `moment_order = 2`; no AMReX
+levels; the limiter is fixed (monotonized central); HLL fluxes (the other
+common way to cut M1's diffusion) are not implemented.

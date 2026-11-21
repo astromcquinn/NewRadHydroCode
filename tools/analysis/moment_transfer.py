@@ -14,6 +14,11 @@ plots) T(k) = (P_N / P_L)^(1/2) of delta = X / <X> - 1 with
                M1     T = kap / (q + |s|^2 / (3 q))
                OTVET  T = (kap + |s|^2 2 pi^2 / (3 q k L_O)) / (q + |s|^2 / (3 q))
 
+  + MUSCL    the same for moment_order = 2 where the limiter is inactive (central
+             slopes): the dissipation is a fourth difference, q = kap + sum_d
+             (2 - 2 cos k_d)^2 / 8, and the flux difference has s_d = sin k_d
+             (3 - cos k_d) / 2 in place of sin k_d
+
 usage: moment_transfer.py N lam prefix [prefix ...] [--png out.png] [--title t]
 """
 import sys
@@ -65,6 +70,10 @@ def theory(N, lam):
     t["M1 lin+GLF"] = kap / (q + s2 / (3 * q))
     t["OTVET lin"] = (1 + 2 * np.pi**2 * k * lam**2 / (3 * LO)) / (1 + (k * lam) ** 2 / 3)
     t["OTVET lin+GLF"] = (kap + s2 * 2 * np.pi**2 / (3 * q * k * LO)) / (q + s2 / (3 * q))
+    q2 = kap + ((2 - 2 * np.cos(kx)) ** 2 + (2 - 2 * np.cos(ky)) ** 2 + (2 - 2 * np.cos(kz)) ** 2) / 8
+    t2 = sum((np.sin(x) * (3 - np.cos(x)) / 2) ** 2 for x in (kx, ky, kz))
+    t["M1 lin+MUSCL"] = kap / (q2 + t2 / (3 * q2))
+    t["OTVET lin+MUSCL"] = (kap + t2 * 2 * np.pi**2 / (3 * q2 * k * LO)) / (q2 + t2 / (3 * q2))
     return t
 
 
@@ -109,7 +118,8 @@ def main():
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(6.4, 4.8))
-        style = {"exact": "k:", "M1 lin": "C1--", "M1 lin+GLF": "C1-.", "OTVET lin": "C0--", "OTVET lin+GLF": "C0-."}
+        style = {"exact": "k:", "M1 lin": "C1--", "M1 lin+GLF": "C1-.", "OTVET lin": "C0--", "OTVET lin+GLF": "C0-.",
+                 "M1 lin+MUSCL": "C1:", "OTVET lin+MUSCL": "C0:"}
         for s, v in th.items():
             ax.loglog(kb * lam, v, style[s], lw=1, label=s)
         for s in names:

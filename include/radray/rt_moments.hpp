@@ -78,7 +78,19 @@ struct MomentState {
   double bg_moved = 0;
   // Scratch of the transport (one group at a time; not checkpointed)
   std::vector<float> P, nn, nfx, nfy, nfz, ne;
+  // moment_order = 2: the two stage states and the face fluxes (15 N^3)
+  std::vector<float> w2;
 };
+
+// moment_order = 2: one subcycle of Courant number C (<= 1/6) of the five
+// fields U = (n, fx, fy, fz, e) of one group on the periodic N^3 grid:
+// U <- (U + S(S(U)))/2 with the forward-Euler stage S(U) = U - C sum_d
+// (Phi_d(i+1/2) - Phi_d(i-1/2)), Phi = mk::muscl_flux
+// (kernels/moment_cell.hpp). closure: an mk::Closure as int; h (6 per
+// cell) for OTVET and the split, ndir and qg for the split (else null, 0).
+// work: scratch, resized to 15 N^3. Identical for any thread count.
+void moment_transport2(int N, float* U[5], int closure, const float* h, const float* ndir, double qg, double C,
+                       std::vector<float>& work);
 
 // params.txt keys rt_method, moment_nsub, otvet_tensor. Returns false for
 // any other key.
