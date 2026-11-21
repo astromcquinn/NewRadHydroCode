@@ -10,8 +10,8 @@ paired with the reference's snapshot nearest in x_HII,V (the runs differ in
 their reionization history, between resolutions by a lot); after overlap
 (x_HII,V > 0.995 in both) with the one nearest in redshift.
 
-Groups: for each N the runs rtconv_N<N>_rays (reference), _rays_m1 and
-_rays_m1_inj0; the ray budgets rtconv_N256_rays_f<f> (reference: the largest
+Groups: for each N the runs rtconv_N<N>_rays (reference), _rays_m1,
+_rays_m1_inj0, _rays_otvet and _rays_m1_o2 (moment_order = 2); the ray budgets rtconv_N256_rays_f<f> (reference: the largest
 f present; f = 15 is rtconv_N256_rays).
 
 Per snapshot (step_NNNN with gammaHI_avg.bin, fHI.bin, rhog.bin; z < 7.5):
@@ -140,7 +140,8 @@ def main():
     groups = []
     for n in [int(t) for t in a.res.split(",") if t]:
         b = os.path.join(a.runs, "rtconv_N%d_rays" % n)
-        runs = [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0"), ("OTVET", b + "_otvet")]
+        runs = [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0"), ("OTVET", b + "_otvet"),
+                ("M1_order2", b + "_m1_o2")]
         # a finished run with the largest ray pool is the reference where the
         # series' f = 15 pool was full (128^3; at 256^3 see the group "rays")
         if n != 256 and os.path.exists(os.path.join(b + "_f120", "run", "DONE")):

@@ -130,7 +130,8 @@ def res_series(groups, box, igm, outdir):
                        "lambda = %.2f" % (N, g["reference"], r0["z"], r0["xV"], r0["gamma_V"],
                                           r0["gamma_med_ion"], mfp(igm, r0)))
             dx = box / N
-            for lab, ls in (("M1", "-"), ("M1_inject0", "--"), ("rays", ":")):
+            for lab, ls in (("M1", "-"), ("M1_inject0", "--"), ("OTVET", "-."), ("M1_order2", (0, (4, 1, 1, 1, 1, 1))),
+                            ("rays", ":")):
                 if lab not in g["runs"] or lab == g["reference"]:
                     continue
                 pr = pair_of(g, lab, ir)
@@ -162,7 +163,7 @@ def res_series(groups, box, igm, outdir):
                     lw, al = 1.6, 1.0
                 kw = dict(color=COL.get(N, "k"), ls=ls, lw=lw, alpha=al)
                 ax[0, it].loglog(k, np.maximum(ratio, 1e-4), label="N = %d %s (x = %.2f | %.2f)"
-                                 % (N, lab.replace("_inject0", " inj 0"), sn["xV"], r0["xV"]), **kw)
+                                 % (N, lab.replace("_inject0", " inj 0").replace("_order2", " order 2"), sn["xV"], r0["xV"]), **kw)
                 ax[1, it].semilogx(k, r, **kw)
             ax[0, it].axvline(1.3 / dx, color=COL.get(N, "k"), lw=0.6, alpha=0.5)
         # the references themselves against N at fixed k
@@ -217,7 +218,8 @@ def res_series(groups, box, igm, outdir):
     ax[1, 0].set_ylabel(r"$r(k)$ with the rays")
     ax[2, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the ray runs")
     ax[3, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the M1 runs")
-    fig.suptitle("M1 (solid), M1 inject 0 (dashed), f = 15 rays where not the reference (dotted) against the "
+    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), "
+                 "f = 15 rays where not the reference (dotted) against the "
                  r"ray reference; thin vertical lines: $k\Delta x = 1.3$", fontsize=9)
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "rt_convergence_res.png"), dpi=130)
