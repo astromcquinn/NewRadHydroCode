@@ -206,7 +206,7 @@ do_res() {
   done
 }
 do_rays() {
-  n=256; need_ics "$n"
+  n="${RAYN:-256}"; need_ics "$n"   # RAYN: the grid of the ray-budget runs (128: the res series' f = 15 pool is full there)
   dirs=(); for f in $RAYFACTORS; do dirs+=("$RUNS/rtconv_N${n}_rays_f$f"); done
   clear_dirs "${dirs[@]}"
   for f in $RAYFACTORS; do
