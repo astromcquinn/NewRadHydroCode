@@ -108,7 +108,7 @@ def fmt_row(vals):
 
 def res_series(groups, box, igm, outdir):
     Ns = sorted(int(g[1:]) for g in groups if g.startswith("N"))
-    fig, ax = plt.subplots(3, len(TARGETS), figsize=(4.1 * len(TARGETS), 9.6), sharex=True, squeeze=False)
+    fig, ax = plt.subplots(4, len(TARGETS), figsize=(4.1 * len(TARGETS), 12.4), sharex=True, squeeze=False)
     rep = ["# Resolution series (tools/hyak/rt_convergence.sh; 20 Mpc/h, 512^3 particles, gas and RT on N^3).",
            "# P_Gamma of delta = Gamma_HI/<Gamma_HI>_V - 1 (gammaHI_avg), ratio to the ray run of the same N and",
            "# cross-correlation r(k) with it, at snapshots matched in x_HII,V (after overlap: in z).",
@@ -183,17 +183,40 @@ def res_series(groups, box, igm, outdir):
                 with np.errstate(all="ignore"):
                     rr = (np.array(s["P_gamma"]) / np.array(base["P_gamma"]))[okb]
                 rep.append("N = %d reference / N = 256 reference, P_Gamma: " % N + fmt_row([at(kb[okb], rr, kt) for kt in KTAB]))
+        # M1 itself against N (its own snapshot nearest the epoch: the 512^3
+        # ray run may not have reached it)
+        for N in Ns:
+            sns = [s for s in groups["N%d" % N]["runs"].get("M1", []) if "xV" in s]
+            if not sns:
+                continue
+            if tx > 1:
+                s = min(sns, key=lambda q: q["z"])
+                s = s if s["xV"] > 0.995 else None
+            else:
+                s = min(sns, key=lambda q: abs(q["xV"] - tx))
+                s = s if abs(s["xV"] - tx) < 0.08 else None
+            if s is None:
+                continue
+            k = np.array(s["k"])
+            ok = np.array(s["nmodes"]) > 0
+            d2 = k ** 3 * np.array(s["P_gamma"]) / (2 * np.pi ** 2)
+            ax[3, it].loglog(k[ok], d2[ok], color=COL.get(N, "k"),
+                             label="N = %d M1 (z = %.2f, x = %.2f)" % (N, s["z"], s["xV"]))
+            rep.append("N = %d M1 alone: z = %.2f, x_V = %.3f, lambda = %.2f, Delta2_Gamma: " % (N, s["z"], s["xV"], mfp(igm, s))
+                       + " ".join("%8.3g" % at(k[ok], d2[ok], kt) for kt in KTAB))
+        ax[3, it].legend(fontsize=6, loc="upper left")
+        ax[3, it].set_xlabel(r"$k$ [$h$/Mpc]")
         ax[0, it].set_title(tlab)
         ax[0, it].axhline(1, color="k", lw=0.5)
         ax[0, it].set_ylim(3e-3, 30)
         ax[1, it].set_ylim(-0.3, 1.05)
         ax[1, it].axhline(1, color="k", lw=0.5)
-        ax[2, it].set_xlabel(r"$k$ [$h$/Mpc]")
         ax[0, it].legend(fontsize=6, loc="lower left")
         ax[2, it].legend(fontsize=6, loc="upper left")
     ax[0, 0].set_ylabel(r"$P_\Gamma$ / $P_\Gamma$(rays, same $N$)")
     ax[1, 0].set_ylabel(r"$r(k)$ with the rays")
     ax[2, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the ray runs")
+    ax[3, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the M1 runs")
     fig.suptitle("M1 (solid), M1 inject 0 (dashed), f = 15 rays where not the reference (dotted) against the "
                  r"ray reference; thin vertical lines: $k\Delta x = 1.3$", fontsize=9)
     fig.tight_layout()
