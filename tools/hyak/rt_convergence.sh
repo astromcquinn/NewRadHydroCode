@@ -42,6 +42,7 @@
 #   tools/hyak/rt_convergence.sh res    # the rays and M1 at every N of RES
 #   tools/hyak/rt_convergence.sh rays   # the ray budgets at N = 256
 #   tools/hyak/rt_convergence.sh inj0   # only the M1 moment_inject = 0 runs, beside
+#   tools/hyak/rt_convergence.sh otvet  # only the plain OTVET siblings (moment_inject = 1), likewise
 #                                       # a res series that is already submitted
 #   tools/hyak/rt_convergence.sh post   # gamma_power.py on every set ->
 #                                       # $RUNS/rtconv_post/{N<N>,rays}/gamma_pk*.txt
@@ -76,7 +77,7 @@ SCRATCH="${SCRATCH:-none}"
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
-case "$phase" in all|ics|res|rays|inj0|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
+case "$phase" in all|ics|res|rays|inj0|otvet|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
 declare -A ICSJOB=()   # N -> the job making its ICs (phase all)
 RUNJOBS=""             # the run jobs submitted, for the analysis' dependency
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_hyak.sh first"; exit 1; }
@@ -161,6 +162,16 @@ make_inj0() {  # make_inj0 N: the M1 sibling of rtconv_N<N>_rays with moment_inj
   launch "$m" "$n" "rtconv${n}_m1i0"
 }
 
+make_otvet() {  # make_otvet N: the plain OTVET sibling of rtconv_N<N>_rays (thin tensor, moment_inject = 1), launched
+  local n="$1" d="$RUNS/rtconv_N${1}_rays" m
+  m="${d}_otvet"; mkdir -p "$m"
+  { echo "# $(basename "$d") with rt_method = otvet (tools/hyak/rt_convergence.sh)"
+    grep -Ev '^[[:space:]]*ics[[:space:]]*=' "$d/params.txt"
+    echo "ics = $(ics_dir "$n")"; echo "rt_method = otvet"; } > "$m/params.txt"
+  ln -s "$(ics_dir "$n")" "$m/ics"
+  launch "$m" "$n" "rtconv${n}_otvet"
+}
+
 do_ics() {
   for n in $RES; do
     d="$(ics_dir "$n")"
@@ -225,7 +236,7 @@ do_post() {
   out="$RUNS/rtconv_post"; mkdir -p "$out"
   cmds=()
   for n in $RES; do
-    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 $RUNS/rtconv_N${n}_rays_m1_inj0/run:M1_inject0 --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
+    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 $RUNS/rtconv_N${n}_rays_m1_inj0/run:M1_inject0 $RUNS/rtconv_N${n}_rays_otvet/run:OTVET --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
   done
   # the ray budgets: the largest first (the reference), then the others and the res series' 15
   ref=""; rest=""
@@ -253,6 +264,15 @@ inj0)
   for n in $RES; do
     [ -f "$RUNS/rtconv_N${n}_rays/params.txt" ] || { echo "$RUNS/rtconv_N${n}_rays/params.txt missing: run res first"; exit 1; }
     need_ics "$n"; make_inj0 "$n"
+  done
+  ;;
+otvet)
+  # only the OTVET siblings (added 2026-11-21; not part of res or all)
+  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays_otvet"); done
+  clear_dirs "${dirs[@]}"
+  for n in $RES; do
+    [ -f "$RUNS/rtconv_N${n}_rays/params.txt" ] || { echo "$RUNS/rtconv_N${n}_rays/params.txt missing: run res first"; exit 1; }
+    need_ics "$n"; make_otvet "$n"
   done
   ;;
 post) do_post ;;

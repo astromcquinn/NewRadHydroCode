@@ -140,7 +140,7 @@ def main():
     groups = []
     for n in [int(t) for t in a.res.split(",") if t]:
         b = os.path.join(a.runs, "rtconv_N%d_rays" % n)
-        runs = [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0")]
+        runs = [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0"), ("OTVET", b + "_otvet")]
         # a finished run with the largest ray pool is the reference where the
         # series' f = 15 pool was full (128^3; at 256^3 see the group "rays")
         if n != 256 and os.path.exists(os.path.join(b + "_f120", "run", "DONE")):
