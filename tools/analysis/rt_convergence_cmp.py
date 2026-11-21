@@ -7,7 +7,8 @@ usage: rt_convergence_cmp.py --runs DIR --out FILE.json [--res 128,256,512]
 
 gamma_power.py pairs snapshots by redshift; here every run's snapshot is
 paired with the reference's snapshot nearest in x_HII,V (the runs differ in
-their reionization history, between resolutions by a lot).
+their reionization history, between resolutions by a lot); after overlap
+(x_HII,V > 0.995 in both) with the one nearest in redshift.
 
 Groups: for each N the runs rtconv_N<N>_rays (reference), _rays_m1 and
 _rays_m1_inj0; the ray budgets rtconv_N256_rays_f<f> (reference: the largest
@@ -32,6 +33,9 @@ import os
 
 import numpy as np
 import scipy.fft as sfft
+
+
+XLATE = 0.995  # x_HII,V above which snapshots are paired by redshift
 
 
 def stat(d, key):
@@ -136,7 +140,12 @@ def main():
     groups = []
     for n in [int(t) for t in a.res.split(",") if t]:
         b = os.path.join(a.runs, "rtconv_N%d_rays" % n)
-        groups.append(("N%d" % n, [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0")]))
+        runs = [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0")]
+        # a finished run with the largest ray pool is the reference where the
+        # series' f = 15 pool was full (128^3; at 256^3 see the group "rays")
+        if n != 256 and os.path.exists(os.path.join(b + "_f120", "run", "DONE")):
+            runs.insert(0, ("rays_f120", b + "_f120"))
+        groups.append(("N%d" % n, runs))
     fs = sorted([int(t) for t in a.rayf.split(",") if t], reverse=True)
     rr = []
     for f in fs:
@@ -167,7 +176,13 @@ def main():
             for lab, _ in runs[1:]:
                 for j, so in enumerate(snaps[lab]):
                     # so is paired with the reference snapshot nearest in x_V
-                    near = min(range(len(ref)), key=lambda q: abs(ref[q]["xV_stats"] - so["xV_stats"]))
+                    # (by redshift among the reference's snapshots after
+                    # overlap once this one is past it too)
+                    late = [q for q in range(len(ref)) if ref[q]["xV_stats"] > XLATE]
+                    if so["xV_stats"] > XLATE and late:
+                        near = min(late, key=lambda q: abs(ref[q]["z"] - so["z"]))
+                    else:
+                        near = min(range(len(ref)), key=lambda q: abs(ref[q]["xV_stats"] - so["xV_stats"]))
                     if near != i:
                         continue
                     fg, fx = measure(so, a.field, binner, a.workers)
