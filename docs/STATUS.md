@@ -3776,8 +3776,8 @@ user and is not recorded here.
   - **#40** (`moment-order2`): its base was `claude/dreamy-ride-nchi0z`,
     not `main`. Retargeted to `main`, and `main` merged into its branch
     (452f4c7). The one conflict was in `docs/rt_moments.md`, where both
-    sides appended: §8.1–8.5 kept, then §9. To be merged when its CI
-    is green.
+    sides appended: §8.1–8.5 kept, then §9. Merged when its CI passed
+    (833c16f).
   - **Checked:** `main` with the four PRs (and
     `gamma_profile.py`'s branch) builds and passes the fast suite in a
     cloud container, 181 of 181 (4 skipped for optional Python tools).

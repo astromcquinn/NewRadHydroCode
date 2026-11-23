@@ -2039,7 +2039,8 @@ open PRs, the branches, the runs on klone and the next runs"):
 
 * **User decisions (2026-11-23):**
   - Merge the four open PRs in the order #37, #39, #41, #40 (#40
-    retargeted from `claude/dreamy-ride-nchi0z` to `main` first).
+    retargeted from `claude/dreamy-ride-nchi0z` to `main` first). Done the
+    same day; #41 had just been merged by its own klone session.
   - Do the analysis set A and the small-run set B of the assessment.
   - **No box-size test:** the paper is a relative comparison of methods.
     That drops A5 (the 20 against 40 Mpc/h comparison from existing runs)
