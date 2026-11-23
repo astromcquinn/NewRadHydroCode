@@ -27,6 +27,12 @@ set_tests_properties(moments PROPERTIES LABELS moments)
 
 # Redshift per distance travelled with a reduced speed of light
 # (redshift_per_distance, docs/production_run.md)
+# A failed snapshot write is reported and counted, the run goes on (io.hpp)
+add_executable(test_output_write test_output_write.cpp)
+target_link_libraries(test_output_write PRIVATE radray)
+add_test(NAME output_write COMMAND test_output_write)
+set_tests_properties(output_write PROPERTIES LABELS "io")
+
 add_executable(test_redshift_distance test_redshift_distance.cpp)
 target_link_libraries(test_redshift_distance PRIVATE radray)
 add_test(NAME redshift_distance COMMAND test_redshift_distance)

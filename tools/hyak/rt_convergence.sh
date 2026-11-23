@@ -43,31 +43,41 @@
 #   tools/hyak/rt_convergence.sh rays   # the ray budgets at N = 256
 #   tools/hyak/rt_convergence.sh inj0   # only the M1 moment_inject = 0 runs, beside
 #                                       # a res series that is already submitted
+#   tools/hyak/rt_convergence.sh otvet  # only the plain OTVET siblings (moment_inject = 1), likewise
 #   tools/hyak/rt_convergence.sh post   # gamma_power.py on every set ->
 #                                       # $RUNS/rtconv_post/{N<N>,rays}/gamma_pk*.txt
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs), RES
-# ("128 256 512"), RAYFACTORS ("8 32 64 120"), F6 (0.135), BETA (2.5),
-# AM_PARAMS (data/uv_lf/am_params_128_10mpc.txt), ICS_<N> (the ICs of N;
+# ("128 256 512"), RAYFACTORS ("8 32 64 120"), F6 (0.10), BETA (2.5),
+# AM_PARAMS (data/uv_lf/am_params_st_fof.txt; with F6 and the continuous
+# c-hat schedule these are the late-end suite's, $RUNS/reion512late, not
+# rt_suite512.sh's own defaults: the 128-box table is wrong for this
+# particle mass), ICS_<N> (the ICs of N;
 # default $RUNS/rtconv_ics_N<N>, and for 256 the suite's pre-check ICs
 # $RUNS/rt512cal256/ics when they exist), THREADS (192), EXE
 # (build/radhydro), SBATCH_ARGS_<N> (defaults below), MAKE_EXTRA, DRYRUN=1,
-# OVERWRITE=1 (as rt_suite512.sh).
+# OVERWRITE=1 (as rt_suite512.sh), SCRATCH (none: run/ and run.log under
+# $RUNS; a directory to write them there instead).
 set -eu
 RUNS="${RUNS:-/gscratch/astro/$USER/radhydro/runs}"
 RES="${RES:-128 256 512}"
 RAYFACTORS="${RAYFACTORS:-8 32 64 120}"
-F6="${F6:-0.135}"
+F6="${F6:-0.10}"
 BETA="${BETA:-2.5}"
-AM_PARAMS="${AM_PARAMS:-data/uv_lf/am_params_128_10mpc.txt}"
+AM_PARAMS="${AM_PARAMS:-data/uv_lf/am_params_st_fof.txt}"
 THREADS="${THREADS:-192}"
 EXE="${EXE:-build/radhydro}"
 SBATCH_ARGS_128="${SBATCH_ARGS_128:---exclusive --cpus-per-task=192 --mem=200G --time=12:00:00}"
-SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=400G --time=1-00:00:00}"
+SBATCH_ARGS_256="${SBATCH_ARGS_256:---exclusive --cpus-per-task=192 --mem=400G --time=2-00:00:00}"
 SBATCH_ARGS_512="${SBATCH_ARGS_512:---exclusive --cpus-per-task=192 --mem=800G --time=4-00:00:00}"
+# SCRATCH=<dir>: the runs' outputs (run/, run.log) go to <dir>/<name>, linked
+# from the run directory. Default none ($RUNS): /gscratch/scrubbed was tried
+# on 2026-11-20 and refused the checkpoint writes at 99 % full ("disk quota
+# exceeded"; three 512^3 runs died), so the user moved the runs back.
+SCRATCH="${SCRATCH:-none}"
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
-case "$phase" in all|ics|res|rays|inj0|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
+case "$phase" in all|ics|res|rays|inj0|otvet|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
 declare -A ICSJOB=()   # N -> the job making its ICs (phase all)
 RUNJOBS=""             # the run jobs submitted, for the analysis' dependency
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_hyak.sh first"; exit 1; }
@@ -114,7 +124,7 @@ make_params() {  # make_params DIR N [more make_production.py arguments]: rt_sui
     --xi-ion 25.38 --movie-slab 8 --movie-fields fHI,temp,rhog,gammaHI,gammaHI_avg \
     --fields fHI,fHeI,fHeII,temp,rhog,gammaHI,gammaHI_avg --zdata1 "15 7 6.5 6.25 6 5.75 5.5 5.25 5" \
     --restart-every 10 --restart-keep 1 --data-files gas --cool-suppress-overdensity 200 \
-    --recomb-case B --recomb-rad 0 "$@" ${MAKE_EXTRA:-} > /dev/null
+    --recomb-case B --recomb-rad 0 --c-schedule-interp 1 "$@" ${MAKE_EXTRA:-} > /dev/null
   grep -Eq "^Ndm = $NDM\$" "$dir/params.txt" || { echo "Ndm = $NDM missing in $dir/params.txt"; exit 1; }
 }
 
@@ -128,8 +138,12 @@ need_ics() {  # need_ics N: stop unless the ICs of N exist or their job is queue
 }
 
 launch() {  # launch DIR N NAME: a whole node on reion_production.slurm, after the ICs job of N if any
-  local dep=()
+  local dep=() sc
   [ -z "${ICSJOB[$2]:-}" ] || dep=(--dependency="afterok:${ICSJOB[$2]}")
+  if [ "$SCRATCH" != none ] && [ ! -e "$1/run" ]; then
+    sc="$SCRATCH/$(basename "$1")"; mkdir -p "$sc/run"
+    ln -s "$sc/run" "$1/run"; ln -sfn "$sc/run.log" "$1/run.log"
+  fi
   submit_job $(sbatch_args "$2") "${dep[@]}" --job-name="$3" --output="$1/slurm-%j.out" \
     --export=ALL,PROB="$1",THREADS="$THREADS",EXE="$EXE",POST=sbatch tools/hyak/reion_production.slurm
   RUNJOBS="$RUNJOBS:$JID"
@@ -146,6 +160,16 @@ make_inj0() {  # make_inj0 N: the M1 sibling of rtconv_N<N>_rays with moment_inj
     echo "ics = $(ics_dir "$n")"; echo "rt_method = m1"; echo "moment_inject = 0"; } > "$m/params.txt"
   ln -s "$(ics_dir "$n")" "$m/ics"
   launch "$m" "$n" "rtconv${n}_m1i0"
+}
+
+make_otvet() {  # make_otvet N: the plain OTVET sibling of rtconv_N<N>_rays (thin tensor, moment_inject = 1), launched
+  local n="$1" d="$RUNS/rtconv_N${1}_rays" m
+  m="${d}_otvet"; mkdir -p "$m"
+  { echo "# $(basename "$d") with rt_method = otvet (tools/hyak/rt_convergence.sh)"
+    grep -Ev '^[[:space:]]*ics[[:space:]]*=' "$d/params.txt"
+    echo "ics = $(ics_dir "$n")"; echo "rt_method = otvet"; } > "$m/params.txt"
+  ln -s "$(ics_dir "$n")" "$m/ics"
+  launch "$m" "$n" "rtconv${n}_otvet"
 }
 
 do_ics() {
@@ -193,7 +217,7 @@ do_res() {
   done
 }
 do_rays() {
-  n=256; need_ics "$n"
+  n="${RAYN:-256}"; need_ics "$n"   # RAYN: the grid of the ray-budget runs (128: the res series' f = 15 pool is full there)
   dirs=(); for f in $RAYFACTORS; do dirs+=("$RUNS/rtconv_N${n}_rays_f$f"); done
   clear_dirs "${dirs[@]}"
   for f in $RAYFACTORS; do
@@ -212,7 +236,7 @@ do_post() {
   out="$RUNS/rtconv_post"; mkdir -p "$out"
   cmds=()
   for n in $RES; do
-    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 $RUNS/rtconv_N${n}_rays_m1_inj0/run:M1_inject0 --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
+    cmds+=("python3 tools/analysis/gamma_power.py $RUNS/rtconv_N${n}_rays/run:rays $RUNS/rtconv_N${n}_rays_m1/run:M1 $RUNS/rtconv_N${n}_rays_m1_inj0/run:M1_inject0 $RUNS/rtconv_N${n}_rays_otvet/run:OTVET --outdir $out/N$n --box $BOX --field gammaHI_avg --zmin 4.9 --zmax 7.1 --tol 0.05")
   done
   # the ray budgets: the largest first (the reference), then the others and the res series' 15
   ref=""; rest=""
@@ -240,6 +264,15 @@ inj0)
   for n in $RES; do
     [ -f "$RUNS/rtconv_N${n}_rays/params.txt" ] || { echo "$RUNS/rtconv_N${n}_rays/params.txt missing: run res first"; exit 1; }
     need_ics "$n"; make_inj0 "$n"
+  done
+  ;;
+otvet)
+  # only the OTVET siblings (added 2026-11-21; not part of res or all)
+  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays_otvet"); done
+  clear_dirs "${dirs[@]}"
+  for n in $RES; do
+    [ -f "$RUNS/rtconv_N${n}_rays/params.txt" ] || { echo "$RUNS/rtconv_N${n}_rays/params.txt missing: run res first"; exit 1; }
+    need_ics "$n"; make_otvet "$n"
   done
   ;;
 post) do_post ;;
