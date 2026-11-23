@@ -58,6 +58,9 @@ The user asked whether our Γ-fluctuation trends contradict arXiv:2504.10571
     the exact solution to 5–13 %; the rest is white noise of rms
     0.95 n_ray^−½ per cell.
   - Cost: rays / M1 wall time 4.1, 2.5, 1.9 at 128³, 256³, 512³.
+  - The exact linear solution of the discrete first-order scheme
+    (`tools/analysis/moment_transfer_exact.py`, §7.1): the code matches it
+    to 3 % in every bin at 32³–256³.
   - Still running: OTVET with `moment_order = 2` at 256³ (one row of the
     §8.2 tables).
 - Paper (`astromcquinn/RT_closure`, `main`): the Gnedin 2025 comparison,

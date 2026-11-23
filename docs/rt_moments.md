@@ -739,6 +739,32 @@ term over the continuum one, for k along the diagonal. Data:
   kλ ≈ 14 (4.4 / 2.9 / 1.9 of its continuum theory) and 0.88 / 0.59 / 0.32
   at kλ ≈ 30.
 
+### 7.1 The exact linear solution of the discrete scheme
+
+*2026-11-23.* `tools/analysis/moment_transfer_exact.py` solves the test of
+this section for small perturbations with no further approximation: the
+first-order scheme as coded (GLF flux, `moment_nsub` subcycles, the
+injection after or before them, the absorption once per substep and, for
+OTVET, the Fourier response of the code's tensor kernel), linearised about
+the uniform state, mode by mode on the code's grid and averaged over the
+shells of `moment_transfer.py`. The formulas are in the script's header.
+The "linear theory with the GLF term" used above treats the subcycles and
+the injection as continuous in time and is replaced by this where the two
+differ.
+
+- **The code equals this solution to 3 % in every bin**: T(code)/T(exact
+  linear) = 0.969–1.023 over M1 and OTVET, `moment_inject` = 1 and 0,
+  32³–256³, λ = L/4 and L, every cell a source
+  ([`figures/moment_transfer_exact.txt`](figures/moment_transfer_exact.txt),
+  the `code/` columns).
+- So in this test every departure of T from the continuum closures (the
+  plateau at high k, the crossing at kΔx ≈ 1.3, the resolution dependence
+  at fixed kλ) is a property of the linearised discrete scheme; nothing
+  nonlinear enters.
+- Reproduce: `moment_transfer.py N λ <prefixes> > code.txt`, then
+  `moment_transfer_exact.py N N/λ --code code.txt`.
+- Not covered: `moment_order = 2` (PR #40).
+
 ## 8. Convergence runs for the Γ fluctuations
 
 *2026-11-20, asked by the user.* `tools/hyak/rt_convergence.sh` (klone;
