@@ -37,10 +37,29 @@ The user asked whether our Γ-fluctuation trends contradict arXiv:2504.10571
   crosses above the exact T at kΔx ≈ 1.3 at every resolution and not at
   all with `moment_inject = 0`; at fixed kλ its T falls toward the linear
   solution. M1's Γ power above k ≈ 1 h/Mpc after overlap is numerical.
-- **Set up, not run:** `tools/hyak/rt_convergence.sh` (§8): M1 and rays at
-  N = 128, 256, 512 with fixed dark matter in 20 Mpc/h, and the rays at
-  `nray_max_factor` = 8–120 at 256³. To do on klone: `ics`, `res`, `rays`,
-  then `post`.
+- **Convergence runs done 2026-11-23** (`tools/hyak/rt_convergence.sh`,
+  branch `rt-convergence-runs`; `docs/rt_moments.md` §8.1–8.5): rays, M1,
+  M1 with `moment_inject = 0` and OTVET at N = 128, 256, 512 with fixed
+  dark matter in 20 Mpc/h; the rays at `nray_max_factor` = 8–120 at 256³;
+  `moment_order = 2` (PR #40) at 128³ and 256³.
+  - Ray budget: the suite's 15 is converged in P_Γ during reionization
+    (within 5 % of f = 120 at k ≤ 2 h/Mpc); after overlap 20 % high at the
+    box scale. At 128³ 15 fails after overlap (forced merges).
+  - M1's small-scale excess over the rays falls with N (3.05, 1.36, 1.05
+    at k = 16 h/Mpc at x_V ≈ 0.58) and after overlap the crossing is at
+    kΔx = 1.1–1.3, as §7 predicts. OTVET's excess falls with N at every k.
+  - `moment_inject = 0`: P_Γ below the rays at every k ≥ 1 h/Mpc, rising
+    toward them with N; reionizes earlier (x_V = 0.95 against 0.87 at
+    z = 5, 512³).
+  - `moment_order = 2` does not reduce M1's excess in the runs and lowers
+    its correlation with the rays; cause unknown.
+  - The uniform test with the rays (`tools/analysis/ray_transfer.cpp`,
+    `tools/hyak/ray_transfer.sh`): the part correlated with the sources is
+    the exact solution to 5–13 %; the rest is white noise of rms
+    0.95 n_ray^−½ per cell.
+  - Cost: rays / M1 wall time 4.1, 2.5, 1.9 at 128³, 256³, 512³.
+  - Still running: OTVET with `moment_order = 2` at 256³ (one row of the
+    §8.2 tables).
 - Paper (`astromcquinn/RT_closure`, `main`): the Gnedin 2025 comparison,
   M1's numerical high-k power and the convergence caveat are in.
 - Open: a T_ΓL(k) figure of the 512³ runs against their own source field
