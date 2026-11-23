@@ -3683,6 +3683,114 @@ Decided 2026-10-11/12 (`docs/PLAN.md`): `hydro_scheme = unsplit` and
 with our explicit OTVET kept as it is; the stored RT references that
 differ on klone are skipped there (label `platform_ref`).
 
+## 2026-11-23: assessment of the open PRs, the branches, the runs on klone and the next runs (branch `claude/great-hypatia-stoo2m`)
+
+Asked by the user. No source changed. klone was not reachable from this
+session: the run lists are from the documents, so check the sizes with
+`du -sh $RUNS/* | sort -h` before deleting anything. The assessment of
+the paper draft (private repository `astromcquinn/RT_closure`) went to the
+user and is not recorded here.
+
+* **Open PRs** (each with a green fast suite on 2026-11-23):
+  - **#37** (`output-write-check`): merge. Error handling only. Every new
+    run should use a binary with it while `/gscratch/astro` is 96–99 %
+    full (the truncated outputs of 2026-11-11).
+  - **#39** (`cone-blend-test`): merge (documents and a script tag). Its
+    verdict keeps `otvet_cone_blend = 4` as the default, but the paper's
+    figures use the cone without the blend since 2026-11-20
+    (`reion512late_otvet_conenb`). Open decision: change the default, or
+    state the key wherever the cone is described.
+  - **#41** (`rt-convergence-runs`): merge before #40 (documents and
+    tools; one table row still says "running").
+  - **#40** (`moment-order2`): its base is `claude/dreamy-ride-nchi0z`,
+    not `main`, so merging it as it stands does not reach `main`. After
+    #41 (which contains that branch) retarget it to `main`. The one
+    conflict is in `docs/rt_moments.md`, where both append: keep §8.1–8.5,
+    then §9. The second-order transport is a separate function and the
+    default path is untouched. Open before anything is quoted from it:
+    why it does not lower M1's excess in the reionization runs (§8.3).
+* **Branches:** `claude/beautiful-archimedes-kcgsvx` (`gamma_profile.py`
+  and its test, no PR, merges cleanly) needs a PR. `moment-amr-physctx` is
+  merged and can be deleted. Delete `claude/dreamy-ride-nchi0z` only after
+  #40 is retargeted: deleting a PR's base branch closes the PR.
+* **Missing from these documents:** the late-end suite `reion512late*`
+  (the paper's suite since 2026-11-12: f6 = 0.10, P11, no SN heating,
+  OTVET with `otvet_background = ga01`), its `_z570` reruns,
+  `$RUNS/paper_view` and the no-blend cone run are described only in the
+  paper repository's `figures/README.md`. `docs/PLAN.md` has no decision
+  after 2026-11-10.
+* **Runs that can go** (candidates; the paper's choices decide some):
+  1. **The `_z570` reruns** (five, 46 GB each): bit-for-bit copies of
+     their originals through step 85. `$RUNS/paper_view` reads only
+     `run/step_0084` and `Gas/u_gas.z=05.69*` from them; the rest can go.
+  2. **The earlier suite `reion512_rays*`** (f6 = 0.11; 1.40 TB with one
+     checkpoint each on 2026-11-05, ≈ 0.75 TB without): the checkpoints
+     now (they are at z = 5). The fields once the photon sink by density
+     (`docs/absorbers_closures.md` §3) and the Γ cap test are redone on
+     the late-end suite; the paper's earlier-suite tables are extracted.
+  3. **October's 256³ sets:** `otvcl256{,_m1,_otvet*}` (fields deleted
+     2026-11-11; the tensor dumps are superseded by `otvcl256r`'s, which
+     have P11), `otvcl256B*` and `otvcl256_otvet_{ga01,now}` (results in
+     `docs/otvet_background.md` §9), `abs256_*` (results in
+     `docs/absorbers_closures.md` §6).
+  4. **Superseded late-end runs:** `reion512late_amr` (stopped at
+     z = 6.07; `_amr_r2` replaces it). The fields of
+     `reion512late_otvet_cone` (the blended cone; its comparison with the
+     no-blend cone is in `reion512late_figures/conenb/`) and of
+     `reion512late_otvet` (equal to the `ga01` run to 10⁻⁵ in x_HII),
+     once the paper's choice of cone and of OTVET is final.
+  5. **The convergence set:** the checkpoints of `rtconv_N128*` and
+     `rtconv_N256*`; the f = 8 run and the 128³ f = 15 run once the tables
+     are final. Keep the `rtconv_N512*` checkpoints (C1 below) and the ICs
+     (`rtconv_ics_N*`, `rt512cal256/ics`).
+  6. **October's development runs**, each reported with its numbers here
+     and reproducible in a few node-hours: `reion128*`, `reion256*`,
+     `fesc256_b*`, `rt512cal256_f*` (not its `ics`), `rtm128_test*`,
+     `multicell128*`, `m1_clumps`, `recomb_*`, `rr_onspot_test`, `hmf*`,
+     `reion512_40mpc_f0.23`, `iotest_20261028`, `pm_*`, `hydro256`,
+     `hydro_conv`.
+  7. **To decide:** `reion1024_otvet_cone` (not used in the paper, user
+     2026-11-05; it has no ray twin); `fesc512_b2.5*` (the refined pair
+     before P11: keep the refined rays' fields until the late-end refined
+     pair is analysed); what the failed attempt of 2026-11-20 left under
+     `/gscratch/scrubbed`.
+  - **Keep:** `reion512late{,_caseA,_m1,_otvet_ga01,_otvet_split,_otvet_screen,_otvet_conenb}`,
+    `reion512late_amr_r2`, `reion512late_amr_m1`, `paper_view`,
+    `reion512late_figures`, `reion512late_igm`, `rt_closure_paper`,
+    `otvcl256r*` with `cone_blend_256`, `rtconv_post`.
+* **Runs to make**, cheapest first:
+  - **A. Analysis of existing outputs:**
+    1. the mask / cap test of the Γ excess at k ≈ 5 h/Mpc on the late-end
+       suite (`gamma_masked.py` of `$RUNS/cone_blend_256`);
+    2. `gamma_profile.py` on the late-end suite (the proximity zones);
+    3. the photon sink by density (`docs/absorbers_closures.md` §3) on the
+       late-end suite and on `rtconv_N512*`, which is the 39 kpc/h test
+       that §4 (b) there left unrun;
+    4. Γ and λ_mfp of the refined pair (`reion512late_amr_r2`,
+       `reion512late_amr_m1`) against their uniform twins, and the empty
+       "cone, refined" column of `docs/moment_amr.md` §6;
+    5. the box size from existing runs: `rtconv_N256*` (20 Mpc/h) against
+       the suite (40 Mpc/h) have the same cell, particle mass and sources;
+    6. T_ΓL(k) of the 512³ runs against their own source field.
+  - **B. Small runs** (a few node-hours each):
+    1. the cone (`otvet_cone_blend = 0`) and the screen in the
+       convergence configuration at 128³ and 256³ against the f = 120
+       rays, then at 512³: the cone's parameters are fixed in cells and it
+       has no resolution test;
+    2. M1 with `moment_order = 2` and `moment_inject = 0` at 128³, to
+       separate the injection floor from the scheme in §8.3;
+    3. OTVET with `moment_inject = 0` at 256³ (no such reionization run
+       exists in the late-end configuration);
+    4. `nside_merge = 4` for the rays (needs a parameter key).
+  - **C. Larger runs:**
+    1. `rtconv_N512_{rays,rays_m1,rays_otvet}` continued past overlap from
+       their checkpoints (they stop at x_V = 0.84–0.87 at z = 5), for the
+       third after-overlap point of M1's large-scale deficit;
+    2. a box-size test at 80 Mpc/h. At 512³ the sources need recalibrating
+       for the coarser particle mass. At 1024³ the int32 ray links allow
+       `nray_max_factor = 1` only, so a ray reference there needs wider
+       links (or the AMReX RT, if its links are per box: not checked).
+
 ## Next
 
 1. ~~Halo mass function at production resolution~~ Done at 128³
