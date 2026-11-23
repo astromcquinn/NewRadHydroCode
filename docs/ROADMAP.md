@@ -147,6 +147,30 @@ T, I-front positions and the photon budget. Measure them on the Iliev et al.
     not carry over naturally to AMR. Expect to move to an unsplit Godunov
     scheme (MUSCL-Hancock + HLLC, as in Ramses/Athena) and validate it with
     the hydro test suite now being built.
+  - **Future: local (individual) time stepping** (user, 2026-11-04: not
+    needed for the current z > 5 runs; add it when lower-z large-scale
+    structure runs need it). Today one global step is set by the fastest
+    cell (Courant on |v| + c_s), so a few hot or shocked cells slow the
+    whole box: the C1 1024³ runs dropped from the 0.3 Myr coupling cap to
+    0.02–0.06 Myr while a few cells had c_s ~ 10⁴ km/s (z ≈ 6.9–6.6). The
+    standard scheme:
+    - power-of-two time bins, Δt_max/2ⁿ per cell or block (AREPO, GADGET,
+      GIZMO), or per-level subcycling on AMR (Berger–Colella: Enzo, Ramses,
+      AMReX);
+    - conservation through flux registers: fluxes on a face between bins
+      are summed over the fine substeps and the coarse cell is corrected;
+    - a neighbour limiter (Saitoh & Makino 2009) so a cell is never more
+      than ~1 bin slower than its neighbours, or shocks run into frozen
+      cells;
+    - PM gravity on the big step with per-bin kicks (hierarchical KDK);
+    - the plane-parallel coupling cap is per cell already
+      (`plane_couple_courant`) and can use the same bins;
+    - determinism across thread counts (fixed bin assignment and summation
+      order).
+
+    Cheaper first resorts: the star-formation sink (removes the hot cells:
+    at 128³ 2–3 % of the gas, T_V within 0.25 %), and AMR subcycling once
+    levels step independently.
 - **RT on AMR:**
   - ~~Rays move one local cell per substep, so fine levels need substeps
     sub-cycled within the coarse step.~~ **Decided 2026-10-14:** one coarse

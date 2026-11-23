@@ -204,6 +204,38 @@ be set with the first refined production run. Code: `hydro_level.cpp`
 `pm_backend.hpp`, `radhydro.cpp` `write_stars` / `write_sink_summary`,
 `checkpoint.cpp`.
 
+**Near-vacuum blowups and the safeguards (2026-11-14/15).** Both refined
+512³ runs of the late-end pair (`reion512late_amr`, rays, z = 6.07;
+`reion512late_amr_m1`, z = 5.0) blew up. `RADRAY_HYDRO_SCAN` (the scan
+in `hydro_level.cpp`) traced the M1 crash to one level-2 cell at the edge
+of a dense clump (ρ ≈ 700 ρ̄ next to it): a hydro call drained it below
+the density floor, the floor raised ρ to `Dgas_min` but kept its momenta
+and energies (e/ρ ≈ 9000, ~10⁸ K), and the next call heated it to
+e/ρ ~ 10¹⁶. The substep count then overflowed an int, the code fell back
+to one substep over the whole interval, the region went to NaN and the
+sink made stars with infinite mass (the PM deposit's "CIC corner fell
+outside the ghost layer"). The rays run had the same signature without
+NaNs (`cmax_gas` 13 → 3764, T_V 5.9×10³ → 1.5×10⁶ K, the step cut 80×).
+Safeguards, all off by default (the original):
+
+- `sf_max_fraction` (default 1): the largest fraction of a cell's mass one
+  sink event takes. With `sf_efficiency = 1` and dt > t_ff the original
+  takes all of it, leaving ρ = 0 next to dense gas.
+- `floor_rho_reset` (default 0; `rrh::DualEnergy::floor_reset`, both
+  hydro backends): a cell below the density floor is put at rest at the
+  temperature floor instead of keeping its momenta and energies.
+- `T_max` on the AMReX levels (`hydro_backend = amrex`, the same
+  `finalize_cell` clamp as the host hydro, counted in `cap_T`).
+- Always on: a substep count above 10⁸ (a runaway signal speed) stops the
+  run with an error instead of the one-substep fallback.
+
+Neither of the first two alone got M1 past the crash (the drained cell
+refilled fast and hot); the production pair uses `sf_max_fraction = 0.9`,
+`floor_rho_reset = 1` and `T_max = 1e6` (user, 2026-11-15). The cap is for
+runs that end at z ≥ 5: it removes the warm-hot IGM at low redshift, so
+radhydro refuses `T_max` when the last `zdata1` output is below z = 4
+unless `T_max_low_z = 1`.
+
 ## 3. The RT across levels (F3)
 
 The user's decision: one coarse substep everywhere, no time sub-cycling

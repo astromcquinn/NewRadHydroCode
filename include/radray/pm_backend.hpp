@@ -23,8 +23,10 @@ namespace pm {
 struct PMState;
 }
 
-// Parameters: pm_backend, amrex_pm_max_grid_size, amrex_pm_fft; false for
-// any other key.
+// Parameters: pm_backend, amrex_pm_max_grid_size, amrex_pm_fft, amrex_pk,
+// pm_gas_levels; the level Poisson solve (docs/stage_g.md): pm_level_solve,
+// pm_mlmg_iters, pm_mlmg_tol, pm_mlmg_bottom_sweeps, pm_mlmg_bottom_scale,
+// pm_mlmg_verbose, pm_level_subcycle; false for any other key.
 bool set_pm_backend_param(Config& c, const std::string& key, const std::string& val);
 void copy_pm_backend_param(const Config& from, Config& to);
 std::string pm_backend_summary(const Config& c);

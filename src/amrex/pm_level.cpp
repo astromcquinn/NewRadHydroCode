@@ -1036,43 +1036,57 @@ struct PMLevel {
 
   // One star per sink event: x and v from level-0 gas-cell units to the
   // particle's (DM grid) units (x ndmr/ngasr), the mass as given, the home
-  // cell, an id Npart + 1 + (the global count before) and a type 1; placed
-  // on this rank's first tile and moved by a Redistribute. Collective
-  // (the prefix count). Returns the global number added.
+  // cell, an id Npart + 1 + (its rank among this call's events by position)
+  // and a type 1; placed on this rank's first tile (or, from a rank without
+  // a PM box, on the lowest rank's with one) and moved by a Redistribute.
+  // Collective. Returns the global number added.
   Long add_stars(pm::PMState& s, const std::vector<SinkEvent>& ev, double a_form) {
     if (!state) throw std::runtime_error("the star-formation sink needs amrex_state = 1");
     const double t0 = now();
     const Long nmine = static_cast<Long>(ev.size());
     // the ids are independent of the rank count: every rank gathers this
-    // call's event positions (one event per cell, so they are distinct),
-    // sorts them, and numbers its own events by their rank in that order
-    std::vector<float> pos(static_cast<std::size_t>(3 * nmine));
-    for (Long q = 0; q < nmine; ++q)
-      for (int c = 0; c < 3; ++c) pos[static_cast<std::size_t>(3 * q + c)] = ev[static_cast<std::size_t>(q)].x[c];
-    std::vector<float> all = pos;
+    // call's events (one event per cell, so the positions are distinct),
+    // sorts them by position, and numbers each by its rank in that order.
+    // The events are found on the hydro's (refined) grids, whose mapping is
+    // not the PM's: a rank with events but no PM box (possible under
+    // amrex_balance = 1) hands them to the lowest rank that has a box. The
+    // other ranks add their own, as before.
+    constexpr int kRec = 7;  // x[3], v[3], mass
+    std::vector<float> mine(static_cast<std::size_t>(kRec * nmine));
+    for (Long q = 0; q < nmine; ++q) {
+      const SinkEvent& e = ev[static_cast<std::size_t>(q)];
+      float* o = &mine[static_cast<std::size_t>(kRec * q)];
+      for (int c = 0; c < 3; ++c) o[c] = e.x[c], o[3 + c] = e.v[c];
+      o[6] = e.mass;
+    }
+    const int nranks = ax::ParallelDescriptor::NProcs();
+    const int myproc = ax::ParallelDescriptor::MyProc();
+    const int has_box = ax::MFIter(pot).isValid() ? 1 : 0;
+    std::vector<int> counts(static_cast<std::size_t>(nranks), static_cast<int>(kRec * nmine)),
+        displs(static_cast<std::size_t>(nranks), 0), has(static_cast<std::size_t>(nranks), has_box);
+    std::vector<float> all = mine;
 #ifdef AMREX_USE_MPI
-    if (ax::ParallelDescriptor::NProcs() > 1) {
+    if (nranks > 1) {
       const MPI_Comm comm = ax::ParallelDescriptor::Communicator();
-      const int nranks = ax::ParallelDescriptor::NProcs();
-      const int cnt = static_cast<int>(3 * nmine);
-      std::vector<int> counts(nranks), displs(nranks);
+      const int cnt = static_cast<int>(kRec * nmine);
       MPI_Allgather(&cnt, 1, MPI_INT, counts.data(), 1, MPI_INT, comm);
+      MPI_Allgather(&has_box, 1, MPI_INT, has.data(), 1, MPI_INT, comm);
       int off = 0;
       for (int r = 0; r < nranks; ++r) {
-        displs[r] = off;
-        off += counts[r];
+        displs[static_cast<std::size_t>(r)] = off;
+        off += counts[static_cast<std::size_t>(r)];
       }
       all.resize(static_cast<std::size_t>(off));
-      MPI_Allgatherv(pos.data(), cnt, MPI_FLOAT, all.data(), counts.data(), displs.data(), MPI_FLOAT, comm);
+      MPI_Allgatherv(mine.data(), cnt, MPI_FLOAT, all.data(), counts.data(), displs.data(), MPI_FLOAT, comm);
     }
 #endif
-    const Long total = static_cast<Long>(all.size() / 3);
+    const Long total = static_cast<Long>(all.size() / kRec);
     if (total == 0) return 0;
     std::vector<Long> order(static_cast<std::size_t>(total));
     for (Long q = 0; q < total; ++q) order[static_cast<std::size_t>(q)] = q;
     auto less = [&](Long a, Long b) {
       for (int c = 0; c < 3; ++c) {
-        const float xa = all[static_cast<std::size_t>(3 * a + c)], xb = all[static_cast<std::size_t>(3 * b + c)];
+        const float xa = all[static_cast<std::size_t>(kRec * a + c)], xb = all[static_cast<std::size_t>(kRec * b + c)];
         if (xa != xb) return xa < xb;
       }
       return false;
@@ -1080,35 +1094,39 @@ struct PMLevel {
     std::sort(order.begin(), order.end(), less);
     std::vector<Long> rank_of(static_cast<std::size_t>(total));  // position in the sorted order
     for (Long q = 0; q < total; ++q) rank_of[static_cast<std::size_t>(order[static_cast<std::size_t>(q)])] = q;
-    Long before = 0;  // this rank's events sit at [before, before + nmine) of `all`
-#ifdef AMREX_USE_MPI
-    if (ax::ParallelDescriptor::NProcs() > 1) {
-      MPI_Exscan(&nmine, &before, 1, MPI_LONG_LONG, MPI_SUM, ax::ParallelDescriptor::Communicator());
-      if (ax::ParallelDescriptor::MyProc() == 0) before = 0;
+    int receiver = -1;  // the lowest rank with a PM box
+    for (int r = 0; r < nranks && receiver < 0; ++r)
+      if (has[static_cast<std::size_t>(r)]) receiver = r;
+    if (receiver < 0) throw std::runtime_error("add_stars: no rank has a PM box");
+    // the global indices (into `all`) of the events this rank adds
+    std::vector<Long> add;
+    for (int r = 0; r < nranks; ++r) {
+      const bool adds = (r == myproc && has_box) || (myproc == receiver && !has[static_cast<std::size_t>(r)]);
+      if (!adds) continue;
+      const Long q0 = displs[static_cast<std::size_t>(r)] / kRec, nq = counts[static_cast<std::size_t>(r)] / kRec;
+      for (Long q = 0; q < nq; ++q) add.push_back(q0 + q);
     }
-#endif
     const double scale = s.pc.ndmr / s.pc.ngasr;
-    const int myproc = ax::ParallelDescriptor::MyProc();
-    if (nmine > 0) {
+    if (!add.empty()) {
       ax::MFIter mfi(pot);
-      if (!mfi.isValid()) throw std::runtime_error("add_stars: a rank with events but no box");
       auto& pt = pc->DefineAndReturnParticleTile(0, mfi.index(), mfi.LocalTileIndex());
       const std::size_t n0 = pt.numParticles();
-      pt.resize(n0 + static_cast<std::size_t>(nmine));
+      pt.resize(n0 + add.size());
       const PTD pd = pt.getParticleTileData();
-      for (Long q = 0; q < nmine; ++q) {
-        const SinkEvent& e = ev[static_cast<std::size_t>(q)];
-        const int n_ = static_cast<int>(n0 + static_cast<std::size_t>(q));
+      for (std::size_t a = 0; a < add.size(); ++a) {
+        const Long g = add[a];
+        const float* e = &all[static_cast<std::size_t>(kRec * g)];
+        const int n_ = static_cast<int>(n0 + a);
         for (int c = 0; c < 3; ++c) {
-          const float x = static_cast<float>(f::mod(static_cast<double>(e.x[c]) * scale, s.pc.ndmr));
+          const float x = static_cast<float>(f::mod(static_cast<double>(e[c]) * scale, s.pc.ndmr));
           pd.m_rdata[kX + c][n_] = x;
-          pd.m_rdata[kV + c][n_] = static_cast<float>(static_cast<double>(e.v[c]) * scale);
+          pd.m_rdata[kV + c][n_] = static_cast<float>(static_cast<double>(e[3 + c]) * scale);
           pd.m_rdata[c][n_] = fpos(x);
         }
-        pd.m_rdata[kM][n_] = e.mass;
+        pd.m_rdata[kM][n_] = e[6];
         pd.m_rdata[kA][n_] = static_cast<float>(a_form);
         pd.m_idata[kType][n_] = 1;
-        pd.m_idcpu[n_] = ax::SetParticleIDandCPU(Npart + 1 + s.nstar + rank_of[static_cast<std::size_t>(before + q)], myproc);
+        pd.m_idcpu[n_] = ax::SetParticleIDandCPU(Npart + 1 + s.nstar + rank_of[static_cast<std::size_t>(g)], myproc);
       }
     }
     s.nstar += total;
@@ -1346,7 +1364,7 @@ struct PMLevel {
     const int ng = A.nGrow();
     const double nd = ndmr;
     const double cells_per_dm = x_dm_m * static_cast<double>(1 << l);  // the level's cells per DM-grid cell
-    Long unpred = 0;
+    Long unpred = 0, bad_seen = bad;
     for (ax::MFIter mfi(A); mfi.isValid(); ++mfi) {
       const ax::Box bx = mfi.validbox();
       const ax::Box gbx = ax::grow(bx, ng);
@@ -1409,6 +1427,34 @@ struct PMLevel {
         for (int t = 0; t < nt; ++t) sum += buf[static_cast<std::size_t>(t) * ngc + idx];
         a(i, j, k) += sum;
       });
+      if (bad > bad_seen) {  // the failure path only: name the tile's first offending particles
+        const int lo3[3] = {glo.x, glo.y, glo.z}, hi3[3] = {ghi.x, ghi.y, ghi.z};
+        int shown = 0;
+        for (int n = 0; n < np && shown < 4; ++n) {
+          const float x[3] = {pd.m_rdata[kX][n], pd.m_rdata[kX + 1][n], pd.m_rdata[kX + 2][n]};
+          const int h[3] = {home_l(pd.m_rdata[0][n], l), home_l(pd.m_rdata[1][n], l), home_l(pd.m_rdata[2][n], l)};
+          const rpk::Cic c = rpk::cic_weights(g, x);
+          const int ci[3] = {near_image(c.i1 - 1, h[0], NN), near_image(c.j1 - 1, h[1], NN),
+                             near_image(c.k1 - 1, h[2], NN)};
+          bool out = false;
+          for (int d = 0; d < 3; ++d)
+            if (ci[d] < lo3[d] || ci[d] + 1 > hi3[d] || h[d] < lo3[d] + ng || h[d] > hi3[d] - ng) out = true;
+          if (!out) continue;
+          ++shown;
+          std::fprintf(stderr,
+                       "deposit_level %d rank %d box [%d %d %d]-[%d %d %d] ng %d particle %d/%d id %lld type %d "
+                       "x %.9g %.9g %.9g v %.9g %.9g %.9g pos %.9g %.9g %.9g home %d %d %d cic %d %d %d m %.6g a %.6g\n",
+                       l, ax::ParallelDescriptor::MyProc(), bx.smallEnd(0), bx.smallEnd(1), bx.smallEnd(2),
+                       bx.bigEnd(0), bx.bigEnd(1), bx.bigEnd(2), ng, n, np,
+                       static_cast<long long>(ax::ParticleIDWrapper(pd.m_idcpu[n])), pd.m_idata[kType][n],
+                       x[0], x[1], x[2], pd.m_rdata[kV][n], pd.m_rdata[kV + 1][n], pd.m_rdata[kV + 2][n],
+                       pd.m_rdata[0][n], pd.m_rdata[1][n], pd.m_rdata[2][n], h[0], h[1], h[2], ci[0], ci[1],
+                       ci[2], pd.m_rdata[kM][n], pd.m_rdata[kA][n]);
+        }
+        std::fprintf(stderr, "deposit_level %d rank %d: %lld bad corners in this tile, %d particles shown\n", l,
+                     ax::ParallelDescriptor::MyProc(), static_cast<long long>(bad - bad_seen), shown);
+        bad_seen = bad;
+      }
     }
     const double t1 = now();
     A.SumBoundary(PER(l));  // fold the ghost deposits into their owners (int64: exact)

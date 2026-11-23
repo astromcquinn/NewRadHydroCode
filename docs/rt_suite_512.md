@@ -43,6 +43,21 @@ The runs (`$RUNS/<name>`, the names of the 2026-10-11 set):
 | `reion512_rays_otvet_screen` | OTVET, screened kernel | `otvet`, `otvet_closure = screen` | B |
 | `reion512_rays_otvet_cone` | OTVET, HI-attenuated cone tensor | `otvet`, `otvet_closure = cone` | B |
 
+Where the outputs are (checked 2026-11-05; all seven complete, 1.40 TB in
+all): `$RUNS` is `/gscratch/astro/mcquinn/radhydro/runs` (set by
+`tools/hyak/env.sh`; nothing is linked into the checkout). Each run
+directory holds `params.txt`, `ics` and the outputs under **`run/`**:
+`run/step_NNNN/` (100 steps, the field files `fHI.bin`, `fHeI.bin`,
+`fHeII.bin`, `rhog.bin`, `temp.bin`, `gammaHI.bin`, `gammaHI_avg.bin` and
+`stats.txt`; no `snap*` directories), `run/reion.txt` (frame, z, x_HII,V,
+x_HII,M, τ_es), `run/movie/` (about 2000 `frame_NNNNN_<field>.slab`
+files and `cosmo.mp4`), `run/Pk`, `run/Log`, `run/restart` and `run/DONE`.
+The analysis of the set is `$RUNS/rt_methods_512/` (`compare.txt`,
+`compare.mp4`, `compare_diff_xHII.mp4`, `figures/`, `figures_clip3/`,
+`gamma_pk_avg/`, `igm/`, `methods_avg/`, the `maps_*` stills) and the
+paper copies are `docs/figures/rt_suite_512_*` and
+`docs/movies/rt_suite_512*.mp4`.
+
 ```
 source tools/hyak/env.sh                 # RUNS=/gscratch/astro/$USER/radhydro/runs
 sbatch tools/hyak/build_hyak.sh          # then ctest -R "gamma_avg|c_schedule|movie_slab"

@@ -137,7 +137,7 @@ struct Halo {
 // FoF, reused by the on-the-fly sources until fof_dt_myr of cosmic time has
 // passed. Masses, R and T stay those of the FoF; positions are drifted with
 // the halo mean velocity (in gas-grid units at the FoF, vel_unit) over the
-// code time dtau accumulated since. Checkpointed (version 5).
+// code time dtau accumulated since. Checkpointed (version 7).
 struct FofCache {
   std::vector<Halo> halos;  // as found by the last FoF
   bool valid = false;

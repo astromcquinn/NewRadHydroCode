@@ -14,8 +14,9 @@
 // functions are stubs that throw (src/amrex/gas_state_stub.cpp). The
 // process functions (backend_init, io_rank, ...) are those of
 // rt_backend.hpp. Requires rt_backend = hydro_backend = pm_backend = amrex,
-// hydro_scheme = unsplit, rt_method = rays, recomb_rad = 0, N_rt_gas = 1
-// (check_amrex_state_param).
+// hydro_scheme = unsplit and N_rt_gas = 1; rt_method = m1 | otvet need
+// amrex_slab = 1 (or the hierarchy, amrex_max_level > 0), and recomb_rad = 1
+// works with the moment methods only (check_amrex_state_param).
 #pragma once
 #include <cstdint>
 #include <functional>

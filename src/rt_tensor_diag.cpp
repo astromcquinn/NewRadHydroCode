@@ -1,4 +1,19 @@
-// Eddington-tensor diagnostic (rt_tensor_diag.hpp, docs/otvet_closure.md).
+// The Eddington-tensor diagnostic of the rays (include/radray/rt_tensor_diag.hpp,
+// docs/otvet_closure.md section 1): radhydro tensor_dump = 1, serial RT
+// backend only, off by default (a null Simulation::tdiag, so byte-identical
+// results). On the hydro steps that write a zdata1 snapshot, radhydro calls
+// tensor_diag_begin; rt_step_1 calls tensor_diag_substep at the start of
+// every RT substep; the deposits of ray_tracing.cpp (rrk::cast_1's callback
+// and the thick source cell's own deposit) call tensor_diag_ray /
+// tensor_diag_iso; the moment RT adds its N, F and D N into the same
+// accumulator (moment_tensor_diag, src/rt_moments.cpp); and
+// radhydro calls tensor_diag_write with the snapshot directory. It
+// accumulates per cell the Gamma_HI-weighted angular moments S0, S1, S2 of
+// the radiation (the header's formula) and writes their means over the
+// substeps as tensor.bin, with tensor_odd.bin, the optically thin OTVET
+// tensor of the step's sources (otvet_h.bin) and sources.txt, which
+// tools/analysis/tensor_compare.py and apps/otvet_tensor.cpp read. Nothing
+// here is read by the RT.
 #include "radray/rt_tensor_diag.hpp"
 
 #include <cstdio>
@@ -13,6 +28,8 @@
 
 namespace radray {
 
+// One hydro step's accumulation: 10 doubles per RT cell in S (even substeps)
+// and So (odd substeps), zeroed; the counters restart.
 void tensor_diag_begin(Simulation& s) {
   if (!s.tdiag) s.tdiag = std::make_shared<TensorDiag>();
   TensorDiag& T = *s.tdiag;
@@ -24,6 +41,8 @@ void tensor_diag_begin(Simulation& s) {
   T.active = true;
 }
 
+// Start of a substep (rt_step_1): count it, add its length and point the
+// deposits at this substep's accumulator.
 void tensor_diag_substep(Simulation& s) {
   TensorDiag& T = *s.tdiag;
   T.nsub += 1;
@@ -38,7 +57,10 @@ void tensor_diag_substep(Simulation& s) {
 }
 
 namespace {
-// Gamma_HI weight of a deposit: sum_g sigma_HI(nu_g) dng_g (cm^2 nH units)
+// Gamma_HI weight of a deposit: sum_g sigma_HI(nu_g) dng_g (cm^2 nH units).
+// v is the cast_1 deposit: v[g] the photons dng of group g, v[5 + g] their
+// dng * nu, so the group's mean frequency is v[5 + g] / v[g]; sig[0] is the
+// HI cross section of rrk::photoion_sigma (the one the RT uses).
 inline double gamma_weight(const double* v) {
   double nu[kNfreq], sig[3][kNfreq];
   for (int q = 0; q < kNfreq; ++q) nu[q] = v[q] > 0 ? v[5 + q] / v[q] : 0.0;
@@ -50,6 +72,9 @@ inline double gamma_weight(const double* v) {
 }
 }  // namespace
 
+// A ray segment's deposit into cell c with the ray's direction: v[10..12]
+// is dx times the summed dng, so dividing by that sum recovers the unit
+// direction n. S0 += w, S1 += w n, S2 += w n n^T (xx, yy, zz, xy, xz, yz).
 void tensor_diag_ray(TensorDiag& T, std::int64_t c, const double* v) {
   const double w = gamma_weight(v);
   if (!(w > 0)) return;
@@ -70,6 +95,8 @@ void tensor_diag_ray(TensorDiag& T, std::int64_t c, const double* v) {
   S[9] += w * n[1] * n[2];
 }
 
+// An isotropic deposit (the optically thick source cell absorbing its own
+// emission): no net flux, S2 += w I / 3.
 void tensor_diag_iso(TensorDiag& T, std::int64_t c, const double* v) {
   const double w = gamma_weight(v);
   if (!(w > 0)) return;
@@ -80,6 +107,10 @@ void tensor_diag_iso(TensorDiag& T, std::int64_t c, const double* v) {
   S[6] += w / 3;
 }
 
+// End of the hydro step: every rank stops accumulating, the I/O rank writes.
+// tensor.bin holds the means over all substeps (S + So), tensor_odd.bin
+// over the odd ones only (their difference from the even half estimates the
+// rays' sampling noise); both float32, 10 per cell in the S layout.
 void tensor_diag_write(Simulation& s, const std::string& dir, bool io) {
   if (!s.tdiag || !s.tdiag->active) return;
   TensorDiag& T = *s.tdiag;
@@ -102,6 +133,8 @@ void tensor_diag_write(Simulation& s, const std::string& dir, bool io) {
   };
   wr("tensor.bin", out);
   wr("tensor_odd.bin", outo);
+  // the optically thin OTVET tensor of this step's sources, as the solver
+  // computes it (rt_moments.hpp; 6 floats per cell): the closure to compare
   std::vector<float> h;
   std::int64_t nsrc = 0;
   compute_otvet_tensor(s.rt, s.units, 0, h, &nsrc);
@@ -110,8 +143,11 @@ void tensor_diag_write(Simulation& s, const std::string& dir, bool io) {
   src << "# i j k Luv (1-based RT cells; sfr > sfr_min); tensor.bin substeps " << T.nsub
       << " odd " << T.nsub_odd << "\n";
   {
-    // photons per substep per unit Luv in group g (units of tensor.bin's N,
-    // the mean substep) and the weight 1e18 sigma_HI(freq_init[g])
+    // the header lets the analysis put the sources' direct light in the
+    // dump's units: qfac[g] = photons per substep per unit Luv in group g
+    // (the emission of ray_source: fResc * pop2_init[g] * dt / vol_rt / nH_avg
+    // with dt the mean substep) and sigma18[g] = 1e18 sigma_HI(freq_init[g]),
+    // the weight of a fresh ray's photons in group g
     const double dt = T.nsub > 0 ? T.dt_sum / T.nsub : 0.0;
     double nu[kNfreq], sig[3][kNfreq];
     for (int g = 0; g < kNfreq; ++g) nu[g] = cp::freq_init[g];
@@ -124,6 +160,8 @@ void tensor_diag_write(Simulation& s, const std::string& dir, bool io) {
     for (int g = 0; g < kNfreq; ++g) src << " " << sig[0][g] * 1e18;
     src << "\n# redshift " << s.clk.redshift << " N " << s.rt.N << "\n";
   }
+  // the source cells by the RT's own criterion (ray_source: sfr > sfr_min
+  // and Luv > 0), 1-based like the Fortran, k slowest
   const RTGrid& G = s.rt;
   for (int k = 1; k <= G.N; ++k)
     for (int j = 1; j <= G.N; ++j)
@@ -132,6 +170,7 @@ void tensor_diag_write(Simulation& s, const std::string& dir, bool io) {
         if (static_cast<double>(G.sfr[c]) > s.units.sfr_min && G.Luv[c] > 0)
           src << i << " " << j << " " << k << " " << G.Luv[c] << "\n";
       }
+  // free the 160 B per cell until the next snapshot step
   T.S.clear();
   T.S.shrink_to_fit();
   T.So.clear();

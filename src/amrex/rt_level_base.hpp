@@ -233,6 +233,51 @@ struct CellLevel : LevelBase {
   CFab C;
   Timers T;
 
+  // A refined level (lev > 0) on the gas state's BoxArray and mapping of
+  // that level (docs/moment_amr.md): N = Nrt << lev, the cells on those
+  // grids
+  int lev = 0;
+  CellLevel(const Config& cfg, bool with_e, int lev_, const ax::BoxArray& ba_, const ax::DistributionMapping& dm_) {
+    lev = lev_;
+    N = cfg.Nrt << lev;
+    has_e = with_e;
+    domain = ax::Box(ax::IntVect(0), ax::IntVect(N - 1));
+    const ax::RealBox rb({0., 0., 0.}, {double(N), double(N), double(N)});
+    const ax::Array<int, 3> per{1, 1, 1};
+    geom = ax::Geometry(domain, rb, ax::CoordSys::cartesian, per);
+    period = geom.periodicity();
+    state = gs::active();
+    if (!state) throw std::runtime_error("rt_backend = amrex: a refined level needs amrex_state = 1");
+    ba = ba_;
+    dm = dm_;
+    C.define(ba, dm, 1, 0);
+    for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
+      auto c = C.array(mfi);
+      ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) { c(i, j, k) = RTCell{}; });
+    }
+  }
+  // The gas state's FabArray of this level (level 0: G; refined: fine[lev-1].G)
+  gs::FFab& state_G() const {
+    return lev == 0 ? state->G : state->fine[static_cast<std::size_t>(lev) - 1].G;
+  }
+  // The units of this level: the lengths and volumes of its cells (the
+  // base units for level 0)
+  Units ul;
+  bool ul_set = false;
+  const Units& units_of(const Simulation& s) {
+    if (lev == 0) return s.units;
+    if (!ul_set || ul.x_unit != s.units.x_unit || ul.sfr_min != s.units.sfr_min) {
+      ul = s.units;
+      const double f = std::ldexp(1.0, -lev);
+      ul.len_gas = s.units.len_gas * f;
+      ul.vol_gas = s.units.vol_gas * (f * f * f);
+      ul.len_rt = s.units.len_rt * f;
+      ul.vol_rt = s.units.vol_rt * (f * f * f);
+      ul_set = true;
+    }
+    return ul;
+  }
+
   CellLevel(const Config& cfg, bool with_e) {
     N = cfg.Nrt;
     has_e = with_e;
@@ -269,7 +314,7 @@ struct CellLevel : LevelBase {
     const bool he2 = has_e;
     for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
       auto c = C.const_array(mfi);
-      auto ga = state->G.array(mfi);
+      auto ga = state_G().array(mfi);
       ax::ParallelForOMP(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
         const RTCell& d = c(i, j, k);
         for (int m = 0; m < 5; ++m) ga(i, j, k, gs::kU + m) = d.u[m];
@@ -290,17 +335,18 @@ struct CellLevel : LevelBase {
     if (has_e != s.gas.has_e()) throw std::runtime_error("rt_backend = amrex: the dual-energy field appeared after the level was built");
     const RTGrid& G = s.rt;
     const GasGrid& g = s.gas;
-    const Units u = s.units;
+    const Units u = units_of(s);
     const bool he = has_e;
     const int NN = N;
     if (state) {
       // the gas from the level's state, the radiation fields of the
       // previous step from the cells themselves, the sources from calc_halo's
-      // sparse list (G.src_*, on every rank; ascending cell index)
+      // sparse list (G.src_*, on every rank; ascending cell index; a refined
+      // level's sources come from its hierarchy)
       const std::int64_t N2 = static_cast<std::int64_t>(NN) * NN;
       for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
         auto c = C.array(mfi);
-        auto ga = state->G.const_array(mfi);
+        auto ga = state_G().const_array(mfi);
         const Box_t bx = mfi.validbox();
         ax::ParallelForOMP(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
           RTCell d = c(i, j, k);
@@ -313,6 +359,7 @@ struct CellLevel : LevelBase {
           c(i, j, k) = d;
         });
         // the source cells in the box's k-planes
+        if (lev != 0) continue;
         const auto b0 = std::lower_bound(G.src_cell.begin(), G.src_cell.end(), bx.smallEnd(2) * N2);
         const auto b1 = std::lower_bound(b0, G.src_cell.end(), (bx.bigEnd(2) + 1) * N2);
         for (auto it = b0; it != b1; ++it) {
@@ -595,6 +642,8 @@ struct CellLevel : LevelBase {
 
 // The moment level (moment_level.cpp): rt_method = m1 | otvet on the slabs
 std::unique_ptr<LevelBase> make_moment_level(const Config& cfg, bool with_e);
+// the moment hierarchy (docs/moment_amr.md): amrex_max_level > 0
+std::unique_ptr<LevelBase> make_moment_hierarchy(const Config& cfg, bool with_e);
 
 }  // namespace rtl
 }  // namespace radray

@@ -1204,6 +1204,21 @@ struct Level : LevelBase {
     // ---- plane_transport = sweep: the packets in flight cast as the rays they stand for ----
     if (plane_sweep && P.plane.L > 0) {  // (L = 0 before the turn-on: no face sources)
       const int L = P.plane.L, kc = P.cells;
+      // plane_packet_rescale = 1: the packets in flight to the photons of
+      // one substep of the current dtsec_rt (the change counts as emitted)
+      const double scale = plane_packet_scale(s);
+      if (scale != 1) {
+        for (std::size_t fi = 0; fi < pfaces.size(); ++fi)
+          for (ax::MFIter mfi(PF[fi]); mfi.isValid(); ++mfi) {
+            auto pf = PF[fi].array(mfi);
+            ax::ParallelForOMP(mfi.fabbox(), 5, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+              pf(i, j, k, q) = static_cast<float>(static_cast<double>(pf(i, j, k, q)) * scale);
+            });
+          }
+        const double inf = from_fx128(plane_inflight_fx, kBitsNgam);
+        if (!in_hierarchy) s.plane.emitted += (scale - 1) * inf;
+        plane_inflight_fx = to_fx128(scale * inf, kBitsNgam);
+      }
       for (std::size_t fi = 0; fi < pfaces.size(); ++fi) {
         const int f = pfaces[fi], d = f / 2, sgn = rrk::plane_face_sign(f);
         for (ax::MFIter mfi(C); mfi.isValid(); ++mfi) {
@@ -1287,6 +1302,7 @@ struct Level : LevelBase {
       X.cells = cells;  // the crossing speed of this level's path
       X.photon_conserve = s.cfg.photon_conserve;
       X.cool_suppress = s.cfg.cool_suppress_overdensity;
+      X.sn_heating = s.cfg.sn_heating;
       X.photon_consume_dense = s.cfg.photon_consume_dense;
       X.ia = s.cfg.recomb_case_A ? 0 : 3;
       X.want_nrab = false;
@@ -2934,9 +2950,9 @@ LevelBase& level_of(Simulation& s) {
     const bool with_e = s.gas.has_e();
     const bool hier = s.cfg.amrex_max_level > 0 && use_amrex_hydro(s.cfg);  // the hierarchy (F3b)
     if (use_moments(s.cfg)) {
-      // rt_method = m1 | otvet (moment_level.cpp): the base level only
-      if (hier) throw std::runtime_error("rt_method = m1 | otvet with rt_backend = amrex: amrex_max_level must be 0");
-      s.amrex->level = make_moment_level(s.cfg, with_e);
+      // rt_method = m1 | otvet (moment_level.cpp): the base level, or the
+      // moment hierarchy on the refined levels (docs/moment_amr.md)
+      s.amrex->level = hier ? make_moment_hierarchy(s.cfg, with_e) : make_moment_level(s.cfg, with_e);
     } else if (s.cfg.ray_encoding == RayEncoding::RStruct)
       s.amrex->level = hier ? std::unique_ptr<LevelBase>(std::make_unique<Hierarchy<amrex_enc::RStructEnc>>(s.cfg, with_e))
                             : std::unique_ptr<LevelBase>(std::make_unique<Level<amrex_enc::RStructEnc>>(s.cfg, with_e));

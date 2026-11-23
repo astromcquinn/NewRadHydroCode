@@ -40,6 +40,19 @@ inline bool all_zero(const float* v) {
 void plane_sweep_cast(Simulation& s) {
   PlaneState& ps = s.plane;
   if (!ps.on || !ps.active || ps.transport != 1) return;
+  // plane_packet_rescale = 1: the packets in flight to the photons of one
+  // substep of the current dtsec_rt (the change counts as emitted)
+  const double scale = plane_packet_scale(s);
+  if (scale != 1) {
+    for (auto& F : ps.field) {
+      const std::int64_t n = static_cast<std::int64_t>(F.size());
+      float* v = F.data();
+#pragma omp parallel for schedule(static) if (par::worth(n))
+      for (std::int64_t i = 0; i < n; ++i) v[i] = static_cast<float>(static_cast<double>(v[i]) * scale);
+    }
+    ps.emitted += (scale - 1) * ps.inflight();
+    ps.inflight_fx = plane_to_fx(scale * ps.inflight());
+  }
   RTGrid& G = s.rt;
   const rrk::RTP P = rt_params(s);
   const int N = s.cfg.Nrt, L = ps.L, k = P.cells;

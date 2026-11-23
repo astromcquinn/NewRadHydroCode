@@ -1,6 +1,485 @@
 # Project status
 
-*Last updated: 2026-11-02: the user's decisions on `pm_level_subcycle` (4 FFTs, no corrector until Z1) and the corrector diagnostic. Also 2026-10-31: the AMReX RT across levels rank-independent through a regrid that rechops a refined level (branch `claude/elegant-volta-wekhho`, on `stage-g-subcycle`, below). 2026-10-31: Stage G follow-up, the refined levels' gravity on their own timescale, `pm_level_subcycle` (branch `stage-g-subcycle`, `docs/stage_g.md` §6, below); the user's decision of rectangular zoom levels (`docs/PLAN.md`). Before that, 2026-10-29: the AMReX RT's checkpoints with a partial refined region made rank-independent and its restarts through an RT step bit-identical (the refined levels' ray order, `dr`, the uninitialised `TF`; checkpoint version 9; branch `claude/modest-mendel-8k29sb`, below); the user's zoom decisions (about 10 rays per fine cell; fine-level gravity on its own timescale, `docs/PLAN.md`). Also 2026-10-29: linear growth of DM and gas from MUSIC ICs against CAMB, and `recfast_table` (branch `music-linear-growth`, below). Also 2026-10-28: `photon_consume_dense` (P11) part of `legacy_physics = 0` (branch `photon-consume-legacy`, below). Also 2026-10-28: the plane-parallel turn-on step, `plane_turnon_cfl` (branch `plane-turnon-step`, below). Also 2026-10-29: rank 0 without the full grid copy under `amrex_state = 1` (branch `rank0-no-mirror`, below). Before that, 2026-10-29: the plane-parallel problems' floor 0.1 K (below); the preheating floor `T_min`/`z_floor` extended to the hydro (below); `photon_consume_dense = 1` confirmed for the plane-parallel problems; PR #9 merged; the runtime cosmology, z_init and the preheating floor (PR #8, branch `claude/vibrant-albattani-8xnpwa`, below) merged with `main`. Before that, 2026-10-27: the unsplit hydro's over-cooling of the cold IGM found and fixed behind `dual_e_self` (U7, branch `claude/beautiful-dirac-8omh78`, below); the plane-parallel RT-domain mode (rays and the sweep transport), its tests, the T4 step caps and the C1 ladder scripts (branch `claude/eager-sagan-h6a0tu`, below). Before that, 2026-10-26: `thermal_init = recfast` and `thermal_floor` (below); the thermal history before heating checked against RECFAST (T1, below); X-ray preheating behind `xray_heating` (branch `xray-preheating`, below); `gammaHI_avg` for the moment RT on `rt_backend = amrex` (branch `gamma-avg-amrex`, below); the Fortran split for a public repository (below). Before that, 2026-10-22/24: Stage G, the level Poisson solve on the hierarchy, `pm_level_solve` (branch `claude/modest-mendel-8k29sb`, `docs/stage_g.md`, below; the klone profile 2026-10-24). Before that, 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`, below); MUSIC installed on klone (below). Before that, 2026-10-22: the uniform 512³ suite of every RT method run and reported (`docs/rt_suite_512.md`; the Sheth–Tormen sources, f6 = 0.11, the continuous ĉ schedule `c_reduced_schedule_interp`; branch `rt-suite-512`, below). Before that, 2026-10-22: the refined 512³ run against its control (branch `amr512-analysis`, below); the zoom-in turbulence plan and a PR audit (below). Before that, 2026-10-18: the substep-averaged Γ_HI (`gammaHI_avg`), the launch script of the uniform 512³ suite (`tools/hyak/rt_suite512.sh`) and the suite's decisions; before that the assessment and plan for the unified RT-methods suite (`docs/PLAN.md`, "Unified RT-methods suite", with the thread prompts; branch `claude/sleepy-feynman-dx6ic2`, below). Before that, 2026-10-17: ĉ by ionisation state, `c_reduced_schedule` (branch `c-schedule`, below); a falling escape fraction (branch `fesc-evolution`, PR #45, below). Before that, 2026-10-14 (evening): Stage F3, the 8 sources of `uniform_8src` with one and two refined levels, three fixes of the RT across levels (branch `stage-f3-8src`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+*Last updated: 2026-11-21: second-order moment transport `moment_order = 2` (`docs/rt_moments.md` §9). Before that, 2026-11-20: the M1/OTVET check against Gnedin 2025 (constant-opacity transfer function, `docs/rt_moments.md` §7). Before that, 2026-11-15: the near-vacuum blowups of the refined late-end 512³ pair and their safeguards (`sf_max_fraction`, `floor_rho_reset`, `T_max` on the AMReX levels with a refusal below z = 4, the runaway-substep stop, the `RADRAY_HYDRO_SCAN` diagnostic), the moment levels' `PhysCtx` fix and the `add_stars` hand-off (branch `moment-amr-physctx`, below). Before that, 2026-11-10: `moment_inject = 1` the default (user decision); the rays of the moment-RT comparison (`docs/rt_moments.md` §4) rerun with the frame rotation `ray_rotate = 3`, the numbers refreshed for B17, P11 and the new injection default, and why the moment fronts run ahead early (branch `claude/trusting-feynman-2w7i8q`, below). Before that, 2026-11-09: repository cleanup (reading guides at the top of the RT sources, comments in the under-documented files, `docs/REVIEW_GUIDE.md`, the CMake configure without FFTW fixed, the stray klone build logs untracked; branch `claude/kind-cerf-9y6xp2`, below). Before that, 2026-11-08: `otvet_background = ga01`, the isotropic background of Gnedin & Abel 2001 as a second moment field, implemented and validated at 256³: thin OTVET bit for bit before overlap, then it removes thin OTVET's P_Γ excess, but only by z ≈ 4.9, about 1 in z later than the split and the cone (`docs/otvet_background.md` §9, branch `otvet-background`, below). Before that, 2026-11-07: the design and the implementation. Before that, 2026-11-06: why the closures do not change the mean Γ_HI after overlap: the photon sink by density of the 512³ suite, the single-absorber test (M1 2×, the cone 1.4× the rays' recombinations in a resolved absorber) and the 256³ P11 on/off set (P11 a 10–25 % effect on the IGM for every method, the closure difference 2–3 %) (`docs/absorbers_closures.md`, branch `absorbers-wu21`, PRs #27 and #29, below). Also 2026-11-06: the τ_eff distribution over 50 Mpc/h in every run (against z, λ_mfp, raw and normalised to the mean flux) and 21cmFAST's excursion set against the RT methods, the paper's Figures 7 and 8 (`docs/taueff_21cmfast.md`, branch `taueff-21cmfast`, PR #28, below). Before that, 2026-11-02: the user's decisions on `pm_level_subcycle` (4 FFTs, no corrector until Z1) and the corrector diagnostic. Also 2026-10-31: the AMReX RT across levels rank-independent through a regrid that rechops a refined level (branch `claude/elegant-volta-wekhho`, on `stage-g-subcycle`, below). 2026-10-31: Stage G follow-up, the refined levels' gravity on their own timescale, `pm_level_subcycle` (branch `stage-g-subcycle`, `docs/stage_g.md` §6, below); the user's decision of rectangular zoom levels (`docs/PLAN.md`). Before that, 2026-10-29: the AMReX RT's checkpoints with a partial refined region made rank-independent and its restarts through an RT step bit-identical (the refined levels' ray order, `dr`, the uninitialised `TF`; checkpoint version 9; branch `claude/modest-mendel-8k29sb`, below); the user's zoom decisions (about 10 rays per fine cell; fine-level gravity on its own timescale, `docs/PLAN.md`). Also 2026-10-29: linear growth of DM and gas from MUSIC ICs against CAMB, and `recfast_table` (branch `music-linear-growth`, below). Also 2026-10-28: `photon_consume_dense` (P11) part of `legacy_physics = 0` (branch `photon-consume-legacy`, below). Also 2026-10-28: the plane-parallel turn-on step, `plane_turnon_cfl` (branch `plane-turnon-step`, below). Also 2026-10-29: rank 0 without the full grid copy under `amrex_state = 1` (branch `rank0-no-mirror`, below). Before that, 2026-10-29: the plane-parallel problems' floor 0.1 K (below); the preheating floor `T_min`/`z_floor` extended to the hydro (below); `photon_consume_dense = 1` confirmed for the plane-parallel problems; PR #9 merged; the runtime cosmology, z_init and the preheating floor (PR #8, branch `claude/vibrant-albattani-8xnpwa`, below) merged with `main`. Before that, 2026-10-27: the unsplit hydro's over-cooling of the cold IGM found and fixed behind `dual_e_self` (U7, branch `claude/beautiful-dirac-8omh78`, below); the plane-parallel RT-domain mode (rays and the sweep transport), its tests, the T4 step caps and the C1 ladder scripts (branch `claude/eager-sagan-h6a0tu`, below). Before that, 2026-10-26: `thermal_init = recfast` and `thermal_floor` (below); the thermal history before heating checked against RECFAST (T1, below); X-ray preheating behind `xray_heating` (branch `xray-preheating`, below); `gammaHI_avg` for the moment RT on `rt_backend = amrex` (branch `gamma-avg-amrex`, below); the Fortran split for a public repository (below). Before that, 2026-10-22/24: Stage G, the level Poisson solve on the hierarchy, `pm_level_solve` (branch `claude/modest-mendel-8k29sb`, `docs/stage_g.md`, below; the klone profile 2026-10-24). Before that, 2026-10-23: zoom ICs from MUSIC, thread D (branch `zoom-ics`, below); MUSIC installed on klone (below). Before that, 2026-10-22: the uniform 512³ suite of every RT method run and reported (`docs/rt_suite_512.md`; the Sheth–Tormen sources, f6 = 0.11, the continuous ĉ schedule `c_reduced_schedule_interp`; branch `rt-suite-512`, below). Before that, 2026-10-22: the refined 512³ run against its control (branch `amr512-analysis`, below); the zoom-in turbulence plan and a PR audit (below). Before that, 2026-10-18: the substep-averaged Γ_HI (`gammaHI_avg`), the launch script of the uniform 512³ suite (`tools/hyak/rt_suite512.sh`) and the suite's decisions; before that the assessment and plan for the unified RT-methods suite (`docs/PLAN.md`, "Unified RT-methods suite", with the thread prompts; branch `claude/sleepy-feynman-dx6ic2`, below). Before that, 2026-10-17: ĉ by ionisation state, `c_reduced_schedule` (branch `c-schedule`, below); a falling escape fraction (branch `fesc-evolution`, PR #45, below). Before that, 2026-10-14 (evening): Stage F3, the 8 sources of `uniform_8src` with one and two refined levels, three fixes of the RT across levels (branch `stage-f3-8src`, below). Before that, 2026-10-15: Stage F3, the RT across refinement levels (branch `stage-f3`, below). Before that, 2026-10-14: Stage F decisions, B17 under `legacy_physics = 0`, Stage F1 (the gas hierarchy) and F2 (refined hydro validated, `cool_suppress_overdensity`, the star-formation sink), `srun --mpi=pmix` (branch `stage-f-decisions`, PR #40, below). Also 2026-10-13: Stage E2 on klone, the PM backend validated and scaled (PR #38, below). Before that, 2026-10-13: Stage E4, load balancing (`amrex_balance = 1`) and production runs on the backend (`make_production.py --backend amrex`, `reion_production.slurm` over several nodes), 512³ on 5 nodes, the SIGTERM backtraces (branch `stage-e-balance`, PR #37, below); Stage E3, the state on the levels, `amrex_state = 1` (PR #34 merged, `docs/stage_e_state.md`, below): 512³ runs on one node, bitwise identical to the 2-node host-state run; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Also 2026-10-13: OTVET closures merged (PR #35); faster OTVET tensor (branch `otvet-fft-speed`); OTVET closures implemented behind flags (`otvet_closure`, `otvet_split`) and validated at 256³ and 512³: the split and the cone remove OTVET's after-overlap P_Γ excess, and the cone also matches the rays' overlap era best; 512³ runs done (branch `otvet-closure`, PR #35, below, `docs/otvet_closure.md`). Also 2026-10-13: Stage E3, the state on the levels, `amrex_state = 1` (branch `stage-e-state`, `docs/stage_e_state.md`, below): 512³ runs on one node; PR #32 (Stage E1 + the klone runs) and PR #33 (Stage E2) merged into `main`. Before that, 2026-10-12 (evening): Stage E2, the PM gravity on AMReX behind `pm_backend = amrex` (branch `stage-e-pm`, below, `docs/stage_e_pm.md`); Stage E prerequisites on klone, the AMReX backend built, tested (81/81) and timed at 256³ and 512³ on 1–4 nodes, and the multi-node hydro slowdown found to be the UCX transport (`UCX_RNDV_THRESH=8m UCX_ZCOPY_THRESH=inf` in `env.sh`, also 10–15 % off the RT), box size 32³ (branch `claude/clever-fermi-aa4km4`, `docs/stage_d.md` §4.4, `docs/stage_e_hydro.md` §4.1/§5, below); Stage E1, the unsplit hydro on AMReX, `hydro_backend = amrex`, bitwise identical to the serial step (`docs/stage_e_hydro.md`); M1's neutral source cells, `moment_inject` (branch `m1-clumps`, below); what's next (Stage E, MPI, then AMR), the production default back to case B, the Hyak module-load fix (branch `claude/clever-fermi-aa4km4`, below); `pm_refine` (PM mesh finer than the gas grid), FoF cadence option and the Sheth–Tormen abundance matching (branch `pm-refine`, below); the nightly workflow fixed (branch `claude/new-session-knktw3`, below). Also 2026-10-12: rays vs M1 vs OTVET at 40 Mpc/h, 512³ with case A + recombination radiation, and the Γ_HI comparison (branch `rt-methods-512`, `docs/rt_methods_512.md`). Also 2026-10-12: the stored RT references that differ on klone are skipped there (label `platform_ref`); OTVET kept as implemented. Also 2026-10-12: rays crossing k cells per substep, `rt_cells_per_substep` with `photon_conserve` (B17) and `ray_deposit = exposure` (branch `rt-multicell`, PR #27, `docs/rt_multicell.md`, merged into `main`). Before that, 2026-10-11: production runs use `hydro_scheme = unsplit` and `redshift_per_distance = 1` (user decisions, now the `make_production.py` defaults); Stage D, the ray-tracing RT on AMReX (branch `stage-d-amrex`, PR #24, `docs/stage_d.md`, merged into `main`); the 256³ production run (branch `production-256`, PR #23, below) and slab-only movie frames `movie_slab`, the movie-reader speed fix and `POST=sbatch` (branch `movie-slab`, merged into `main`). Before that, 2026-10-10: `redshift_per_distance` (branch `redshift-per-distance`, merged); IGM diagnostics (branch `igm-diagnostics`, merged); recombination radiation with the moment RT and helium lines (branch `recomb-moments`, merged into `main`); status assessment and the Hyak production and Stage D prompts ("Threads to launch"); B16 fix `ray_rotate` merged into `main` (branch `claude/exciting-clarke-zn62ih`; production uses `ray_rotate = 3`). The same day: the framework-spike Hyak CPU and GPU benchmarks (PR #19, branch `spike-hyak-bench`: AMReX approved, no ACCESS proposal for now), case A recombination and recombination radiation (branch `recomb-radiation`), and moment RT (M1, OTVET) with its 256³ klone comparison (branch `claude/elegant-bell-rqd3l1`). Before that, 2026-10-09: the survey (PR #16), `hyak-setup` (PR #17), `movies` (PR #12) and `production-run` (PR #7).*
+
+## Index by topic (the sections below, newest first within a topic)
+
+The sections are in the order they were written. By topic:
+
+- **RT methods and closures (the paper):** τ_eff and 21cmFAST (2026-11-06, `taueff-21cmfast`, PR #28); the photon sink by density, the single absorber, P11 on/off (2026-11-06, `absorbers-wu21`, PR #29); the uniform 512³ suite (2026-10-22, `rt-suite-512`); `gammaHI_avg` and the suite's launch script (2026-10-18); the unified suite assessed (2026-10-17); the reduced speed of light by ionisation state (2026-10-17, `c-schedule`); a falling escape fraction (2026-10-17, `fesc-evolution`); a better Eddington tensor for OTVET (2026-10-13, `otvet-closure`, PR #35); the moment RT on AMReX (2026-10-14, `moments-amrex`); M1's neutral source cells (2026-10-12, `m1-clumps`); rays, M1 and OTVET at 40 Mpc/h (2026-10-12, `rt-methods-512`); rays crossing k cells per substep (2026-10-12, `rt-multicell`, PR #27); recombination radiation with the moments and helium lines, case A recombination (2026-10-10, `recomb-moments`, `recomb-radiation`); the moment RT itself (2026-10-10, `claude/elegant-bell-rqd3l1`); `gammaHI_avg` for the moments on `rt_backend = amrex` (2026-10-26). OTVET with the isotropic background of Gnedin & Abel 2001, `otvet_background = ga01` (2026-11-08, `otvet-background`, PR #32); the moment RT on the refined levels (2026-11-06/07, `moment-amr`, PR #31, merged 2026-11-09).
+- **AMReX backends and AMR (Stages D to G):** the refined late-end pair's near-vacuum blowups and safeguards (2026-11-15, `moment-amr-physctx`); the RT levels through a rechopping regrid (2026-10-31); the refined levels' gravity on their own timescale (2026-10-31, `stage-g-subcycle`); rank 0 without the full grid copy (2026-10-29); the AMReX RT's checkpoints with a partial refined region (2026-10-29); Stage G, the level Poisson solve (2026-10-22); two refined levels rank-independent (2026-10-22); `fesc512_b2.5_amr` against its control (2026-10-22); rays at the refinement boundaries (2026-10-21); refined-run crash fix, `fields_levels` (2026-10-16); Stage F3 with 8 sources (2026-10-14) and Stage F3 (2026-10-15); Stage F decisions, F1 and F2 (2026-10-14, PR #40); Stage E2 on klone (2026-10-13, PR #38); Stage E4, load balancing (2026-10-13, PR #37); Stage E3, the state on the levels (2026-10-13, PR #34); Stage E2, the PM gravity on AMReX (2026-10-12); Stage E prerequisites and Stage E1, the unsplit hydro on AMReX (2026-10-12); Stage D, the ray-tracing RT on AMReX (2026-10-11, PR #24); the framework spike (Stage C, PR #11).
+- **Hydro and thermal physics:** the unsplit hydro's over-cooled cells, `dual_e_self` (2026-10-27); the preheating floor `T_min`/`z_floor` in the hydro (2026-10-29, PR #12); `thermal_init = recfast`, `thermal_floor`, the thermal history before heating, X-ray preheating (2026-10-26, `xray-preheating`); `land_outputs = 1` (2026-10-30, PR #19); dense gas consumes photons, P11 (2026-10-28, `photon-consume-legacy`).
+- **Plane-parallel RT-domain mode (the C1 ladder):** the turn-on step (2026-10-28, `plane-turnon-step`); the problems' floor 0.1 K (2026-10-29); the mode itself, rays and the sweep transport (2026-10-26, `claude/eager-sagan-h6a0tu`). the sweep's packets rescaled when dt_rt changes (2026-11-05, `claude/plane-packet-rescale`, PR #26, merged 2026-11-09); the C1 ladder from C26's ICs (`claude/wizardly-allen-b2oci5`, PR #18, merged 2026-11-09).
+- **Initial conditions and gravity:** linear growth from MUSIC ICs (2026-10-29, `music-linear-growth`); zoom ICs from MUSIC (2026-10-23, `zoom-ics`); MUSIC on klone (2026-10-23); the zoom-in turbulence plan and a PR audit (2026-10-22); `pm_refine` (2026-10-11/12).
+- **Production runs, movies, diagnostics:** the 256³ production run (2026-10-10, `production-256`); `movie_slab` (2026-10-11); `redshift_per_distance` (2026-10-10); IGM diagnostics (2026-10-10); `fesc-z` (2026-10-11); measured production costs (PR #10); the nightly workflow (2026-10-12).
+- **Repository:** the Fortran split for a public repository (2026-10-26, `fortran-split`); branches and PRs merged on 2026-10-09; "Threads to launch"; Next; Open questions for the user; Known limits.
+
+## Done 2026-11-21: second-order moment transport, `moment_order = 2` (branch `moment-order2`)
+
+The user asked for a second-order transport scheme after §7 showed that the
+first-order GLF diffusion sets M1's small-scale Γ power. `docs/rt_moments.md` §9.
+
+- New key `moment_order` (default 1, unchanged bit for bit): 2 = MC-limited
+  linear reconstruction, GLF flux of the realizable face states, Heun step;
+  needs `moment_nsub >= 6`; uniform grid only (`rt_backend = amrex` refuses).
+- Tests: unit tests in `moments` (pulse, second-order convergence of a smooth
+  wave, threads), `restart_smoke_{m1,otvet}_order2`. Fast suite on klone:
+  all pass but the nine `platform_ref` ray references (`docs/cluster.md` §3).
+- Uniform-opacity transfer test: with `moment_inject = 1` order 2 lowers
+  M1's T by 1.1–1.9 at kΔx = 0.1–0.8 but the injection's white floor
+  remains (still 2–15× the continuum M1 at kΔx = 0.3–0.6). With
+  `moment_inject = 0` the excess is gone and T falls to 0.3–0.9 of the
+  continuum at kΔx ≤ 0.5 (limiter on a white-noise source field). OTVET changes little.
+- Cost: the transport is 10–17× slower (6 subcycles × 2 stages × 6 closure
+  evaluations per cell).
+- **Not done:** a production run with it; AMReX levels; HLL; a cheaper
+  reconstruction of the pressure tensor.
+
+## Done 2026-11-20: M1 and OTVET checked against Gnedin 2025 (branch `claude/dreamy-ride-nchi0z`)
+
+The user asked whether our Γ-fluctuation trends contradict arXiv:2504.10571
+(ALTAIR M1 and OTVET both follow arctan(kλ)/(kλ)). `docs/rt_moments.md` §7:
+
+- New `tools/analysis/moment_transfer.{cpp,py}`: the solver's own transport
+  kernels in a uniform-λ medium, T(k) against the exact form and the
+  linearised closures (Wu, McQuinn & Eisenstein 2021 eqs. 5.14–5.15) with
+  the GLF numerical diffusion. Not a ctest (built by hand, line in the
+  file's header).
+- No bug found. Both closures follow their linear theory; at λ = L/8 M1
+  follows arctan(kλ)/(kλ) to 11 % with 0.06 sources per λ³ (its exact case),
+  and to 25 % with every cell a source only through the GLF diffusion
+  (continuum M1: 0.2 of exact at kλ = 10);
+  at λ = 2.5 L M1 has 0.06× and OTVET 11–26× the exact power, the 512³
+  numbers after overlap. During reionization the 512³ M1 and OTVET agree in
+  T to 0.73–1.15.
+- Found: M1's small-scale Γ power at long λ is set by the first-order GLF
+  diffusion (plateau T ≈ 1.5 Δx/λ), so it depends on resolution and scheme.
+- Resolution test of the uniform-opacity transport (32³–128³, λ = L): M1
+  crosses above the exact T at kΔx ≈ 1.3 at every resolution and not at
+  all with `moment_inject = 0`; at fixed kλ its T falls toward the linear
+  solution. M1's Γ power above k ≈ 1 h/Mpc after overlap is numerical.
+- **Convergence runs done 2026-11-23** (`tools/hyak/rt_convergence.sh`,
+  branch `rt-convergence-runs`; `docs/rt_moments.md` §8.1–8.5): rays, M1,
+  M1 with `moment_inject = 0` and OTVET at N = 128, 256, 512 with fixed
+  dark matter in 20 Mpc/h; the rays at `nray_max_factor` = 8–120 at 256³;
+  `moment_order = 2` (PR #40) at 128³ and 256³.
+  - Ray budget: the suite's 15 is converged in P_Γ during reionization
+    (within 5 % of f = 120 at k ≤ 2 h/Mpc); after overlap 20 % high at the
+    box scale. At 128³ 15 fails after overlap (forced merges).
+  - M1's small-scale excess over the rays falls with N (3.05, 1.36, 1.05
+    at k = 16 h/Mpc at x_V ≈ 0.58) and after overlap the crossing is at
+    kΔx = 1.1–1.3, as §7 predicts. OTVET's excess falls with N at every k.
+  - `moment_inject = 0`: P_Γ below the rays at every k ≥ 1 h/Mpc, rising
+    toward them with N; reionizes earlier (x_V = 0.95 against 0.87 at
+    z = 5, 512³).
+  - `moment_order = 2` does not reduce M1's excess in the runs and lowers
+    its correlation with the rays; cause unknown.
+  - The uniform test with the rays (`tools/analysis/ray_transfer.cpp`,
+    `tools/hyak/ray_transfer.sh`): the part correlated with the sources is
+    the exact solution to 5–13 %; the rest is white noise of rms
+    0.95 n_ray^−½ per cell.
+  - Cost: rays / M1 wall time 4.1, 2.5, 1.9 at 128³, 256³, 512³.
+  - The exact linear solution of the discrete first-order scheme
+    (`tools/analysis/moment_transfer_exact.py`, §7.1): the code matches it
+    to 3 % in every bin at 32³–256³.
+  - Still running: OTVET with `moment_order = 2` at 256³ (one row of the
+    §8.2 tables).
+- Paper (`astromcquinn/RT_closure`, `main`): the Gnedin 2025 comparison,
+  M1's numerical high-k power and the convergence caveat are in.
+- Open: a T_ΓL(k) figure of the 512³ runs against their own source field
+  (needs the cubes on klone); an HLL or second-order flux to see the
+  continuum M1.
+
+## Done 2026-11-15: the refined late-end pair's blowups and the safeguards (branch `moment-amr-physctx`)
+
+The refined (two-level) rays and M1 runs matched to the late-end 512³ suite
+(`reion512late_amr`, `reion512late_amr_m1`; for the Γ–emissivity test of
+Wu, McQuinn & Eisenstein 2021) needed three fixes:
+
+- **Moment levels' `PhysCtx`** (8234c91): `MomentLevel::physics` never set
+  `cool_suppress` or `sn_heating`, so the moment RT on `rt_backend = amrex`
+  always used 200 ρ̄ and SN heating on. Earlier moment runs on the AMReX
+  backend that asked for other values did not get them.
+- **`add_stars`** (b6bb7d7): a rank with sink events but no PM box hands
+  them to the lowest rank with one (ids unchanged otherwise).
+- **Near-vacuum blowups** (docs/stage_f.md §2, "Near-vacuum blowups"): a
+  cell drained below the density floor kept its momenta and energies,
+  heated without bound (e/ρ ~ 10¹⁶) and crashed M1 at z = 5.0 and the rays
+  run at z = 6.07. New, all off by default: `sf_max_fraction`,
+  `floor_rho_reset`, `T_max` on the AMReX hydro (refused below z = 4
+  unless `T_max_low_z = 1`: it would remove the WHIM). Always on: a
+  runaway substep count stops the run. Diagnostic: `RADRAY_HYDRO_SCAN`.
+  The pair runs with `sf_max_fraction = 0.9`, `floor_rho_reset = 1`,
+  `T_max = 1e6` (user, 2026-11-15); M1 restarted from step 130, the rays
+  rerun from the start (`reion512late_amr_r2`).
+
+Open: M1 has ~100 hot (10⁷–10⁹ K) cells at overdensity ~0.003 that the
+rays run lacks; not yet explained.
+
+## Done 2026-11-10: the moment-RT comparison with rotated rays, `moment_inject = 1` the default (branch `claude/trusting-feynman-2w7i8q`)
+
+* **`moment_inject = 1` is the default** (user decision, `docs/PLAN.md`):
+  the moment RT injects a substep's source and recombination photons
+  after the transport (`docs/rt_moments.md` §5a). Production already used
+  it.
+  - The tests that set 1 explicitly now test 0: `restart_smoke_m1_inject0`,
+    and the AMReX cases `m1inj0` and `m1recombinj0` (not run here, the
+    container has no AMReX).
+  - `make_production.py` writes the key explicitly.
+  - Checkpoints do not store it, so a run started with the old default
+    needs `moment_inject = 0` in its `params.txt` before a restart.
+  - The rays and every legacy comparison are unaffected.
+
+* **Why:** `tools/analysis/rt_methods.py` (the I-front, shadow, two-source
+  and 16-source comparisons of `docs/rt_moments.md` §4) ran the rays with
+  the default fixed HEALPix frame, `ray_rotate = 0`, while every production
+  run since 2026-10-10 uses `ray_rotate = 3`. The shadow map's neutral holes
+  were B16.
+* **Script:** the rays now use `ray_rotate = 3`. The fixed frame is a
+  fourth column, "rays, fixed frame". New diagnostics: the front's spread
+  over directions, the neutral holes inside the shadow problem's front, and
+  the photons in flight and the ionised volume outside the light cone in
+  the I-front problem.
+* **Results:**
+  - With the rotation the holes are gone (33 neutral cells inside the front
+    → 0), and the I-front's spread over directions halves (±0.32 → ±0.17
+    cells).
+  - The shadow behind the clump and the global x_HII of the box do not
+    change. The rotation alone moves 6 % of the box's cells by more than
+    0.1, which is the rays' sampling floor against the moments' 20–23 %.
+* **Stale numbers:** the stored §4 numbers predated B17 and P11 joining
+  `legacy_physics = 0`. With both off the script reproduces the old table
+  exactly. In the box at step 60, M1 and OTVET are above the rays in x_HII
+  by:
+  - 8 % and 5 % in the old table;
+  - 16 % and 11 % with B17 and P11 on, inject 0;
+  - 6 % and 3 % with B17 and P11 on, inject 1.
+* **Why the moment fronts run ahead early** (user question): fewer
+  photons are in flight than with the rays, so more are absorbed. There
+  are two causes.
+  - **The injection order:** with inject 0, the I-front error at ĉt = 2
+    cells is +61 %, and 0.42 of the rays' photons are in flight. With
+    inject 1 it is +36 %, with 0.65 in flight.
+  - **The GLF scheme's numerical diffusion:** at ĉt = 2 a tenth of the
+    ionised volume (inject 1; a sixth with 0) lies outside the light cone,
+    since the 4 subcycles of a substep reach 4 cells. Later the front is
+    about 1.5× thicker than the rays'.
+* **Literature for a shadow test (user question):** listed from memory in
+  `docs/rt_moments.md` §5. Our test has no published counterpart. Iliev
+  et al. 2006 Test 3 would need plane-parallel sources in the moment RT,
+  which it does not have.
+* **`docs/REVIEW_GUIDE.md` §6 fixed:** the stale parameter lists and
+  comments of 2026-11-09, the unused `Npart`, the `photon_conserve` error
+  text, `rms_dex` without the penalty and the three Release-build warnings.
+  Open: the from-memory coefficients (need the papers). Fast suite 176/176
+  with FFTW installed (3 skipped for optional tools).
+* **Not changed:** the ctest RT tests (`ifront_rsla*` and the stored
+  references) keep `ray_rotate = 0`, since they check the original bit for
+  bit. The 256³ klone ray runs of §6 (2026-10-09) used the fixed frame and
+  are only annotated.
+
+## Done 2026-11-09: repository cleanup and a review guide (branch `claude/kind-cerf-9y6xp2`)
+
+* **Why:** a read-through of the repository before the RT-closure paper.
+  Nothing in the arithmetic changed: every edited source compiles to the
+  same token stream with the comments stripped
+  (`gcc -fpreprocessed -dD -E`), the fast suite passes as before, and the
+  outputs of `rt_driver` and `radhydro` runs with every RT method are
+  byte-identical to the binaries built from `main` (compare.py `--rtol 0
+  --atol-frac 0`).
+* **Reading guides** at the top of `src/rt_tools.cpp` (the RT substep loop
+  and the chain snapshots), `src/ray_tracing.cpp` (the ray, the splitting
+  and merging rules), `include/radray/kernels/ray_kernels.hpp` (the
+  contents), `src/rt_moments.cpp` and `src/otvet_closure.cpp` (function
+  maps, the photon budget), and the units of the photoionisation rate in
+  `kernels/rt_cell.hpp`. File-header and function comments added to the
+  under-documented sources (`src/rt_backend.cpp`, `hydro_backend.cpp`,
+  `pm_backend.cpp`, `amrex_state.cpp`, `amrex/gas_state.cpp`, `io.cpp`,
+  `rt_tensor_diag.cpp`, `ray_dump.cpp`, `abundance_matching.cpp`,
+  `mass_function.cpp`, `thermal_history.cpp`, `xray_background.cpp`,
+  `halos.cpp`, `halo_sources.cpp`, `plane_parallel.cpp`,
+  `hydro_unsplit.cpp`, `fft.cpp`).
+* **`docs/REVIEW_GUIDE.md`:** the layers of the code, the reading order of
+  the documents, where each RT method lives (code, documents, tests), a
+  method-by-method checklist of what the paper must state and where to
+  verify it, the recipes that prove a change kept the results, and the
+  branch hygiene.
+* **Fixes:** `tests/CMakeLists.txt` referenced the `radhydro` target
+  outside the `RADRAY_HAVE_PM` guards (`music_zoom`, `cool_suppress_*`,
+  `cosmology_*`), so CMake failed to configure on a machine without
+  FFTW3f; guarded. `build.cmake.log` and `build.make.log` (klone build
+  logs committed by accident in `8eb059f`) untracked and ignored.
+  `tools/analysis/thermal_history.py` imported matplotlib at module
+  level, which made three fast-suite tests (`thermal_init_recfast`,
+  `preheat_floor`, `unsplit_dual_e_self`) fail wherever matplotlib is
+  missing although they draw nothing; the import is now inside the
+  plotting code.
+* **README:** the status paragraph (2026-10-09) brought up to date; the
+  layout lists the moment RT, the closures and the backends.
+* **Branches and PRs** (state on 2026-11-09): PR #32 (`otvet-background`)
+  merged into `main` on 2026-11-09; PRs #31 (`moment-amr`), #26
+  (`claude/plane-packet-rescale`) and #18 (`claude/wizardly-allen-b2oci5`,
+  the C1 ladder) merged into `main` on 2026-11-09 as well;
+  `claude/beautiful-archimedes-kcgsvx` (gamma_profile.py, 2 commits) has
+  no PR. 23 remote branches are already merged into `main` and can be
+  deleted (`git branch -r --merged origin/main`).
+
+## Done 2026-11-08: OTVET with the isotropic background of Gnedin & Abel 2001 (branch `otvet-background`)
+
+* **Design** (`docs/otvet_background.md` §1–7, from the papers' LaTeX):
+  - In absolute variables, G&A's eq. 17 is a conservative two-field
+    scheme.
+  - CROC's background vanishes when the box's own absorption sets its
+    mean free path.
+  - The user chose `ga01`, with Λ from the box's volume-mean opacity, per
+    frequency group, and case B recombination as the default.
+* **Implementation:** `otvet_background = ga01` (§8).
+  - A second, isotropic field per group. Each substep it receives
+    min(N_L, Λ_g s̄_g) of each cell's photons.
+  - Λ_g = exp(−0.611 N_rt ⟨τ_cell,g⟩).
+  - Checkpoint version 10.
+  - Serial moment solver only.
+* **Checks:**
+  - With the key off, byte-identical to `main` (rt_driver
+    lognormal_16src with rays, otvet and m1; radhydro smoke with rays and
+    otvet).
+  - Λ = 0 is byte-identical to thin OTVET.
+  - New `test_moments` cases; ctest `thread_rt_otvet_ga01_lognormal_16src`
+    and `restart_smoke_otvet_ga01`.
+  - Fast suite 171/180. The 9 failures are the `platform_ref` tests,
+    which fail the same way on `main` on klone.
+* **Validation at 256³** (§9; runs `$RUNS/otvcl256B*`,
+  `otvcl256_otvet_{ga01,now}`; analysis `$RUNS/otvbg_post256v2`,
+  `$RUNS/otvbg_apriori`; 7 one-node runs plus analysis, ≈ 8 node-hours):
+  - A case-B set (rays, thin, split, cone, ga01) from one binary is the
+    clean comparison. The October case-A suite predates P11 under
+    `legacy_physics = 0` (aa30151), which moves thin OTVET's history by
+    Δz = 0.03–0.05.
+  - Λ ≈ 0 until x_V ≈ 0.99: ga01 is thin OTVET bit for bit through z =
+    6.8. After overlap Λ_g = 0.8–0.99 (case B).
+  - P_Γ ratio to the rays at k = 2.2 h/Mpc, z = 5.64 / 5.49 / 4.90: thin
+    4.9 / 6.9 / 15.7, ga01 4.0 / 3.1 / 1.4, split 1.3 / 1.3 / 1.1, cone
+    1.3 / 1.2 / 1.2. Only the new photons move to the background and its
+    photons are absorbed at the volume-mean opacity, so it builds up over
+    a photon lifetime (80 % of the photons by z = 5.0).
+  - A priori: with G&A's Λ the proxy is too isotropic after z = 5.7; with
+    the photon-budget Λ (k̄) it equals the split.
+  - Cost 1.25× thin OTVET (61 against 48 min), +1.7 GB at 256³.
+  - Conclusion: ga01 is "OTVET as G&A use it" for the paper; the cone
+    stays the closure to carry.
+* **Not done** (each departs from G&A): Λ from the photon budget in the
+  run, moving part of L's stock, recombination photons into B (CROC),
+  512³.
+
+## Done 2026-11-06: τ_eff over 50 Mpc/h and 21cmFAST against the RT methods (branch `taueff-21cmfast`)
+
+* **The question** (the RT-closure paper's Figures 7 and 8): the τ_eff
+  distribution of every run of the 512³ suite, and the 21cmFAST
+  excursion set on the suite's own density against the rays and the
+  moment methods. Report `docs/taueff_21cmfast.md`; outputs
+  `$RUNS/rt_closure_paper/`; job `tools/hyak/taueff_21cmfast.slurm`
+  (phases taueff, slabs, es, standalone, figures; all of it ≈ 1
+  node-hour, run on a 32-core allocation).
+* **Tools:** `igm_stats.py --taueff L` (per-skewer fluxes, box-length and
+  L Mpc/h joined segments, raw and A-rescaled, per-skewer ⟨ρ⟩ and ⟨Γ⟩_ion,
+  a uniform-Γ counterfactual; `--lya-only`; default output unchanged),
+  `taueff_plot.py` (Figure 7), `taueff_slabs.py` (real-space τ_eff from
+  the movie slabs every Δz = 0.025, with its calibration),
+  `excursion_set.py` (21cmFAST 4.3.1 on an external density, a numpy
+  mirror, B2, Figure 8); ctest `igm_stats_selftest`,
+  `excursion_set_selftest` (label `analysis`, skipped without scipy).
+* **Figure 7:** the widths of the rescaled τ_eff distributions differ
+  between methods by up to 15–20 % at the snapshots (35 % for M1 at the
+  end of reionization in the slabs); the cone within 5 % of the rays. The order
+  is the reverse of the prompt's expectation: after overlap thin OTVET is
+  the narrowest (0.55 against 0.62 at z = 5) and M1 slightly broad; before
+  overlap M1 is the broadest (+11–22 %). With a uniform Γ all methods have
+  the same width: on the box's scales Γ correlates with density (0.6–0.7)
+  and τ ∝ ρ²/Γ, so OTVET's excess Γ fluctuations cancel density scatter
+  and M1's missing ones do not. The slabs add that the end of
+  reionization (z ≈ 5.45–5.6) is where the methods differ most (M1 +35 %).
+  Real space vs redshift space: widths 4–7 % narrower at z ≥ 5.7, equal
+  after.
+* **Figure 8 (B1):** 21cmFAST's criterion (CONST-ION-EFF, top hat, M_min =
+  1.28×10⁸ M☉, ζ = 13.4–14.6 with R_max = 15 Mpc, 10.1–16.7 with
+  R_max = λ_mfp) on the rays' gas density at the rays' x_V: 17–19 % of
+  the cells differ from the rays by > 0.5 at x_V = 0.5–0.8 (M1 7–8 %,
+  OTVET 3 %, cone 2 %); r(k) 0.85–0.93 at k = 0.2 h/Mpc but 0.05–0.5 at
+  1 h/Mpc. B2 (own ICs, 512³): ζ within 7 % of B1's, the same small-scale
+  power deficit.
+* **Raw τ_eff against z and λ_mfp** (`taueff_z.py`, report A.6): the
+  medians over 50 Mpc/h agree within 5 % at fixed z after z ≈ 5.6. At
+  fixed λ_mfp (the user's preferred match) thin OTVET is 11–15 % more
+  opaque at every λ, split/screen 10–16 % for λ ≤ 10 pMpc, the cone
+  +2–6 %, M1 −2 to −5 % (the slabs' −10 % at z ≥ 6 is slab sampling:
+  the full-box snapshots, now overplotted, give −2 %), A + RR within 2 %.
+  The raw slab level is 13–22 % above the full box's (real against
+  redshift space); the ratios between methods agree within 2–3 %.
+* **Normalised to the mean flux** (`taueff_z.py --norm`, A.6): medians
+  within 2 % in every method; the widths keep the ordering (thin OTVET
+  16–19 % narrow after z ≈ 5.4, M1 31–34 % broad at z ≈ 5.5–5.6, the cone
+  within 6 %). M1's bumps: after its earlier overlap Γ decorrelates from
+  density (r = −0.10 at z = 5.47 against +0.6 for the others), so Γ
+  fluctuations add to the τ scatter instead of cancelling it.
+* **The τ_eff figures to use** (user, 2026-11-06): the full-box
+  snapshots only, connected (`taueff_z.py --full` without `--slabs`;
+  `figures/taueff_21cmfast_*_snap*.png`). Normalised: medians within 2 %;
+  width M1 +24 % at z = 5.47 and +11–14 % at z ≥ 6, thin OTVET −12–14 %
+  after overlap, cone within 7 %.
+* **21cmFAST with our mass weighting** (B1m, `excursion_set.py run-mass`,
+  report B.1): E-INTEGRAL, ALPHA_STAR = a(z) − 1 = 0.43–0.46 from the
+  abundance matching, ALPHA_ESC = 0, POP2_ION tuned to x_V. It is now the
+  21cmFAST column of Figure 8, which shows only R_max = 15 Mpc (no
+  λ_mfp variant, no own-ICs B2: user, 2026-11-06). It agrees slightly
+  less well than constant ζ: more power at large scales, r(k) lower by
+  0.05–0.13 at k ≈ 0.5–1 h/Mpc. The source weighting is not what limits
+  21cmFAST here.
+* **Deferred (user, 2026-11-06):** the observed τ_eff distributions
+  (Bosman+22) and the reference check are on hold; the comparison
+  between methods is to be made at the same mean free path. Optional:
+  the criterion at 21cmFAST's usual resolution (R_BUBBLE_MIN = 0.62 Mpc,
+  ~1 Mpc cells).
+
+## In progress 2026-11-06: the moment RT on the refined levels (Thread C stage 2, branch `moment-amr`)
+
+* **Why:** the user's decision after `docs/absorbers_closures.md` (an AMR
+  run with M1 or the OTVET cone where the absorbers are resolved); the
+  moment RT on the AMReX backend ran on level 0 only. Design and status:
+  `docs/moment_amr.md`.
+* **Built:** `MomentHierarchy` in `src/amrex/moment_level.cpp` (the
+  levels follow the gas state's grids; the base level on the hydro's
+  boxes with fixed-point sums, since the refined levels refuse slabs; a
+  level's units, covered mask and budgets in base units; the sources on
+  the finest cells; the coarse-first subcycling with the fine ghosts
+  interpolated in time between the parent's old and new moments; the
+  refluxing of the GLF face fluxes in fixed point; average-down of
+  moments, cells, gas and `gammaHI_avg`; the OTVET tensor on a slab
+  shadow of level 0 prolonged onto the levels; the checkpoint's level
+  directory). Tests: `amrex_moment_amr_{ranks,restart}_smoke{,_cone}`
+  (byte-identical over 1/2/3 ranks and through a restart),
+  `amrex_moment_amr_ifront` (the refined M1 front against the uniform
+  runs at N and 2N). The transport conserves photons to 10⁻¹¹ per substep
+  (`RADRAY_MOMENT_AMR_DEBUG`).
+* **Found on the way:** the parent's covered cells counted the children's
+  absorption again (3× with three levels); a refined level injected with
+  the base cell's volume (8× too few photons, caught by the I-front
+  test); without refluxing, and with the fine level run before its
+  parent, photons were created at the coarse-fine faces (6 % of the
+  injection over the I-front run).
+* **Queued 2026-11-07 (user: match the rays' refined run and report ⟨Γ⟩
+  and λ_mfp, each method refined against its uniform twin):**
+  `fesc512_b2.5_amr_otvet_cone` (5 nodes, job 43012838) and
+  `fesc512_b2.5_uniform_otvet_cone` (1 node, job 43012839), the rays'
+  runs' parameters plus the cone keys (`tools/hyak/amr_moment_runs.sh`),
+  the binary `$RUNS/moment_amr_bin/radhydro`; they start once the four C1
+  1024³ runs release the group's cores (~11-10) and after the
+  maintenance of 11-10/11. Then `igm_stats.py` on the four runs. M1 on
+  the levels is built and tested too (not queued).
+
+## Done 2026-11-06: the photon sink by density of the 512³ suite, why the closures do not change ⟨Γ_HI⟩ (branch `absorbers-wu21`)
+
+* **The question** (for the paper's §5): Wu, McQuinn & Eisenstein 2021
+  predict that the moment closures over-ionise self-shielding absorbers
+  (recombinations 1.3–1.4× the exact for an r⁻² absorber, Γ 0.4× at fixed
+  emissivity), yet the suite's rays and moment methods agree on the
+  median Γ to 10 % and on Γ, λ_mfp, ⟨F⟩ at z = 5–6. Report
+  `docs/absorbers_closures.md`; tool `tools/analysis/absorber_budget.py`
+  (per cell: photoionisations Γ n_HI V, the photons removed under
+  `photo_cell`'s rule x = min(e^{−(δ−50)/50}, 1), case-B recombinations
+  with the code's α_B lookup; binned in δ and x_HI; the moment runs'
+  `ray.log` photon budget; the periodic absorbers of x_HI > 0.5 and their
+  grid-line HI columns), self-test `absorber_budget_selftest` (ctest
+  label `analysis`), job `tools/hyak/absorber_budget.slurm` (2 min on a
+  node for 6 runs × 4 snapshots); outputs `$RUNS/absorbers_wu21/`.
+* **Phase 1 (existing snapshots at z = 5.98, 5.49, 5.25, 4.99):**
+  - **H1, resolution: decisive.** No cell self-shields in any run (the
+    median x_HI at δ = 100–1000 is 10⁻⁵–10⁻⁷); at z = 4.99 the rays have
+    2 neutral cells and 16 with τ_912 > 1 in 1.3×10⁸, 70 % of the 912 Å
+    opacity is in τ < 1 cells and λ_mfp = 1/(σ⟨n_HI⟩) = 31 pMpc. Before
+    overlap the x_HI > 0.5 regions are the last neutral islands (three of
+    10⁵ cells), not dense absorbers.
+  - **H2, the dense-gas rule: a hidden difference.** Confirmed from
+    `params.txt` (no key) and the binary (no `photon_consume_dense`
+    string; built 2026-10-21, before P11). δ > 50 (0.01–0.03 % of the
+    volume) removes 4–6 % of the photons but hosts 21–30 % of the
+    recombinations and 12–15 % of the rays' photoionisations, 30 % of
+    M1's at z = 5.98 (M1 ionises the dense cells 2.5× more, Wu's
+    mechanism, as free ionisations). With P11 on, the effective
+    emissivities would differ by 5–11 % between M1 and the rays at
+    z ≈ 6 and ≤ 1 % after overlap. The median x_HI(δ) falls above
+    `rho_source` in every method.
+  - **H3, the sink is elsewhere: yes.** Half of the recombinations are
+    at δ < 10 and 65–75 % of the removed photons; after overlap 22–28 %
+    of a step's emission is absorbed in that step, 4–6 % redshifts away
+    and 70 % goes into the in-flight reservoir (12 steps' emission at
+    z = 5, n_γ ≈ ṅλ/ĉ with λ growing); the rays and every moment method
+    agree on this budget to 0.01–0.03.
+  - **Wu's ratio at this resolution:** M1 recombines 5–12 % more than
+    the rays between δ = 30 and 1000 (Wu's sign, a quarter of their
+    size), the OTVET family 3–9 % less (thin OTVET the least: its
+    proximity excess over-ionises the dense cells); on 30–45 % of the
+    sink, so 2–4 % of the total, invisible in Γ at the 10 % level.
+* **Phase 2 (user's decision 2026-11-06: (c) and (a), not (b); an AMR run
+  with M1/OTVET later if the absorbers can be resolved), done the same
+  day (§5–7 of the report; commits on `absorbers-wu21`, PR #29):**
+  - **(c) one r⁻² absorber** (`tools/analysis/absorber_single.py`,
+    `tools/hyak/absorber_single.slurm`; δ_c = 100, r_c = 20 pkpc, cut at
+    δ = 10, in a 5 Mpc/h box at z = 6 with 64 lattice sources set for
+    Γ = 5×10⁻¹³ at the absorber, `rt_driver`, ĉ = c, 60 Myr, 32/16/8 pkpc
+    cells): every moment method's Γ diffuses into the absorber that the
+    rays shadow; the recombinations inside are 2.0–2.3× the rays' for
+    M1, 1.6–1.75× OTVET thin, 1.9–2.0× split and screen, and **1.8 →
+    1.4× for the cone**, the only closure that converges toward the rays
+    with resolution; Wu+21's mechanism reproduced, larger than their
+    1.3–1.4×. Pitfalls recorded: the rays of symmetric sources focus on
+    the centre cell without `ray_rotate` (B16); the periodic background
+    keeps rising while the images within a mean free path arrive, so the
+    calibration is read at the measurement step; the ray pool scales
+    with the box.
+  - **(a) 256³ in 20 Mpc/h, P11 on and off** (`tools/hyak/absorber_p11_runs.sh`,
+    `$RUNS/abs256_{rays,m1,cone}_p11{1,0}`, 64 threads each under the
+    account's CPU limit, the rays 4.9 h, the moments 1.8 h; analyses in
+    `$RUNS/absorbers_wu21/p11_256/`): P11 lowers the median Γ by 18–24 %
+    at z ≥ 5.49 and 10–13 % after overlap, λ_mfp by 10–27 %, ⟨F⟩ by
+    6–25 %, ends reionization 0.05–0.10 later and τ_es 0.0003 lower, the
+    same for every method (f_esc needs recalibrating: f6 ≈ 0.13 for the
+    suite's Γ). **The M1-to-rays difference in the median Γ changes by
+    2–3 points with P11** (0.97 → 0.94 at z = 5.49), the cone's not at
+    all: the hidden difference of H2 is a few per cent, not the 5–11 %
+    the per-cell photoionisation count had suggested (the dense cells
+    cycle within a hydro step; the code's own budget is the number to
+    use; §3.2/3.5 corrected). The closure does not matter at 78 kpc/h
+    with P11 either: the box has no self-shielding cell.
+  - The `absorber_single_selftest` joins the `analysis` label.
+* **Phase 2 as proposed on 2026-11-06 (before the decision):** (c)-cheap first,
+  one r⁻² absorber in `rt_driver` with every method (an hour, no code;
+  Wu's uniform background needs the moment RT in the plane-parallel
+  mode, which refuses it today, about a day of code); then (a) 256³ in
+  20 Mpc/h (the precheck configuration) with the rays, M1 and the cone,
+  P11 on and off, ≈ 10 node-hours and 0.1–0.2 TB; (b) 512³ in 20 Mpc/h
+  (39 kpc/h, the suite's particle mass kept so the sources are the
+  same) with the three methods, ≈ 70–75 node-hours, 0.35–0.4 TB, a
+  trend point only.
+
+## Done 2026-11-05: the plane-parallel sweep's packets rescaled to the current RT substep (branch `claude/plane-packet-rescale`)
+
+The user saw the domain boxes slide along +x +y in the C1 1024³ movies
+(z ≈ 6.6). The cause: a sweep packet holds the photons of one RT substep
+at launch and moves k cells per substep however long it is, while the
+cell rates divide by the current dt_rt, so every change of dt_rt sent a
+Γ wave across all the domains at once. The worst case is the 0.1c → 0.0025c
+switch at z = 7, after which Γ_HI,V was 16× low. Hot-cell-shortened steps
+gave ±11–15 % ripples, and the landing steps gave ~10× spikes.
+`plane_packet_rescale = 1` (default 0; sweep, serial and AMReX) rescales
+the packets in flight by dt_new/dt_old (`docs/plane_parallel.md` "Packet
+rescaling"). Tests `plane_rescale` and `amrex_plane_rescale` pass; in the
+16³ test the default's Γ dip at the switch (5.98 → 2.06 × 10⁻¹²) becomes
+0.23 %. `make_production.py --plane-parallel` writes the flag. The four
+running C1 1024³ runs keep the old behaviour (user decision 2026-11-05):
+they will be rerun with the flag after the Nov 10–11 maintenance. The
+512³ halo-source runs have the same property in their rays, but only
+≲ 5 % changes of dt_rt per step (interpolated ĉ), so the bias is a few
+per cent and makes no pattern.
 
 ## Found 2026-11-05: a stale configuration table in `docs/rt_suite_512.md`
 
@@ -113,6 +592,110 @@ sub-cycle the level solve and the kicks with the refined levels' hydro.
   `_ranks_smoke`, `_restart_smoke`, `_identity_smoke`; nightly `_rt_ranks`,
   `_rt_restart`, `_collapse`, `amrex_pm_zoom_t1_subcycle`).
 
+
+## Done 2026-10-30: the C1 ladder from C26's ICs; the open PRs stacked (branch `claude/wizardly-allen-b2oci5`)
+
+* **The PRs, stacked in merge order** (user request): each open PR edits
+  the top of this file, so each was merged with the one before it and its
+  conflicts resolved: #17 (`rank0-no-mirror`, unchanged) → #13
+  (`plane-turnon-step`) → #14 (`photon-consume-legacy`) → #15
+  (`music-linear-growth`) → #11 (`claude/modest-mendel-8k29sb`); #6
+  (`compare-movie-res`) merges on its own. Merged in this order, each PR
+  merges cleanly; until its predecessors are on `main` its diff shows
+  theirs too. (All five merged by 2026-11-02; #18 merged with
+  `main` on 2026-11-04.) Besides the documents:
+  * #13 against the runtime cosmology of `main` (PR #8):
+    `calc_da_from_dt` now takes the `Cosmology`; the turn-on cap passes
+    `cfg.cosmo` (a compile error after the merge, no change of results).
+  * #14 on top of PR #12: the plane-parallel problems no longer write the
+    explicit `photon_consume_dense = 1` (`legacy_physics = 0` turns it on,
+    P11); the documents say both.
+  * #11 against #17: `read_checkpoint` returns its version (#11) and skips
+    the grid blocks under `amrex_state = 1` (#17). The serial build
+    compiles; the AMReX build (rt_level.cpp has both PRs' changes, merged
+    without conflict) and the `amrex_state`/`level_solve` restart tests
+    are to be run on klone before #11 merges.
+  * Fast suite on the top of the stack (#15 with #17, #13, #14; cloud
+    container, serial build, no `reference/fortran`): 166/166 pass (the
+    live Fortran comparisons are not built without the submodule; CI runs
+    them).
+* **`tools/hyak/c1_ladder.sh`, C26's set-up by default (`ICS=music`):**
+  MUSIC in uniform mode (`c2_uniform.conf` at level log2 N, `seed[10] =
+  MUSIC_SEED` = 2026, so the rungs share their modes with each other and
+  with the 128³ linear-growth box of #15) from z = 300 with CAMB's separate
+  CDM and baryon transfer functions, the C26 cosmology (0.305, 0.048, 0.68,
+  σ8 0.82, n_s 0.9667), converted by `music_convert.py`, and
+  `thermal_init = recfast` with the table of that cosmology
+  (`make_recfast_table.py --out`, `recfast_table`); the steps of
+  `tools/hyak/linear_growth.slurm`. `THERMAL=floor` for the floor history;
+  `ICS=zeldovich` gives the ladder of before (z = 100, original cosmology:
+  `params.txt` and ICs byte-identical to the old script's at 64³).
+  `make` runs MUSIC and CAMB (on a compute node, or `MAKE_SBATCH=1`
+  submits it); `run` refuses a MUSIC rung without its ICs. recfast is
+  refused with `amrex_state = 1`, so with recfast every rung, 512³
+  included, runs the serial build on the whole node (no ray pool with the
+  sweep transport, ~100 GB at 512³); `THERMAL=floor` or `BACKEND_512=amrex`
+  gives the 512³ rung the backend.
+* **Checked here:** a 64³ problem as the MUSIC branch writes it (the C26
+  cosmology, z_init = 300, recfast with a table from CAMB 2.0.5; Zel'dovich
+  ICs of the same cosmology standing in for MUSIC, which this container
+  may not build) runs: mean-density gas at 465 K at z = 200, RECFAST's
+  table 466 K (the floor history: 366 K). MUSIC itself and the conversion
+  are those of #15's linear-growth runs on klone.
+* **Decided (user, 2026-10-30):** no `dt_max_myr` in the production
+  plane-parallel problems; the short turn-on step of #13 is the fix
+  (`docs/PLAN.md`).
+* **Found, left:** in the plane-parallel mode the stats before z_re print
+  `xHII_M = T_M = -nan` and the `temp` field is 0: the RT grid is not
+  filled before the RT turns on (the gas temperatures are in
+  `Log/hydro.log`). Diagnostic only.
+* **On klone (2026-10-30 evening):**
+  * **PR #11 with #17** (`claude/modest-mendel-8k29sb` at `acdf4e2`) on
+    the AMReX build: `-L "amrex_state|level_solve|amrex_plane"` 35/35, and
+    the refined-level nightly tests `amrex_pm_level_solve_rt_ranks`,
+    `amrex_pm_level_solve_rt_restart`, `amrex_state_full64_vs_serial`
+    pass. No fixes needed (reported on #11).
+  * **The C1 ladder from C26's ICs** (`docs/plane_parallel.md`, "The C1
+    ladder from C26's ICs"; runs in
+    `/gscratch/astro/mcquinn/radhydro/runs/c1_c26`). 64³: the RECFAST
+    history to ≤ 0.6 % to z = 15, a 0.81-Myr turn-on step, the fronts
+    across the domains in the first step at ~2 × 10⁴ K, E(k) like the
+    Zel'dovich rung from z ≈ 6.2 on (the old rung lagged before that).
+  * **Found: SN heating in source-free boxes.** The original's sub-grid
+    SN heating (T > 10⁴ K, Δ > 50) acts without sources, and with
+    `cool_suppress_overdensity = 0` it exploded the photoheated minihalo
+    gas at 128³/256³. **Decided (user):** no SN heating in any run: new
+    key `sn_heating` (default 1 = the original, byte-identical),
+    `make_production.py` writes 0. The 128³–512³ rungs were cancelled
+    (kept as `run_sn1`).
+  * **Found: numerical hot cells** next to cooling clumps with the long
+    post-turn-on CFL steps of the unsplit hydro. **Decided (user):** a
+    coupling cap that scales with the cell, new key
+    `plane_couple_courant` = 0.15 (every step from z_re ≤ 0.15 Δx/c_hot;
+    default off; `make_production.py --plane-parallel` writes it).
+    `plane_full` checks it.
+  * **Relaunched** all four rungs with both (21:25). Done
+    (2026-10-31): 64³ 10 min / 0.29 GB, 128³ 2 h 39 / 2.1 GB, 256³
+    5 h 40 / 15.7 GB (to z = 4), 512³ 22 h 13 / 110 GB on 192 threads
+    (stopped at z = 5). T_V, T_M converge to 1–1.5 % per doubling;
+    ⟨v²⟩ at z = 6: 54, 66, 73, 78 (km/s)² (after the 2026-11-01 cosmology fix of `velocity_power.py`). **512³ shows a k^−5/3
+    range**: slopes −1.5 … −1.95 at 0.25–1 h/kpc for z = 6.2–5; the
+    dissipation cutoff is numerical (~10 cells per wavelength). 1024³
+    extrapolates to ~350 h on one 192-core node and ~0.9 TB (fits one
+    1.5-TB cpu-g2 node with the serial build). Data and figures:
+    `docs/data/plane/c1_c26_*`, `docs/figures/plane_c1_c26_*`.
+  * **Found: late hot cells** (a near-empty 10⁸ K cell beside a clump
+    cooling without limit): 128³ from z ≈ 4.15, 256³ from z ≈ 4.9,
+    512³ from z ≈ 5.1. **Decided (user):** the ladder ends at z = 5 for
+    now, and sinks are tried alongside. New: `sf_overdensity > 0` on
+    the serial unsplit hydro (mass loss, no particles; default 0
+    byte-identical). At 128³ to z = 4, thresholds 3 000× and 1 000×
+    remove the episode, take 2.0 % and 3.1 % of the gas, change T_V by
+    ≤ 0.25 % and E(k) by ≤ 1.5–2.7 % at z = 5.
+  * **Open:** 256³/512³ with the sink (ask first); whether the sink
+    threshold should scale with N; the C26 Fig. 3 comparison
+    (digitised points from the user); PREHEAT variants and 1024³ (ask
+    first).
 ## Done 2026-10-30: `land_outputs = 1` ends the run on its last output (branch `land-outputs-end`, PR #19)
 
 - **Symptom:** the nightly `plane_dm20` failed every night from its
@@ -3168,8 +3751,10 @@ In the cloud (branch + PR each):
    > table, and open the PR.
 7. ~~**Plane-parallel / RT-domain mode** (`docs/plane_parallel.md`).~~
    Done 2026-10-26 (above); open: the C1 ladder on klone (the local 64³
-   rung and the T4 test are run here), the C26 Fig. 3 comparison needs
-   the paper's E(k) points (`velocity_power.py --ref`).
+   rung and the T4 test are run here; since 2026-10-30 from C26's MUSIC
+   ICs with recfast), the C26 Fig. 3 comparison needs the paper's E(k)
+   points (`velocity_power.py --ref`); for C2 at 1024³ on the backend,
+   `thermal_init = recfast` on the levels of `amrex_state = 1`.
 8. Smaller: ~~the stored-RT-reference platform policy~~ decided
    2026-10-12 (skip on klone, label `platform_ref`); the 2 % growth
    deficit; ~~the unsplit open items (Sedov radius convergence, cold-gas
@@ -3273,10 +3858,10 @@ differ on klone are skipped there (label `platform_ref`).
      flux-register and FillPatch overheads (`reflux`, `fill` timers), the
      distributed FoF and P(k) (rank 0 today, the bottleneck at 1024³
      particles).
-   - **Limits:** only the AMReX backends refine; M1/OTVET exist only in
-     the serial RT (`rt_backend = amrex` needs `rt_method = rays`), so
-     with refinement they could act on level 0 at best, untested and not
-     refused; the coarse substep lags the fine-level
+   - **Limits:** only the AMReX backends refine; M1/OTVET run on the
+     backend on z-slabs of level 0 only (`amrex_slab = 1`,
+     `docs/stage_e_moments.md`; the refined levels are PR #31,
+     `moment-amr`); the coarse substep lags the fine-level
      fronts (1.5 % with the whole box on level 1) and fails light-limited
      fronts at k = 4 (two levels at 0.1c, `docs/rt_multicell.md` §7–8).
 

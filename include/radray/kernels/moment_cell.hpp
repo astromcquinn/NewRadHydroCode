@@ -56,13 +56,17 @@ inline void otvet_split_pressure(double Nc, double Nd, const float* hc, double Q
   for (int k = 3; k < 6; ++k) Q[k] = m * static_cast<double>(hc[k]);
 }
 
-// The closure of a cell: M1, OTVET (P = N h) or the split (h and N_dir =
-// nd = q_g ndir)
-enum class Closure { M1, Otvet, Split };
+// The closure of a cell: M1, OTVET (P = N h), the split (h and N_dir =
+// nd = q_g ndir) or isotropic (P = N I/3: the background field of
+// otvet_background = ga01, docs/otvet_background.md; hc unused)
+enum class Closure { M1, Otvet, Split, Iso };
 
 inline void closure_pressure(Closure cl, double Nc, float fx, float fy, float fz, const float* hc, double nd,
                              double Q[6]) {
-  if (cl == Closure::Split) {
+  if (cl == Closure::Iso) {
+    Q[0] = Q[1] = Q[2] = Nc / 3;
+    Q[3] = Q[4] = Q[5] = 0;
+  } else if (cl == Closure::Split) {
     otvet_split_pressure(Nc, nd, hc, Q);
   } else if (cl == Closure::Otvet) {
     for (int m = 0; m < 6; ++m) Q[m] = Nc * static_cast<double>(hc[m]);
@@ -147,6 +151,85 @@ inline void glf_cell(const At& at, const PAt& Pat, double C, float out[5]) {
   for (int q = 0; q < 5; ++q) out[q] = static_cast<float>(U[q]);
 }
 
+// moment_order = 2 (rt_moments.cpp moment_transport2): the GLF flux along
+// axis d (0, 1, 2) at the face between cells b and c from the linearly
+// reconstructed face states. U[q][p]: the 5 variables (n, fx, fy, fz, e) of
+// the four cells a, b, c, e along the axis (p = 0..3: i-1, i, i+1, i+2); hb,
+// hc and ndb, ndc: the closure data of cells b and c (flux_cell's hc, nd).
+//
+// Slopes: the monotonized central limiter, component by component, so a
+// face value lies between the cell's and its neighbour's; then the face
+// state is made realizable as glf_cell's result is (N > 0 or all zero,
+// |F| <= N, E >= 0). Flux: Phi = (f_d(U_L) + f_d(U_R))/2 - (U_R - U_L)/2,
+// f_d = (F_d, P_xd, P_yd, P_zd, nu F_d) with the closure of the face state
+// (M1: of its N, F; OTVET and the split: h and N_dir of its own cell).
+inline double mc_slope(double dl, double dr) {
+  if (!(dl * dr > 0)) return 0.0;
+  const double c = 0.5 * (dl + dr);
+  const double m = 2.0 * (std::fabs(dl) < std::fabs(dr) ? dl : dr);
+  return std::fabs(c) < std::fabs(m) ? c : m;
+}
+
+inline void face_flux(Closure cl, int d, double V[5], const float* hc, double nd, double f[5]) {
+  // realizability of the face state
+  if (!(V[0] > 0)) {
+    for (int q = 0; q < 5; ++q) V[q] = f[q] = 0;
+    return;
+  }
+  const double fn = std::sqrt((V[1] * V[1] + V[2] * V[2]) + V[3] * V[3]);
+  if (fn > V[0]) {
+    const double r = V[0] / fn;
+    V[1] *= r;
+    V[2] *= r;
+    V[3] *= r;
+  }
+  if (V[4] < 0) V[4] = 0;
+  double Q[6];
+  closure_pressure(cl, V[0], static_cast<float>(V[1]), static_cast<float>(V[2]), static_cast<float>(V[3]), hc, nd,
+                   Q);
+  // P_kd: (xx, xy, xz), (xy, yy, yz), (xz, yz, zz)
+  static const int col[3][3] = {{0, 3, 4}, {3, 1, 5}, {4, 5, 2}};
+  f[0] = V[1 + d];
+  f[1] = Q[col[d][0]];
+  f[2] = Q[col[d][1]];
+  f[3] = Q[col[d][2]];
+  f[4] = V[4] / V[0] * V[1 + d];
+}
+
+inline void muscl_flux(Closure cl, int d, const float U[5][4], const float* hb, const float* hc, double ndb,
+                       double ndc, float out[5]) {
+  if (U[0][0] == 0 && U[0][1] == 0 && U[0][2] == 0 && U[0][3] == 0) {
+    for (int q = 0; q < 5; ++q) out[q] = 0;
+    return;
+  }
+  double L[5], R[5], fl[5], fr[5];
+  for (int q = 0; q < 5; ++q) {
+    const double a = U[q][0], b = U[q][1], c = U[q][2], e = U[q][3];
+    L[q] = b + 0.5 * mc_slope(b - a, c - b);
+    R[q] = c - 0.5 * mc_slope(c - b, e - c);
+  }
+  face_flux(cl, d, L, hb, ndb, fl);
+  face_flux(cl, d, R, hc, ndc, fr);
+  for (int q = 0; q < 5; ++q) out[q] = static_cast<float>(0.5 * (fl[q] + fr[q]) - 0.5 * (R[q] - L[q]));
+}
+
+// The realizability of a cell after a stage of moment_transport2, as at the
+// end of glf_cell
+inline void realizable_cell(float& n, float& fx, float& fy, float& fz, float& e) {
+  if (!(n > 0)) {
+    n = fx = fy = fz = e = 0;
+    return;
+  }
+  const double fn = std::sqrt((double(fx) * fx + double(fy) * fy) + double(fz) * fz);
+  if (fn > n) {
+    const double r = n / fn;
+    fx = static_cast<float>(fx * r);
+    fy = static_cast<float>(fy * r);
+    fz = static_cast<float>(fz * r);
+  }
+  if (e < 0) e = 0;
+}
+
 // calc_rt_1 of the moment solver (the B3/B4 fixes: dx reset and tau in every
 // cell; tau is a diagnostic, the solver does not read it). sig =
 // photoion_sigma(freq_init).
@@ -209,6 +292,52 @@ inline void deposit_cell(const float* n, const float* e, const float* fx, const 
     dx[0] += static_cast<double>(fx[i]);
     dx[1] += static_cast<double>(fy[i]);
     dx[2] += static_cast<double>(fz[i]);
+  }
+  for (int d = 0; d < 3; ++d) c.dx[d] = static_cast<float>(dx[d]);
+}
+
+// otvet_background = ga01 (docs/otvet_background.md section 4a): move
+// min(N_L, T) photons of one group of a cell from the local field L to the
+// background B. They leave L in proportion to its (N, F, E) and arrive in B
+// isotropically (F_B unchanged) with L's mean frequency. Returns the
+// photons added to B (float-rounded).
+inline double ga01_transfer(float& nL, float& fxL, float& fyL, float& fzL, float& eL, float& nB, float& eB,
+                            double T) {
+  const float n0 = nL;
+  if (!(n0 > 0) || !(T > 0)) return 0;
+  const float b0 = nB;
+  if (T >= static_cast<double>(n0)) {
+    nB = static_cast<float>(static_cast<double>(b0) + static_cast<double>(n0));
+    eB = static_cast<float>(static_cast<double>(eB) + static_cast<double>(eL));
+    nL = fxL = fyL = fzL = eL = 0;
+  } else {
+    const double r = 1 - T / static_cast<double>(n0);
+    const float e0 = eL;
+    nL = static_cast<float>(static_cast<double>(n0) * r);
+    eL = static_cast<float>(static_cast<double>(e0) * r);
+    fxL = static_cast<float>(static_cast<double>(fxL) * r);
+    fyL = static_cast<float>(static_cast<double>(fyL) * r);
+    fzL = static_cast<float>(static_cast<double>(fzL) * r);
+    nB = static_cast<float>(static_cast<double>(b0) + (static_cast<double>(n0) - static_cast<double>(nL)));
+    eB = static_cast<float>(static_cast<double>(eB) + (static_cast<double>(e0) - static_cast<double>(eL)));
+  }
+  return static_cast<double>(nB) - static_cast<double>(b0);
+}
+
+// The deposit of two fields (otvet_background = ga01): photo_cell sees the
+// sum, ngam = N_L + N_B, nu = E_L + E_B, dx = the sum over groups and fields
+// of F
+inline void deposit_cell2(const float* n, const float* e, const float* fx, const float* fy, const float* fz,
+                          const float* bn, const float* be, const float* bfx, const float* bfy, const float* bfz,
+                          std::int64_t stride, const rrk::CellRef& c) {
+  double dx[3] = {0, 0, 0};
+  for (int g = 0; g < kNfreq; ++g) {
+    const std::int64_t i = g * stride;
+    c.ngam[g] = n[i] + bn[i];
+    c.nu[g] = e[i] + be[i];
+    dx[0] += static_cast<double>(fx[i]) + static_cast<double>(bfx[i]);
+    dx[1] += static_cast<double>(fy[i]) + static_cast<double>(bfy[i]);
+    dx[2] += static_cast<double>(fz[i]) + static_cast<double>(bfz[i]);
   }
   for (int d = 0; d < 3; ++d) c.dx[d] = static_cast<float>(dx[d]);
 }

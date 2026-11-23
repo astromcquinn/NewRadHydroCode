@@ -17,7 +17,7 @@ struct ProblemParams {
   int nsteps = 10;
   int nray_max_factor = 64;
   int legacy_rt = 1;  // 1: original RT bookkeeping; 0: fixes B1-B4, B8, B9
-  int legacy_physics = 1;  // 1: original atomic physics; 0: fixes P1-P6
+  int legacy_physics = 1;  // 1: original atomic physics; 0: fixes P1-P11 and B17
   // Ray snapshots (ray_dump.hpp); off unless ray_dump_dir is set and
   // ray_dump_every > 0 or ray_dump_at lists global RT substeps.
   std::string ray_dump_dir;
@@ -40,6 +40,7 @@ struct ProblemParams {
   int photon_consume_dense = -1;   // Config::photon_consume_dense (P11): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;             // Config::ray_deposit (0 = share, the original; 1 = exposure)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
+  int sn_heating = 1;                        // Config::sn_heating (1 = original; 0 = off)
   double box = 5;                  // Config::box in Mpc/h (the original's 5; sets the cell size)
   // rt_method = rays | m1 | otvet and the moment-solver parameters
   // (set_rt_method_param, rt_moments.hpp; docs/rt_moments.md); also the
@@ -66,5 +67,12 @@ std::vector<Source> read_sources(const std::string& path);
 void write_step_output(const std::string& dir, const Simulation& s);
 
 void write_raw_f32(const std::string& path, const std::vector<float>& v);
+
+// A snapshot, movie or field write that failed after its file was opened
+// (disk full, quota exceeded): a warning on stderr and a count, and the run
+// goes on (the state in memory is intact; a failed checkpoint write still
+// aborts, checkpoint.cpp). output_write_failures() is the count so far.
+void report_output_write_failure(const std::string& path);
+long long output_write_failures();
 
 }  // namespace radray

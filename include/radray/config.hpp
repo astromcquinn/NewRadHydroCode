@@ -79,6 +79,22 @@ struct Config {
   // z_floor. Not tied to legacy_physics; no Fortran mirror (a new flag).
   double T_min = 0;
   double z_floor = -1;
+  // Temperature cap (params.txt T_max, kelvin; user decision 2026-11-04 for
+  // the C1 1024^3 reruns): the unsplit hydro clamps the thermal energy of
+  // every cell to T_max at the end of each CFL substep (both E - KE and the
+  // dual-energy e; the ionised gas's mean molecular weight, temp2_unit, so
+  // ~2 T_max in neutral gas), and the RT cell
+  // physics clamps its temperature to T_max after the heating. A handful of
+  // low-density cells at c_s ~ 10^4 km/s (~10^9 K) otherwise set the global
+  // step and the hydro substeps. T_max = 0 (default) is off and
+  // bit-identical; hydro_scheme = unsplit, on the host grids or the AMReX
+  // levels (hydro_backend = amrex, since 2026-11-15). No Fortran mirror (a
+  // new flag). A cap removes the shock-heated warm-hot gas (the WHIM) of the
+  // low-redshift IGM, so radhydro refuses it in a run whose last zdata1
+  // output is below z = 4 unless T_max_low_z = 1 (user, 2026-11-15: the cap
+  // is for the z >= 5 runs only).
+  double T_max = 0;
+  bool T_max_low_z = false;
   std::int64_t Nrtc = 0;   // Nrt^3
   double ngasr = 0, nrtr = 0, hrtr = 0, nrtcr = 0, ncellr = 0;
 
@@ -191,6 +207,14 @@ struct Config {
   // legacy_physics; no Fortran mirror (a new flag).
   double cool_suppress_overdensity = 200.0;
 
+  // params.txt sn_heating: photo_cell's SN heating (T > 1e4 K and rho >
+  // rho_source = 50 times the mean: eSN eSF rho / t_dyn c^2, the original's
+  // sub-grid feedback, applied with or without sources). 1 (default) is the
+  // original; 0 switches it off (user decision 2026-10-30: no SN heating in
+  // any run; make_production.py writes 0; docs/plane_parallel.md). Not tied
+  // to legacy_physics; no Fortran mirror (a new flag).
+  bool sn_heating = true;
+
   // params.txt thermal_init = floor (default, the original) | recfast
   // (docs/thermal_history.md, quirk T1 of docs/port_notes.md 5b). floor:
   // the gas starts at temp_min and neutral gas never couples to the CMB.
@@ -244,6 +268,11 @@ struct Config {
   //                in thermal-dominated cells (2), only if E - KE <= eta1
   //                max_{+-1} E (3). docs/hydro_unsplit.md section 2.
   int dual_reset_rule = 0;
+  //   floor_rho_reset: 1 = a cell below the density floor is reset to rest
+  //                at the temperature floor (rrh::DualEnergy::floor_reset);
+  //                0 (default) = the original, which keeps its momenta and
+  //                energies
+  bool floor_rho_reset = false;
   //   dual_eta2_local: 1 = the eta2 test against the cell's own E (Nyx's
   //                resync); dual_p_old: 1 = the old-time cell pressure in
   //                the -p div v work term (Bryan et al. 2014 eq. 43) instead
@@ -272,15 +301,25 @@ struct Config {
   //   otvet_tensor: how the OTVET tensor is summed over the sources:
   //                0 = auto, 1 = direct sum, 2 = FFT convolution;
   //   moment_inject: when the source and recombination photons of an RT
-  //                substep enter the moments: 0 = before the transport
-  //                (default; a source cell's photons are mostly moved to its
-  //                neighbours before photo_cell absorbs anything), 1 = after
-  //                it, so they are absorbed in their own cell first, as the
-  //                rays' photons are (docs/rt_moments.md).
+  //                substep enter the moments: 1 = after the transport
+  //                (default since 2026-11-10, user decision), so they are
+  //                absorbed in their own cell first, as the rays' photons
+  //                are; 0 = before it (the first implementation: a source
+  //                cell's photons are mostly moved to its neighbours before
+  //                photo_cell absorbs anything, and dense source cells stay
+  //                neutral; docs/rt_moments.md section 5a).
+  //   moment_order: 1 = the first-order GLF transport (default, the first
+  //                implementation); 2 = second order: slope-limited linear
+  //                reconstruction (monotonized central) of N, F, E, the GLF
+  //                flux of the face states and a two-stage (Heun) step
+  //                (docs/rt_moments.md section 9). Needs moment_nsub >= 6
+  //                (positivity at half the first-order Courant number);
+  //                uniform grid only (not rt_backend = amrex).
   RTMethod rt_method = RTMethod::Rays;
   int moment_nsub = 4;
+  int moment_order = 1;
   int otvet_tensor = 0;
-  int moment_inject = 0;
+  int moment_inject = 1;
   // Alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md;
   // set_otvet_closure_param). New options, not in the original; the
   // defaults keep the thin minimum-image tensor:
@@ -305,6 +344,18 @@ struct Config {
   double otvet_cone_smax = 8;
   int otvet_cone_budget = 1;
   double otvet_cone_blend = 4;
+  // The isotropic background of Gnedin & Abel 2001, eq. 17
+  // (docs/otvet_background.md; set_otvet_closure_param). New options, not
+  // in the original; the default keeps one field with the thin tensor:
+  //   otvet_background: 0 = none (default), 1 = ga01: a second field per
+  //                group with the isotropic tensor, which receives
+  //                min(N, Lambda_g s_g) of each cell's photons per substep
+  //                (s_g the box-mean injection), Lambda_g = exp(-0.611 N_rt
+  //                <tau_cell,g>) from the box's volume-mean opacity;
+  //   otvet_background_fix: Lambda in [0, 1] for every group instead of
+  //                the box's (tests); -1 (default) = from the box.
+  int otvet_background = 0;
+  double otvet_background_fix = -1;
 
   // params.txt rt_backend = serial (default) | amrex and the parameters of
   // the AMReX backend (set_rt_backend_param in rt_backend.hpp;
@@ -468,11 +519,18 @@ struct Config {
   // original).
   double sf_overdensity = 0;
   double sf_efficiency = 1;
+  // the largest fraction of a cell's mass one sink event takes: 1 (default,
+  // the original) lets f = 1 empty a cell, a near-vacuum next to dense gas
+  // that the hydro can heat without bound (2026-11-14, the late AMR pair);
+  // < 1 keeps (1 - sf_max_fraction) of it
+  double sf_max_fraction = 1;
   // params.txt amrex_state = 0 (default) | 1: the gas state lives on the
   // AMReX levels between steps on one shared decomposition
   // (amrex_max_grid_size), the host arrays only on rank 0 as a mirror for
   // the outputs (amrex_state.hpp, docs/stage_e_state.md). Needs the three
-  // backends, hydro_scheme = unsplit, rt_method = rays.
+  // backends and hydro_scheme = unsplit; the moment methods need
+  // amrex_slab = 1 or the hierarchy, and recomb_rad works with them only
+  // (check_amrex_state_param).
   bool amrex_state = false;
   // params.txt amrex_balance = 0 (default) | 1: with amrex_state = 1, the
   // shared decomposition is rebalanced before every RT step on the cost
@@ -564,6 +622,20 @@ struct Config {
   double plane_z_re = -1;
   double plane_alpha = 1.5;
   double plane_nu_max_ry = 4.0;
+  // params.txt plane_packet_rescale (set_plane_param; docs/plane_parallel.md
+  // "Packet rescaling"; user request 2026-11-05). plane_transport = sweep
+  // only. A packet in flight holds the photons its face emitted in one RT
+  // substep (gamma * dtsec_rt at launch) and moves rt_cells_per_substep
+  // cells every substep, and a cell's rates are its absorbed photons over
+  // the current dtsec_rt. 0 (default) = as before: when dtsec_rt changes
+  // (a new hydro step, the c_reduced_schedule switch, a landing step) the
+  // packets launched at the old dtsec_rt give rates off by dt_old/dt_new
+  // until they leave the domain, a wave that crosses every domain. 1 = at
+  // the first substep with a new dtsec_rt, every packet in flight is
+  // multiplied by dt_new/dt_old, so it holds the photons of one current
+  // substep (the photon density follows F / c_reduced); the change counts
+  // as emitted in the photon bookkeeping (stats.txt plane_emitted).
+  bool plane_packet_rescale = false;
   // Caps on the hydro step (docs/zoom_turbulence.md section 4.4, the T4
   // test; timestep_core in cosmology.cpp), both off (0) by default:
   //   dt_max_myr:      the hydro step is at most this many Myr;
@@ -615,6 +687,23 @@ struct Config {
   int plane_turnon_cfl = 1;
   double plane_turnon_temp = 2e4;
   double plane_turnon_courant = 0.05;
+  // params.txt plane_couple_courant (set_plane_param; docs/plane_parallel.md
+  // "Turn-on and the step caps"; user decision 2026-10-30). Plane-parallel
+  // mode only. Every step from plane_z_re on is at most plane_couple_courant
+  // dx / c_hot (dx the proper cell, c_hot as for the turn-on step): the RT
+  // heating and cooling meet the hydro once per step, and with the CFL step
+  // (~0.45 dx / c_hot after the turn-on) gas next to a cooling clump can be
+  // drained and heated numerically within one coupling interval (the hot
+  // cells of the C1 ladder). A cap that scales with the cell, unlike
+  // dt_max_myr. 0 (default) = off; make_production.py --plane-parallel
+  // writes 0.15.
+  double plane_couple_courant = 0;
+  // params.txt plane_xray_substeps (set_plane_param; docs/plane_parallel.md):
+  // plane-parallel mode with xray_heating only. Before plane_z_re the RT
+  // runs only for the uniform X-ray background (no rays), so each hydro step
+  // takes this many RT substeps instead of the light crossings at c_reduced.
+  // 0 (default): the light crossings, the original count.
+  int plane_xray_substeps = 0;
 
   // Ngas = Nrt = N; Ndm <= 0 means the original's Ngas/2; box in Mpc/h.
   static Config make(int N, int nray_max_factor = 64, int Ndm = -1, double box = 5);

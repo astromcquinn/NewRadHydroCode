@@ -4,18 +4,30 @@ A C++ cosmological radiative-transfer (RT) code built on the adaptive
 ray-tracing algorithm of Hy Trac's RadHydro (Trac & Cen 2007; Trac, Cen &
 Loeb 2008). The roadmap is in [docs/PLAN.md](docs/PLAN.md).
 
-**Status (2026-10-09).** The port is complete and bit-identical to the
+**Status (2026-11-09).** The port is complete and bit-identical to the
 gfortran references: `apps/radhydro` runs the full `radhydro.f90` loop
 (hydro + PM gravity + on-the-fly FoF halos and sources + RT), and the RT,
 hydro and PM parts have their own drivers and Fortran harnesses. On top of
 the port: optional RT and physics fixes behind `legacy_rt` / `legacy_physics`,
 a reduced speed of light, OpenMP with thread-count-independent results,
 restarts, an unsplit MUSCL-Hancock + HLLC hydro scheme with dual energy
-(`hydro_scheme = unsplit`), a hydro test suite, a ray-compression study and
-the AMReX-vs-Parthenon framework spike. What is done, in progress and next
-is in [docs/STATUS.md](docs/STATUS.md); the decisions are in
-[docs/PLAN.md](docs/PLAN.md) and the long-term plan in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+(`hydro_scheme = unsplit`), moment-based RT (`rt_method = m1 | otvet`, with
+the alternative OTVET closures `otvet_split`, `otvet_closure = screen | cone`;
+[docs/rt_moments.md](docs/rt_moments.md), [docs/otvet_closure.md](docs/otvet_closure.md)),
+case A recombination and recombination radiation, the AMReX backends for
+the RT, hydro and PM gravity (MPI + OpenMP, `rt_backend = amrex`,
+`hydro_backend = amrex`, `pm_backend = amrex`; [docs/stage_d.md](docs/stage_d.md),
+[docs/stage_e_pm.md](docs/stage_e_pm.md)) with refinement levels for the gas,
+the rays and the gravity ([docs/stage_f.md](docs/stage_f.md),
+[docs/stage_g.md](docs/stage_g.md)), a plane-parallel RT-domain mode
+([docs/plane_parallel.md](docs/plane_parallel.md)), X-ray preheating and a
+RECFAST thermal history, and the 512³ comparisons of the RT methods
+([docs/rt_suite_512.md](docs/rt_suite_512.md), [docs/absorbers_closures.md](docs/absorbers_closures.md),
+[docs/taueff_21cmfast.md](docs/taueff_21cmfast.md)). What is done, in
+progress and next is in [docs/STATUS.md](docs/STATUS.md); the decisions are
+in [docs/PLAN.md](docs/PLAN.md) and the long-term plan in
+[docs/ROADMAP.md](docs/ROADMAP.md). **New readers, and reviewers of the RT
+methods, start with [docs/REVIEW_GUIDE.md](docs/REVIEW_GUIDE.md).**
 
 **Phase 1, the faithful port.** `radray` is a C++17 port of
 `reference/fortran/Radhydro` (the private submodule, `reference/README.md`). On every validation problem it reproduces the gfortran
@@ -43,12 +55,19 @@ include/radray/   headers (namespace radray)
                                the ray and RT-cell kernels, shared by the serial port and
                                the AMReX backend (docs/stage_d.md)
   rt_backend.hpp               rt_backend = serial | amrex, ray_encoding = float | rstruct
+  rt_moments.hpp, otvet_closure.hpp, kernels/moment_cell.hpp
+                               the moment RT (rt_method = m1 | otvet) and the alternative
+                               OTVET tensors (docs/rt_moments.md, docs/otvet_closure.md)
+  recomb_rad.hpp, plane_parallel.hpp, xray_background.hpp, thermal_history.hpp
+                               case A + recombination radiation, the plane-parallel mode,
+                               X-ray preheating, the RECFAST thermal history
   halos.hpp, halo_sources.hpp  FoF halo finder, source model, legacy catalogs
   checkpoint.hpp  restart files
   simulation.hpp  all state, in explicit structs
   io.hpp          problem input, validation output
-src/              implementation; src/amrex/ the AMReX RT backend (rt_level.cpp, the
-                  ray encodings; built with -DRADRAY_AMREX=ON, a stub otherwise)
+src/              implementation; src/amrex/ the AMReX backends (rt_level.cpp the rays,
+                  moment_level.cpp the moments, hydro_level.cpp, pm_level.cpp, gas_state.cpp
+                  the refinement levels; built with -DRADRAY_AMREX=ON, stubs otherwise)
 apps/             rt_driver (RT only), hydro_driver, pm_driver, radhydro (full
                   loop), find_halos (FoF on a snapshot)
 tests/            unit tests, end-to-end checks, comparison with the references
@@ -61,7 +80,8 @@ tools/            compare/ (field and stats comparison), ics/ (Zel'dovich ICs),
                   hyak/ (UW Hyak klone environment, build and job scripts; docs/cluster.md)
 spike/            framework spike: AMReX and Parthenon prototypes (docs/framework_decision.md);
                   serial/rt_serial is the bitwise reference of the AMReX backend
-docs/             plan, status, roadmap, validation spec, port notes, design docs, figures
+docs/             plan, status, roadmap, REVIEW_GUIDE.md (where to start), validation spec,
+                  port notes, one report per workstream, figures
 ```
 
 ## Build

@@ -283,7 +283,7 @@ def plane_start(run, args, i0=None):
 def to_plot(fld, arr, args):
     if fld == "xHII":
         if args.xhi_log:
-            return np.log10(np.clip(1 - arr, 1e-12, None)), "xHI"
+            return np.log10(np.clip(arr, 1e-12, None)), "xHI"  # arr is fHI
         return 1 - arr, "xHII"
     return np.log10(np.clip(arr, 1e-30, None)), fld
 

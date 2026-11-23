@@ -19,6 +19,23 @@
 // (real(8)), exactly as the Fortran. Cells are 0-based global indices
 // (i,j,k), i fastest, periodic box of N cells; a ray's home cell is
 // cell_of(x). The serial port's 1-based (irt,jrt,krt) is (i,j,k) + 1.
+//
+// Contents, in order:
+//   RayP, RTP                 the ray payload and the run-time parameters of a substep
+//   geometry                  cell_of; lside/nside/nray/rmin/rmax of a radius;
+//                             ray_segment (the cell crossings of a path)
+//   cast_1, cast_3            the deposit pass and the attenuate-and-advance pass
+//                             (the share deposit of the original and the exposure
+//                             deposit, ray_deposit)
+//   split, MergeAcc           the 4 daughters of a split; the merge as a reduction
+//   source_*                  a stellar emission: 12 nside^2 rays, the thick-cell
+//                             deposit, the B16 frame rotation (frame_rotation)
+//   classify                  cast / split / merge / remove of a ray
+//   plane_*                   the plane-parallel face rays and sweep packets
+//   merge_cone, payload_*     the merge cones and the canonical ray order
+//   step1_count, step1_write  the per-cell substep-1 work of the sorted-array path
+//   RedshiftTable, redshift_spectrum, redshift_ray
+//                             the redshift of a 5-group spectrum (also the moments')
 #pragma once
 
 #include <cstdint>

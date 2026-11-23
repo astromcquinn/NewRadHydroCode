@@ -62,6 +62,11 @@ struct UnsplitCounters {
   std::int64_t floor_rho = 0;        // density floor hits
   double dt_cfl_min = 1e300;         // smallest CFL step seen [code time]
   double frame_shift = 0;            // 1 if a moving-frame state was folded in
+  // the serial star-formation sink (sf_overdensity > 0, serial unsplit
+  // hydro): events and the removed mass in mean gas cell masses (not
+  // checkpointed: counts since the start or the restart)
+  std::int64_t sink_events = 0;
+  double sink_mass = 0;
 };
 
 // Hydro variables of radhydro_global.f90 plus v_gas.
@@ -73,6 +78,9 @@ struct HydroState {
   std::array<double, 2> vmax_last{};  // hydro_step's local vmax (log only)
   HydroCounters counters;
   UnsplitCounters ucounters;  // hydro_scheme = unsplit only
+  // cell-substeps clamped by the temperature cap (Config::T_max; not
+  // checkpointed: counts since the start or the restart)
+  std::int64_t cap_T = 0;
 
   void allocate(int n) {
     N = n;

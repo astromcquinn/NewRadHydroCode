@@ -1,5 +1,18 @@
 // The uniform X-ray background of xray_heating = 1 (xray_background.hpp,
 // docs/xray_heating.md).
+//
+// XrayBackground tabulates sigma(M) and rho_SFR(z) at construction and then
+// gives, once per hydro step with RT (the xray_hook of apps/radhydro.cpp;
+// apps/xray_bkg.cpp standalone), the spectrum J_E at that step's redshift and
+// the per-atom rates gamma_j and phi_j (rates) that the cell physics adds to
+// the photoionisation and heating of every cell (rt_cell.hpp xray_secondary,
+// photo_gas_cell). The absorber fractions of xray_opacity = box come from
+// box_ion_fractions. New physics: with xray_heating = 0 (the default) no
+// background is constructed and the cell terms are exactly zero.
+//
+// Units: energies in keV, J in erg/s/cm^2/sr/keV, rho_SFR and the
+// emissivity per comoving Mpc^3, cgs inside the transfer integral; masses
+// in Msun/h in the sigma table, Msun for the L_UV(M) relation.
 #include "radray/xray_background.hpp"
 
 #include <algorithm>
@@ -36,6 +49,7 @@ double hubble_e2(const Cosmology& co, double z) {
 }
 double hubble_cgs(const Cosmology& co, double z) { return H0_cgs * co.hubble0 * std::sqrt(hubble_e2(co, z)); }
 
+// a parameter value that must be one number (trailing blanks allowed)
 double num(const std::string& key, const std::string& v) {
   try {
     std::size_t pos = 0;
@@ -61,6 +75,8 @@ void exp_weights(double x, double& i0, double& i1) {
 
 }  // namespace
 
+// params.txt xray_* keys (docs/xray_heating.md "Parameters"); range checks
+// throw, an unknown key returns false for the caller's own parsing
 bool set_xray_param(XrayParams& p, const std::string& key, const std::string& val) {
   if (key == "xray_heating") {
     const double v = num(key, val);
@@ -115,6 +131,8 @@ bool set_xray_param(XrayParams& p, const std::string& key, const std::string& va
 
 XrayBackground::XrayBackground(const XrayParams& p, const SourceModelParams& src, const Cosmology& co)
     : p_(p), co_(co), am_(src.am), l_per_sfr_(src.L_per_sfr), mf_(MassFunctionCosmology::from(co)) {
+  // the emissivity follows the abundance-matched SFR: no other sfr_model has
+  // an L_UV(M, z) to integrate over the mass function
   if (src.model != SfrModel::AbundanceMatched)
     throw std::runtime_error(
         "xray_heating = 1 needs sfr_model = abundance (the X-ray emissivity follows its SFR)");
@@ -148,6 +166,9 @@ XrayBackground::XrayBackground(const XrayParams& p, const SourceModelParams& src
   }
 }
 
+// The halo finder's virial definitions (halos.cpp virial_radius_mpch and
+// virial_temperature) inverted for the mass with T_vir = tvir_min at z; or
+// m_min if that is larger.
 double XrayBackground::m_min_msun(double z) const {
   // T = mu mH G M / (2 k R), M = 4 pi/3 Delta rho_crit(z) R^3 (halos.cpp)
   const double e2 = hubble_e2(co_, z);
@@ -160,6 +181,8 @@ double XrayBackground::m_min_msun(double z) const {
   return std::max(Mg / Msun_cgs, m_min_);
 }
 
+// rho_SFR(z) = int_{M_min} dn/dlnM L_UV(M, z) / l_per_sfr dlnM in comoving
+// Msun/yr/Mpc^3: the mass function in (Mpc/h)^-3 times h^3, L_UV at M/h Msun.
 double XrayBackground::sfrd_direct(double z) const {
   const double h = co_.hubble0;
   const double D = mf_.growth(z);
@@ -189,6 +212,7 @@ double XrayBackground::sfrd_direct(double z) const {
   return sum;
 }
 
+// log-linear interpolation of the table in ln(1+z); 0 above z_max
 double XrayBackground::sfrd(double z) const {
   const double s = std::log(1 + z) / dlz_tab_;
   if (s < 0) return std::exp(lsfrd_.front());
@@ -198,10 +222,12 @@ double XrayBackground::sfrd(double z) const {
   return std::exp(lsfrd_[k] + w * (lsfrd_[k + 1] - lsfrd_[k]));
 }
 
+// eps(z) = (L_X/SFR) rho_SFR, erg/s/Mpc^3 comoving in [e0, eband]
 double XrayBackground::emissivity(double z) const {
   return std::pow(10.0, p_.log_lx_sfr) * sfrd(z);
 }
 
+// E^-alpha per keV, normalised so that int_{e0}^{eband} shape dE = 1
 double XrayBackground::shape(double E) const {
   if (E < p_.e0_keV || E > p_.emax_keV) return 0;
   const double a = p_.alpha;
@@ -217,9 +243,16 @@ double XrayBackground::shape_avg(double E1, double E2) const {
   // (1/ln(E2/E1)) int_a^b shape(E) dE/E, shape = E^-alpha/norm
   const double al = p_.alpha;
   const double I = std::fabs(al) < 1e-12 ? std::log(b / a) : (std::pow(a, -al) - std::pow(b, -al)) / al;
+  // shape(e0) e0^alpha = 1/norm
   return I / std::log(E2 / E1) * shape(p_.e0_keV) * std::pow(p_.e0_keV, al);
 }
 
+// J_E at z0 on the shared ln E / ln(1+z) grid of step d (header and
+// docs/xray_heating.md section 1): the photon observed in bin i at z0 was in
+// bin i + k at redshift node k, so the redshift integral of every observed
+// energy walks a diagonal of the (energy, redshift) grid. Within each
+// redshift interval the emission is interpolated linearly and tau is linear
+// (exp_weights integrates exp(-tau) exactly); the sum stops once tau > 700.
 void XrayBackground::spectrum(double z0, const double xfrac[3], std::vector<double>& E_keV,
                               std::vector<double>& J) const {
   const double d = p_.dlog;
@@ -236,6 +269,8 @@ void XrayBackground::spectrum(double z0, const double xfrac[3], std::vector<doub
   const int nE = M + K + 1;
   std::vector<double> E(nE), sig[3], shp(nE);
   for (int j = 0; j < 3; ++j) sig[j].resize(nE);
+  // the cross sections of every grid energy; photoion_sigma takes the RT's
+  // 5 frequencies at a time (the last batch may be partial)
   for (int m = 0; m < nE; m += 5) {
     double nu[5];
     for (int q = 0; q < 5; ++q) nu[q] = 1e3 * p_.emax_keV * std::exp((m + q - M) * d);  // eV
@@ -292,6 +327,10 @@ void XrayBackground::spectrum(double z0, const double xfrac[3], std::vector<doub
   }
 }
 
+// The opacity rule of xray_opacity on the box fractions, then
+// gamma_j = 4 pi int J/E sigma_j dE and phi_j = 4 pi int J/E sigma_j (E - I_j)
+// dE on the log grid (trapezoid in ln E). J is per keV and the photon
+// energy in the denominator is in erg, hence the 1/keV2erg in the weight.
 XrayRates XrayBackground::rates(double z0, const double xfrac_box[3]) const {
   XrayRates r;
   r.z = z0;
@@ -325,6 +364,8 @@ XrayRates XrayBackground::rates(double z0, const double xfrac_box[3]) const {
   return r;
 }
 
+// Per k-plane double sums (parallel over the planes), added in plane order:
+// thread-count independent. An empty grid gives a neutral IGM (1, 1, 0).
 void box_ion_fractions(const Simulation& s, double x[3]) {
   const GasGrid& g = s.gas;
   const int N = g.N;

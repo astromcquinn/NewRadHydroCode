@@ -1852,6 +1852,46 @@ ladder below (Z1 = the Z3 ladder at levelmax 13, 96³):
 * **Decision (user, 2026-10-28):** `plane_turnon_courant = 0.05` is the
   default (the turn-on step ~1/20 of the hot cell crossing, ~1 Myr at
   64³, one extra hydro step).
+* **No `dt_max_myr` cap in the production plane-parallel problems (user,
+  2026-10-30):** the short turn-on step is the solution to the coupling
+  lag; `make_production.py --plane-parallel` writes no `dt_max_myr`, so
+  the steps after the turn-on stay the CFL steps (the T4 runs at 64³ leave
+  12–14 % in E(k) at 200–400 Myr from them, against 2 % with a 1-Myr cap;
+  `--dt-max-myr` remains for tests).
+* **The C1 ladder's initial conditions (2026-10-30, after PR #15):**
+  `tools/hyak/c1_ladder.sh` makes C26's set-up by default: MUSIC in uniform
+  mode from z = 300 with CAMB's separate CDM and baryon transfer functions
+  (`c2_uniform.conf` at level log2 N, the seed at level 10, so the rungs
+  and the linear-growth box share their modes), the C26 cosmology, and
+  `thermal_init = recfast` with that cosmology's `recfast_table`.
+  `ICS=zeldovich` keeps the ladder of before (z = 100, original
+  cosmology, floor history). Because recfast is refused with
+  `amrex_state = 1`, every rung with recfast runs the serial build on a
+  whole node (512³ included, ~100 GB with the sweep transport);
+  `THERMAL=floor` gives the 512³ rung the backend as before.
+* **No SN heating in any run (user, 2026-10-30: "I want supernova
+  heating to be zero in all runs").** `photo_cell`'s sub-grid SN heating
+  (T > 10⁴ K and ρ > `rho_source` = 50× the mean: eSN eSF ρ c²/t_dyn,
+  with or without sources) is behind the new key `sn_heating` (1, the
+  default, is the original and byte-identical; 0 = off, both drivers and
+  both RT paths); `make_production.py` writes `sn_heating = 0` for every
+  problem (`--sn-heating 1` restores it). Found in the C1 ladder: with
+  `cool_suppress_overdensity = 0` its (200/x)^1.5 damping is gone and the
+  photoheated minihalo gas exploded (vmax_gas ~2000, 0.2-Myr steps at
+  128³/256³; `docs/plane_parallel.md`, "The C1 ladder from C26's ICs").
+  Every reionisation run before 2026-10-30 had it (damped above 200×
+  there); its effect on them was not measured. Not tied to
+  `legacy_physics`; no Fortran mirror.
+* **The coupling cap scales with the cell (user, 2026-10-30), replacing
+  "no cap" for the plane-parallel problems.** With the CFL step after the
+  turn-on (≈ 0.45 Δx/c_hot) gas next to a cooling clump was drained and
+  heated numerically within one RT–hydro coupling interval (2 × 10⁶ K at
+  Δ = 0.1, 64³). A hard `dt_max_myr` was not well motivated (user: "shouldn't
+  it scale with size of cell?"), so the new key `plane_couple_courant` = C
+  caps every step from z_re at C Δx/c_hot (c_hot of the turn-on rule);
+  C = 0.15 (user decision; the loosest value tested that removes the hot
+  cells at 64³: 5 Myr there, 2.6/1.3/0.65 Myr at 128³/256³/512³).
+  Default 0 = off; `make_production.py --plane-parallel` writes 0.15.
 
 ## Dense gas consumes photons: P11 under `legacy_physics = 0` (2026-10-28)
 
@@ -1900,3 +1940,94 @@ User decisions (2026-10-29):
   sources, such as the plane-parallel mode, can turn the halo finder off.
 - Recommendation adopted: do the grid part first, then the power spectrum
   on the level, which frees the host PM mesh arrays on rank 0.
+
+## Why the closures do not change ⟨Γ_HI⟩ after overlap (2026-11-06, branch `absorbers-wu21`)
+
+Thread prompt of 2026-11-06 (the paper's §5): find out why the moment
+methods' Γ_HI, λ_mfp and ⟨F⟩ agree with the rays' in the 512³ suite when
+Wu, McQuinn & Eisenstein 2021 predict over-ionised absorbers. Decisions
+in the prompt, followed:
+
+* Phase 1 on the existing snapshots only (no new runs): the photon sink
+  by density and neutral fraction with the code's own rates, the
+  self-shielding curves, Wu's ratio in δ bins, the resolution of the
+  absorbers; tool `tools/analysis/absorber_budget.py` with a synthetic
+  self-test under ctest (a new label `analysis`, none existed); report
+  `docs/absorbers_closures.md`. Result: H1 decisive (no self-shielding
+  cell in any run), H2 a hidden 5–11 % emissivity difference at z ≈ 6
+  that P11 would expose, H3 yes (the sink is diffuse and, after overlap,
+  mostly the growing in-flight reservoir).
+* Phase 2 proposed with node-hours and disk, **not launched**: (c)-cheap
+  the single-absorber `rt_driver` test, (a) 256³/20 Mpc/h with P11 on
+  and off, (b) 512³/20 Mpc/h. Wu+21 taken only from
+  `docs/otvet_closure_literature.md` §1 (arXiv unreachable from klone);
+  the 1.3–1.4× and 0.4× are quoted from those notes.
+* **User decisions (2026-11-06):** run Phase 2 (c) and (a), not (b)
+  ("yes, let's start with 1 and 2 but not 3"); an AMR run with M1/OTVET
+  may follow if the absorbers can be resolved; PR #27 merged. Results in
+  `docs/absorbers_closures.md` §5–7: the cone tensor is the closure to
+  carry forward; P11 needs the f_esc(z) recalibration (f6 ≈ 0.13).
+
+## τ_eff over 50 Mpc/h and 21cmFAST against the RT methods (2026-11-05/06, branch `taueff-21cmfast`)
+
+Thread prompt of 2026-11-05 (the RT-closure paper's Figures 7 and 8;
+report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
+
+* The seven runs of the uniform 512³ suite, read only; every parameter
+  from their `params.txt` (the §1 table of `docs/rt_suite_512.md` is
+  stale); compare at fixed z (user decision); outputs under
+  `$RUNS/rt_closure_paper/`.
+* Part A: `igm_stats.py --taueff L` (a new option, the default output
+  unchanged) keeps each redshift-space skewer's flux; box-length and
+  50 Mpc/h segments (a skewer joined to 10 Mpc/h of another: not one
+  sightline; the box misses > 40 Mpc/h modes, so the scatter is a lower
+  bound), raw and rescaled by A to Bosman+22's mean flux. Figure 7 by
+  `taueff_plot.py`. The prompt's expectation (thin OTVET broader, M1
+  narrower) does not hold: the order is reversed, because on the box's
+  scales Γ is correlated with density and τ ∝ ρ²/Γ (the uniform-Γ
+  diagnostic added to `--taueff`). The optional slab analysis (A4) was
+  cheap and done, its real-space offset measured first.
+* Bosman+22's τ_eff distributions were **not** transcribed from memory:
+  the user is asked for the paper's table (open).
+* Part B: 21cmFAST 4.3.1 (PyPI) in its own conda env; it accepts an
+  external density (FAQ: own OutputStruct objects), so B1 runs 21cmFAST
+  itself, with a numpy mirror for ζ and a cross-check. M_min = the
+  suite's smallest source halo, R_min raised to its radius, the
+  top-hat filter (the `const-zeta` template's `sharp-k` overridden). The
+  optional emissivity variant was not run (no source field is written by
+  the suite). B2: 21cmFAST's own ICs (seed 12345, DIM 1024 → 512³), ζ per
+  z matched to the rays' x_V; 2 node-hours or less.
+* References from memory flagged for the user (Mesinger+11, Murray+20,
+  Becker+15, Bosman+18/22).
+
+## OTVET with the isotropic background of Gnedin & Abel 2001 (2026-11-06/07, branch `otvet-background`)
+
+* The task: an OTVET closure with G&A 2001's isotropic background (eqs. 4,
+  17) and CROC's (Gnedin 2014, App. C), designed from the papers' LaTeX
+  sources (downloaded from arXiv 2026-11-06), the design approved before
+  any code (`docs/otvet_background.md`). Key off: byte-identical; one PR
+  at the end; nothing at 512³ without the user's go-ahead; step 3 (the
+  256³ validation) run by the user or on their go-ahead.
+* **User decisions (2026-11-07):** build (a) `ga01` (two fields, the
+  clipped Λ transfer), not `croc` and not (c) as a runtime option; Λ from
+  the box's volume-mean opacity, as G&A (Λ_g = exp(−0.611 N_rt
+  ⟨τ_cell,g⟩)); Λ per frequency group; case B recombination as the
+  default (no recombination photons transported; with `recomb_rad = 1`
+  they go into the local field and count in s̄, as G&A).
+* **User decisions (2026-11-08):** go-ahead for step 3 at 256³; PR #30
+  (21cmFAST with the suite's mass-weighted sources) merged. Step 3 added a
+  case-B set (rays, thin, split, cone, ga01; ≈ 8 node-hours in all) since
+  the October case-A suite predates P11 under `legacy_physics = 0`
+  (`docs/otvet_background.md` §9).
+
+## `moment_inject = 1` the default (2026-11-10)
+
+* **User decision:** the moment RT injects a substep's source and
+  recombination photons after the transport by default
+  (`moment_inject = 1`, `docs/rt_moments.md` §5a). Production already used
+  it (`make_production.py`). The moment RT is new code, not the
+  original, so the ground rule that defaults keep the original does not
+  bind it; `moment_inject = 0` keeps the first implementation.
+* The tests that covered 1 explicitly now cover 0
+  (`restart_smoke_m1_inject0`, the AMReX cases `m1inj0`, `m1recombinj0`);
+  every other moment test runs with the new default.

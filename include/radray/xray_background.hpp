@@ -127,11 +127,9 @@ class XrayBackground {
   std::vector<double> lsfrd_;
 };
 
-// Shull & van Steenberg (1985) fits (as in Ricotti, Gnedin & Shull 2002) of
-// the fractions of a fast photoelectron's energy that go into heat and into
-// ionising HI and HeI, at ionised fraction x = n_HII/n_H (clamped to
-// [1e-4, 1], the fits' range); in rt_cell.hpp (xray_secondary) for the cell
-// physics.
+// (The Shull & van Steenberg 1985 fractions of a fast photoelectron's
+// energy that go into heat and into ionising HI and HeI are
+// rrk::xray_secondary in kernels/rt_cell.hpp, used by the cell physics.)
 
 // Mass-weighted HI/H, HeI/He, HeII/He of the gas grid (deterministic: per
 // k-plane double sums added in plane order).

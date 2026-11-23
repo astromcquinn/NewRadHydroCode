@@ -16,11 +16,10 @@ import glob
 import os
 import sys
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
+
+# matplotlib is imported in main() only: tests/thermal_check.py, preheat_check.py
+# and dual_e_self_check.py import this module for its tables and need no figures.
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(HERE, "..", "..", "data", "thermal", "recfast_sim_cosmology.txt")
@@ -72,6 +71,11 @@ def run_history(run, N, box):
 
 
 def main():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     out = sys.argv[1]
     Tref = reference()
     fig, ax = plt.subplots(1, 2, figsize=(10, 4.2))

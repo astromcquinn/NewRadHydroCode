@@ -18,7 +18,8 @@ radhydro   <problem> <out> --set rt_method=otvet
 | `rt_method` | `rays` (default), `m1`, `otvet` | radiative transfer method |
 | `moment_nsub` | integer ≥ 3, default 4 | transport subcycles per RT substep (Courant number 1/`moment_nsub`) |
 | `otvet_tensor` | `auto` (default), `direct`, `fft` | how the OTVET tensor is summed over the sources |
-| `moment_inject` | `0` (default), `1` | when a substep's source and recombination photons enter the moments: 0 before the transport (the first implementation), 1 after it, so they are absorbed in their own cell first (§5a; `make_production.py` writes 1) |
+| `moment_order` | `1` (default), `2` | transport scheme: 1 = first-order GLF; 2 = MC-limited linear reconstruction, GLF flux of the face states, two-stage step; needs `moment_nsub ≥ 6`, uniform grid only (§9) |
+| `moment_inject` | `1` (default since 2026-11-10), `0` | when a substep's source and recombination photons enter the moments: 1 after the transport, so they are absorbed in their own cell first; 0 before it (the first implementation, which leaves dense source cells neutral) (§5a) |
 
 All other parameters keep their meaning. `c_reduced` sets the light speed of
 the moment solver too. `legacy_physics` selects the atomic physics, as with
@@ -128,13 +129,35 @@ Run with `ctest -L moments`, about 40 s.
 | `ifront_rsla_m1`, `ifront_rsla_otvet` | the I-front against the finite-c solution (as `ifront_rsla`), checked from R = 5 cells (`--rmin 5`) |
 | `thread_rt_m1_lognormal_16src`, `thread_rt_otvet_lognormal_16src` | byte-identical outputs for 1, 2 and 4 threads |
 | `restart_smoke_m1`, `restart_smoke_otvet` | bit-identical restart of the full loop |
+| `restart_smoke_m1_order2`, `restart_smoke_otvet_order2` | the same with `moment_order = 2` (§9; its unit tests are in `moments`) |
 
 ## 4. Comparison with the rays
 
 Produced by `tools/analysis/rt_methods.py build/rt_driver WORKDIR --threads 4`,
 which writes `docs/figures/rt_methods_ifront.png`, `rt_methods_maps.png` and
 `rt_methods.txt`. All runs use N = 32, c_reduced = 0.1 and
-legacy_rt = legacy_physics = 0.
+legacy_rt = legacy_physics = 0 (with B17 `photon_conserve` and P11
+`photon_consume_dense`). The moment methods use the default
+`moment_inject = 1` (§5a).
+
+*Rerun 2026-11-10 with three changes:*
+1. **The rays rotate their HEALPix frame** for every source and RT substep,
+   `ray_rotate = 3`, as every production run since 2026-10-10 does (the
+   B16 fix, `docs/port_notes.md`). The rays with the original fixed frame
+   (`ray_rotate = 0`) are kept as a fourth column, "rays, fixed frame"
+   (`rays0` in `rt_methods.txt`).
+2. **The moments inject after the transport,** `moment_inject = 1`, the
+   default since 2026-11-10. The numbers with the old order, 0, are quoted
+   below as "inject 0".
+3. **B17 and P11.** Since the first version of this section (2026-10-10),
+   `legacy_physics = 0` has gained B17 and P11, which changes every
+   method's numbers.
+   - With `photon_conserve = 0 photon_consume_dense = 0` (and
+     `moment_inject = 0`) the script's runs reproduce the old table exactly
+     (the box at step 60: M1 0.5692, the fixed-frame rays 0.5252).
+   - Together B17 and P11 lower the box's x_HII at step 60 from 0.525 to
+     0.468 for the rays and from 0.569 to 0.545 for M1 with inject 0. For
+     that M1 run alone: B17 gives 0.553, P11 0.560.
 
 ![I-front](figures/rt_methods_ifront.png)
 
@@ -142,52 +165,110 @@ legacy_rt = legacy_physics = 0.
 
 | Method | Error at ĉt = 2 cells | at 6 cells | at 10 cells | at 30 cells |
 |---|---|---|---|---|
-| rays | −1% | +4.7% | +3.9% | +1.9% |
-| M1 | +63% | +16% | +8.7% | +2.5% |
-| OTVET | +63% | +15% | +7.0% | +1.6% |
+| rays | +1.9% | +3.8% | +1.7% | +0.2% |
+| rays, fixed frame | −1.2% | +3.1% | +1.4% | +0.1% |
+| M1 | +36% | +6.5% | +3.0% | +0.3% |
+| OTVET | +36% | +4.6% | +1.6% | −0.6% |
+| M1, inject 0 | +61% | +15% | +7.4% | +1.7% |
+| OTVET, inject 0 | +61% | +14% | +6.0% | +0.8% |
 
-The first-order scheme spreads the photons over a few cells: the numerical
-diffusion of upwind at C = 1/4 is σ ≈ 2 cells after 6 substeps. The moment
-fronts therefore run ahead of the finite-c solution while they are small,
-and converge to it, and to the rays, as R grows. The photon budget is exact
-(§2), so the ionised volume is right once the front is resolved.
+The rotation hardly changes the rays' mean radius, but it halves the
+spread of the front over directions: the radius of the partly ionised cells
+at ĉt = 30 is 7.99 ± 0.17 cells with the rotation and 8.03 ± 0.32 without
+(M1 7.95 ± 0.21, OTVET 7.84 ± 0.29).
+
+**Why the moment fronts run ahead early.** The radius is taken from the
+ionised volume. While the recombinations are negligible, that volume
+counts the photons absorbed, which are the photons emitted minus those still
+in flight. Fewer photons in flight than with the rays means a larger volume
+(`rt_methods.txt`, "I-front ahead of the finite-c solution"):
+
+| ĉt [cells] | photons in flight, M1 / OTVET (rays = 1) | inject 0 | ionised volume beyond r = ĉt + 0.87, M1 / OTVET | inject 0 |
+|---|---|---|---|---|
+| 2 | 0.65 / 0.67 | 0.42 / 0.43 | 11% / 13% | 17% / 19% |
+| 4 | 0.88 / 0.89 | 0.66 / 0.69 | 0.5% / 0.6% | 1.8% / 2.2% |
+| 6 | 0.87 / 0.91 | 0.66 / 0.70 | 0.0% / 0.0% | 0.0% / 0.1% |
+| 10 | 0.90 / 0.96 | 0.74 / 0.79 | 0 | 0 |
+| 30 | 0.95 / 1.03 | 0.83 / 0.91 | 0 | 0 |
+
+Two things put the moment photons into neutral gas early.
+- **The injection order** (§5a). With inject 0 the source's photons are
+  transported 4 subcycles before anything absorbs them. The source cell
+  itself barely absorbs, and the photons start spread over the
+  neighbouring cells. Injecting after the transport removes about half of
+  the early lead.
+- **The first-order scheme's numerical diffusion** (upwind at C = 1/4:
+  σ ≈ 2 cells after 6 substeps), which remains with inject 1:
+  - In the first substeps photons move faster than light. The
+    `moment_nsub` = 4 subcycles of a substep reach 4 cells while light
+    travels 1, and at ĉt = 2 a tenth of the ionised volume lies outside
+    the light cone.
+  - Later nothing is ionised outside the light cone, but the front is
+    thicker: about 1.5× as many cells with 0.3 < x_HII < 0.7 at ĉt = 30.
+
+The excess volume becomes a smaller fraction of the volume as R grows, and
+the moment fronts converge to the finite-c solution and to the rays. The
+photon budget is exact (§2), so the ionised volume is right once the front
+is resolved.
 
 ![maps](figures/rt_methods_maps.png)
 
 Maps of x_HII in the plane through the sources, after 15 steps:
 
 - **Shadow.** A 3× brighter source, and a clump of radius 2 cells at 50× the
-  mean density, 4 cells away.
-  - All three methods cast a shadow. The mean x_HII on the axis behind the
-    clump is 0.000 for the rays, 0.061 for M1 and 0.008 for OTVET.
-  - At the same distance beside the clump it is 0.52, 0.39 and 0.32.
+  mean density, 4 cells away. This is a point-source test of our own, not
+  Iliev et al. 2006 Test 3 (§5).
+  - Every method casts a shadow. The mean x_HII on the axis behind the
+    clump is 0.000 for the rays (with or without the rotation), 0.044 for
+    M1 and 0.004 for OTVET (inject 0: 0.054 and 0.005).
+  - At the same distance beside the clump it is 0.40 (rays), 0.50 (fixed
+    frame), 0.34 (M1) and 0.25 (OTVET). These cells are at the edge of the
+    front, 9–12 cells from the source, so the number mostly measures how
+    the front's edge falls on them.
   - OTVET's radial tensor keeps the shadow sharpest. M1 fills it in a little:
     its flux direction relaxes towards isotropy behind the obstacle.
-  - The rays' front shows neutral holes at large radius, where the HEALPix
-    sampling gets sparse.
-- **Two sources** 12 cells apart. The fronts agree: the width of the ionised
-  region through the midpoint is 7 cells with every method, and through a
-  source it is 13, 13 and 15 cells. The classic M1 failure, where crossing
-  beams merge, needs beams that cross; two isotropic point sources do not
-  provoke it at this resolution.
+  - **Holes.** With the fixed frame the rays leave neutral holes inside the
+    front, in the gaps between the 192 HEALPix directions (B16): 33 of the
+    2385 cells at r < R − 2 outside the clump's shadow are neutral
+    (x_HII < 0.5). With `ray_rotate = 3` there are none, as for M1 and
+    OTVET.
+- **Two sources** 12 cells apart. The width of the ionised region through
+  the midpoint is 7 cells for the rays, M1 and OTVET (5 with the fixed
+  frame), and through a source 13 cells for all three (OTVET 15 with
+  inject 0). The classic M1 failure, where crossing beams merge, needs
+  beams that cross; two isotropic point sources do not provoke it at this
+  resolution.
 - **16 sources in a lognormal field** (`tests/problems/lognormal_16src`,
   60 steps):
 
-| step | x_HII (volume): rays / M1 / OTVET | x_HII (mass) | partly ionised cells | cells off by > 0.1 vs rays |
+| step | x_HII (volume): rays / M1 / OTVET | x_HII (mass) | partly ionised cells | cells off by > 0.1 vs rays: fixed frame / M1 / OTVET |
 |---|---|---|---|---|
-| 10 | 0.021 / 0.058 / 0.056 | 0.084 / 0.093 / 0.094 | 2% / 7% / 7% | – / 7% / 7% |
-| 20 | 0.101 / 0.149 / 0.142 | 0.152 / 0.169 / 0.169 | 6% / 13% / 13% | – / 12% / 10% |
-| 40 | 0.310 / 0.359 / 0.344 | 0.293 / 0.315 / 0.310 | 12% / 21% / 20% | – / 18% / 16% |
-| 60 | 0.525 / 0.569 / 0.552 | 0.434 / 0.456 / 0.450 | 15% / 24% / 24% | – / 22% / 19% |
+| 10 | 0.014 / 0.029 / 0.029 | 0.068 / 0.072 / 0.071 | 2% / 5% / 5% | 0.7% / 4.0% / 4.0% |
+| 20 | 0.078 / 0.098 / 0.095 | 0.131 / 0.141 / 0.140 | 5% / 10% / 10% | 2.6% / 7.1% / 7.0% |
+| 40 | 0.266 / 0.290 / 0.281 | 0.259 / 0.274 / 0.270 | 11% / 19% / 19% | 5.1% / 14% / 14% |
+| 60 | 0.468 / 0.496 / 0.482 | 0.391 / 0.410 / 0.404 | 15% / 24% / 23% | 6.2% / 19% / 18% |
+
+  The frame rotation leaves the global fractions unchanged (the fixed frame
+  gives x_HII = 0.468 at step 60 as well), but moves 6% of the cells by more
+  than 0.1. That is the rays' own sampling noise, the floor against which
+  the moment methods' 18–19% should be read.
 
   The moment methods start ahead, while the fronts are a few cells across,
-  as in the I-front test. Later they are 5–8% (M1) and 4–5% (OTVET) above
-  the rays in x_HII. Their fronts are thicker: about 1.6× as many partly
-  ionised cells. The median temperatures agree at step 60 (16 000–16 300 K).
-  OTVET is the closer of the two to the rays everywhere.
+  as in the I-front test. At step 60 they are 6% (M1) and 3% (OTVET) above
+  the rays in x_HII.
+  - With inject 0 they were 16% and 11% above, with 23% and 20% of the
+    cells off by more than 0.1.
+  - With inject 0 and B17 and P11 off they were 8% and 5% above.
+  - The moment fronts are thicker: 1.6× as many partly ionised cells.
+  - The median temperature at step 60 is 13 900 K for the rays, 15 100 K
+    for M1 and 14 600 K for OTVET. With x_HII ≈ 0.5 the median sits at the
+    edge of the ionised gas and follows the ionised fraction.
+  - OTVET is the closer of the two to the rays everywhere.
 
 **Cost** (the box, 60 steps of one RT substep each, whole run including
-output; 4-core container):
+output; 4-core container; measured 2026-10-10, before B17 and P11 and with
+the fixed frame; the frame rotation costs nothing measurable,
+`rt_methods.txt`):
 
 | | 1 thread | 4 threads |
 |---|---|---|
@@ -249,9 +330,19 @@ absorbed in the cell that emitted them before they move on (128³,
 - OTVET's HI hardly changes: its tensor already points away from the
   source, and its neutral source cells at z ≈ 6.9 ionised before overlap.
 
-The default stays 0 (ground rule: defaults keep the first implementation);
-`make_production.py --moment-inject` writes 1 by default. The 512³ M1 and
-OTVET runs of `docs/rt_methods_512.md` used 0; they are not rerun.
+**The default is 1 since 2026-11-10** (user decision, `docs/PLAN.md`). Until
+then it was 0, the first implementation; `make_production.py` wrote 1, and
+the 512³ suite (`docs/rt_suite_512.md`) and the plane-parallel C1/T4 runs
+used it. The moment RT is new code, so ground rule 3 (defaults keep the
+original) does not bind it, and `moment_inject = 0` stays available.
+- The 512³ M1 and OTVET runs of `docs/rt_methods_512.md`, the 256³ runs
+  of §6, and the `rt_driver` comparisons of §4 before 2026-11-10 used 0.
+  They are not rerun.
+- Checkpoints do not store the key. A run started with the old default
+  and restarted from its `params.txt` with the new binary changes order at
+  the restart unless `moment_inject = 0` is added.
+- `make_production.py` now writes the key explicitly
+  (`--moment-inject 0|1`, default 1).
 
 ## 5. Caveats and open questions
 
@@ -278,7 +369,21 @@ OTVET runs of `docs/rt_methods_512.md` used 0; they are not rerun.
 - **No recombination radiation** (as with the rays, where it is off).
 - **Not validated against the Iliev et al. 2006/2009 tests** quantitatively.
   That would be the next step, with plane-parallel sources for the shadow
-  test (Test 3).
+  test (Test 3). The shadow test of §4 is our own point-source set-up and
+  has no published counterpart. The published shadow problems with M1 and
+  OTVET results are, *from memory and unchecked (no journal access)*:
+  - Iliev et al. 2006, Test 3: a plane-parallel flux on a dense uniform
+    clump, I-front trapping and the shadow, with Gnedin's OTVET among the
+    codes compared;
+  - Iliev et al. 2009, Test 7: the same clump with hydrodynamics
+    (photoevaporation);
+  - for M1, Test 3 in RAMSES-RT (Rosdahl et al. 2013) and the shadow tests
+    of González, Audit & Huynh 2007 (HERACLES) and Aubert & Teyssier 2008
+    (ATON);
+  - for OTVET in SPH, the point-source shadow of Petkova & Springel 2009.
+
+  The moment RT has no plane-parallel sources yet: `docs/plane_parallel.md`
+  is a ray mode, and the OTVET tensor is built from point sources.
 - **AMR, MPI and GPU** (ROADMAP): the moment solver is a 7-point stencil on
   the grid, with a ghost layer of one cell per subcycle. It is a natural fit
   for every one of them, and for the "moment hand-over in transparent
@@ -417,7 +522,10 @@ Each run's own movie (x_HII, T, ρ and τ_es) is
     this level.
 - **Fronts.** The moment fronts are smooth, while the rays' are ragged:
   - the rays' HEALPix sampling leaves holes at large radius, worst at 0.01c
-    (§4);
+    (§4). These ray runs (2026-10-09) predate `ray_rotate`: they use the
+    fixed frame, and the holes are B16. With `ray_rotate = 3`, the
+    production setting since 2026-10-10, they are gone (§4, the shadow
+    holes; `docs/rt_methods_512.md` and `docs/rt_suite_512.md` use it);
   - the moment methods have up to 1.4× as many partly ionised cells
     (5.9% against 4.2%) while the bubbles grow;
   - at overlap the fraction of partly ionised cells is the same for all
@@ -515,3 +623,480 @@ Findings:
     few substeps per hydro step, it costs 38% more.
 - **Next for speed:** `radiative_physics`. Beyond that, a second-order
   transport would sharpen the fronts (§5).
+
+## 7. Constant-opacity transfer function, and Gnedin 2025
+
+*Written 2026-11-20 (branch `claude/dreamy-ride-nchi0z`), on the user's
+question whether the Γ fluctuations of §6 and `docs/rt_suite_512.md` §6
+contradict Gnedin 2025 (arXiv:2504.10571), where M1 and OTVET both follow
+T_ΓL(k) = (P_Γ/P_L)^½ = arctan(kλ)/(kλ).*
+
+**Test.** `tools/analysis/moment_transfer.cpp` runs the solver's own
+transport (`mk::flux_cell`, `mk::glf_cell`, `otvet_fft_convolve`,
+`moment_nsub` = 4, `moment_inject` = 1) to the steady state in a medium of
+uniform mean free path λ: each substep ends with N, F *= exp(−Δx/λ) instead
+of `photo_cell`. `moment_transfer.py` compares T(k) = (P_N/P_L)^½ with:
+- exact: arctan(kλ)/(kλ) (Gnedin 2025, eq. 2);
+- M1 linearised (D = I/3): 1/(1 + k²λ²/3);
+- OTVET linearised: (1 + 2π²kλ²/(3L_O))/(1 + k²λ²/3), L_O = 7.66 L for the
+  minimum-image cube (Wu, McQuinn & Eisenstein 2021, eqs. 5.14–5.15 without
+  the opacity response; rederived here);
+- the same two with the scheme's numerical diffusion. Per unit ĉ/Δx the
+  first-order GLF flux adds ½∇² to both moment equations, which replaces κ
+  by q = κ + ½|k|²Δx (discretely κ − ½Σ(2cos k_d − 2)) in the flux equation
+  and in the loss term: T_M1 = κ/(q + |s|²/3q), s_d = sin k_d.
+
+![transfer](figures/moment_transfer.png)
+
+*T(k) for λ = L/8 (top; 128³) and λ = 2.5 L (bottom; 64³, the λ/L of the
+512³ runs at z ≈ 5.4), with 20–30 sources (left) and every cell a source
+(right). Grey line: 1 − exp(−Δx/λ), the photons a source injected in the
+current substep. All cases (also λ = L and 2000–3000 sources):
+[`figures/moment_transfer.txt`](figures/moment_transfer.txt).*
+
+**Results.**
+- **The implementation solves the equations it claims.** With every cell a
+  source M1 equals the isotropic closure to 4 digits, and both closures
+  follow their linear theory with the GLF term: to 3–10 % for kλ ≤ 5 at
+  λ = L/8, to 10–25 % at λ ≥ L for M1 (above it), and to 5–10 % for OTVET
+  at k ≥ 3 fundamentals. `ctest -L moments`: 26 of 26 pass.
+- **λ ≪ L (Gnedin's regime: his fitted λ is 0.3–1 cMpc/h in a 20 cMpc/h
+  box, read off his Fig. 5, at x_HI = 0.99–0.17).** Two cases, with
+  different reasons for the agreement with arctan(kλ)/(kλ) at kλ = 2–20:
+  - *30 sources (0.06 per λ³):* T/T_exact = 0.89–1.05 (M1) and 0.96–1.28
+    (OTVET). One beam per cell is M1's exact case. At kλ = 10 M1 is 1.7×
+    its linear theory with the GLF term, so this is not the scheme.
+  - *Every cell a source (4096 per λ³):* 0.74–0.95 (M1) and 0.88–1.03
+    (OTVET), **but through the numerical diffusion.** The continuum linear
+    M1 is 0.2 of exact at kλ = 10 (0.030 against 0.148); the GLF term
+    lifts it for kλ > (2λ/Δx)^½ = 5.7. A resolution artifact, not evidence
+    that M1 follows the exact form.
+
+  Which of these (or the shared ionized/neutral pattern, which dominates
+  P_Γ during reionization) makes his Fig. 5 and 7 and our 512³ runs agree
+  is **not established**.
+- **λ ≳ L (our runs after overlap).** M1 is 0.42× (λ = L) and 0.24×
+  (λ = 2.5 L) the exact T at the box scale; OTVET is 1.6–2.3× and 3.4–5×.
+  In power: M1 0.17 and 0.06, OTVET 3–5 and 11–26. The 512³ suite at
+  z = 4.99 has M1 0.04–0.07 and OTVET 11.6–14 times the rays' P_Γ at
+  k ≤ 2 h/Mpc: **the production numbers are those of the closures at
+  λ ≈ 2.5 L, not a bug.** Gnedin 2025 shows no ALTAIR run in this regime.
+- **During reionization the 512³ runs agree with each other as his do.**
+  From `figures/rt_suite_512_pk.txt`, T_M1/T_OTVET = 0.73–1.15 at
+  x_V = 0.49 and 0.79 over k = 0.16–47 h/Mpc, and both are 0.8–1.3× the
+  rays' at k ≤ 4 h/Mpc. It is 0.5–0.7 at x_V = 0.97 and 0.05–0.16 after
+  overlap.
+
+**Two numerical effects** (the first is also what lifts the dense case at λ = L/8):
+- **M1's small-scale T is set by the GLF diffusion, not by the closure.**
+  For k > (2/λΔx)^½ the flux equation is damped by the numerical term, and
+  T flattens near 1.5 Δx/λ instead of falling as 3/(kλ)². At λ = 2.5 L on
+  64³ this is 5–100× the continuum M1 value. A less diffusive flux (HLL,
+  second order) would lower M1's P_Γ further, and the plateau moves with
+  resolution.
+- **The injection floor.** With `moment_inject = 1` the photons of the
+  current substep sit in the source cell: a white term T = 1 − exp(−Δx/λ),
+  which exceeds the exact T for kΔx ≳ 1.5 (the flat last bins of
+  `rt_suite_512_pk.txt`).
+
+Both give a plateau in T(k) at high k. Thesan's unexplained plateau in
+Gnedin's Fig. 4–5 has that shape, but it starts at scales far above the
+cell: not tested, a guess only.
+
+**Resolution test (2026-11-20, on the user's remark that M1 has more Γ
+power than the rays at high k, against Wu et al. 2021, Fig. 4).** Every
+cell a source, λ = L, `moment_inject = 1`, at 32³, 64³ and 128³ (the last
+blocks of `figures/moment_transfer.txt`):
+
+| | 32³ | 64³ | 128³ | 256³ |
+|---|---|---|---|---|
+| M1 = exact at kΔx | 1.30 | 1.3 | 1.3–1.4 | 1.3 |
+| the same in kλ | 42 | 84 | 180 | 335 |
+| T_M1/T_exact at kλ ≈ 14 (linear M1: 0.13) | 0.59 | 0.39 | 0.27 | 0.20 |
+
+(256³ added 2026-11-23.)
+
+- **The crossing is fixed in kΔx, not in kλ: numerical.** The 512³ suite
+  after overlap has M1 overtaking the rays at kΔx ≈ 1.4 (k ≈ 17.6 h/Mpc).
+- **With `moment_inject = 0` (64³) there is no crossing**: T_M1/T_exact is
+  0.24–0.27 for kΔx = 0.2–1 and falls to 0.03 at the Nyquist corner. The
+  excess over exact is the source cells' own-substep photons.
+- **M1 is not converged at any k > 1/λ**: at fixed kλ its T falls toward
+  the linear solution with resolution. The suite's M1 deficit at
+  k ≤ 2 h/Mpc is likely smaller than a converged M1 solver's.
+- Not tested: a less diffusive flux; the rays' own high-k power against the
+  64-rays-per-cell cap (Wu et al. 2021, §5.2.3).
+
+![convergence](figures/moment_transfer_convergence.png)
+
+*The same test for both closures (λ = L, every cell a source,
+`moment_inject = 1`). Left: M1 at 32³, 64³ and 128³, and 64³ with
+`moment_inject = 0`. Middle: OTVET. Right: the linear theory with the GLF
+term over the continuum one, for k along the diagonal. Data:
+[`figures/moment_transfer_convergence.txt`](figures/moment_transfer_convergence.txt).*
+
+- **OTVET is converged in this test, M1 is not.** OTVET's T at kλ ≈ 14
+  and 30 is 1.77–1.93 of exact at all three resolutions and 0.97–1.12 of
+  its continuum linear theory. M1's is 0.59 / 0.39 / 0.26 of exact at
+  kλ ≈ 14 (4.4 / 2.9 / 1.9 of its continuum theory) and 0.88 / 0.59 / 0.32
+  at kλ ≈ 30.
+
+### 7.1 The exact linear solution of the discrete scheme
+
+*2026-11-23.* `tools/analysis/moment_transfer_exact.py` solves the test of
+this section for small perturbations with no further approximation: the
+first-order scheme as coded (GLF flux, `moment_nsub` subcycles, the
+injection after or before them, the absorption once per substep and, for
+OTVET, the Fourier response of the code's tensor kernel), linearised about
+the uniform state, mode by mode on the code's grid and averaged over the
+shells of `moment_transfer.py`. The formulas are in the script's header.
+The "linear theory with the GLF term" used above treats the subcycles and
+the injection as continuous in time and is replaced by this where the two
+differ.
+
+- **The code equals this solution to 3 % in every bin**: T(code)/T(exact
+  linear) = 0.969–1.023 over M1 and OTVET, `moment_inject` = 1 and 0,
+  32³–256³, λ = L/4 and L, every cell a source
+  ([`figures/moment_transfer_exact.txt`](figures/moment_transfer_exact.txt),
+  the `code/` columns).
+- So in this test every departure of T from the continuum closures (the
+  plateau at high k, the crossing at kΔx ≈ 1.3, the resolution dependence
+  at fixed kλ) is a property of the linearised discrete scheme; nothing
+  nonlinear enters.
+- Reproduce: `moment_transfer.py N λ <prefixes> > code.txt`, then
+  `moment_transfer_exact.py N N/λ --code code.txt`.
+- Not covered: `moment_order = 2` (PR #40).
+
+## 8. Convergence runs for the Γ fluctuations
+
+*2026-11-20, asked by the user.* `tools/hyak/rt_convergence.sh` (klone;
+`all` chains everything with job dependencies, or the phases `ics`, `res`,
+`rays`, `post` one by one; `DRYRUN=1` prints the jobs). Both
+series use the 512³ suite's `make_production.py` arguments in a 20 Mpc/h
+box.
+
+- **Why M1 first.** Linear theory with the GLF term at λ = L (formulas of
+  §7): the scheme raises M1's T by 1.2 / 1.9 / 4.5 at kλ = 14 / 30 / 60 at
+  512³ (3.4 / 9 / 20 at 32³) and changes OTVET's by ≤ 6 % (512³; 0.6–1.07
+  at 32³–128³). The screen and cone were not put through the test.
+- **`res`: the gas / RT grid N = 128, 256, 512 at fixed dark matter.**
+  512³ particles on the 512³ PM mesh in every run (`pm_refine` = 4, 2, 1);
+  `make_ics.py --Ndm 512 --phases-from-ndm 256` gives a byte-identical
+  `xv_dm.init` for every `--Ngas` (checked at Ndm = 32, Ngas = 8, 16, 32),
+  so the halos and sources match up to the gas's gravity. Rays, M1 and
+  M1 with `moment_inject = 0` at each N (`rtconv_N<N>_rays`, `..._rays_m1`,
+  `..._rays_m1_inj0`; the last added on the user's request, to measure the
+  white injection term of §7 in full runs). Measure P_Γ(M1)/P_Γ(rays) at
+  fixed k against N. Prediction of §7: the ratio falls with N at
+  k ≳ 1 h/Mpc after overlap, and M1 overtakes the rays at kΔx ≈ 1.3 at
+  every N. Confound: the gas resolution changes the absorbers and λ, so
+  compare at matched x_V and quote λ.
+- **`rays`: the ray budget at N = 256**, `nray_max_factor` = 8, 32, 64,
+  120 beside the suite's 15 (`rtconv_N256_rays_f<F>`), reference f120.
+  Rays outside the brightest quarter of the pool merge into the 48 cones
+  of `nside_merge` = 2 per cell and only the brightest half may split
+  (`calc_ngam_ray`), so the live rays per cell are a fraction of
+  `nray_max_factor`: **the suite's 15 is well below the 64 per cell that
+  Wu et al. 2021 §5.2.3 take for this code** (ℓ ≈ 8, converged for
+  k ≲ ℓ/λ). `nray_max_factor`·N³ < 2³¹ caps the 512³ suite at 15.
+  Not varied: `nside_merge` (no params.txt key; 4 would need one).
+- Checked here: every phase with `DRYRUN=1`; `radhydro` runs 3 steps of
+  the new N = Ndm/4, `pm_refine` = 4 combination (N = 8, Ndm = 32).
+- **Run 2026-11-20 to 23 on klone; results in §8.1–8.5.** Added while the
+  series ran: plain OTVET at every N (`otvet` phase), the rays at
+  `nray_max_factor` = 120 at 128³ (the reference there, §8.1), and M1 and
+  OTVET with `moment_order = 2` at 128³ and 256³ (submitted by hand with an
+  executable of the branch `moment-order2`, PR #40).
+
+**Injection order at three resolutions (2026-11-20, added to §7's test).**
+`moment_inject = 0` at 32³, 64³, 128³ (λ = L, every cell a source):
+- **T(inject 1) − T(inject 0) = 1 − exp(−Δx/λ) to 1–4 % at every k and
+  resolution.** `moment_inject = 1` is the inject-0 field plus a white
+  term, the photons of the current substep in their source cell.
+- T/T(continuum linear M1) at kλ ≈ 11 / 14 / 30 / 57: inject 0 gives
+  1.2 / 1.4 / 2.6 / 6.7 at 128³ (inject 1: 1.5 / 1.9 / 4.6 / 15), and
+  1.7 / 2.2 / 4.1 / – at 32³ (2.9 / 4.4 / 15 / –). Inject 0 is nearer
+  the continuum M1 but not converged either: what remains is the GLF term.
+- Above kΔx ≈ 1 inject 0 falls to 0.03–0.08 of exact: its source photons
+  are spread over ~2 cells by the 4 subcycles before Γ is evaluated. That
+  is the smoothing behind the neutral source cells of §5a, not M1.
+
+**The same series at λ = L/4 (2026-11-20; the user: λ = L is a strange
+case).** λ = L was chosen to mimic the suite after overlap, but there the
+lowest mode is already at kλ = 6.3 and OTVET's box-normalised tensor term
+dominates. At λ = L/4 (32³–256³, λ = 8–64 cells) the series starts at
+kλ = 1.6, where every run agrees with the theory:
+
+![convergence, lambda = L/4](figures/moment_transfer_convergence_l4.png)
+
+*M1 with `moment_inject = 1` (left) and 0 (middle), OTVET (right). Table:
+[`figures/moment_transfer_convergence_l4.txt`](figures/moment_transfer_convergence_l4.txt).*
+
+- **kλ ≲ 2: converged and correct.** M1 is within 2–13 % of its continuum
+  theory at every N, OTVET within 6 %.
+- **M1, inject 1:** T/T(continuum) at kλ ≈ 10 is 5.1 / 3.5 / 2.4 / 1.8 at
+  32³ / 64³ / 128³ / 256³, at kλ ≈ 20: 17 / 9.6 / 7.7 / 4.6. Roughly first
+  order in Δx; it equals the exact T at kΔx ≈ 1.25 at every N.
+- **M1, inject 0:** within 15 % of the continuum for kλ ≤ 5 at every N
+  and 1.1–1.7 at kλ ≈ 10; then the source smoothing cuts it off.
+- **OTVET is not converged here either**, unlike at λ = L: T/T(continuum)
+  at kλ ≈ 10 is 1.8 / 1.6 / 1.4 / 1.2 and at kλ ≈ 20: 3.1 / 2.2 / 2.0 / 1.6.
+  With λ < L its tensor term is small (it grows as λ/L), so its mid-k
+  solution is M1-like and is lifted by the same two terms. The lift brings
+  it to within 0.77–1.15 of the *exact* T at these resolutions, by
+  accident. "OTVET is converged" above holds for λ ≳ L only.
+
+### 8.1 Results: the ray budget
+
+*Runs of 2026-11-20 to 23 (klone). Figures and tables by
+`tools/analysis/rt_convergence_cmp.py` and `rt_convergence_fig.py`
+(`rt_convergence.sh post`).*
+
+![ray budget](figures/rt_convergence_rays.png)
+
+*256³, `nray_max_factor` f = 8, 15, 32, 64 against f = 120: P(k) ratio and
+1 − r(k) for δ_Γ (rows 1–2) and x_HII (rows 3–4) at four epochs. Table:
+[`figures/rt_convergence_rays.txt`](figures/rt_convergence_rays.txt).*
+
+- **During reionization the suite's f = 15 is converged in P_Γ.** At
+  x_V = 0.57, 0.79 and 0.92, P_Γ(f)/P_Γ(120) is within 10 % of 1 for every
+  f ≥ 8 at every k up to the Nyquist frequency (at k ≤ 2 h/Mpc: within
+  5.4 % for f = 8 and 4.6 % for f = 15), and 1 − r_Γ ≤ 0.03. The histories
+  x_V(z) agree to 0.001.
+- **After overlap (z = 4.96) it is not at the box scale.** f = 15 has 1.20
+  of the reference power at k = 0.3 h/Mpc and is within 10 % at k ≥ 0.5;
+  f = 32 and 64 have 1.13 and 1.06 at k = 0.3. f = 8 has 1.3–1.4 at
+  k ≥ 1 h/Mpc, a 14 % lower median Γ and a 21 % shorter λ.
+- **x_HII at small scales depends on f at every epoch**:
+  P_x(15)/P_x(120) > 1.1 for k ≳ 30 h/Mpc and 1 − r_x = 0.1 at
+  k ≈ 20 h/Mpc.
+- **At 128³ f = 15 fails after overlap.** The pool guard forces merges
+  (767 substeps limited, 900 forced) and the run ends with
+  ⟨Γ⟩_V = 8.5 × 10⁻¹⁴ s⁻¹ and λ = 5.7 pMpc against 4.8 × 10⁻¹³ and 38 pMpc
+  at f = 120 (12–43 times the reference P_Γ). Up to x_V = 0.75 the two
+  agree to 1 % in P_Γ. The 128³ rows below use f = 120 as the reference. The
+  budget is global, `nray_max_factor`·N³, while the rays needed after
+  overlap scale with the sources and λ, so a coarse grid needs a larger
+  factor.
+- Not varied: `nside_merge`.
+
+### 8.2 Results: the resolution series
+
+![resolution](figures/rt_convergence_res.png)
+
+*Columns: epochs matched in x_HII,V (the last in z). Rows: P_Γ of each
+moment run over the rays' of the same N; r(k) with the rays; Δ²_Γ of the
+ray runs; Δ²_Γ of the M1 runs. Table, with ⟨Γ⟩, λ and the dense-cell
+statistics: [`figures/rt_convergence_res.txt`](figures/rt_convergence_res.txt).*
+
+P_Γ/P_Γ(rays) at k = 1, 2, 4, 8, 16 h/Mpc, x_V ≈ 0.57–0.59:
+
+| | 128³ | 256³ | 512³ |
+|---|---|---|---|
+| M1 | 0.91 0.93 1.12 1.47 3.05 | 0.91 0.96 0.99 1.10 1.36 | 0.78 0.78 0.87 0.99 1.05 |
+| M1, `moment_inject = 0` | 0.76 0.60 0.38 0.09 0.01 | 0.79 0.74 0.54 0.31 0.08 | 0.69 0.62 0.53 0.50 0.31 |
+| OTVET | 1.20 1.50 2.08 2.56 3.64 | 1.06 1.27 1.50 1.96 2.47 | 0.86 0.99 1.18 1.73 2.14 |
+| M1, `moment_order = 2` | 0.94 1.14 1.47 1.91 3.29 | 1.00 1.18 1.40 1.56 1.90 | – |
+| OTVET, `moment_order = 2` | 1.04 1.21 1.64 2.47 4.19 | running | – |
+
+After overlap (z ≈ 4.95; λ = 38 pMpc at 128³ and 15 pMpc at 256³, 7.7 and
+3.2 box lengths):
+
+| | 128³ | 256³ |
+|---|---|---|
+| M1 | 0.12 0.33 0.71 1.11 2.47 | 0.16 0.35 0.60 0.74 0.98 |
+| M1, `moment_inject = 0` | 0.06 0.13 0.17 0.05 0.01 | 0.07 0.16 0.24 0.17 0.05 |
+| OTVET | 35 34 26 12 3.7 | 9.2 9.2 8.4 7.3 4.6 |
+| M1, `moment_order = 2` | 0.15 0.33 0.65 1.35 2.95 | 0.30 0.55 0.83 1.07 1.41 |
+| OTVET, `moment_order = 2` | 36 36 34 24 7.0 | running |
+
+- **The prediction of §7 holds after overlap**: M1 overtakes the rays at
+  kΔx = 1.08 (128³) and 1.28 (256³), and its ratio to the rays at fixed
+  k ≥ 4 h/Mpc falls with N. Its deficit at k ≤ 2 h/Mpc changes little
+  (0.12–0.33 against 0.16–0.35), but λ/L differs by 2.4 between the two
+  runs, so this is not a clean resolution test.
+- **During reionization M1's small-scale excess over the rays falls with
+  N**: 3.05, 1.36, 1.05 at k = 16 h/Mpc. The crossing is then not at fixed
+  kΔx (0.43, 0.24, 0.21 at x_V ≈ 0.58). At k = 1–2 h/Mpc M1 is 0.9–0.96 of
+  the rays at 128³ and 256³ and 0.78 at 512³.
+- **OTVET's excess falls with N at every k**, during reionization (at
+  k = 4 h/Mpc: 2.08, 1.50, 1.18) and after overlap (35 to 9 at
+  k = 1 h/Mpc, with the same λ/L caveat).
+- **The rays' own P_Γ is not converged in N at fixed x_V**: the 512³ run
+  has 1.8–2.7 times the 256³ power at k = 1–16 h/Mpc at x_V ≈ 0.58
+  (z = 5.68 against 6.40); 128³ and 256³ agree to 0.78–1.02. The gas grid
+  changes the absorbers: the 512³ runs reionize later (x_V = 0.84 for the
+  rays, 0.87 M1, 0.84 OTVET at z = 5; the 128³ and 256³ runs overlap
+  between z = 5.4 and 5.0).
+- The 512³ runs have no epoch after overlap.
+
+### 8.3 Results: `moment_inject = 0` and `moment_order = 2` in the runs
+
+- **`moment_inject = 0` removes M1's small-scale excess and overshoots.**
+  Its P_Γ is below the rays' at every k ≥ 1 h/Mpc and every N, and at
+  fixed k it rises toward the rays with N (k = 8 h/Mpc: 0.09, 0.31, 0.50;
+  k = 16 h/Mpc: 0.01, 0.08, 0.31). At 512³ its r_Γ with the rays is
+  0.83–0.92 at k = 1–8 h/Mpc (default M1: 0.80–0.93) and falls to 0 at the
+  Nyquist frequency.
+- **It reionizes earlier**: at 512³ x_V = 0.954 at z = 4.98 against 0.865
+  (default M1) and 0.837 (rays); the median Γ of the ionised cells at z = 5
+  is 1.5 times the default's and 1.8 times the rays'.
+- **Dense cells** (above 100 times the mean density, 256³, z = 4.96): the
+  mass-weighted x_HI is 0.31 against 0.18 (default M1), 0.11 (rays) and
+  0.02 (OTVET), and their mean Γ is 7 × 10⁻¹³ s⁻¹ against 4.5 × 10⁻¹²
+  (default) and 3.6 × 10⁻¹² (rays): the neutral source cells of §5a. Not
+  computed for the 512³ run.
+- **`moment_order = 2` does not reduce M1's excess over the rays in these
+  runs**, unlike in the uniform test (PR #40). At x_V ≈ 0.58 it raises
+  P_Γ/P_Γ(rays) at k = 2–16 h/Mpc at both N (256³: 1.18, 1.40, 1.56, 1.90
+  against 0.96, 0.99, 1.10, 1.36) and lowers r_Γ at k = 1–4 h/Mpc from
+  0.86–0.95 to 0.75–0.84 (256³). After overlap at 256³ it has more power
+  at every k (0.30 of the rays at k = 1 h/Mpc against 0.16), again with
+  lower r. **The cause is not known.**
+- **`moment_order = 2` with OTVET (128³)** lowers the excess at
+  k ≤ 8 h/Mpc during reionization and raises it at k = 16 h/Mpc; after
+  overlap it raises it at k = 4–16 h/Mpc (34, 24, 7.0 against 26, 12,
+  3.7). The 256³ run is not finished.
+
+### 8.4 The uniform test of §7 with the rays
+
+`tools/analysis/ray_transfer.cpp` puts the ray tracer through the test of
+§7: the solver's own `rt_step_1` and `rt_step_3` with `legacy_rt = 0`, and
+every cell transmitting exp(−Δx/λ) in place of the photochemistry.
+`tools/hyak/ray_transfer.sh` runs it. 128³, λ = L/4 and L, sources in one
+cell in 512 (192 rays per source cell and substep do not fit the pool with
+every cell a source), `nray_max_factor` = 8, 15, 64, 120. Tables (T and,
+in brackets, the correlation coefficient r with the sources; `_avg` is the
+mean over the last 16 substeps; M1 and OTVET with the same sources):
+[`figures/ray_transfer_N128_l4.txt`](figures/ray_transfer_N128_l4.txt),
+[`figures/ray_transfer_N128_l1.txt`](figures/ray_transfer_N128_l1.txt).
+
+| `nray_max_factor` | 8 | 15 | 64 | 120 |
+|---|---|---|---|---|
+| live rays per cell, λ = L/4 / L | 6.7 / 6.7 | 12.6 / 12.6 | 39 / 31 | 63 / 52 |
+| substeps the pool guard limited (forced), λ = L/4 | 318 (314) | 631 (0) | 12 (0) | 0 |
+| rms noise per cell σ | 0.38 | 0.27 | 0.14–0.18 | 0.11–0.14 |
+
+- **The part of the field correlated with the sources is the exact
+  solution**: r·T/T_exact = 0.95–1.05 in every bin for λ = L/4 and
+  0.87–1.09 for λ = L, at every budget, with no plateau at high k and with
+  the injection term (the photons of the current substep in the source
+  cell) at its true size.
+- **The rest is white noise** of rms σ ≈ 0.95 n_ray^−½ per cell and
+  substep (0.86–1.01 over the eight runs), n_ray the live rays per cell:
+  T√(1 − r²) is flat in k at σ/√512. It adds σ²Δx³ to P_N/N̄², or
+  Δ² = σ²(kΔx)³/2π², 0.11 at the Nyquist frequency for the suite's
+  σ = 0.27. Its height in T depends on the source field, so it does not
+  carry over to the runs as a number.
+- Averaging 16 substeps lowers σ by 1.5 (λ = L/4) to 2.5 (λ = L), not 4:
+  the rays persist between substeps.
+- M1 and OTVET with these sparse sources have the T of the every-cell
+  case to 4 % (λ = L/4) and 1 % (λ = L).
+- Not varied: the source density, the mean photon count per cell (0.1 per
+  H atom), `nside_merge`.
+
+### 8.5 Cost
+
+Total wall time of the resolution series to z = 5 on 192 cores (cpu-g2),
+from the runs' timers:
+
+| | 128³ | 256³ | 512³ |
+|---|---|---|---|
+| rays [s] | 2370 | 9003 | 60537 |
+| M1 [s] | 571 | 3562 | 32123 |
+| OTVET [s] | 572 | 3606 | 32247 |
+| rays / M1 | 4.1 | 2.5 | 1.9 |
+| ray transport / M1 transport | 10.1 | 3.5 | 2.5 |
+| photochemistry, share of the rays' RT | 5 % | 16 % | 22 % |
+| mean live rays per cell | 9.3 | 7.8 | 5.0 |
+| peak memory, rays / M1 [GB] | 32 / 30 | 60 / 48 | 196 / 130 |
+
+- The rays' cost follows their number, which the sources and the merging
+  set and not the grid (33 000–41 000 source cells at every N), while the
+  moment transport and the photochemistry scale with N³. The ratio
+  therefore falls with N **at a fixed box and source population**; it is
+  not a trend with problem size.
+
+## 9. Second-order transport (`moment_order = 2`)
+
+§7 found that M1's small-scale power is set by two numerical terms: the
+diffusion of the first-order GLF flux, (ĉΔx/2)∇² on both moment equations,
+and the white floor of `moment_inject = 1`. `moment_order = 2` removes the
+first to leading order. The default `moment_order = 1` is unchanged, bit for
+bit.
+
+**Scheme** (`moment_transport2`, `src/rt_moments.cpp`; kernels `mc_slope`,
+`face_flux`, `muscl_flux` in `kernels/moment_cell.hpp`):
+
+- Linear reconstruction of N, F, E in each cell with the monotonized-central
+  limiter, per component and per axis.
+- The two face states are made realizable (N ≥ 0, |F| ≤ N, E ≥ 0), each gets
+  the closure of its own state (M1: of its N, F; OTVET and the split: the
+  tensor h and N_dir of its own cell), and the face flux is GLF:
+  Φ = ½(f(U_L) + f(U_R)) − ½(U_R − U_L).
+- Unsplit in the three axes, two stages (Heun, SSP-RK2); each stage ends with
+  the realizability clamp of the first-order kernel.
+- Needs `moment_nsub ≥ 6` (the code refuses otherwise): positivity of the
+  unsplit limited update needs half the first-order Courant number, C ≤ 1/6.
+- Uniform grid only. `rt_backend = amrex` refuses it.
+- Applies to M1, OTVET, the split/cone closures and the `ga01` background
+  field. Photons and energy are conserved to rounding as before (flux form).
+
+Where the limiter is inactive the scheme's diffusion is fourth order: in the
+linear model of §7, q = κ + Σ_d (2 − 2 cos k_d)²/8 replaces
+q = κ + Σ_d (1 − cos k_d), and the gradient is s̃_d = sin k_d (3 − cos k_d)/2
+(curves "lin+MUSCL" of `moment_transfer.py`).
+
+**Tests** (`tests/test_moments.cpp`, label `moments`):
+
+| Test | Result |
+|---|---|
+| point pulse in vacuum, 5 substeps | photons conserved, realizable; mean radius 5.04 cells (M1) and 4.78 (OTVET) against 5.85 and 5.92 at first order (the front moves 5); rms width 1.11 and 0.80 against 1.85 and 1.48 |
+| smooth wave advected one period (isotropic closure) | L1 error 1.21e-2, 3.39e-3, 9.29e-4 at N = 16, 32, 64: ratios 3.6 per doubling |
+| thread independence | identical for 1, 2, 4 threads, M1 and OTVET |
+| `restart_smoke_m1_order2`, `restart_smoke_otvet_order2` | the full loop restarts bit-identically |
+
+**Uniform-opacity transfer function** (`moment_transfer <...> 2`, 64³ and
+128³, every cell a source, λ = L/4 and L;
+`docs/figures/moment_transfer_order2.txt`). T relative to the continuum
+linear M1, 128³:
+
+| kΔx | λ = L/4: order 1 | order 2 | order 1, inject 0 | order 2, inject 0 | λ = L: order 1 | order 2 | order 1, inject 0 | order 2, inject 0 |
+|---|---|---|---|---|---|---|---|---|
+| 0.11 | 1.13 | 1.06 | 1.01 | 0.93 | 1.84 | 1.37 | 1.36 | 0.88 |
+| 0.19 | 1.56 | 1.28 | 1.20 | 0.90 | 3.69 | 2.22 | 2.19 | 0.73 |
+| 0.34 | 2.89 | 1.96 | 1.71 | 0.76 | 9.41 | 5.04 | 4.59 | 0.34 |
+| 0.63 | 6.89 | 4.38 | 2.98 | 0.46 | 26.4 | 15.0 | 10.4 | 1.44 (r < 0) |
+| 1.14 | 17.1 | 13.3 | 4.15 | 0.80 | 68.8 | 51.8 | 16.1 | 3.66 (r < 0) |
+| exact, kΔx = 0.63 | 10.0 | | | | 40.6 | | | |
+
+- **With the default `moment_inject = 1` the gain is modest.** Order 2
+  lowers M1's T by 1.1–1.9 at kΔx = 0.1–0.8; it stays 2–15 times the
+  continuum M1 at kΔx = 0.3–0.6, because what is left is the white floor of
+  the injection, which the transport order does not touch. M1 still crosses
+  the exact T at kΔx ≈ 1.3–1.5.
+- **With `moment_inject = 0` order 2 removes the excess** and undershoots:
+  0.9 of the continuum at kΔx = 0.1–0.2, 0.3–0.8 at kΔx = 0.3–0.5 (order 1:
+  1.0–2.2 and 1.7–7). The linear model predicts 1.0–1.4 there; the deficit
+  is nonlinear. The sources of this test are white noise, the least
+  favourable input for a limiter (an extremum in every other cell, where the
+  slope is set to zero). At λ = L and kΔx = 0.5–1.1 the response is
+  anticorrelated with the sources (r = −0.4 to −0.8) at |T| below the
+  continuum M1's, which is itself 30–70 times below the exact T there. Not
+  understood in detail; it is a regime where M1 has almost no response.
+- **OTVET changes little**: at λ = L its T is within 0.9–1.2 of its
+  continuum at either order (its tensor term dominates); at λ = L/4 order 2
+  lowers the lift from 1.2–2.1 to 1.1–1.8 at kΔx = 0.2–0.8.
+- The mean ⟨N⟩/(⟨L⟩λ) is the same for both orders.
+
+**Cost.** Per RT substep the transport does 6 subcycles of 2 stages, each
+with 6 closure evaluations per cell (two face states per axis) against one
+at first order. Measured: the transfer driver's transport is 10 times
+(M1) to 17 times (OTVET) slower at 128³; the full-loop smoke tests take
+73 s against 6 s. Memory: 15 more floats per cell (two stage copies and the
+face fluxes of one group). Reconstructing the pressure tensor from one
+closure evaluation per cell would cut most of this; not done.
+
+**Not done:** no production run yet with `moment_order = 2`; no AMReX
+levels; the limiter is fixed (monotonized central); HLL fluxes (the other
+common way to cut M1's diffusion) are not implemented.

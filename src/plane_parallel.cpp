@@ -1,4 +1,15 @@
 // Plane-parallel RT-domain mode (plane_parallel.hpp, docs/plane_parallel.md).
+//
+// The parameters (set_plane_param, check_plane_param, plane_summary), the
+// spectrum of the face sources (plane_spectrum: J_nu ~ nu^-alpha between
+// 1 Ry and plane_nu_max_ry Ry in kNfreq bins of equal photon number), their
+// normalisation to Gamma_HI = plane_gamma12 1e-12 s^-1 in the lit cells
+// (plane_fill_rtp), the per-step photon bookkeeping of PlaneState and the
+// plane_spectrum.txt dump. The transport itself lives elsewhere: the face
+// rays in src/ray_tracing.cpp and src/amrex/rt_level.cpp (plane_transport =
+// rays), the packet sweep in src/plane_sweep.cpp (plane_transport = sweep).
+// A new option, not in the original: everything here is inert unless
+// plane_parallel = 1, which needs legacy_rt = 0 (check_plane_param).
 #include "radray/plane_parallel.hpp"
 
 #include <cmath>
@@ -17,6 +28,9 @@ namespace radray {
 
 namespace {
 
+// Power-law spectrum J_nu ~ nu^-alpha, frequencies in eV: the integrals of
+// the photon number and of the photon-weighted frequency are elementary
+// (alpha = 0 and alpha = 1 are the logarithmic cases).
 // photon number per unit frequency of J_nu ~ nu^-alpha: nu^-(alpha+1)
 double photons_between(double alpha, double a, double b) {
   if (std::fabs(alpha) < 1e-12) return std::log(b / a);
@@ -36,6 +50,11 @@ double invert_photons(double alpha, double nu_min, double target) {
 
 }  // namespace
 
+// Bin edges at equal photon number (invert_photons of n/kNfreq of the
+// total), the effective frequency = the photon-weighted mean of each bin,
+// the Verner cross sections there (rrk::photoion_sigma) and
+// sig_eff = sum_n frac[n] sig_HI[n] (docs/plane_parallel.md "Spectrum and
+// normalisation").
 PlaneSpectrum plane_spectrum(double alpha, double nu_min_eV, double nu_max_eV) {
   if (!(nu_max_eV > nu_min_eV) || !(nu_min_eV > 0))
     throw std::runtime_error("plane_spectrum: need 0 < nu_min < nu_max");
@@ -78,12 +97,14 @@ std::array<double, kNfreq> group_frequencies(const Config& c) {
   return nu;
 }
 
+// 2^kFxBits fixed point: the photon sums are exact and order-independent
 __int128 plane_to_fx(double v) {
   return static_cast<__int128>(std::ldexp(v, PlaneState::kFxBits));
 }
 double PlaneState::absorbed() const { return std::ldexp(static_cast<double>(absorbed_fx), -kFxBits); }
 double PlaneState::escaped() const { return std::ldexp(static_cast<double>(escaped_fx), -kFxBits); }
 double PlaneState::inflight() const { return std::ldexp(static_cast<double>(inflight_fx), -kFxBits); }
+// bit f of the faces mask = 2 * axis + (0 for +, 1 for -): +x -x +y -y +z -z
 std::vector<int> plane_face_list(int faces) {
   std::vector<int> v;
   for (int f = 0; f < 6; ++f)
@@ -104,6 +125,9 @@ std::string plane_faces_string(int faces) {
   return out;
 }
 
+// params.txt keys of the mode, the step caps and land_outputs
+// (docs/plane_parallel.md "Parameters"); range checks throw, an unknown key
+// returns false for the caller's own parsing
 bool set_plane_param(Config& c, const std::string& key, const std::string& val) {
   if (key == "plane_parallel") {
     if (val == "0")
@@ -205,6 +229,26 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
       throw std::runtime_error("plane_turnon_courant must be in (0, 1]");
     return true;
   }
+  if (key == "plane_xray_substeps") {
+    c.plane_xray_substeps = std::stoi(val);
+    if (c.plane_xray_substeps < 0) throw std::runtime_error("plane_xray_substeps must be >= 0 (0 = off)");
+    return true;
+  }
+  if (key == "plane_couple_courant") {
+    c.plane_couple_courant = std::stod(val);
+    if (!(c.plane_couple_courant >= 0 && c.plane_couple_courant <= 1))
+      throw std::runtime_error("plane_couple_courant must be in [0, 1] (0 = off)");
+    return true;
+  }
+  if (key == "plane_packet_rescale") {
+    if (val == "0")
+      c.plane_packet_rescale = false;
+    else if (val == "1")
+      c.plane_packet_rescale = true;
+    else
+      throw std::runtime_error("plane_packet_rescale must be 0 or 1");
+    return true;
+  }
   if (key == "land_outputs") {
     if (val == "0")
       c.land_outputs = false;
@@ -217,6 +261,7 @@ bool set_plane_param(Config& c, const std::string& key, const std::string& val) 
   return false;
 }
 
+// the fields set_plane_param writes, from the drivers' scratch Config
 void copy_plane_param(const Config& from, Config& to) {
   to.plane_parallel = from.plane_parallel;
   to.plane_transport = from.plane_transport;
@@ -226,14 +271,21 @@ void copy_plane_param(const Config& from, Config& to) {
   to.plane_z_re = from.plane_z_re;
   to.plane_alpha = from.plane_alpha;
   to.plane_nu_max_ry = from.plane_nu_max_ry;
+  to.plane_packet_rescale = from.plane_packet_rescale;
   to.dt_max_myr = from.dt_max_myr;
   to.rt_substeps_max = from.rt_substeps_max;
   to.land_outputs = from.land_outputs;
   to.plane_turnon_cfl = from.plane_turnon_cfl;
   to.plane_turnon_temp = from.plane_turnon_temp;
   to.plane_turnon_courant = from.plane_turnon_courant;
+  to.plane_couple_courant = from.plane_couple_courant;
+  to.plane_xray_substeps = from.plane_xray_substeps;
 }
 
+// The rules of the parameter table: legacy_rt = 0, rays only (no moments),
+// no recomb_rad, ray_encoding = float, the uniform grid, a domain length
+// that is a multiple of rt_cells_per_substep, and for the ray transport a
+// pool that holds the rays in flight.
 void check_plane_param(const Config& c) {
   if (c.dt_max_myr < 0) throw std::runtime_error("dt_max_myr must be >= 0");
   if (c.rt_substeps_max < 0) throw std::runtime_error("rt_substeps_max must be >= 0");
@@ -254,6 +306,8 @@ void check_plane_param(const Config& c) {
   if (c.plane_faces == 0) throw std::runtime_error("plane_faces: no face given");
   if (!(c.plane_gamma12 > 0)) throw std::runtime_error("plane_gamma12 must be > 0");
   if (!(c.plane_nu_max_ry > 1)) throw std::runtime_error("plane_nu_max_ry must be > 1");
+  if (c.plane_packet_rescale && c.plane_transport != 1)
+    throw std::runtime_error("plane_packet_rescale = 1 requires plane_transport = sweep");
   if (c.plane_transport == 1) return;  // sweep: no ray pool
   // the pool: nfaces * N^3 / k rays in flight once the fronts have crossed
   int nfaces = 0;
@@ -265,6 +319,8 @@ void check_plane_param(const Config& c) {
                              std::to_string(static_cast<int>(std::ceil(1.25 * nfaces / c.rt_cells_per_substep)) + 1));
 }
 
+// the step caps and land_outputs are echoed in either mode; the turn-on cap
+// only when it is off or not at its defaults
 std::string plane_summary(const Config& c) {
   if (!c.plane_parallel) {
     std::string s;
@@ -281,11 +337,14 @@ std::string plane_summary(const Config& c) {
   if (c.dt_max_myr > 0) s += ", dt_max_myr = " + std::to_string(c.dt_max_myr);
   if (c.rt_substeps_max > 0) s += ", rt_substeps_max = " + std::to_string(c.rt_substeps_max);
   if (c.land_outputs) s += ", land_outputs = 1";
+  if (c.plane_packet_rescale) s += ", plane_packet_rescale = 1";
   if (!c.plane_turnon_cfl)
     s += ", plane_turnon_cfl = 0";
   else if (c.plane_turnon_temp != 2e4 || c.plane_turnon_courant != 0.05)
     s += ", plane_turnon_temp = " + std::to_string(c.plane_turnon_temp) +
          ", plane_turnon_courant = " + std::to_string(c.plane_turnon_courant);
+  if (c.plane_couple_courant > 0) s += ", plane_couple_courant = " + std::to_string(c.plane_couple_courant);
+  if (c.plane_xray_substeps > 0) s += ", plane_xray_substeps = " + std::to_string(c.plane_xray_substeps);
   return s;
 }
 
@@ -302,12 +361,16 @@ void plane_init(Simulation& s) {
   P.face_list = plane_face_list(P.faces);
   P.field.clear();
   P.inflight_fx = 0;
+  P.dtsec_packets = 0;
   if (P.transport == 1 && !use_amrex(s.cfg)) {
     // the serial sweep's packets (the backend holds its own fields)
     P.field.assign(P.face_list.size(), std::vector<float>(static_cast<std::size_t>(kNfreq) * s.cfg.Nrtc, 0.0f));
   }
 }
 
+// The kernels' plane block: L = 0 switches the plane rules off (before the
+// turn-on); otherwise the domain length, the lit faces and the photons per
+// ray and bin of the header's normalisation, in the rays' units.
 void plane_fill_rtp(const Simulation& s, rrk::RTP& P) {
   const PlaneState& ps = s.plane;
   P.plane.L = 0;
@@ -324,6 +387,8 @@ void plane_fill_rtp(const Simulation& s, rrk::RTP& P) {
   }
 }
 
+// nfaces faces x ndom^3 domains x (N/ndom)^2 face cells = nfaces N^2 ndom
+// rays per substep, each carrying sum_n ngam[n]
 double plane_emitted_per_substep(const Simulation& s, const rrk::RTP& P) {
   if (!s.plane.on || !s.plane.active) return 0;
   int nfaces = 0;
@@ -332,6 +397,15 @@ double plane_emitted_per_substep(const Simulation& s, const rrk::RTP& P) {
   double per_ray = 0;
   for (int n = 0; n < kNfreq; ++n) per_ray += static_cast<double>(P.plane.ngam[n]);
   return nfaces * N * N * s.cfg.plane_ndom * per_ray;
+}
+
+double plane_packet_scale(Simulation& s) {
+  PlaneState& ps = s.plane;
+  if (!s.cfg.plane_packet_rescale || !ps.on || !ps.active || ps.transport != 1) return 1;
+  const double dt = s.clk.dtsec_rt, old = ps.dtsec_packets;
+  ps.dtsec_packets = dt;
+  if (!(old > 0) || dt == old) return 1;
+  return dt / old;
 }
 
 bool plane_rt_active(const Config& c, double a_start) {

@@ -1,7 +1,19 @@
-// The gas state on the level (amrex_state = 1; amrex_state.hpp,
+// The gas state on the level (amrex_state = 1; include/radray/amrex_state.hpp,
 // docs/stage_e_state.md): one FabArray of floats (u, e, w) on the
 // decomposition shared by the RT, hydro and PM levels, and the slab
-// transfers to and from rank 0's host mirror.
+// transfers to and from rank 0's host mirror (docs/rank0_streaming.md).
+//
+// This file implements the AMReX-free interface of amrex_state.hpp that
+// concerns the gas itself: amrex_state_init (the shared BoxArray and
+// DistributionMapping, which the RT, hydro and PM levels then adopt through
+// gs::active()), the full scatter / gather of rank 0's host arrays, the
+// streamed forms (StreamSlab, one slab of gs::kSlabPlanes planes as rank 0's
+// transient), the level-side clamps of summarize_gas, the metal injection of
+// add_halo_metals and the load balancing of amrex_balance = 1
+// (docs/stage_e_state.md section 5). The RT cells' streaming
+// (amrex_state_stream_rt, ...) is in rt_level.cpp. The slab transfer
+// templates (gather_slabs, scatter_slabs, stream_slabs, fill_slabs) are in
+// gas_state.hpp. Built only with RADRAY_AMREX; gas_state_stub.cpp otherwise.
 #include "gas_state.hpp"
 
 #include <algorithm>
@@ -26,6 +38,9 @@
 namespace radray {
 
 namespace {
+// the state of the one Simulation that called amrex_state_init (gs::active():
+// the levels take their decomposition from it); null until then and after
+// amrex_state_release
 gs::GasState* g_active = nullptr;
 
 gs::GasState& state_of(Simulation& s) {
@@ -45,6 +60,11 @@ void check_mirror(const Simulation& s) {
 
 gs::GasState* gs::active() { return g_active; }
 
+// The shared decomposition of an N^3 level: AMReX's chop into boxes of
+// amrex_max_grid_size with its default mapping, or for amrex_slab = 1 whole
+// z-slabs mapped to the ranks in z order (slab s to rank s * nranks / nslab;
+// the moment RT's exact chains over the ranks need that order,
+// docs/stage_e_moments.md). Deterministic, so every rank builds the same.
 void gs::make_decomposition(const Config& cfg, int N, ax::BoxArray& ba, ax::DistributionMapping& dm) {
   const ax::Box domain(ax::IntVect(0), ax::IntVect(N - 1));
   if (!cfg.amrex_slab) {
@@ -69,12 +89,17 @@ void gs::make_decomposition(const Config& cfg, int N, ax::BoxArray& ba, ax::Dist
   dm = ax::DistributionMapping(owner);
 }
 
+// Simulation::state owns the AmrexState; its destruction must not leave
+// gs::active() dangling
 AmrexState::~AmrexState() {
   if (g_active == &gas) g_active = nullptr;
 }
 
 void amrex_state_release() { g_active = nullptr; }
 
+// Once per run (radhydro, before the first step or a restart): the
+// periodic unit-cell geometry (dx = 1 in gas cells), the shared
+// decomposition and the zeroed gas FabArray of gs::kNC components.
 void amrex_state_init(Simulation& s) {
   namespace ax = amrex;
   check_amrex_state_param(s.cfg);
@@ -95,6 +120,9 @@ void amrex_state_init(Simulation& s) {
   g_active = &st->gas;
 }
 
+// Rank 0's full host arrays onto the level, slab by slab (the initial
+// conditions and a restart that still hold the mirror). The host layout is
+// the Fortran one: u_gas(5, N^3), w_gas(4, N^3), e(N^3), cell index i fastest.
 void amrex_state_scatter_gas(Simulation& s) {
   gs::GasState& g = state_of(s);
   check_mirror(s);
@@ -113,6 +141,8 @@ void amrex_state_scatter_gas(Simulation& s) {
   });
 }
 
+// The reverse: the level's gas into rank 0's host arrays (the other ranks'
+// stay as they are); the outputs and the checkpoint that read the mirror.
 void amrex_state_gather_gas(Simulation& s) {
   gs::GasState& g = state_of(s);
   check_mirror(s);
@@ -131,6 +161,9 @@ void amrex_state_gather_gas(Simulation& s) {
   });
 }
 
+// The streamed forms (docs/rank0_streaming.md): no full host arrays, rank 0
+// sees one StreamSlab at a time (components c0 .. c0 + ncomp - 1 of
+// gs::kU / kE / kW interleaved per cell), or fills one at a time.
 void amrex_state_stream_gas(Simulation& s, int c0, int ncomp, const StreamFn& fn) {
   gs::GasState& g = state_of(s);
   if (c0 < 0 || ncomp < 1 || c0 + ncomp > gs::kNC)
@@ -147,6 +180,9 @@ void amrex_state_fill_gas(Simulation& s, int c0, int ncomp, const FillFn& fill) 
   gs::fill_slabs(g.G, g.N, c0, ncomp, buf, fill);
 }
 
+// summarize_gas's per-cell clamps applied on the level (radhydro, before
+// the statistics), so that the serial function run on rank 0's mirror finds
+// nothing left to clamp and its sums are bitwise those of a host run.
 void amrex_state_clamp_gas(Simulation& s) {
   namespace ax = amrex;
   gs::GasState& g = state_of(s);
@@ -162,9 +198,14 @@ void amrex_state_clamp_gas(Simulation& s) {
 }
 
 // ---- load balancing (amrex_balance = 1) --------------------------------------
+// docs/stage_e_state.md section 5: the shared decomposition is the RT
+// level's, so a ray-weighted mapping balances the RT and carries the gas and
+// the particles with it. Every level is bitwise independent of the mapping,
+// so a rebalanced run stays byte-identical to the fixed one.
 
 namespace {
-// mean over max of the per-rank cost sums under a mapping
+// the balance efficiency: mean over max of the per-rank cost sums under a
+// mapping (1 = perfectly balanced)
 double efficiency(const amrex::Vector<amrex::Real>& cost, const amrex::DistributionMapping& dm, int nranks) {
   std::vector<double> per(static_cast<std::size_t>(nranks), 0.0);
   for (int b = 0; b < static_cast<int>(cost.size()); ++b) per[static_cast<std::size_t>(dm[b])] += cost[b];
@@ -177,12 +218,17 @@ double efficiency(const amrex::Vector<amrex::Real>& cost, const amrex::Distribut
 }
 }  // namespace
 
+// Before an RT step (radhydro, after the sources are assigned): price the
+// boxes, propose a new mapping of the same BoxArray and move the state onto
+// it when the gain exceeds amrex_balance_min_gain. Collective; returns
+// whether it remapped.
 bool amrex_balance_step(Simulation& s, pm::PMState& pm, double& eff_old, double& eff_new) {
   namespace ax = amrex;
   gs::GasState& g = state_of(s);
   const int nranks = ax::ParallelDescriptor::NProcs();
   const int nbox = static_cast<int>(g.ba.size());
-  // the cost of every box: its cells plus the weighted live rays
+  // the cost of every box: its cells plus the weighted live rays (the RT
+  // level counts them per global box index, rt_box_ray_counts)
   ax::Vector<ax::Real> cost(nbox, 0.0);
   rt_box_ray_counts(s, cost);
   for (int b = 0; b < nbox; ++b)
@@ -195,7 +241,9 @@ bool amrex_balance_step(Simulation& s, pm::PMState& pm, double& eff_old, double&
     eff_new = eff_old;
     return false;
   }
-  // the gas onto the new mapping, then the levels
+  // the gas onto the new mapping (ParallelCopy: the positions are unchanged,
+  // only the owners), then the RT cells and rays, the particles and the
+  // hydro's level 0 (gas_state.hpp)
   gs::FFab G2(g.ba, dm2, gs::kNC, 0);
   G2.ParallelCopy(g.G, 0, 0, gs::kNC);
   g.G = std::move(G2);
@@ -206,6 +254,10 @@ bool amrex_balance_step(Simulation& s, pm::PMState& pm, double& eff_old, double&
   return true;
 }
 
+// add_halo_metals (src/halo_sources.cpp) on the level: every rank gets the
+// full list and applies the entries of the cells it owns, in list order, with
+// the host code's arithmetic (w(4) + dz in double, rounded to float once per
+// entry), so repeated cells sum as on the host.
 void amrex_state_add_metals(Simulation& s, const std::vector<std::int64_t>& cells, const std::vector<double>& dz) {
   namespace ax = amrex;
   gs::GasState& g = state_of(s);
@@ -216,6 +268,7 @@ void amrex_state_add_metals(Simulation& s, const std::vector<std::int64_t>& cell
     auto a = g.G.array(mfi);
     for (std::size_t n = 0; n < cells.size(); ++n) {
       const std::int64_t c = cells[n];
+      // 0-based linear gas cell c = i + N (j + N k)
       const int i = static_cast<int>(c % N), j = static_cast<int>((c / N) % N), k = static_cast<int>(c / (static_cast<std::int64_t>(N) * N));
       if (!bx.contains(ax::IntVect(i, j, k))) continue;
       float& w3 = a(i, j, k, gs::kW + 3);

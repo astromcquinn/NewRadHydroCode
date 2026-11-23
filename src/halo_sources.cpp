@@ -1,5 +1,19 @@
 // Source model, legacy halo catalogs and link_halo/add_halo_to_rt
 // (see include/radray/halo_sources.hpp and docs/halos_and_sources.md).
+//
+// Four parts:
+//  * the legacy input of the original (io_tools.f90 read_halo: Halo/sfr.txt,
+//    the binary halo.<tag> catalogs and the redshift tag), reproduced with
+//    its quirks (docs/halos_and_sources.md section 4) for source_mode =
+//    legacy and for the catalogs that write_catalogs dumps;
+//  * the source model (assign_sources): SFR, L, mstar and fgas per halo for
+//    sfr_model = global | dynamical | abundance (docs/abundance_matching.md;
+//    the f_esc(z) of docs/fesc_evolution.md), new code;
+//  * link_halo / add_halo_metals: the halo_tools.f90 binning of the sources
+//    onto the RT and gas grids, in the original's order and precision;
+//  * the per-step driver (update_sources, its two halves for amrex_state = 1,
+//    the FoF cache of fof_dt_myr, docs/pm_refine.md section 5) and the
+//    params.txt keys (set_halo_param).
 #include "radray/halo_sources.hpp"
 
 #include "radray/amrex_state.hpp"
@@ -50,6 +64,7 @@ std::vector<std::string> list_tokens(const std::string& line) {
   return t;
 }
 
+// strict conversion of one token (after the d -> e substitution)
 double to_double(const std::string& s, const std::string& path) {
   char* end = nullptr;
   const double v = std::strtod(s.c_str(), &end);
@@ -122,6 +137,9 @@ std::string redshift_tag(double z) {
 // read_halo
 // ---------------------------------------------------------------------------
 
+// The scan of read_halo (docs section 4): stop at the first row with
+// z <= redshift; the catalog is the row before it (z2), even on an exact
+// match; if the file ends first the last two rows extrapolate the SFR.
 CatalogSelection select_halo_catalog(const std::vector<SfrHistoryRow>& hist, double redshift) {
   CatalogSelection c;
   double z1 = 0, z2 = 0, sfr1 = 0, sfr2 = 0;
@@ -145,6 +163,8 @@ CatalogSelection select_halo_catalog(const std::vector<SfrHistoryRow>& hist, dou
   return c;
 }
 
+// Nhalo as integer(8), then the 56-byte records; Sequential adds the 4-byte
+// record markers gfortran's form='unformatted' writes
 void write_halo_catalog(const std::string& path, const std::vector<SourceRecord>& halo,
                         CatalogFormat fmt) {
   std::ofstream out(path, std::ios::binary);
@@ -165,6 +185,8 @@ void write_halo_catalog(const std::string& path, const std::vector<SourceRecord>
   if (!out) throw std::runtime_error("write failed: " + path);
 }
 
+// Auto: a stream file is exactly 8 + 56 Nhalo bytes, a sequential one
+// 16 + 64 Nhalo (the markers around the count and each record)
 std::vector<SourceRecord> read_halo_catalog(const std::string& path, CatalogFormat fmt) {
   std::ifstream in(path, std::ios::binary);
   if (!in) throw std::runtime_error("cannot open " + path);
@@ -211,6 +233,9 @@ std::vector<SourceRecord> read_halo_catalog(const std::string& path, CatalogForm
   return h;
 }
 
+// L and sfr of the leading L > 0 records are rescaled in real(8) and stored
+// in real(4); the first record with L <= 0 ends the sources (the leading-
+// sources contract of the catalogs)
 SourceCatalog read_halo(const std::string& dir_halo, double redshift, std::ostream* log) {
   SourceCatalog cat;
   const auto hist = read_sfr_history(dir_halo + "sfr.txt");
@@ -270,6 +295,8 @@ double table_sfr(double z, const std::vector<SfrHistoryRow>& t) {
 
 }  // namespace
 
+// the table if given, else the Hernquist & Springel (2003) fit of the
+// header (constants from memory, docs section 3)
 double global_sfr_density(double z, const SourceModelParams& p,
                           const std::vector<SfrHistoryRow>* table, const Cosmology& c) {
   if (table) return table_sfr(z, *table);
@@ -278,6 +305,7 @@ double global_sfr_density(double z, const SourceModelParams& p,
          (1 + p.hs_alpha * std::pow(chi - 1, 3) * std::exp(p.hs_beta * std::pow(chi, 1.75)));
 }
 
+// rho_*(z) = int_z^zmax rho_SFR dt/dz dz, with dz = (1+z) du for u = ln(1+z)
 double global_stellar_density(double z, const SourceModelParams& p,
                               const std::vector<SfrHistoryRow>* table, const Cosmology& c) {
   if (z >= p.z_max) return 0;
@@ -294,6 +322,7 @@ double global_stellar_density(double z, const SourceModelParams& p,
   return s * du;
 }
 
+// the same quadrature of dt alone
 double cosmic_time_yr(double z, double z_max, const Cosmology& c) {
   if (z >= z_max) return 0;
   const int n = 2000;
@@ -308,11 +337,21 @@ double cosmic_time_yr(double z, double z_max, const Cosmology& c) {
   return s * du;
 }
 
+// docs/fesc_evolution.md section 2: f_esc at the pivot f_esc_z0, a power law
+// in (1+z) capped at f_esc_max; f_esc_beta = 0 is the constant exactly
 double f_esc_at(const SourceModelParams& p, double z) {
   if (p.f_esc_beta == 0) return p.f_esc;
   return std::min(p.f_esc_max, p.f_esc * std::pow((1 + z) / (1 + p.f_esc_z0), p.f_esc_beta));
 }
 
+// The source model (docs/halos_and_sources.md section 3, "Implemented
+// models"). Active halos pass the T_vir and M cuts. global: SFR
+// proportional to M, normalised to the global SFR density times the box
+// volume, mstar from the global stellar density the same way. abundance:
+// L_UV(M, z) from the fitted LuvModel, sfr = L_UV / L_per_sfr, and the
+// record's L scaled so that the RT's fixed fResc * pop2_init emits
+// f_esc(z) xi_ion L_UV photons (header). dynamical: SFR = eSF fb M / t_dyn.
+// mstar is capped at fb M in every model; fgas = max(fb - mstar/M, 0).
 SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu,
                              const SourceModelParams& p,
                              const std::vector<SfrHistoryRow>* table) {
@@ -366,6 +405,8 @@ SourceCatalog assign_sources(const std::vector<Halo>& halos, const HaloUnits& hu
   cat.redshift = z;
   cat.tag = z < 100 ? redshift_tag(z) : "";
   cat.halo.reserve(n);
+  // the records in the legacy order: the star-forming halos first (in the
+  // input, i.e. mass, order), then the rest
   auto make = [&](std::size_t i) {
     const Halo& h = halos[i];
     SourceRecord r;
@@ -537,6 +578,7 @@ SourceCatalog cached_catalog(Simulation& s, const float* xv_dm, std::int64_t npa
   return cat;
 }
 
+// the three ways to a catalog: the legacy files, the FoF cache, a fresh FoF
 SourceCatalog source_catalog(Simulation& s, const float* xv_dm, std::int64_t npart,
                              const HaloSourceParams& p, std::ostream* log) {
   SourceCatalog cat;
@@ -603,6 +645,9 @@ void bcast_catalog(SourceCatalog& cat) {
 
 namespace radray {
 
+// params.txt keys (header; also fof_dt_myr, docs/pm_refine.md section 5).
+// Numbers accept Fortran 'd' exponents. The am_l0 .. am_b parameters go to
+// the LuvModel by name (LuvModel::name).
 bool set_halo_param(HaloSourceParams& p, const std::string& key, const std::string& val) {
   auto num = [&]() {
     std::string v = val;
