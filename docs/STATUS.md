@@ -3740,34 +3740,36 @@ differ on klone are skipped there (label `platform_ref`).
 
 ## 2026-11-23: assessment of the open PRs, the branches, the runs on klone and the next runs (branch `claude/great-hypatia-stoo2m`)
 
-Asked by the user. No source changed. klone was not reachable from this
-session: the run lists are from the documents, so check the sizes with
+Asked by the user. No source changed outside the merged PRs. klone was
+not reachable from this session: the run lists are from the documents, so check the sizes with
 `du -sh $RUNS/* | sort -h` before deleting anything. The assessment of
 the paper draft (private repository `astromcquinn/RT_closure`) went to the
 user and is not recorded here.
 
-* **Open PRs** (each with a green fast suite on 2026-11-23):
-  - **#37** (`output-write-check`): merge. Error handling only. Every new
-    run should use a binary with it while `/gscratch/astro` is 96–99 %
-    full (the truncated outputs of 2026-11-11).
-  - **#39** (`cone-blend-test`): merge (documents and a script tag). Its
-    verdict keeps `otvet_cone_blend = 4` as the default, but the paper's
-    figures use the cone without the blend since 2026-11-20
-    (`reion512late_otvet_conenb`). Open decision: change the default, or
-    state the key wherever the cone is described.
-  - **#41** (`rt-convergence-runs`): merge before #40 (documents and
-    tools; one table row still says "running").
-  - **#40** (`moment-order2`): its base is `claude/dreamy-ride-nchi0z`,
-    not `main`, so merging it as it stands does not reach `main`. After
-    #41 (which contains that branch) retarget it to `main`. The one
-    conflict is in `docs/rt_moments.md`, where both append: keep §8.1–8.5,
-    then §9. The second-order transport is a separate function and the
-    default path is untouched. Open before anything is quoted from it:
-    why it does not lower M1's excess in the reionization runs (§8.3).
+* **The four open PRs, merged on the user's instruction the same day:**
+  - **#41** (`rt-convergence-runs`) by its own klone session (81d35f9),
+    **#37** (`output-write-check`, bdb5600) and **#39**
+    (`cone-blend-test`, 0af766f) from this session. Every new run should
+    use a binary with #37 while `/gscratch/astro` is 96–99 % full (the
+    truncated outputs of 2026-11-11).
+  - **#40** (`moment-order2`): its base was `claude/dreamy-ride-nchi0z`,
+    not `main`. Retargeted to `main`, and `main` merged into its branch
+    (452f4c7). The one conflict was in `docs/rt_moments.md`, where both
+    sides appended: §8.1–8.5 kept, then §9. To be merged when its CI
+    is green.
+  - **Checked:** `main` with the four PRs (and
+    `gamma_profile.py`'s branch) builds and passes the fast suite in a
+    cloud container, 181 of 181 (4 skipped for optional Python tools).
+  - **Left open by #39:** its verdict keeps `otvet_cone_blend = 4` as the
+    default, but the paper's figures use the cone without the blend since
+    2026-11-20 (`reion512late_otvet_conenb`). Decide: change the default,
+    or state the key wherever the cone is described.
+  - **Left open by #40:** why the second order does not lower M1's excess
+    in the reionization runs (§8.3; run B2 below).
 * **Branches:** `claude/beautiful-archimedes-kcgsvx` (`gamma_profile.py`
   and its test, no PR, merges cleanly) needs a PR. `moment-amr-physctx` is
-  merged and can be deleted. Delete `claude/dreamy-ride-nchi0z` only after
-  #40 is retargeted: deleting a PR's base branch closes the PR.
+  merged and can be deleted, and so can `claude/dreamy-ride-nchi0z` now
+  that #40 no longer has it as its base.
 * **Missing from these documents:** the late-end suite `reion512late*`
   (the paper's suite since 2026-11-12: f6 = 0.10, P11, no SN heating,
   OTVET with `otvet_background = ga01`), its `_z570` reruns,
@@ -3824,8 +3826,8 @@ user and is not recorded here.
     4. Γ and λ_mfp of the refined pair (`reion512late_amr_r2`,
        `reion512late_amr_m1`) against their uniform twins, and the empty
        "cone, refined" column of `docs/moment_amr.md` §6;
-    5. the box size from existing runs: `rtconv_N256*` (20 Mpc/h) against
-       the suite (40 Mpc/h) have the same cell, particle mass and sources;
+    5. ~~the box size from existing runs~~ dropped (user, 2026-11-23: no
+       box-size test, the paper is a relative comparison of methods);
     6. T_ΓL(k) of the 512³ runs against their own source field.
   - **B. Small runs** (a few node-hours each):
     1. the cone (`otvet_cone_blend = 0`) and the screen in the
@@ -3841,10 +3843,22 @@ user and is not recorded here.
     1. `rtconv_N512_{rays,rays_m1,rays_otvet}` continued past overlap from
        their checkpoints (they stop at x_V = 0.84–0.87 at z = 5), for the
        third after-overlap point of M1's large-scale deficit;
-    2. a box-size test at 80 Mpc/h. At 512³ the sources need recalibrating
-       for the coarser particle mass. At 1024³ the int32 ray links allow
-       `nray_max_factor = 1` only, so a ray reference there needs wider
-       links (or the AMReX RT, if its links are per box: not checked).
+    2. ~~a box-size test at 80 Mpc/h~~ dropped (user, 2026-11-23, as A5).
+  - **Asked for by the user (2026-11-23): A and B.** They need klone,
+    which a cloud session cannot reach, so they are a thread prompt in
+    `docs/PLAN.md` ("Assessment follow-up", 2026-11-23). A4 is already
+    under way in the klone session "Reionization rerun for closure
+    paper".
+* **Why `rtconv_N512_{rays,rays_m1,rays_otvet}` stop before overlap**
+  (user question; from the documents, to be confirmed from the logs by
+  the klone thread): nothing failed. `rt_convergence.sh` gives every run
+  the suite's outputs, `zdata1 = 15 … 5`, and `land_outputs = 1` ends a
+  run on its last output, z = 5. At 512³ in 20 Mpc/h reionization is
+  later (x_V = 0.84, 0.87, 0.84 at z = 5; `docs/rt_moments.md` §8.2),
+  while the 128³ and 256³ runs overlap between z = 5.4 and 5.0: f6 = 0.10
+  was tuned at the 256³ cell size, and the finer gas grid has more dense,
+  absorbing gas. A continuation needs outputs below z = 5 and the runs'
+  last checkpoints.
 
 ## Next
 
