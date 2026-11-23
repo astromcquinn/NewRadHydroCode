@@ -44,6 +44,14 @@
 #   tools/hyak/rt_convergence.sh inj0   # only the M1 moment_inject = 0 runs, beside
 #                                       # a res series that is already submitted
 #   tools/hyak/rt_convergence.sh otvet  # only the plain OTVET siblings (moment_inject = 1), likewise
+#   tools/hyak/rt_convergence.sh cone | screen | m1o2i0 | otvi0
+#                                       # siblings of rtconv_N<N>_rays at every N of
+#                                       # RES (2026-11-23, docs/rt_moments.md 8.6):
+#                                       # the paper's cone (otvet_cone_blend = 0), the
+#                                       # screen, M1 with moment_order = 2 and
+#                                       # moment_inject = 0, OTVET with moment_inject = 0
+#   tools/hyak/rt_convergence.sh merge4 # the rays with nside_merge = 4 at N = 256
+#                                       # (RAYN), f = 15 and 64 (MERGEF): rtconv_N256_rays_f<f>_m4
 #   tools/hyak/rt_convergence.sh post   # gamma_power.py on every set ->
 #                                       # $RUNS/rtconv_post/{N<N>,rays}/gamma_pk*.txt
 # Environment: RUNS (default /gscratch/astro/$USER/radhydro/runs), RES
@@ -77,7 +85,7 @@ SCRATCH="${SCRATCH:-none}"
 NDM=512; BOX=20
 export EXE THREADS
 phase="${1:-}"
-case "$phase" in all|ics|res|rays|inj0|otvet|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
+case "$phase" in all|ics|res|rays|inj0|otvet|cone|screen|m1o2i0|otvi0|merge4|post) ;; *) sed -n 2,55p "$0"; exit 2 ;; esac
 declare -A ICSJOB=()   # N -> the job making its ICs (phase all)
 RUNJOBS=""             # the run jobs submitted, for the analysis' dependency
 [ -x "$EXE" ] || { echo "$EXE missing: run tools/hyak/build_hyak.sh first"; exit 1; }
@@ -170,6 +178,27 @@ make_otvet() {  # make_otvet N: the plain OTVET sibling of rtconv_N<N>_rays (thi
     echo "ics = $(ics_dir "$n")"; echo "rt_method = otvet"; } > "$m/params.txt"
   ln -s "$(ics_dir "$n")" "$m/ics"
   launch "$m" "$n" "rtconv${n}_otvet"
+}
+
+make_sib() {  # make_sib N BASE NAME KEY=VAL...: rtconv_N<N>_<BASE>'s params.txt with KEY=VAL set, as rtconv_N<N>_<NAME>, launched
+  local n="$1" b="$RUNS/rtconv_N${1}_$2" m="$RUNS/rtconv_N${1}_$3" name="$3" kv pat="ics"
+  shift 3
+  [ -f "$b/params.txt" ] || { echo "$b/params.txt missing"; exit 1; }
+  for kv in "$@"; do pat="$pat|${kv%%=*}"; done
+  mkdir -p "$m"
+  { echo "# $(basename "$b") with $* (tools/hyak/rt_convergence.sh)"
+    grep -Ev "^[[:space:]]*($pat)[[:space:]]*=" "$b/params.txt"
+    echo "ics = $(ics_dir "$n")"
+    for kv in "$@"; do echo "${kv%%=*} = ${kv#*=}"; done; } > "$m/params.txt"
+  ln -s "$(ics_dir "$n")" "$m/ics"
+  launch "$m" "$n" "rtc${n}_$name"
+}
+
+sib_phase() {  # sib_phase NAME KEY=VAL...: make_sib at every N of RES from rtconv_N<N>_rays
+  local name="$1" n; shift
+  dirs=(); for n in $RES; do dirs+=("$RUNS/rtconv_N${n}_rays_$name"); done
+  clear_dirs "${dirs[@]}"
+  for n in $RES; do need_ics "$n"; make_sib "$n" rays "rays_$name" "$@"; done
 }
 
 do_ics() {
@@ -273,6 +302,22 @@ otvet)
   for n in $RES; do
     [ -f "$RUNS/rtconv_N${n}_rays/params.txt" ] || { echo "$RUNS/rtconv_N${n}_rays/params.txt missing: run res first"; exit 1; }
     need_ics "$n"; make_otvet "$n"
+  done
+  ;;
+cone) sib_phase cone rt_method=otvet otvet_closure=cone otvet_cone_blend=0 ;;
+screen) sib_phase screen rt_method=otvet otvet_closure=screen ;;
+m1o2i0) sib_phase m1_o2_inj0 rt_method=m1 moment_order=2 moment_nsub=6 moment_inject=0 ;;
+otvi0) sib_phase otvet_inj0 rt_method=otvet moment_inject=0 ;;
+merge4)
+  # the rays with nside_merge = 4 (192 merge cones per cell instead of 48;
+  # needs a binary with the nside_merge key) at N = RAYN, for each f of MERGEF
+  # from the base of that budget (f = 15: rtconv_N<N>_rays, else _rays_f<f>)
+  n="${RAYN:-256}"; need_ics "$n"
+  dirs=(); for f in ${MERGEF:-15 64}; do dirs+=("$RUNS/rtconv_N${n}_rays_f${f}_m4"); done
+  clear_dirs "${dirs[@]}"
+  for f in ${MERGEF:-15 64}; do
+    b=rays_f$f; [ "$f" = 15 ] && b=rays
+    make_sib "$n" "$b" "rays_f${f}_m4" nside_merge=4
   done
   ;;
 post) do_post ;;
