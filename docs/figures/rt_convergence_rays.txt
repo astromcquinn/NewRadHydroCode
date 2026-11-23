@@ -1,0 +1,154 @@
+# Ray-budget series at 256^3 (nray_max_factor f; reference f120): ratio of P(k) to the reference and
+# r(k) with it, for delta_Gamma (gammaHI_avg) and x_HII, at the reference's snapshots.
+# k [h/Mpc] columns:    0.3    0.5    1.0    2.0    4.0    8.0   16.0
+
+## x_HII,V ~ 0.57: reference z = 6.40, x_V = 0.5715, median Gamma(ionised) = 5.294e-14, lambda = 0.22 pMpc
+  f8   z = 6.40, x_V = 0.5720, median Gamma(ionised) = 5.238e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.01   1.01   1.01   1.01   1.01
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   0.99   0.98   0.98
+      r_xHII        1.00   1.00   1.00   1.00   0.98   0.96   0.87
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.021; first k with more than 10 %: none up to 68
+  f15  z = 6.40, x_V = 0.5719, median Gamma(ionised) = 5.286e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   0.99   0.98
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.98   0.92
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.006; first k with more than 10 %: none up to 68
+  f32  z = 6.40, x_V = 0.5717, median Gamma(ionised) = 5.300e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   0.99   0.97
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.005; first k with more than 10 %: none up to 68
+  f64  z = 6.40, x_V = 0.5716, median Gamma(ionised) = 5.305e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.004; first k with more than 10 %: none up to 68
+
+## x_HII,V ~ 0.77: reference z = 5.74, x_V = 0.7867, median Gamma(ionised) = 4.946e-14, lambda = 0.84 pMpc
+  f8   z = 5.74, x_V = 0.7874, median Gamma(ionised) = 4.915e-14, lambda = 0.82
+      P_Gamma/ref   1.00   0.99   1.00   1.01   1.01   1.01   1.01
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   0.98   1.00   0.99   0.98   0.98   1.01
+      r_xHII        1.00   1.00   1.00   0.99   0.97   0.92   0.80
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.025; first k with more than 10 %: none up to 68
+  f15  z = 5.74, x_V = 0.7874, median Gamma(ionised) = 4.948e-14, lambda = 0.83
+      P_Gamma/ref   1.00   0.99   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   0.99   1.00   0.99   0.99   0.99   0.99
+      r_xHII        1.00   1.00   1.00   0.99   0.98   0.96   0.88
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.018; first k with more than 10 %: none up to 68
+  f32  z = 5.74, x_V = 0.7870, median Gamma(ionised) = 4.931e-14, lambda = 0.83
+      P_Gamma/ref   1.00   0.99   1.00   1.01   1.01   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   0.99   1.00   0.99   1.00   0.99   0.99
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.98   0.95
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.011; first k with more than 10 %: none up to 68
+  f64  z = 5.74, x_V = 0.7869, median Gamma(ionised) = 4.934e-14, lambda = 0.84
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.006; first k with more than 10 %: none up to 68
+
+## x_HII,V ~ 0.89: reference z = 5.40, x_V = 0.9180, median Gamma(ionised) = 8.037e-14, lambda = 2.15 pMpc
+  f8   z = 5.40, x_V = 0.9184, median Gamma(ionised) = 7.965e-14, lambda = 2.11
+      P_Gamma/ref   1.00   0.97   1.02   1.01   1.00   1.01   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.98   0.99   1.01   0.97   0.98   0.97   1.01
+      r_xHII        1.00   1.00   1.00   0.99   0.97   0.92   0.78
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.054; first k with more than 10 %: none up to 68
+  f15  z = 5.40, x_V = 0.9184, median Gamma(ionised) = 7.987e-14, lambda = 2.13
+      P_Gamma/ref   1.00   0.97   1.01   1.01   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.99   0.99   1.01   0.98   0.99   0.98   1.00
+      r_xHII        1.00   1.00   1.00   0.99   0.98   0.95   0.86
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.046; first k with more than 10 %: none up to 68
+  f32  z = 5.40, x_V = 0.9182, median Gamma(ionised) = 8.010e-14, lambda = 2.14
+      P_Gamma/ref   1.00   0.98   1.01   1.01   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.99   1.00   1.01   0.99   0.99   0.99   0.99
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.98   0.94
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.030; first k with more than 10 %: none up to 68
+  f64  z = 5.40, x_V = 0.9181, median Gamma(ionised) = 8.031e-14, lambda = 2.15
+      P_Gamma/ref   1.00   0.99   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   0.99   1.00   1.00   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.015; first k with more than 10 %: none up to 68
+
+## after overlap: reference z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.267e-13, lambda = 16.05 pMpc
+  f8   z = 4.96, x_V = 0.9999, median Gamma(ionised) = 1.955e-13, lambda = 12.68
+      P_Gamma/ref   1.65   1.23   1.36   1.34   1.33   1.35   1.34
+      r_Gamma       1.00   1.00   0.99   0.99   0.99   0.99   0.99
+      P_xHII/ref    0.62   3.81   7.59   7.52   6.40   7.36   3.13
+      r_xHII        0.73   0.78   0.46   0.44   0.48   0.46   0.64
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.646; first k with more than 10 %: 0.3
+  f15  z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.264e-13, lambda = 15.48
+      P_Gamma/ref   1.20   1.00   1.08   1.03   1.01   1.02   1.01
+      r_Gamma       1.00   1.00   1.00   0.99   0.99   0.99   0.99
+      P_xHII/ref    0.92   1.08   1.06   1.06   1.09   1.13   1.10
+      r_xHII        1.00   1.00   0.99   0.98   0.97   0.96   0.97
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.196; first k with more than 10 %: 0.3
+  f32  z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.262e-13, lambda = 15.77
+      P_Gamma/ref   1.13   1.00   1.05   1.02   1.01   1.01   1.01
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.95   1.03   1.01   1.02   1.02   1.03   1.03
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.99   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.131; first k with more than 10 %: 0.3
+  f64  z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.270e-13, lambda = 15.97
+      P_Gamma/ref   1.06   0.99   1.02   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.96   1.02   0.99   0.99   0.99   0.99   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.059; first k with more than 10 %: none up to 68
+
+## histories: z, x_HII,V, <Gamma>_V, median Gamma(ionised) [1/s], lambda [pMpc]
+f120
+   6.93 0.4169 3.577e-14 5.891e-14   0.02
+   6.40 0.5715 3.944e-14 5.294e-14   0.22
+   6.25 0.6181 3.972e-14 5.005e-14   0.32
+   5.98 0.7048 4.116e-14 4.779e-14   0.53
+   5.74 0.7867 4.585e-14 4.946e-14   0.84
+   5.40 0.9180 7.689e-14 8.037e-14   2.15
+   5.18 0.9840 1.250e-13 1.229e-13   5.71
+   4.96 1.0000 2.355e-13 2.267e-13  16.05
+f64
+   6.93 0.4171 3.577e-14 5.890e-14   0.02
+   6.40 0.5716 3.953e-14 5.305e-14   0.22
+   6.25 0.6182 3.971e-14 4.998e-14   0.32
+   5.98 0.7051 4.120e-14 4.781e-14   0.53
+   5.74 0.7869 4.577e-14 4.934e-14   0.84
+   5.40 0.9181 7.695e-14 8.031e-14   2.15
+   5.18 0.9840 1.253e-13 1.231e-13   5.70
+   4.96 1.0000 2.358e-13 2.270e-13  15.97
+f32
+   6.93 0.4171 3.577e-14 5.890e-14   0.02
+   6.40 0.5717 3.951e-14 5.300e-14   0.22
+   6.25 0.6186 3.981e-14 5.007e-14   0.32
+   5.98 0.7052 4.127e-14 4.787e-14   0.53
+   5.74 0.7870 4.576e-14 4.931e-14   0.83
+   5.40 0.9182 7.696e-14 8.010e-14   2.14
+   5.18 0.9839 1.255e-13 1.232e-13   5.67
+   4.96 1.0000 2.351e-13 2.262e-13  15.77
+f15
+   6.93 0.4172 3.578e-14 5.887e-14   0.02
+   6.40 0.5719 3.950e-14 5.286e-14   0.22
+   6.25 0.6188 3.980e-14 4.995e-14   0.32
+   5.98 0.7056 4.138e-14 4.795e-14   0.52
+   5.74 0.7874 4.596e-14 4.948e-14   0.83
+   5.40 0.9184 7.696e-14 7.987e-14   2.13
+   5.18 0.9840 1.256e-13 1.230e-13   5.61
+   4.96 1.0000 2.353e-13 2.264e-13  15.48
+f8
+   6.93 0.4175 3.589e-14 5.900e-14   0.02
+   6.40 0.5720 3.931e-14 5.238e-14   0.22
+   6.25 0.6190 3.990e-14 5.001e-14   0.32
+   5.98 0.7056 4.110e-14 4.747e-14   0.52
+   5.74 0.7874 4.575e-14 4.915e-14   0.82
+   5.40 0.9184 7.698e-14 7.965e-14   2.11
+   5.18 0.9837 1.239e-13 1.213e-13   5.42
+   4.96 0.9999 2.040e-13 1.955e-13  12.68

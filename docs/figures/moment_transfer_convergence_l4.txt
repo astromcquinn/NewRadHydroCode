@@ -1,0 +1,53 @@
+# lambda = L/4, every cell a source: closure, N, k*lambda, k*dx, T/T_exact, T/T(continuum linear theory of the closure)
+M1, inject after transport (default)     32   2.22  0.28  0.824   1.13
+M1, inject after transport (default)     32   5.14  0.64  0.809   2.12
+M1, inject after transport (default)     32  10.17  1.27  0.995   5.09
+M1, inject after transport (default)     32  20.55  2.57  1.582  16.52
+M1, inject after transport (default)     64   2.22  0.14  0.786   1.07
+M1, inject after transport (default)     64   4.88  0.30  0.650   1.62
+M1, inject after transport (default)     64   9.69  0.61  0.728   3.53
+M1, inject after transport (default)     64  19.51  1.22  0.976   9.64
+M1, inject after transport (default)     64  39.08  2.44  1.529  30.58
+M1, inject after transport (default)    128   2.22  0.07  0.761   1.04
+M1, inject after transport (default)    128   4.88  0.15  0.542   1.35
+M1, inject after transport (default)    128   9.31  0.29  0.511   2.38
+M1, inject after transport (default)    128  21.35  0.67  0.715   7.71
+M1, inject after transport (default)    128  39.92  1.25  0.983  20.00
+M1, inject after transport (default)    256   2.22  0.03  0.750   1.02
+M1, inject after transport (default)    256   4.88  0.08  0.468   1.16
+M1, inject after transport (default)    256   9.77  0.15  0.375   1.82
+M1, inject after transport (default)    256  20.38  0.32  0.446   4.56
+M1, inject after transport (default)    256  42.14  0.66  0.687  14.69
+M1, inject before transport              32   2.22  0.28  0.676   0.92
+M1, inject before transport              32   5.14  0.64  0.422   1.11
+M1, inject before transport              32  10.17  1.27  0.213   1.09
+M1, inject before transport              32  20.55  2.57  0.037   0.39
+M1, inject before transport              64   2.22  0.14  0.711   0.97
+M1, inject before transport              64   4.88  0.30  0.463   1.15
+M1, inject before transport              64   9.69  0.61  0.351   1.70
+M1, inject before transport              64  19.51  1.22  0.216   2.14
+M1, inject before transport              64  39.08  2.44  0.041   0.81
+M1, inject before transport             128   2.22  0.07  0.724   0.99
+M1, inject before transport             128   4.88  0.15  0.447   1.11
+M1, inject before transport             128   9.31  0.29  0.327   1.52
+M1, inject before transport             128  21.35  0.67  0.296   3.19
+M1, inject before transport             128  39.92  1.25  0.201   4.10
+OTVET (default injection)                32   2.22  0.28  1.137   1.05
+OTVET (default injection)                32   5.14  0.64  1.063   1.33
+OTVET (default injection)                32  10.17  1.27  1.135   1.83
+OTVET (default injection)                32  20.55  2.57  1.603   3.11
+OTVET (default injection)                64   2.22  0.14  1.147   1.06
+OTVET (default injection)                64   4.88  0.30  0.995   1.21
+OTVET (default injection)                64   9.69  0.61  1.011   1.60
+OTVET (default injection)                64  19.51  1.22  1.139   2.18
+OTVET (default injection)                64  39.08  2.44  1.558   3.34
+OTVET (default injection)               128   2.22  0.07  1.148   1.06
+OTVET (default injection)               128   4.88  0.15  0.934   1.14
+OTVET (default injection)               128   9.31  0.29  0.876   1.37
+OTVET (default injection)               128  21.35  0.67  1.003   1.96
+OTVET (default injection)               128  39.92  1.25  1.147   2.47
+OTVET (default injection)               256   2.22  0.03  1.150   1.06
+OTVET (default injection)               256   4.88  0.08  0.877   1.07
+OTVET (default injection)               256   9.77  0.15  0.774   1.23
+OTVET (default injection)               256  20.38  0.32  0.818   1.58
+OTVET (default injection)               256  42.14  0.66  0.985   2.13

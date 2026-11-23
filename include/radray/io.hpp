@@ -68,4 +68,11 @@ void write_step_output(const std::string& dir, const Simulation& s);
 
 void write_raw_f32(const std::string& path, const std::vector<float>& v);
 
+// A snapshot, movie or field write that failed after its file was opened
+// (disk full, quota exceeded): a warning on stderr and a count, and the run
+// goes on (the state in memory is intact; a failed checkpoint write still
+// aborts, checkpoint.cpp). output_write_failures() is the count so far.
+void report_output_write_failure(const std::string& path);
+long long output_write_failures();
+
 }  // namespace radray
