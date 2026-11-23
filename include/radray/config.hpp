@@ -161,6 +161,14 @@ struct Config {
   int ray_rotate = 0;
   std::uint64_t ray_rotate_seed = 0;
 
+  // HEALPix nside of the direction bins in which ray_tracing_1 merges the
+  // faint rays of a cell (12 nside^2 cones per cell): 1, 2 or 4. 2 (default)
+  // is the original's (B12: both branches of its choice give 2). 4 gives the
+  // merged rays 4x the angular resolution (192 cones, rrk::kNconeMax). The
+  // recombination-ray crowding of recomb_rad.cpp still lowers it to 1 while
+  // the pool is crowded. params.txt key nside_merge (docs/rt_moments.md 8.6).
+  int nside_merge = 2;
+
   // Cosmological redshift of the radiation per distance travelled instead of
   // per time (docs/production_run.md, reduced speed of light). The rays
   // (ray_redshifting) and the moment RT (moment_redshift) are redshifted once

@@ -39,6 +39,7 @@ struct ProblemParams {
   int photon_conserve = -1;        // Config::photon_conserve (B17): -1 = !legacy_physics, else 0 | 1
   int photon_consume_dense = -1;   // Config::photon_consume_dense (P11): -1 = !legacy_physics, else 0 | 1
   int ray_deposit = 0;             // Config::ray_deposit (0 = share, the original; 1 = exposure)
+  int nside_merge = 2;             // Config::nside_merge (2 = original; 1, 2 or 4)
   double cool_suppress_overdensity = 200.0;  // Config::cool_suppress_overdensity (200 = original; 0 = off)
   int sn_heating = 1;                        // Config::sn_heating (1 = original; 0 = off)
   double box = 5;                  // Config::box in Mpc/h (the original's 5; sets the cell size)

@@ -336,6 +336,15 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:rt_driver> ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src
                    ${CMAKE_CURRENT_BINARY_DIR}/photon_conserve)
   set_tests_properties(photon_conserve PROPERTIES TIMEOUT 900 LABELS "physics;multicell")
+  # the nside_merge key (Config::nside_merge): 2 = no key bitwise, 4 and 1
+  # reach the merge (the small pool of lognormal_16src_smallbuf merges;
+  # docs/rt_moments.md section 8.6)
+  add_test(NAME nside_merge_key
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/nside_merge_check.py
+                   ${CMAKE_CURRENT_BINARY_DIR}/nside_merge $<TARGET_FILE:rt_driver>
+                   ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src_smallbuf --set legacy_rt=0
+                   --set legacy_physics=0 --set ray_rotate=3)
+  set_tests_properties(nside_merge_key PROPERTIES TIMEOUT 900 LABELS "physics")
 
   # Stromgren sphere: case A, case B and case A + recombination radiation
   # (docs/recomb_radiation.md section 3); ~10 min with 4 threads
