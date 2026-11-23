@@ -13,7 +13,9 @@
 // exp(-1/lambda) instead of photo_cell's fgam, and the sources inject after
 // the transport (moment_inject = 1) or before it (0).
 //
-//   moment_transfer N lambda nsrc m1|otvet|iso nsteps out_prefix [seed] [inject] [nsub]
+//   moment_transfer N lambda nsrc m1|otvet|iso nsteps out_prefix [seed] [inject] [nsub] [order]
+//
+// order = 2: moment_order = 2 (moment_transport2 of rt_moments.cpp; nsub >= 6).
 //
 // lambda in cells; nsrc = 0: every cell a source, L = 1 + 0.3 g (g a unit
 // Gaussian, L >= 0.05), the linear regime; nsrc > 0: that many random cells
@@ -38,7 +40,7 @@ using namespace radray;
 
 int main(int argc, char** argv) {
   if (argc < 7) {
-    std::fprintf(stderr, "usage: %s N lambda nsrc m1|otvet|iso nsteps out [seed] [inject] [nsub]\n", argv[0]);
+    std::fprintf(stderr, "usage: %s N lambda nsrc m1|otvet|iso nsteps out [seed] [inject] [nsub] [order]\n", argv[0]);
     return 1;
   }
   const int N = std::atoi(argv[1]);
@@ -50,6 +52,12 @@ int main(int argc, char** argv) {
   const unsigned seed = argc > 7 ? std::atoi(argv[7]) : 1;
   const int inject_after = argc > 8 ? std::atoi(argv[8]) : 1;
   const int nsub = argc > 9 ? std::atoi(argv[9]) : 4;
+  const int order = argc > 10 ? std::atoi(argv[10]) : 1;
+  if (order == 2 && nsub < 6) {
+    std::fprintf(stderr, "order 2 needs nsub >= 6\n");
+    return 2;
+  }
+  std::vector<float> work2;
   const std::int64_t nc = static_cast<std::int64_t>(N) * N * N;
   const mk::Closure cl =
       method == "m1" ? mk::Closure::M1 : method == "otvet" ? mk::Closure::Otvet : mk::Closure::Iso;
@@ -96,6 +104,11 @@ int main(int argc, char** argv) {
   for (int step = 0; step < nsteps; ++step) {
     if (!inject_after) inject();
     for (int it = 0; it < nsub; ++it) {
+      if (order == 2) {
+        float* U[5] = {n.data(), fx.data(), fy.data(), fz.data(), e.data()};
+        moment_transport2(N, U, static_cast<int>(cl), h.empty() ? nullptr : h.data(), nullptr, 0.0, C, work2);
+        continue;
+      }
 #pragma omp parallel for schedule(static)
       for (std::int64_t c = 0; c < nc; ++c)
         mk::flux_cell(cl, n[c], fx[c], fy[c], fz[c], e[c], h.empty() ? nullptr : &h[6 * c], 0.0, &P[9 * c]);

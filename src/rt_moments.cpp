@@ -64,6 +64,11 @@ bool set_rt_method_param(Config& c, const std::string& key, const std::string& v
     if (c.moment_nsub < 3) throw std::runtime_error("moment_nsub must be >= 3 (3-D Courant limit)");
     return true;
   }
+  if (key == "moment_order") {
+    c.moment_order = std::stoi(val);
+    if (c.moment_order != 1 && c.moment_order != 2) throw std::runtime_error("moment_order must be 1 or 2");
+    return true;
+  }
   if (key == "moment_inject") {
     c.moment_inject = std::stoi(val);
     if (c.moment_inject != 0 && c.moment_inject != 1) throw std::runtime_error("moment_inject must be 0 or 1");
@@ -88,6 +93,7 @@ void copy_rt_method(const Config& from, Config& to) {
   to.moment_nsub = from.moment_nsub;
   to.otvet_tensor = from.otvet_tensor;
   to.moment_inject = from.moment_inject;
+  to.moment_order = from.moment_order;
   to.otvet_closure = from.otvet_closure;
   to.otvet_split = from.otvet_split;
   to.otvet_screen_lambda = from.otvet_screen_lambda;
@@ -121,6 +127,7 @@ std::string rt_method_summary(const Config& c) {
       s += std::string(", otvet_tensor = ") +
            (c.otvet_tensor == 0 ? "auto" : c.otvet_tensor == 1 ? "direct" : "fft");
     if (!c.moment_inject) s += ", moment_inject = 0";
+    if (c.moment_order != 1) s += ", moment_order = " + std::to_string(c.moment_order);
     const std::string cl = otvet_closure_summary(c);  // otvet_closure.hpp
     if (!cl.empty()) s += ", " + cl;
     s += ")";
@@ -526,6 +533,79 @@ void transport_group(MomentState& M, const GroupField& f, mk::Closure cl, double
   }
 }
 
+}  // namespace
+
+// moment_order = 2 (rt_moments.hpp)
+void moment_transport2(int N, float* U[5], int closure, const float* h, const float* ndir, double qg, double C,
+                       std::vector<float>& work) {
+  const mk::Closure cl = static_cast<mk::Closure>(closure);
+  const std::int64_t sj = N, sk = static_cast<std::int64_t>(N) * N, nc = sk * N;
+  if (work.size() != static_cast<std::size_t>(15 * nc)) work.assign(15 * nc, 0.0f);
+  float* A[5];
+  float* B[5];
+  float* G[5];
+  for (int q = 0; q < 5; ++q) {
+    A[q] = &work[q * nc];
+    B[q] = &work[(5 + q) * nc];
+    G[q] = &work[(10 + q) * nc];
+  }
+  const bool tensor = cl == mk::Closure::Otvet || cl == mk::Closure::Split;
+  const bool split = cl == mk::Closure::Split;
+  // the stage: out = in - C sum_d (Phi_d(i+1/2) - Phi_d(i-1/2)), realizable
+  auto stage = [&](float* const in[5], float* const out[5]) {
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+    for (int k = 0; k < N; ++k) {
+      const std::int64_t a = k * sk, b = a + sk;
+      for (int q = 0; q < 5; ++q) std::copy(in[q] + a, in[q] + b, out[q] + a);
+    }
+    const std::int64_t strd[3] = {1, sj, sk};
+    for (int d = 0; d < 3; ++d) {
+      const std::int64_t sd = strd[d];
+      // G = Phi_d at the face i+1/2 of every cell
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+      for (int k = 0; k < N; ++k)
+        for (int j = 0; j < N; ++j)
+          for (int i = 0; i < N; ++i) {
+            const std::int64_t c = i + j * sj + k * sk;
+            const int x = d == 0 ? i : d == 1 ? j : k;
+            // the cells i-1, i, i+1, i+2 along d (periodic)
+            const std::int64_t p[4] = {c + (x == 0 ? N - 1 : -1) * sd, c, c + (x == N - 1 ? 1 - N : 1) * sd,
+                                       c + (x >= N - 2 ? 2 - N : 2) * sd};
+            float V[5][4];
+            for (int q = 0; q < 5; ++q)
+              for (int m = 0; m < 4; ++m) V[q][m] = in[q][p[m]];
+            float o[5];
+            mk::muscl_flux(cl, d, V, tensor ? &h[6 * p[1]] : nullptr, tensor ? &h[6 * p[2]] : nullptr,
+                           split ? qg * static_cast<double>(ndir[p[1]]) : 0.0,
+                           split ? qg * static_cast<double>(ndir[p[2]]) : 0.0, o);
+            for (int q = 0; q < 5; ++q) G[q][c] = o[q];
+          }
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+      for (int k = 0; k < N; ++k)
+        for (int j = 0; j < N; ++j)
+          for (int i = 0; i < N; ++i) {
+            const std::int64_t c = i + j * sj + k * sk;
+            const int x = d == 0 ? i : d == 1 ? j : k;
+            const std::int64_t l = c + (x == 0 ? N - 1 : -1) * sd;
+            for (int q = 0; q < 5; ++q)
+              out[q][c] = static_cast<float>(static_cast<double>(out[q][c]) -
+                                             C * (static_cast<double>(G[q][c]) - static_cast<double>(G[q][l])));
+          }
+    }
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+    for (std::int64_t c = 0; c < nc; ++c) mk::realizable_cell(out[0][c], out[1][c], out[2][c], out[3][c], out[4][c]);
+  };
+  stage(U, A);
+  stage(A, B);
+  // the average of two realizable states is realizable (a convex set)
+#pragma omp parallel for schedule(static) if (par::worth(nc))
+  for (std::int64_t c = 0; c < nc; ++c)
+    for (int q = 0; q < 5; ++q)
+      U[q][c] = static_cast<float>(0.5 * (static_cast<double>(U[q][c]) + static_cast<double>(B[q][c])));
+}
+
+namespace {
+
 // rt_tensor_diag.hpp: the Gamma_HI-weighted moments N, F and D N of the
 // state after the transport, D = the closure used (OTVET h or M1)
 void moment_tensor_diag(const MomentState& M, TensorDiag& T, bool otvet, const float* ndir,
@@ -745,13 +825,24 @@ void moment_step_1(Simulation& s) {
   const int nsub = s.cfg.moment_nsub;
   const double C = 1.0 / nsub;
   const mk::Closure cl = !otvet ? mk::Closure::M1 : ndir ? mk::Closure::Split : mk::Closure::Otvet;
+  // moment_order = 2: positivity needs half the first-order Courant number
+  const bool order2 = s.cfg.moment_order == 2;
+  if (order2 && nsub < 6) throw std::runtime_error("moment_order = 2 needs moment_nsub >= 6");
+  auto transport = [&](const GroupField& f, mk::Closure c, const float* nd, double q) {
+    if (order2) {
+      float* U[5] = {f.n, f.fx, f.fy, f.fz, f.e};
+      moment_transport2(M.N, U, static_cast<int>(c), M.h.empty() ? nullptr : M.h.data(), nd, q, C, M.w2);
+    } else {
+      transport_group(M, f, c, C, nd, q);
+    }
+  };
   for (int g = 0; g < kNfreq; ++g) {
     const float* ng = &M.n[g * nc];
     bool any = false;
     for (std::int64_t c = 0; c < nc && !any; ++c) any = ng[c] > 0;
     if (!any) continue;
     const GroupField f = group_field(M, g, false);
-    for (int it = 0; it < nsub; ++it) transport_group(M, f, cl, C, ndir, qg[g]);
+    for (int it = 0; it < nsub; ++it) transport(f, cl, ndir, qg[g]);
   }
   // otvet_background = ga01: the background field, isotropic tensor
   if (ga01)
@@ -761,7 +852,7 @@ void moment_step_1(Simulation& s) {
       for (std::int64_t c = 0; c < nc && !any; ++c) any = bg[c] > 0;
       if (!any) continue;
       const GroupField f = group_field(M, g, true);
-      for (int it = 0; it < nsub; ++it) transport_group(M, f, mk::Closure::Iso, C, nullptr, 0.0);
+      for (int it = 0; it < nsub; ++it) transport(f, mk::Closure::Iso, nullptr, 0.0);
     }
   if (s.cfg.moment_inject == 1) inject();
   lap(s.timers.trace1);

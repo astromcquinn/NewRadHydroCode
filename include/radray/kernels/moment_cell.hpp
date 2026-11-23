@@ -151,6 +151,85 @@ inline void glf_cell(const At& at, const PAt& Pat, double C, float out[5]) {
   for (int q = 0; q < 5; ++q) out[q] = static_cast<float>(U[q]);
 }
 
+// moment_order = 2 (rt_moments.cpp moment_transport2): the GLF flux along
+// axis d (0, 1, 2) at the face between cells b and c from the linearly
+// reconstructed face states. U[q][p]: the 5 variables (n, fx, fy, fz, e) of
+// the four cells a, b, c, e along the axis (p = 0..3: i-1, i, i+1, i+2); hb,
+// hc and ndb, ndc: the closure data of cells b and c (flux_cell's hc, nd).
+//
+// Slopes: the monotonized central limiter, component by component, so a
+// face value lies between the cell's and its neighbour's; then the face
+// state is made realizable as glf_cell's result is (N > 0 or all zero,
+// |F| <= N, E >= 0). Flux: Phi = (f_d(U_L) + f_d(U_R))/2 - (U_R - U_L)/2,
+// f_d = (F_d, P_xd, P_yd, P_zd, nu F_d) with the closure of the face state
+// (M1: of its N, F; OTVET and the split: h and N_dir of its own cell).
+inline double mc_slope(double dl, double dr) {
+  if (!(dl * dr > 0)) return 0.0;
+  const double c = 0.5 * (dl + dr);
+  const double m = 2.0 * (std::fabs(dl) < std::fabs(dr) ? dl : dr);
+  return std::fabs(c) < std::fabs(m) ? c : m;
+}
+
+inline void face_flux(Closure cl, int d, double V[5], const float* hc, double nd, double f[5]) {
+  // realizability of the face state
+  if (!(V[0] > 0)) {
+    for (int q = 0; q < 5; ++q) V[q] = f[q] = 0;
+    return;
+  }
+  const double fn = std::sqrt((V[1] * V[1] + V[2] * V[2]) + V[3] * V[3]);
+  if (fn > V[0]) {
+    const double r = V[0] / fn;
+    V[1] *= r;
+    V[2] *= r;
+    V[3] *= r;
+  }
+  if (V[4] < 0) V[4] = 0;
+  double Q[6];
+  closure_pressure(cl, V[0], static_cast<float>(V[1]), static_cast<float>(V[2]), static_cast<float>(V[3]), hc, nd,
+                   Q);
+  // P_kd: (xx, xy, xz), (xy, yy, yz), (xz, yz, zz)
+  static const int col[3][3] = {{0, 3, 4}, {3, 1, 5}, {4, 5, 2}};
+  f[0] = V[1 + d];
+  f[1] = Q[col[d][0]];
+  f[2] = Q[col[d][1]];
+  f[3] = Q[col[d][2]];
+  f[4] = V[4] / V[0] * V[1 + d];
+}
+
+inline void muscl_flux(Closure cl, int d, const float U[5][4], const float* hb, const float* hc, double ndb,
+                       double ndc, float out[5]) {
+  if (U[0][0] == 0 && U[0][1] == 0 && U[0][2] == 0 && U[0][3] == 0) {
+    for (int q = 0; q < 5; ++q) out[q] = 0;
+    return;
+  }
+  double L[5], R[5], fl[5], fr[5];
+  for (int q = 0; q < 5; ++q) {
+    const double a = U[q][0], b = U[q][1], c = U[q][2], e = U[q][3];
+    L[q] = b + 0.5 * mc_slope(b - a, c - b);
+    R[q] = c - 0.5 * mc_slope(c - b, e - c);
+  }
+  face_flux(cl, d, L, hb, ndb, fl);
+  face_flux(cl, d, R, hc, ndc, fr);
+  for (int q = 0; q < 5; ++q) out[q] = static_cast<float>(0.5 * (fl[q] + fr[q]) - 0.5 * (R[q] - L[q]));
+}
+
+// The realizability of a cell after a stage of moment_transport2, as at the
+// end of glf_cell
+inline void realizable_cell(float& n, float& fx, float& fy, float& fz, float& e) {
+  if (!(n > 0)) {
+    n = fx = fy = fz = e = 0;
+    return;
+  }
+  const double fn = std::sqrt((double(fx) * fx + double(fy) * fy) + double(fz) * fz);
+  if (fn > n) {
+    const double r = n / fn;
+    fx = static_cast<float>(fx * r);
+    fy = static_cast<float>(fy * r);
+    fz = static_cast<float>(fz * r);
+  }
+  if (e < 0) e = 0;
+}
+
 // calc_rt_1 of the moment solver (the B3/B4 fixes: dx reset and tau in every
 // cell; tau is a diagnostic, the solver does not read it). sig =
 // photoion_sigma(freq_init).

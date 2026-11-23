@@ -308,8 +308,16 @@ struct Config {
   //                cell's photons are mostly moved to its neighbours before
   //                photo_cell absorbs anything, and dense source cells stay
   //                neutral; docs/rt_moments.md section 5a).
+  //   moment_order: 1 = the first-order GLF transport (default, the first
+  //                implementation); 2 = second order: slope-limited linear
+  //                reconstruction (monotonized central) of N, F, E, the GLF
+  //                flux of the face states and a two-stage (Heun) step
+  //                (docs/rt_moments.md section 9). Needs moment_nsub >= 6
+  //                (positivity at half the first-order Courant number);
+  //                uniform grid only (not rt_backend = amrex).
   RTMethod rt_method = RTMethod::Rays;
   int moment_nsub = 4;
+  int moment_order = 1;
   int otvet_tensor = 0;
   int moment_inject = 1;
   // Alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md;
