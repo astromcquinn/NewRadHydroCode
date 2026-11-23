@@ -815,6 +815,202 @@ power (k ≳ 10 h/Mpc) too low.
 
 **512³:** §7.
 
+### 6.1 Does the cone need the blend with the split? (2026-11-17)
+
+**Question.** The default cone blends with the split at σ = 4 cells
+(`otvet_cone_blend = 4`: h_split + G_σ * (h_cone − h_split)). Does the
+cone alone do as well, with receivers every 4 cells (A) or every 2 (B)?
+
+**Runs** (`tools/hyak/otvet_closure_runs.sh`, tags `cone`, `conenb`, `conenb2`, `split`):
+
+| run | closure |
+|---|---|
+| blend | `otvet_closure = cone` (blend 4, coarse 4) |
+| A | `otvet_closure = cone`, `otvet_cone_blend = 0` (coarse 4) |
+| B | `otvet_closure = cone`, `otvet_cone_blend = 0`, `otvet_cone_coarse = 2` |
+| split | `otvet_split = 1` |
+
+All four use nside 4, r_c 8, τ cap 1 and the budget, on the box, ICs and
+parameters of `otvcl256`.
+
+**The references were rerun.** The October 256³ fields were deleted on
+2026-11-11, and that suite predates P11. So the rays and all four moment
+runs were rerun on one binary, main 0e44e1f:
+- the rays: `otvcl256r`;
+- the moment runs: `otvcl256ri0_otvet_{cone,conenb,conenb2,split}`.
+
+The moment runs set `moment_inject = 0` (`PARAMS_EXTRA="moment_inject = 0"`), as the October runs had it (it
+became the default 1 on 2026-11-10). A second set with
+`moment_inject = 1` (`otvcl256r_otvet_*`) is summarised at the end.
+Analysis: `$RUNS/cone_blend_256` (`apriori/`, `post_i0/`, `post/`).
+
+**Cost.** One node (192 threads), z = 14 → 4.9:
+
+| run | wall | tensor per hydro step: mean (last five) |
+|---|---|---|
+| blend | 51:55 | 2.7 s (3.1 s) |
+| A | 50:56 | 1.8 s (2.1 s) |
+| B | 53:51 | 8.4 s (11.3 s) |
+| split | 48:08 | 0.7 s |
+
+So A saves 0.9 s per step against the blend (22 s of a 52-min run), and
+B costs 3× the blend's tensor.
+
+**A priori.** `tensor_compare.py --cone 4:4:1:8 4:2:1:8 --cone-lamx budget
+--blend split:cone4c4t1r8xbud:4`, on the rays' snapshots.
+- Cell error: S0-weighted, ionised cells.
+- Block error: 8³ blocks.
+- Force error: the error power of div(S0 h) relative to the true power.
+
+| z | x_V | closure | cell err | block err | force err, k = 0.47 / 0.94 / 1.9 / 3.8 / 7.5 h/Mpc | r(k) at 0.94 / 3.8 |
+|---|---|---|---|---|---|---|
+| 7.39 | 0.35 | split | 0.133 | 0.112 | 0.01 / 0.17 / 0.46 / 0.99 / 0.92 | 0.94 / 0.75 |
+| | | A (C 4) | 0.076 | 0.049 | 0.00 / 0.04 / 0.11 / 0.47 / 1.21 | 0.98 / 0.77 |
+| | | B (C 2) | 0.078 | 0.050 | 0.00 / 0.04 / 0.12 / 0.53 / 1.11 | 0.98 / 0.74 |
+| | | blend | 0.074 | 0.050 | 0.00 / 0.03 / 0.10 / 0.33 / 0.85 | 0.98 / 0.86 |
+| 6.19 | 0.93 | split | 0.090 | 0.072 | 0.19 / 0.71 / 0.78 / 1.03 / 1.22 | 0.75 / 0.55 |
+| | | A | 0.075 | 0.053 | 0.07 / 0.23 / 0.59 / 1.09 / 2.15 | 0.88 / 0.56 |
+| | | B | 0.075 | 0.053 | 0.07 / 0.23 / 0.59 / 1.16 / 2.01 | 0.88 / 0.52 |
+| | | blend | 0.074 | 0.053 | 0.07 / 0.23 / 0.53 / 0.89 / 1.37 | 0.89 / 0.62 |
+| 5.84 | 0.999 | split | 0.071 | 0.056 | 14.9 / 2.7 / 3.1 / 3.2 / 2.6 | 0.54 / 0.19 |
+| | | A | 0.065 | 0.049 | 7.2 / 1.9 / 2.9 / 2.9 / 3.4 | 0.67 / 0.34 |
+| | | B | 0.065 | 0.049 | 7.2 / 1.9 / 2.9 / 3.0 / 3.2 | 0.67 / 0.30 |
+| | | blend | 0.065 | 0.049 | 7.2 / 1.9 / 2.7 / 2.7 / 2.8 | 0.67 / 0.32 |
+| 5.67 | 1.00 | split | 0.056 | 0.040 | 11.5 / 6.2 / 8.2 / 5.0 / 3.4 | −0.05 / 0.06 |
+| | | A | 0.053 | 0.036 | 4.5 / 6.2 / 8.4 / 4.7 / 4.2 | 0.62 / 0.29 |
+| | | B | 0.053 | 0.036 | 4.5 / 6.1 / 8.2 / 4.8 / 3.9 | 0.62 / 0.23 |
+| | | blend | 0.053 | 0.036 | 4.5 / 6.1 / 7.7 / 4.3 / 3.7 | 0.62 / 0.25 |
+| 4.91 | 1.00 | split | 0.043 | 0.026 | 48 / 40 / 45 / 26 / 19 | −0.04 / 0.03 |
+| | | A | 0.041 | 0.024 | 22 / 36 / 51 / 28 / 21 | 0.30 / 0.14 |
+| | | B | 0.041 | 0.024 | 22 / 36 / 50 / 28 / 20 | 0.29 / 0.10 |
+| | | blend | 0.041 | 0.024 | 22 / 36 / 48 / 25 / 19 | 0.30 / 0.13 |
+
+- **A and B equal the blend in cell and block error.** They agree to
+  ≤ 0.004 and ≤ 0.001 at every z. From z = 6.19 on, their force error
+  at k ≤ 1.9 h/Mpc is within 10 % of the blend's. At z = 7.39 the blend
+  is already 12–29 % lower at k = 0.94–1.9 (0.034 / 0.097 against
+  0.038–0.040 / 0.111–0.125).
+- **The blend's gain is at k ≳ 3 h/Mpc,** below its σ = 4 cells
+  (0.31 Mpc/h). At k = 3.8 the cone alone has 1.1–1.6× the blend's force
+  error, and 1.07–1.6× at 7.5. r(k = 3.8) is 0.86 for the blend against
+  0.74–0.77 for A and B at z = 7.39, and 0.62 against 0.52–0.56 at
+  z = 6.19.
+- **C = 2 does not help.** B equals A to ≤ 0.002 in cell error and within
+  13 % in force error, with no consistent sign. The cutoff λ_x is the
+  same to one cell (131, 878, 441, 436 and 789 cells).
+
+**A posteriori: P_Γ** (`gamma_power.py --s0`, hydro-step means;
+[table](figures/otvet_cone_blend_256_gamma_pk.txt)).
+
+![P_Gamma, cone with and without the blend](figures/otvet_cone_blend_256_gamma_pk.png)
+
+*Γ_HI power of the hydro-step means at z = 7.39, 6.59, 6.19, 5.84, 5.67
+and 4.91. Rows: Δ², the ratio to the rays, r(k) with the rays. A and B
+overlap almost everywhere.*
+
+A and B against the blend, the ratio of their P_Γ:
+
+| k [h/Mpc] | A / blend | B / blend |
+|---|---|---|
+| ≤ 4.2 | 0.91–1.11 | 0.92–1.13 |
+| 5.3–8.3 | 1.07–1.32 | 1.07–1.31 |
+| 10–16 | 1.11–1.51 | 1.15–1.53 |
+
+B/A is 0.96–1.05 at every k and z.
+
+P_Γ ratio to the rays, blend / A / B / split, with r(k) of A and B in brackets:
+
+| z | k = 0.93 | 2.16 | 4.24 | 6.65 | 13.1 h/Mpc |
+|---|---|---|---|---|---|
+| 7.39 | 1.07 / 1.10 / 1.11 / 0.96 | 1.30 / 1.30 / 1.34 / 1.00 | 1.31 / 1.45 / 1.48 / 1.03 | 1.20 / 1.58 / 1.57 / 0.99 | 0.76 / 0.98 / 0.98 / 0.64 (0.99; blend 0.93) |
+| 6.59 | 1.16 / 1.13 / 1.14 / 1.03 | 1.22 / 1.22 / 1.27 / 1.01 | 1.24 / 1.36 / 1.40 / 1.04 | 1.15 / 1.51 / 1.50 / 1.03 | 0.63 / 0.91 / 0.92 / 0.65 (0.96; blend 0.95) |
+| 6.19 | 1.25 / 1.25 / 1.26 / 1.24 | 1.40 / 1.39 / 1.43 / 1.40 | 1.49 / 1.56 / 1.60 / 1.42 | 1.40 / 1.74 / 1.72 / 1.32 | 0.80 / 1.06 / 1.06 / 0.73 (0.90; blend 0.90) |
+| 5.84 | 0.96 / 0.97 / 0.99 / 1.16 | 1.25 / 1.25 / 1.29 / 1.33 | 1.41 / 1.45 / 1.50 / 1.34 | 1.35 / 1.67 / 1.66 / 1.23 | 0.81 / 1.10 / 1.12 / 0.72 (0.94; blend 0.93) |
+| 5.67 | 0.82 / 0.82 / 0.83 / 1.13 | 1.10 / 1.06 / 1.10 / 1.21 | 1.32 / 1.30 / 1.35 / 1.22 | 1.29 / 1.51 / 1.50 / 1.13 | 0.73 / 0.95 / 0.96 / 0.61 (0.97; blend 0.96) |
+| 4.91 | 0.76 / 0.75 / 0.76 / 0.96 | 1.04 / 1.00 / 1.04 / 1.10 | 1.27 / 1.21 / 1.25 / 1.18 | 1.27 / 1.42 / 1.40 / 1.11 | 0.79 / 0.96 / 0.97 / 0.68 (0.93; blend 0.93) |
+
+- **r(k) with the rays is the same for the blend, A and B,** to ±0.01 at
+  k ≤ 5.3 h/Mpc and every z. The one difference is at k ≥ 6.7 at
+  z = 7.39: the cone alone is *better* correlated, with r = 0.99
+  against the blend's 0.90–0.97. Elsewhere the difference is ≤ 0.02.
+- **After overlap, at k ≥ 3 h/Mpc** (z = 5.84, 5.67, 4.91):
+  - Ratio to the rays: blend 1.15–1.42 at k = 3.4–8.3, A and B 1.04–1.73,
+    split 1.02–1.35.
+  - At k = 10–16 the blend falls to 0.49–1.03, A and B to 0.63–1.35, the
+    split to 0.38–0.95.
+  - r(k) is 0.88–0.99, the same for all four.
+- **The residual.** The cone alone has *more* small-scale Γ power than the
+  blend, at k ≳ 4 h/Mpc only.
+  - It is +10 to +30 % at k = 5–8 and +10 to +50 % at k = 10–16.
+  - It is largest during overlap (z = 6.59: up to 1.5) and smallest at
+    the end (z = 4.91: 1.07–1.29).
+  - The sign is the same at every z. This is the scale where the blend
+    swaps in the split's tensor, whose own P_Γ is the lowest of the four
+    there.
+  - Against the rays it is a trade: at k = 4–8 the blend is closer
+    (1.0–1.5 against 1.2–1.9); at k = 10–16, where the rays keep some
+    noise, the cone alone is closer (0.6–1.4 against 0.4–1.1).
+
+**History and morphology** (`reion_power.py`; z at x_V = 0.1 / 0.25 / 0.5 / 0.75 / 0.9 / 0.99):
+
+| | 0.1 | 0.25 | 0.5 | 0.75 | 0.9 | 0.99 |
+|---|---|---|---|---|---|---|
+| rays | 8.653 | 7.710 | 7.005 | 6.540 | 6.257 | 5.960 |
+| blend | 8.639 | 7.697 | 6.995 | 6.535 | 6.263 | 5.993 |
+| A | 8.625 | 7.686 | 6.990 | 6.532 | 6.259 | 5.980 |
+| B | 8.624 | 7.686 | 6.990 | 6.530 | 6.258 | 5.978 |
+| split | 8.618 | 7.681 | 6.988 | 6.535 | 6.271 | 6.012 |
+
+- **Before and during overlap (z ≥ 6.19)** the x_HII and ρ_HI power of A
+  and B is within 8 % of the blend's at every k.
+- **The cone alone ends a little later than the blend,** by Δz = 0.013
+  at x_V = 0.99 (5.98 against 5.99; rays 5.96), so it is closer to the
+  rays.
+- **After overlap (z ≤ 5.67)** every closure has 4–260× the rays' ρ_HI
+  power. That is the residual neutral gas; the split has the most. A
+  and B have 7–33 % less than the blend, so they are closer to the rays.
+- **At z = 5.84** the rays still have neutral islands (x_V = 0.9989).
+  A and B keep more of theirs than the blend: 2–4× its ρ_HI power at
+  k ≤ 1.7, again closer to the rays.
+
+**With `moment_inject = 1`** (`otvcl256r_otvet_*`, the current default):
+- **A and B against the blend:** P_Γ 0.91–1.10 at k ≤ 4.2 h/Mpc and
+  1.06–1.22 at 5–16; r(k) the same to 0.01.
+- **The source cells are brighter.** In S0 they are 1.6–1.9× the rays'
+  (median Γ/⟨Γ⟩ 6.0 against 3.8) and hold 80 % of the variance (the rays'
+  source cells: 61 %).
+- **So every closure, the split included, is 1.4–3× the rays at k ≳ 3.**
+- Replacing the source cells by the mean of their neighbours
+  (`$RUNS/cone_blend_256/gamma_masked.py`) still leaves 1.3–2.2× there.
+  So with inject 1 the moment runs' proximity zones are brighter than the
+  rays', for every closure alike.
+
+**Against October.** The rerun moves every closure up against the rays
+after overlap. At z = 5.85 and k = 2.2 h/Mpc:
+- the split goes from 1.02 to 1.33;
+- the cone from 1.01 to 1.25.
+
+Both the rays and the moment runs now have P11. That shift is not
+diagnosed here.
+
+**Verdict.**
+- **B matches the blend within 10–20 % only at k ≲ 4 h/Mpc.** That holds
+  in P_Γ/P_rays and r(k) at all six snapshots, and the a-priori cell and
+  block errors are identical. At k ≥ 5 h/Mpc its P_Γ is 7–32 % above the
+  blend's (k = 5–8) and up to 53 % above (k = 10–16), largest during
+  overlap. r(k) matches everywhere, and is better at k ≥ 6.7 at z = 7.39.
+- **A is the same as B** to ≤ 5 %. The C = 2 receivers buy nothing for
+  3× the tensor cost.
+- **The blend is therefore a small-scale correction.** It lowers the
+  force error at k ≳ 3 h/Mpc a priori by 7–40 %, and P_Γ at k ≳ 5 by
+  7–35 %. It costs 0.9 s per hydro step at 256³.
+- **Keep `otvet_cone_blend = 4` as the default.** For a run that needs
+  only k ≲ 4 h/Mpc (at 20 Mpc/h, 256³: wavelengths ≳ 20 cells), the cone
+  alone with C = 4 is adequate.
+- **Unresolved:** whether the blend's lower small-scale power is closer
+  to the truth. Against the rays it is closer at k = 4–8 and farther at
+  k = 10–16, where the rays keep some noise.
+
 ## 7. The closures at 512³ (40 Mpc/h)
 
 `reion512_rays_otvet_{split,cone,screen}`: the box, ICs and parameters of
