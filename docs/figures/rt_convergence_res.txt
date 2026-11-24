@@ -59,7 +59,11 @@ N = 256  reference rays: z = 6.40, x_V = 0.572, <Gamma>_V = 3.95e-14, median Gam
       r_Gamma       0.99   0.95   0.84   0.75   0.82   0.93   0.99
       P_xHII/ref    1.23   1.06   0.78   0.92   1.22   1.18   1.08
       r_xHII        0.98   0.85   0.55   0.48   0.35   0.28   0.22
-   OTVET_order2 no snapshot paired with this one
+   OTVET_order2 z = 6.40, x_V = 0.567, <Gamma>_V = 3.25e-14, median Gamma(ionised) = 4.56e-14, lambda = nan
+      P_Gamma/ref   0.90   0.89   1.08   1.33   1.72   2.38   3.07
+      r_Gamma       1.00   1.00   0.99   0.98   0.98   0.99   0.99
+      P_xHII/ref    1.11   1.06   1.01   0.97   0.90   0.83   0.78
+      r_xHII        1.00   1.00   0.98   0.94   0.83   0.67   0.45
 N = 512  reference rays: z = 5.68, x_V = 0.591, <Gamma>_V = 2.09e-14, median Gamma(ionised) = 2.38e-14, lambda = 0.21
    M1         z = 5.72, x_V = 0.598, <Gamma>_V = 2.17e-14, median Gamma(ionised) = 2.56e-14, lambda = 0.23
       P_Gamma/ref   0.99   0.64   0.78   0.78   0.87   0.99   1.05
@@ -138,7 +142,11 @@ N = 256  reference rays: z = 5.74, x_V = 0.787, <Gamma>_V = 4.6e-14, median Gamm
       r_Gamma       0.97   0.90   0.82   0.77   0.85   0.94   0.99
       P_xHII/ref    1.18   0.66   0.58   0.97   1.04   1.05   0.96
       r_xHII        0.94   0.73   0.34   0.25   0.23   0.19   0.15
-   OTVET_order2 no snapshot paired with this one
+   OTVET_order2 z = 5.74, x_V = 0.790, <Gamma>_V = 3.64e-14, median Gamma(ionised) = 3.74e-14, lambda = nan
+      P_Gamma/ref   0.82   0.96   1.19   1.45   2.00   2.74   3.60
+      r_Gamma       0.99   1.00   0.98   0.98   0.98   0.99   0.99
+      P_xHII/ref    1.06   1.16   1.03   0.94   0.87   0.80   0.73
+      r_xHII        0.99   0.99   0.97   0.89   0.75   0.55   0.35
 N = 512  reference rays: z = 5.19, x_V = 0.746, <Gamma>_V = 3.17e-14, median Gamma(ionised) = 3.31e-14, lambda = 0.65
    M1         z = 5.19, x_V = 0.774, <Gamma>_V = 3.44e-14, median Gamma(ionised) = 3.74e-14, lambda = 0.78
       P_Gamma/ref   0.89   0.39   0.64   0.71   0.77   0.80   0.88
@@ -213,7 +221,11 @@ N = 256  reference rays: z = 5.40, x_V = 0.918, <Gamma>_V = 7.7e-14, median Gamm
       r_Gamma       0.92   0.73   0.79   0.74   0.83   0.92   0.99
       P_xHII/ref    0.73   0.44   0.79   0.83   0.66   0.74   0.68
       r_xHII        0.85   0.45   0.28   0.10   0.16   0.11   0.10
-   OTVET_order2 no snapshot paired with this one
+   OTVET_order2 z = 5.40, x_V = 0.936, <Gamma>_V = 6.04e-14, median Gamma(ionised) = 5.49e-14, lambda = nan
+      P_Gamma/ref   0.62   1.93   1.52   1.86   2.11   2.72   3.51
+      r_Gamma       0.99   0.95   0.97   0.96   0.98   0.98   0.99
+      P_xHII/ref    0.68   0.90   0.99   0.75   0.75   0.71   0.65
+      r_xHII        0.98   0.99   0.90   0.79   0.63   0.41   0.24
 N = 512  reference rays: z = 4.97, x_V = 0.837, <Gamma>_V = 4.02e-14, median Gamma(ionised) = 4.05e-14, lambda = 1.15
    M1         z = 5.00, x_V = 0.865, <Gamma>_V = 4.42e-14, median Gamma(ionised) = 4.7e-14, lambda = 1.33
       P_Gamma/ref   0.71   0.29   0.61   0.69   0.74   0.77   0.86
@@ -292,7 +304,11 @@ N = 256  reference rays: z = 4.96, x_V = 1.000, <Gamma>_V = 2.35e-13, median Gam
       r_Gamma       0.95   0.91   0.78   0.73   0.84   0.88   0.93
       P_xHII/ref    4.10   3.71   3.74   3.11   2.85   2.51   2.36
       r_xHII        1.00   0.98   0.94   0.93   0.90   0.86   0.85
-   OTVET_order2 no snapshot paired with this one
+   OTVET_order2 z = 4.96, x_V = 1.000, <Gamma>_V = 2.45e-13, median Gamma(ionised) = 2.09e-13, lambda = nan
+      P_Gamma/ref   4.64  11.52   9.02   8.96   8.16   7.74   6.37
+      r_Gamma       1.00   0.97   0.93   0.95   0.97   0.96   0.94
+      P_xHII/ref    0.13   0.04   0.07   0.04   0.04   0.05   0.06
+      r_xHII        0.97   0.26   0.55   0.69   0.67   0.63   0.64
 N = 512: no rays snapshot at this epoch
 N = 128 reference / N = 256 reference, P_Gamma:   0.41   0.14   0.27   0.27   0.24   0.25   0.25
 N = 128 M1 alone: z = 4.94, x_V = 1.000, lambda = 36.25, Delta2_Gamma: 3.63e-05 0.000248  0.00044  0.00101  0.00271  0.00656    0.035
@@ -408,6 +424,14 @@ N = 256 M1_order2
    5.18 0.9999 1.294e-13 1.247e-13    nan |    1305 2.193e-01 5.637e-12
    4.96 0.9999 2.700e-13 2.651e-13    nan |    1508 1.835e-01 5.177e-12
 N = 256 OTVET_order2
+   6.93 0.4121 3.064e-14 5.516e-14    nan |     229 1.563e-01 2.237e-11
+   6.40 0.5675 3.252e-14 4.556e-14    nan |     413 2.235e-01 1.395e-11
+   6.25 0.6155 3.284e-14 4.251e-14    nan |     488 2.495e-01 1.148e-11
+   5.98 0.7045 3.280e-14 3.730e-14    nan |     609 2.438e-01 8.800e-12
+   5.74 0.7897 3.639e-14 3.737e-14    nan |     757 2.337e-01 7.245e-12
+   5.40 0.9364 6.038e-14 5.486e-14    nan |    1047 1.853e-01 6.222e-12
+   5.18 0.9968 1.141e-13 9.743e-14    nan |    1303 9.633e-02 6.817e-12
+   4.96 1.0000 2.454e-13 2.091e-13    nan |    1499 1.944e-02 9.941e-12
 N = 512 rays
    6.95 0.3326 2.311e-14 4.141e-14   0.00 |    5574 2.921e-01 6.342e-12
    6.41 0.4418 2.252e-14 3.335e-14   0.04 |    8532 3.084e-01 4.013e-12

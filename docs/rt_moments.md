@@ -897,7 +897,7 @@ P_Γ/P_Γ(rays) at k = 1, 2, 4, 8, 16 h/Mpc, x_V ≈ 0.57–0.59:
 | M1, `moment_inject = 0` | 0.76 0.60 0.38 0.09 0.01 | 0.79 0.74 0.54 0.31 0.08 | 0.69 0.62 0.53 0.50 0.31 |
 | OTVET | 1.20 1.50 2.08 2.56 3.64 | 1.06 1.27 1.50 1.96 2.47 | 0.86 0.99 1.18 1.73 2.14 |
 | M1, `moment_order = 2` | 0.94 1.14 1.47 1.91 3.29 | 1.00 1.18 1.40 1.56 1.90 | – |
-| OTVET, `moment_order = 2` | 1.04 1.21 1.64 2.47 4.19 | running | – |
+| OTVET, `moment_order = 2` | 1.04 1.21 1.64 2.47 4.19 | 1.08 1.33 1.72 2.38 3.07 | – |
 
 After overlap (z ≈ 4.95; λ = 38 pMpc at 128³ and 15 pMpc at 256³, 7.7 and
 3.2 box lengths):
@@ -908,7 +908,7 @@ After overlap (z ≈ 4.95; λ = 38 pMpc at 128³ and 15 pMpc at 256³, 7.7 and
 | M1, `moment_inject = 0` | 0.06 0.13 0.17 0.05 0.01 | 0.07 0.16 0.24 0.17 0.05 |
 | OTVET | 35 34 26 12 3.7 | 9.2 9.2 8.4 7.3 4.6 |
 | M1, `moment_order = 2` | 0.15 0.33 0.65 1.35 2.95 | 0.30 0.55 0.83 1.07 1.41 |
-| OTVET, `moment_order = 2` | 36 36 34 24 7.0 | running |
+| OTVET, `moment_order = 2` | 36 36 34 24 7.0 | 9.0 9.0 8.2 7.7 6.4 |
 
 - **The prediction of §7 holds after overlap**: M1 overtakes the rays at
   kΔx = 1.08 (128³) and 1.28 (256³), and its ratio to the rays at fixed
@@ -953,10 +953,14 @@ After overlap (z ≈ 4.95; λ = 38 pMpc at 128³ and 15 pMpc at 256³, 7.7 and
   0.86–0.95 to 0.75–0.84 (256³). After overlap at 256³ it has more power
   at every k (0.30 of the rays at k = 1 h/Mpc against 0.16), again with
   lower r. **The cause is not known.**
-- **`moment_order = 2` with OTVET (128³)** lowers the excess at
-  k ≤ 8 h/Mpc during reionization and raises it at k = 16 h/Mpc; after
-  overlap it raises it at k = 4–16 h/Mpc (34, 24, 7.0 against 26, 12,
-  3.7). The 256³ run is not finished.
+- **`moment_order = 2` with OTVET does not reduce its excess either.**
+  During reionization it lowers the excess at k ≤ 8 h/Mpc at 128³ and
+  raises it at k = 16 h/Mpc; at 256³ it raises it at every k ≥ 1 h/Mpc
+  (k = 2–16 h/Mpc: 1.33, 1.72, 2.38, 3.07 against 1.27, 1.50, 1.96, 2.47). After
+  overlap it raises it at k = 4–16 h/Mpc at 128³ (34, 24, 7.0 against 26,
+  12, 3.7) and at k = 8–16 h/Mpc at 256³ (7.7, 6.4 against 7.3, 4.6).
+  At the two epochs of the tables r_Γ with the rays is unchanged to 0.01
+  at both N, unlike for M1.
 
 ### 8.4 The uniform test of §7 with the rays
 
