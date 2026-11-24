@@ -482,6 +482,15 @@ they will be rerun with the flag after the Nov 10–11 maintenance. The
 ≲ 5 % changes of dt_rt per step (interpolated ĉ), so the bias is a few
 per cent and makes no pattern.
 
+## Found 2026-11-05: a stale configuration table in `docs/rt_suite_512.md`
+
+- §1 of `docs/rt_suite_512.md` still lists f_esc(z) = 0.135 ((1+z)/7)^2.5
+  and the step ĉ schedule. The final (continuous-schedule) set used
+  **f6 = 0.11** and **`c_reduced_schedule_interp = 1`** with the
+  `radhydro_interp` binary (this file, "the uniform 512³ suite": "all with
+  `c_reduced_schedule_interp = 1`, f6 = 0.11"). To fix from the runs'
+  `params.txt` on klone.
+
 ## Done 2026-10-31: the RT levels survive a rechopping regrid (branch `claude/elegant-volta-wekhho`)
 
 The open item of `stage-g-subcycle` below (`docs/stage_g.md` §6.9 item 3;
