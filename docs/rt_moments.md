@@ -1271,22 +1271,101 @@ arctan(kλ)/(kλ), and r(Γ, L):
   stand-in's shot noise and the proximity zones).
 - Table: `$RUNS/assess_2026-11-23/gamma_source_transfer/gamma_source_transfer.txt`.
 
-### 8.11 B: small runs (in progress)
+### 8.11 B: small runs
 
-*Being run on klone (2026-11-23; `ckpt-g2`, as the group's `cpu-g2`
-cores were taken). The binary is `main` at 833c16f (with #37 and #40);
-the `nside_merge = 4` runs use the binary of PR #43.*
+*Run on klone 2026-11-23/24 (`ckpt-g2`, as the group's `cpu-g2` cores
+were taken). The binary is `main` at 833c16f (with #37 and #40); the
+`nside_merge = 4` runs use the binary of PR #43. Same ICs, sources and
+outputs as the series of §8.1–8.2 (`tools/hyak/rt_convergence.sh`, phases
+`cone`, `screen`, `m1o2i0`, `otvi0`, `merge4`).*
 
-| run | what | N |
-|---|---|---|
-| `rtconv_N<N>_rays_cone` | the paper's cone, `otvet_cone_blend = 0` | 128, 256 |
-| `rtconv_N<N>_rays_screen` | the screen | 128, 256 |
-| `rtconv_N<N>_rays_m1_o2_inj0` | M1, `moment_order = 2`, `moment_inject = 0` | 128, 256 |
-| `rtconv_N<N>_rays_otvet_inj0` | OTVET, `moment_inject = 0` | 128, 256 |
-| `rtconv_N256_rays_f{15,64}_m4` | the rays with `nside_merge = 4` | 256 |
+| run | what | N | state |
+|---|---|---|---|
+| `rtconv_N<N>_rays_cone` | the paper's cone, `otvet_cone_blend = 0` | 128, 256, 512 | 128, 256 done; 512 running |
+| `rtconv_N<N>_rays_screen` | the screen | 128, 256, 512 | 128, 256 done; 512 running |
+| `rtconv_N<N>_rays_m1_o2_inj0` | M1, `moment_order = 2`, `moment_inject = 0` | 128, 256 | 128 done; 256 running (~1 day) |
+| `rtconv_N<N>_rays_otvet_inj0` | OTVET, `moment_inject = 0` | 128, 256 | done |
+| `rtconv_N256_rays_f{15,64}_m4` | the rays with `nside_merge = 4` | 256 | running / queued |
 
-The comparison against the f = 120 rays of the same N:
-`rt_convergence_cmp.py --runs $RUNS --out ... --res 128,256 --ref-f120 --merge4`.
+The comparison (`rt_convergence_cmp.py --runs $RUNS --res 128,256
+--ref-f120`, then `rt_convergence_fig.py`; output in
+`$RUNS/assess_2026-11-23/rtconv_B/`) takes the f = 120 rays of the same N
+as the reference at both N and pairs snapshots in x_HII,V (after overlap
+in z), as in §8.2. Full table, every run and the histories:
+[`figures/rt_convergence_B.txt`](figures/rt_convergence_B.txt).
+
+**P_Γ(run)/P_Γ(rays f = 120) at k = 1, 2, 4, 8 h/Mpc, 256³** (r(k) is
+0.94–1.00 for every OTVET-type run at every k ≤ 8 and epoch; the
+reference x_V is 0.571, 0.787, 0.918, then z = 4.96):
+
+| run | x_V ≈ 0.57 | ≈ 0.79 | ≈ 0.92 | after overlap |
+|---|---|---|---|---|
+| OTVET (§8.2) | 1.06 1.28 1.50 1.95 | 1.17 1.33 1.61 2.09 | 1.66 1.98 2.14 2.64 | 9.90 9.42 8.51 7.40 |
+| OTVET inject 0 | 0.94 1.00 0.92 0.78 | 1.00 0.98 0.95 0.83 | 1.42 1.54 1.38 1.16 | 9.54 8.73 7.24 5.39 |
+| cone (blend 0) | 1.14 1.35 1.74 2.19 | 1.09 1.25 1.65 2.12 | 1.28 1.42 1.77 2.30 | 1.27 1.42 1.75 2.26 |
+| screen | 1.22 1.76 2.27 2.77 | 1.35 1.86 2.35 2.90 | 1.56 2.29 2.64 3.24 | 1.85 2.13 2.26 2.44 |
+| M1 (§8.2) | 0.90 0.96 0.99 1.10 | 0.71 0.80 0.94 1.03 | 0.79 0.94 1.06 1.16 | 0.17 0.36 0.60 0.75 |
+
+**128³, the same k** (reference x_V 0.578, 0.751, 0.855, then z = 4.93):
+
+| run | x_V ≈ 0.58 | ≈ 0.75 | ≈ 0.86 | after overlap |
+|---|---|---|---|---|
+| OTVET | 1.20 1.50 2.08 2.56 | 1.43 1.78 2.32 2.71 | 1.79 2.20 2.82 2.93 | 35.4 34.1 26.3 11.9 |
+| OTVET inject 0 | 1.03 1.05 0.98 0.43 | 1.23 1.22 1.00 0.47 | 1.55 1.58 1.40 0.58 | 34.2 31.8 22.2 7.02 |
+| cone (blend 0) | 1.32 1.73 2.44 2.59 | 1.38 1.80 2.42 2.51 | 1.49 1.98 2.70 2.58 | 1.42 2.00 2.53 2.29 |
+| screen | 1.34 1.93 2.80 3.20 | 1.52 2.16 2.91 3.25 | 1.73 2.48 3.37 3.45 | 1.93 2.44 2.68 2.41 |
+| M1 | 0.91 0.93 1.12 1.47 | 0.83 0.84 1.09 1.41 | 0.83 0.92 1.22 1.57 | 0.12 0.33 0.71 1.11 |
+| M1 order 2 | 0.94 1.14 1.47 1.91 | 0.83 1.02 1.19 1.78 | 0.93 1.20 1.69 2.13 | 0.15 0.33 0.65 1.35 |
+| M1 inject 0 | 0.76 0.60 0.38 0.09 | 0.68 0.51 0.32 0.09 | 0.70 0.58 0.39 0.10 | 0.06 0.13 0.17 0.05 |
+| M1 order 2, inject 0 | 0.83 0.88 0.77 0.33 | 0.73 0.80 0.75 0.32 | 0.81 0.93 0.87 0.36 | 0.11 0.20 0.22 0.16 |
+
+r(k) at k = 1, 2, 4 h/Mpc of the M1 runs at 128³: M1 0.86–0.89, 0.89–0.93,
+0.97–0.98; order 2 0.75–0.79, 0.70–0.76, 0.86–0.87; order 2 with inject 0
+0.71–0.74, 0.58–0.65, 0.72–0.78 before overlap (after overlap 0.65, 0.51,
+0.59).
+
+*B1, the cone without the blend and the screen.*
+- The cone has 1.1–1.4× the rays' power at k = 1–2 and 1.7–2.3× at
+  k = 4–8 at 256³, and about the same at every epoch, after overlap
+  included (r ≥ 0.96). Before overlap that is OTVET's level at k ≤ 2
+  (higher at x ≈ 0.57, lower at x ≈ 0.92); after overlap OTVET is 7–10×
+  and the cone stays at 1.3–2.3×.
+- The screen is above the cone everywhere: 1.2–2.3× at k = 1–2 and
+  2.3–3.2× at k = 4–8 (256³). Ranking at k ≤ 2, closest to the rays first:
+  before overlap cone ≈ OTVET < screen; after overlap cone < screen ≪
+  OTVET. The late-end 512³ suite (40 Mpc/h, §8.7, k = 1.1 h/Mpc) has the
+  same order after overlap and OTVET < cone < screen before it.
+- From 128³ to 256³ both come down, more at large k before overlap (cone
+  at k = 4: 2.4–2.7 → 1.7–1.8; screen 2.8–3.4 → 2.3–2.6) and at k = 1–2
+  after overlap (cone 1.42/2.00 → 1.27/1.42). The 512³ pair (running)
+  says whether the ratios keep falling with N.
+
+*B2, M1 with `moment_order = 2` and `moment_inject = 0` (128³ only so
+far).* The two changes do not cancel each other's faults. Injection
+after transport removes M1's small-scale excess as it does at first
+order (k = 8: 0.32–0.36, k = 16: 0.04–0.05 of the rays), and order 2
+lifts k = 1–4 from M1 inject 0's 0.32–0.76 to 0.73–0.93. But the
+correlation with the rays is the lowest of any run (r = 0.58–0.65 at
+k = 2 before overlap, 0.51 after), lower than either change alone, and
+after overlap the large-scale deficit of every M1 run stays
+(0.11–0.22 at k = 1–4). 256³ is running.
+
+*B3, OTVET with `moment_inject = 0`.* Before overlap it removes OTVET's
+excess at k ≥ 2: at 256³, 0.92–1.00 at k = 2–4 and 0.78–0.83 at k = 8 at
+x ≈ 0.57–0.79 (OTVET 1.28–1.61, 1.95–2.09), and the k = 1–2 power falls to
+the rays' level (0.94–1.00). So OTVET's small-scale excess before overlap
+is made by the injection into the source cells and their neighbours, not
+by the closure. That fits A1 (§8.7), where masking the single-cell
+spikes removed only part of the excess: the injection also raises the
+source cells' neighbours. Near overlap (x ≈ 0.92) it keeps 1.4–1.5× at
+k = 1–2. After overlap it changes little at k = 1–2 (8.7–9.5× against
+9.4–9.9×) and lowers k = 4–8 from 7.4–8.5× to 5.4–7.2×: OTVET's
+box-scale excess there is the closure's. r(k) is unchanged (≥ 0.94). At 128³ it falls far below the rays at k ≥ 8
+(0.43–0.58 at k = 8, 0.01–0.03 at k = 16), as M1 inject 0 does.
+
+*B4, the rays with `nside_merge = 4`:* running (f = 15) and queued
+(f = 64); no result yet. They enter the group "rays" of the comparison
+with `--merge4`.
 
 ## 9. Second-order transport (`moment_order = 2`)
 

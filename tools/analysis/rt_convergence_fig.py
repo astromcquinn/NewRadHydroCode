@@ -4,8 +4,10 @@ from the output of rt_convergence_cmp.py and igm_stats.py.
 
 usage: rt_convergence_fig.py CMP.json [CMP2.json ...] --igm DIR[,DIR2] --outdir docs/figures
 
-Writes rt_convergence_res.{png,txt} (M1 and M1 with moment_inject = 0 against
-the rays at N = 128, 256, 512, at matched x_HII,V) and
+Writes rt_convergence_res.{png,txt} (M1, M1 with moment_inject = 0, OTVET,
+the order-2 runs, and the runs of docs/rt_moments.md 8.11: the cone without
+the blend, the screen, M1 order 2 with moment_inject = 0, OTVET with
+moment_inject = 0, against the rays at N = 128, 256, 512, at matched x_HII,V) and
 rt_convergence_rays.{png,txt} (the ray budgets against the largest).
 """
 import argparse
@@ -132,6 +134,8 @@ def res_series(groups, box, igm, outdir):
             dx = box / N
             for lab, ls in (("M1", "-"), ("M1_inject0", "--"), ("OTVET", "-."), ("M1_order2", (0, (4, 1, 1, 1, 1, 1))),
                             ("OTVET_order2", (0, (1, 2))),
+                            ("cone", (0, (6, 2))), ("screen", (0, (2, 1))),
+                            ("M1_order2_inject0", (0, (8, 2, 1, 2))), ("OTVET_inject0", (0, (3, 3))),
                             ("rays", ":")):
                 if lab not in g["runs"] or lab == g["reference"]:
                     continue
@@ -219,7 +223,7 @@ def res_series(groups, box, igm, outdir):
     ax[1, 0].set_ylabel(r"$r(k)$ with the rays")
     ax[2, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the ray runs")
     ax[3, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the M1 runs")
-    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), OTVET order 2 (sparse dots), "
+    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), OTVET order 2 (sparse dots), cone, screen, M1 order 2 inj 0, OTVET inj 0 (long/short/dash-dot/even dashes), "
                  "f = 15 rays where not the reference (dotted) against the "
                  r"ray reference; thin vertical lines: $k\Delta x = 1.3$", fontsize=9)
     fig.tight_layout()

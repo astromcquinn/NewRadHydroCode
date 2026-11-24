@@ -108,7 +108,23 @@ them with later `zdata1` outputs added. Not launched.
 - **Jobs 43483925–26:** `rtconv_N256_rays_f{15,64}_m4`.
 - **Jobs 43484433–34:** `rtconv_N512_rays_{cone,screen}`, each after its
   256³ run succeeds (`afterok`).
-- Results to be added to `docs/rt_moments.md` §8.11.
+- **State 2026-11-24:** done at 128³ (all four) and 256³ (cone, screen,
+  `otvet_inj0`); running: 256³ `m1_o2_inj0`, `f15_m4` (`f64_m4` queued),
+  the 512³ cone and screen.
+- **Results so far** (`docs/rt_moments.md` §8.11, against the f = 120
+  rays of the same N):
+  - B1: the cone without the blend has 1.1–1.4× the rays' P_Γ at
+    k = 1–2 h/Mpc and 1.7–2.3× at k = 4–8 at 256³, at every epoch; the
+    screen 1.2–2.3× and 2.3–3.2×. After overlap OTVET is 7–10×. Both fall
+    from 128³ to 256³.
+  - B2 (128³): order 2 with inject 0 removes M1's small-scale excess and
+    keeps k = 1–4 at 0.73–0.93, but has the lowest r(k) of any run
+    (0.51–0.65 at k = 2) and keeps M1's after-overlap deficit.
+  - B3: OTVET with inject 0 brings k = 1–8 to 0.78–1.00 of the rays at
+    x_V ≈ 0.57–0.79 (256³): the small-scale excess before overlap is the
+    injection, not the closure. After overlap it changes little (the
+    closure's box-scale excess).
+  - B4: no result yet.
 
 ## Done 2026-11-21: second-order moment transport, `moment_order = 2` (branch `moment-order2`)
 
