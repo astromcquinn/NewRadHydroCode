@@ -234,7 +234,9 @@ rrk::RTP rt_params(const Simulation& s) {
   p.cells = s.cfg.rt_cells_per_substep;
   p.nseg = rrk::nseg_for(s.cfg.legacy_rt, p.cells);
   p.deposit = s.cfg.ray_deposit;  // share (0, the original) or exposure (1)
-  p.nside_merge = s.rays.nside_merge;
+  // the configured merge cones (nside_merge, 2 = original), or 1 while
+  // recomb_rad.cpp has lowered s.rays.nside_merge for a crowded pool
+  p.nside_merge = (s.rays.nside_merge == 1) ? 1 : s.cfg.nside_merge;
   p.ngam_ray16 = s.rays.ngam_ray[16 - 1];
   p.ngam_ray32 = s.rays.ngam_ray[32 - 1];
   // B16 fix ray_rotate: the keys of the frame rotation (rrk::frame_rotation)

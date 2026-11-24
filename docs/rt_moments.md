@@ -799,7 +799,9 @@ box.
   `nray_max_factor`: **the suite's 15 is well below the 64 per cell that
   Wu et al. 2021 §5.2.3 take for this code** (ℓ ≈ 8, converged for
   k ≲ ℓ/λ). `nray_max_factor`·N³ < 2³¹ caps the 512³ suite at 15.
-  Not varied: `nside_merge` (no params.txt key; 4 would need one).
+  `nside_merge` was not varied here; it has a params.txt key since
+  2026-11-23 (1, 2 or 4; default 2, the original's; `Config::nside_merge`,
+  ctest `nside_merge_key`).
 - Checked here: every phase with `DRYRUN=1`; `radhydro` runs 3 steps of
   the new N = Ndm/4, `pm_refine` = 4 combination (N = 8, Ndm = 32).
 - **Run 2026-11-20 to 23 on klone; results in §8.1–8.5.** Added while the

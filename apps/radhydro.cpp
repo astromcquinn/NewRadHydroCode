@@ -125,6 +125,7 @@ struct RunParams {
   double ra_max = -1;       // < 0: the original (real(4) 0.1); legacy_rt = 0 only
   int rt_substep_carry = 0;  // 1: exact total RT substeps (Config::rt_substep_carry)
   int ray_rotate = 0;        // B16 fix: Config::ray_rotate (0 = original)
+  int nside_merge = 2;       // Config::nside_merge (2 = original; 1, 2 or 4)
   long long ray_rotate_seed = 0;
   int redshift_per_distance = 0;  // Config::redshift_per_distance (0 = original)
   int rt_cells_per_substep = 1;   // Config::rt_cells_per_substep (1 = original)
@@ -248,6 +249,11 @@ void set_run_param(RunParams& P, const std::string& key_in, const std::string& v
   else if (key == "rt_cells_per_substep") {
     P.rt_cells_per_substep = std::stoi(val);
     if (P.rt_cells_per_substep < 1) throw std::runtime_error("rt_cells_per_substep must be >= 1");
+  }
+  else if (key == "nside_merge") {
+    P.nside_merge = std::stoi(val);
+    if (P.nside_merge != 1 && P.nside_merge != 2 && P.nside_merge != 4)
+      throw std::runtime_error("nside_merge must be 1, 2 or 4");
   }
   else if (key == "ray_deposit") {
     if (val == "share" || val == "0")
@@ -765,6 +771,7 @@ int main(int argc, char** argv) {
     s.cfg.det_parallel = (P.deterministic_parallel == 1);
     s.cfg.ray_rotate = P.ray_rotate;
     s.cfg.ray_rotate_seed = static_cast<std::uint64_t>(P.ray_rotate_seed);
+    s.cfg.nside_merge = P.nside_merge;  // merge cones (2 = original)
     s.cfg.redshift_per_distance = (P.redshift_per_distance == 1);
     s.cfg.rt_cells_per_substep = P.rt_cells_per_substep;  // docs/rt_multicell.md
     s.cfg.photon_conserve = Config::photon_conserve_effective(P.photon_conserve, s.cfg.legacy_physics);  // B17

@@ -104,6 +104,7 @@ int main(int argc, char** argv) {
     s.cfg.photon_consume_dense =
         Config::photon_consume_dense_effective(P.photon_consume_dense, s.cfg.legacy_physics);  // P11
     s.cfg.ray_deposit = P.ray_deposit;                     // share | exposure
+    s.cfg.nside_merge = P.nside_merge;                     // merge cones (2 = original)
     s.cfg.cool_suppress_overdensity = P.cool_suppress_overdensity;
     s.cfg.sn_heating = P.sn_heating != 0;
     if (P.rt_substep_carry) {
