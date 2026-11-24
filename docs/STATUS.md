@@ -3767,6 +3767,17 @@ not reachable from this session: the run lists are from the documents, so check 
 the paper draft (private repository `astromcquinn/RT_closure`) went to the
 user and is not recorded here.
 
+* **Corrections (2026-11-24), from the klone follow-up (PR #44,
+  `assess-followup`, which has the real sizes and the logs):**
+  - The `_z570` reruns are four, not five (184 GB, of which about 170 GB
+    can go).
+  - The earlier suite `reion512_rays*` is 32 GB in all: its checkpoints
+    and most of its fields were already gone.
+  - `rtconv_N512_*` do not set `land_outputs`: they end after the step
+    that passes z = 5. They did end normally. Their x_V at z = 5 is
+    0.826, 0.863, 0.823; the 0.84, 0.87, 0.84 below are x_M.
+  - The deletion candidates on `/gscratch/astro` add up to about 1.7 TB,
+    with 1.7 TB free on 2026-11-23. Nothing has been deleted.
 * **The four open PRs, merged on the user's instruction the same day:**
   - **#41** (`rt-convergence-runs`) by its own klone session (81d35f9),
     **#37** (`output-write-check`, bdb5600) and **#39**
