@@ -4,8 +4,10 @@ from the output of rt_convergence_cmp.py and igm_stats.py.
 
 usage: rt_convergence_fig.py CMP.json [CMP2.json ...] --igm DIR[,DIR2] --outdir docs/figures
 
-Writes rt_convergence_res.{png,txt} (M1 and M1 with moment_inject = 0 against
-the rays at N = 128, 256, 512, at matched x_HII,V) and
+Writes rt_convergence_res.{png,txt} (M1, M1 with moment_inject = 0, OTVET,
+the order-2 runs, and the runs of docs/rt_moments.md 8.11: the cone without
+the blend, the screen, M1 order 2 with moment_inject = 0, OTVET with
+moment_inject = 0, against the rays at N = 128, 256, 512, at matched x_HII,V) and
 rt_convergence_rays.{png,txt} (the ray budgets against the largest).
 """
 import argparse
@@ -132,6 +134,8 @@ def res_series(groups, box, igm, outdir):
             dx = box / N
             for lab, ls in (("M1", "-"), ("M1_inject0", "--"), ("OTVET", "-."), ("M1_order2", (0, (4, 1, 1, 1, 1, 1))),
                             ("OTVET_order2", (0, (1, 2))),
+                            ("cone", (0, (6, 2))), ("screen", (0, (2, 1))),
+                            ("M1_order2_inject0", (0, (8, 2, 1, 2))), ("OTVET_inject0", (0, (3, 3))),
                             ("rays", ":")):
                 if lab not in g["runs"] or lab == g["reference"]:
                     continue
@@ -219,7 +223,7 @@ def res_series(groups, box, igm, outdir):
     ax[1, 0].set_ylabel(r"$r(k)$ with the rays")
     ax[2, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the ray runs")
     ax[3, 0].set_ylabel(r"$\Delta^2_\Gamma$ of the M1 runs")
-    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), OTVET order 2 (sparse dots), "
+    fig.suptitle("M1 (solid), M1 inject 0 (dashed), OTVET (dash-dot), M1 moment_order 2 (dash-dot-dot), OTVET order 2 (sparse dots), cone, screen, M1 order 2 inj 0, OTVET inj 0 (long/short/dash-dot/even dashes), "
                  "f = 15 rays where not the reference (dotted) against the "
                  r"ray reference; thin vertical lines: $k\Delta x = 1.3$", fontsize=9)
     fig.tight_layout()
@@ -247,7 +251,12 @@ def ray_series(groups, igm, outdir):
     g = groups["rays"]
     ref = g["runs"][g["reference"]]
     labs = [l for l in g["runs"] if l != g["reference"]]
-    cols = {l: c for l, c in zip(sorted(labs, key=lambda s: int(s[1:])), ("C3", "C1", "C2", "C0", "C4"))}
+    def fkey(s):  # f<f> and f<f>_m4 (nside_merge = 4, after its f = <f> partner)
+        f, _, m = s[1:].partition("_")
+        return (int(f), m)
+
+    labs = sorted(labs, key=fkey)
+    cols = {l: c for l, c in zip(labs, ("C3", "C1", "C2", "C0", "C4", "C5", "C6"))}
     fig, ax = plt.subplots(4, len(TARGETS), figsize=(4.1 * len(TARGETS), 11), sharex=True, squeeze=False)
     rep = ["# Ray-budget series at 256^3 (nray_max_factor f; reference %s): ratio of P(k) to the reference and" % g["reference"],
            "# r(k) with it, for delta_Gamma (gammaHI_avg) and x_HII, at the reference's snapshots.",
@@ -260,14 +269,14 @@ def ray_series(groups, igm, outdir):
         rep.append("\n## %s: reference z = %.2f, x_V = %.4f, median Gamma(ionised) = %.3e, lambda = %.2f pMpc"
                    % ("after overlap" if tx > 1 else "x_HII,V ~ %.2f" % tx, r0["z"], r0["xV"], r0["gamma_med_ion"],
                       mfp(igm, r0)))
-        for lab in sorted(labs, key=lambda s: int(s[1:])):
+        for lab in labs:
             pr = pair_of(g, lab, ir)
             if pr is None:
                 continue
             sn, p = pr
             k, ratio, r = spectra(sn, r0, p, "gamma")
             kx, ratx, rx = spectra(sn, r0, p, "x")
-            rep.append("  %-4s z = %.2f, x_V = %.4f, median Gamma(ionised) = %.3e, lambda = %.2f"
+            rep.append("  %-6s z = %.2f, x_V = %.4f, median Gamma(ionised) = %.3e, lambda = %.2f"
                        % (lab, sn["z"], sn["xV"], sn["gamma_med_ion"], mfp(igm, sn)))
             rep.append("      P_Gamma/ref " + fmt_row([at(k, ratio, kt) for kt in KTAB]))
             rep.append("      r_Gamma     " + fmt_row([at(k, r, kt) for kt in KTAB]))
@@ -277,7 +286,7 @@ def ray_series(groups, igm, outdir):
             bad = k[dev > 0.1]
             rep.append("      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: %.3f; first k with more than 10 %%: %s"
                        % (dev[k <= 2].max(), "%.1f" % bad[0] if len(bad) else "none up to %.0f" % k[-1]))
-            kw = dict(color=cols[lab], label=lab)
+            kw = dict(color=cols[lab], label=lab, ls="--" if lab.endswith("_m4") else "-")
             ax[0, it].semilogx(k, ratio, **kw)
             ax[1, it].semilogx(k, 1 - r, **kw)
             ax[2, it].semilogx(kx, ratx, **kw)

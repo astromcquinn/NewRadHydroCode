@@ -4,6 +4,7 @@ docs/rt_moments.md section 8) at matched ionised fraction.
 
 usage: rt_convergence_cmp.py --runs DIR --out FILE.json [--res 128,256,512]
                              [--rayf 8,15,32,64,120] [--box 20] [--workers 16]
+                             [--ref-f120] [--merge4]
 
 gamma_power.py pairs snapshots by redshift; here every run's snapshot is
 paired with the reference's snapshot nearest in x_HII,V (the runs differ in
@@ -12,8 +13,12 @@ their reionization history, between resolutions by a lot); after overlap
 
 Groups: for each N the runs rtconv_N<N>_rays (reference), _rays_m1,
 _rays_m1_inj0, _rays_otvet, and _rays_m1_o2 and _rays_otvet_o2
-(moment_order = 2); the ray budgets rtconv_N256_rays_f<f> (reference: the largest
-f present; f = 15 is rtconv_N256_rays).
+(moment_order = 2), _rays_cone (otvet_cone_blend = 0), _rays_screen,
+_rays_m1_o2_inj0 and _rays_otvet_inj0 (docs/rt_moments.md 8.6); with --ref-f120
+the reference at 256^3 is also rtconv_N256_rays_f120 (as at 128^3 always);
+the ray budgets rtconv_N256_rays_f<f> (reference: the largest
+f present; f = 15 is rtconv_N256_rays), with --merge4 also the nside_merge = 4
+runs rtconv_N256_rays_f<f>_m4 (label f<f>_m4).
 
 Per snapshot (step_NNNN with gammaHI_avg.bin, fHI.bin, rhog.bin; z < 7.5):
 z, x_HII,V, x_HII,M, <Gamma>_V, the median Gamma of ionised cells
@@ -133,6 +138,8 @@ def main():
     ap.add_argument("--field", default="gammaHI_avg")
     ap.add_argument("--zmax", type=float, default=7.5)
     ap.add_argument("--workers", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "1")))
+    ap.add_argument("--ref-f120", action="store_true", help="the f = 120 rays as the reference at 256^3 too")
+    ap.add_argument("--merge4", action="store_true", help="add the nside_merge = 4 ray runs to the group 'rays'")
     a = ap.parse_args()
     kf = 2 * np.pi / a.box
     # 4 bins per factor of 2 from the fundamental to beyond the 512^3 corner
@@ -142,10 +149,12 @@ def main():
     for n in [int(t) for t in a.res.split(",") if t]:
         b = os.path.join(a.runs, "rtconv_N%d_rays" % n)
         runs = [("rays", b), ("M1", b + "_m1"), ("M1_inject0", b + "_m1_inj0"), ("OTVET", b + "_otvet"),
-                ("M1_order2", b + "_m1_o2"), ("OTVET_order2", b + "_otvet_o2")]
+                ("M1_order2", b + "_m1_o2"), ("OTVET_order2", b + "_otvet_o2"),
+                ("cone", b + "_cone"), ("screen", b + "_screen"),
+                ("M1_order2_inject0", b + "_m1_o2_inj0"), ("OTVET_inject0", b + "_otvet_inj0")]
         # a finished run with the largest ray pool is the reference where the
         # series' f = 15 pool was full (128^3; at 256^3 see the group "rays")
-        if n != 256 and os.path.exists(os.path.join(b + "_f120", "run", "DONE")):
+        if (n != 256 or a.ref_f120) and os.path.exists(os.path.join(b + "_f120", "run", "DONE")):
             runs.insert(0, ("rays_f120", b + "_f120"))
         groups.append(("N%d" % n, runs))
     fs = sorted([int(t) for t in a.rayf.split(",") if t], reverse=True)
@@ -154,6 +163,9 @@ def main():
         p = os.path.join(a.runs, "rtconv_N256_rays" + ("" if f == 15 else "_f%d" % f))
         if os.path.exists(os.path.join(p, "run", "DONE")):
             rr.append(("f%d" % f, p))
+        p4 = os.path.join(a.runs, "rtconv_N256_rays_f%d_m4" % f)
+        if a.merge4 and os.path.exists(os.path.join(p4, "run", "DONE")):
+            rr.append(("f%d_m4" % f, p4))
     if len(rr) > 1:
         groups.append(("rays", rr))
 

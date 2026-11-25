@@ -925,9 +925,10 @@ After overlap (z ≈ 4.95; λ = 38 pMpc at 128³ and 15 pMpc at 256³, 7.7 and
 - **The rays' own P_Γ is not converged in N at fixed x_V**: the 512³ run
   has 1.8–2.7 times the 256³ power at k = 1–16 h/Mpc at x_V ≈ 0.58
   (z = 5.68 against 6.40); 128³ and 256³ agree to 0.78–1.02. The gas grid
-  changes the absorbers: the 512³ runs reionize later (x_V = 0.84 for the
-  rays, 0.87 M1, 0.84 OTVET at z = 5; the 128³ and 256³ runs overlap
-  between z = 5.4 and 5.0).
+  changes the absorbers: the 512³ runs reionize later (at z = 5 x_V = 0.83
+  for the rays, 0.86 M1, 0.82 OTVET; x_M = 0.84, 0.88, 0.85; corrected
+  2026-11-23, the numbers here were x_M), while the 128³ and 256³ runs
+  overlap between z = 5.4 and 5.0.
 - The 512³ runs have no epoch after overlap.
 
 ### 8.3 Results: `moment_inject = 0` and `moment_order = 2` in the runs
@@ -1020,6 +1021,408 @@ from the runs' timers:
   moment transport and the photochemistry scale with N³. The ratio
   therefore falls with N **at a fixed box and source population**; it is
   not a trend with problem size.
+
+### 8.6 The 2026-11-23 follow-up: what was asked and the tools
+
+*Asked by the user on 2026-11-23 (the "Runs to make" A and B of the
+assessment in `docs/STATUS.md`). Outputs on klone under
+`$RUNS/assess_2026-11-23/`; the B runs as `$RUNS/rtconv_N<N>_rays_<name>`.*
+
+- **A. Analysis of existing outputs** of the late-end 512³ suite (40 Mpc/h,
+  78 kpc/h cells, P11, case B; `$RUNS/reion512late{,_caseA,_m1}` and the
+  OTVET-type runs through `$RUNS/paper_view`, as the paper's figures):
+  A1 the mask/cap test of the Γ excess at k ≈ 5 h/Mpc (§8.7), A2 stacked
+  Γ profiles around the sources (§8.8), A3 the photon sink by density on the
+  suite and the 39 against 78 kpc/h test (§8.9), A4 T_ΓL(k) against the
+  runs' own source field (§8.10).
+- **B. Small runs** in the configuration of `rt_convergence.sh` (§8.11).
+  New phases of `tools/hyak/rt_convergence.sh`: `cone`
+  (`otvet_cone_blend = 0`, the paper's cone), `screen`, `m1o2i0`
+  (`moment_order = 2`, `moment_nsub = 6`, `moment_inject = 0`), `otvi0`
+  (OTVET, `moment_inject = 0`), and `merge4` (the rays with
+  `nside_merge = 4`, the key of PR #43). `rt_convergence_cmp.py` knows the
+  new runs; `--ref-f120` makes the f = 120 rays the reference at 256³ as
+  at 128³.
+- **New tools:** `tools/analysis/gamma_mask_cap.py` (A1) and
+  `tools/analysis/gamma_source_transfer.py` (A4);
+  `tools/analysis/gamma_profile.py` (A2) is PR #42.
+- **No source list exists for these runs.** The snapshots have no
+  `Luv.bin` and no `sources.txt`, and the checkpoints that held the halos
+  are gone (the scrubbed `restart` directories are empty). The run.log's
+  `Nsource` counts source *halos* (`halo_sources.cpp`), 0.52–0.55 million,
+  more than the 0.33 million local density maxima of the whole 512³ box,
+  so no density threshold reproduces the source cells. A1, A2 and A4 use
+  stand-ins, named in each section. A source list would need a rerun with
+  `fields = ...,Luv`.
+
+### 8.7 A1: the Γ excess at k ≈ 5 h/Mpc: source cells, proximity zones?
+
+`gamma_mask_cap.py` at the paper's four epochs (the rays' steps 69, 84,
+93, 99: z = 6.48, 5.70, 5.24, 4.99, x_V = 0.54, 0.80, 0.96, 1.00), P_Γ of
+δ_Γ = Γ/⟨Γ⟩_V − 1 of `gammaHI_avg` with the binning of the paper's figure,
+four ways, each applied to every run including the rays:
+
+- **as is**;
+- **spike**: every single-cell maximum of the run's own Γ above twice the
+  mean of its 6 face neighbours replaced by that mean. This removes the
+  injection floor of the moment methods (§7: the current substep's photons
+  in the source cell) and any other one-cell spike. 71 000 (rays), 95 000
+  (M1) and 83 000–91 000 (OTVET, screen, cone) cells at z = 5.70, with a
+  median contrast of 4.0 (rays) and 4.8–6.0 (moments), holding 0.5–1.1 %
+  of ΣΓ; 12 000–24 000 cells at z = 4.99;
+- **peaks**: the density maxima above 10 times the mean (29 000–39 000, the
+  halo centres' stand-in) replaced by the mean of their neighbours;
+- **cap**: Γ ≤ 3⟨Γ⟩_V (`rt_suite_figures.py --clip 3`): 10 % of the volume
+  (17 % of ΣΓ) at z = 6.48, 2–3 % at 5.70, under 0.5 % after.
+
+P_Γ(method)/P_Γ(rays) at k = 4.9 h/Mpc
+([`$RUNS/assess_2026-11-23/gamma_mask_cap/gamma_mask_cap.txt`]):
+
+| z | variant | M1 | OTVET | screen | cone |
+|---|---|---|---|---|---|
+| 6.48 | as is | 1.00 | 1.51 | 2.93 | 2.02 |
+| | spike | 0.73 | 1.10 | 2.60 | 1.77 |
+| | peaks | 0.97 | 1.47 | 2.86 | 1.98 |
+| | cap | 1.04 | 0.89 | 1.22 | 1.05 |
+| 5.70 | as is | 1.07 | 1.60 | 3.23 | 2.12 |
+| | spike | 0.76 | 1.15 | 2.80 | 1.85 |
+| | peaks | 1.00 | 1.52 | 3.15 | 2.08 |
+| | cap | 0.97 | 0.94 | 1.80 | 1.44 |
+| 5.24 | as is | 0.85 | 1.92 | 2.43 | 2.01 |
+| | spike | 0.59 | 1.58 | 2.15 | 1.78 |
+| | cap | 0.74 | 1.27 | 1.74 | 1.64 |
+| 4.99 | as is | 0.60 | 3.80 | 2.07 | 1.92 |
+| | spike | 0.38 | 3.75 | 1.85 | 1.70 |
+| | cap | 0.43 | 2.10 | 1.59 | 1.68 |
+
+(peaks at z = 5.24 and 4.99 within 0.06 of "as is".)
+
+- **The single-cell spikes are part of it, not most of it.** Removing them
+  lowers the closures' ratio at k ≈ 5 by 0.2–0.45 before overlap (OTVET
+  to 1.10–1.58, the screen to 2.15–2.80, the cone to 1.77–1.85) and M1 to
+  0.59–0.76 of the rays (0.38 at z = 4.99): M1's ratio of ≈ 1 at k ≈ 5 is
+  its injection floor. At k ≈ 10 the spikes matter more (OTVET 2.2 → 1.3, M1 1.2 → 0.5
+  at z = 5.70).
+- **The proximity zones carry most of it before overlap.** Capping Γ at
+  3⟨Γ⟩_V brings OTVET to 0.9 and the cone to 1.05–1.44 at z = 6.48–5.70;
+  the screen keeps 1.2–1.8. The cap also lowers r(k) with the rays at
+  k ≈ 5 from 0.95 to 0.44–0.81: the capped cells are where the rays' and
+  the closures' small-scale fields agree in phase, so the cap removes the
+  shared structure as well as the excess. §8.8 shows the closures' excess
+  Γ in the 1–3 cells around dense peaks.
+- **The density peaks (halo stand-ins) carry none of it** (≤ 0.07 change):
+  the source cells cannot be isolated this way (§8.6).
+- **After overlap the excess is not local.** At z = 4.99 OTVET keeps
+  3.75× after the spike mask and 2.1× after the cap; its excess is the
+  box-scale tensor term of §7 (λ ≈ 2 L).
+- **The ranking at k ≤ 2 h/Mpc** (as is, at k = 1.1 h/Mpc: z = 5.70 M1
+  0.79, OTVET 1.04, cone 1.41, screen 2.24) survives the spike and peaks
+  masks at every epoch (changes ≤ 0.1). With the cap it changes before
+  overlap: M1 rises to 1.22–1.28 (the highest at z = 6.48, equal to the
+  cone at 5.70) and OTVET becomes the lowest (0.75–0.99), because the rays
+  lose more power to the cap than M1 does. At z = 5.24 (screen > OTVET >
+  cone > M1) and 4.99 (OTVET > screen > cone > M1, M1 0.08) the ranking
+  survives the cap.
+
+### 8.8 A2: stacked Γ profiles around the sources
+
+`gamma_profile.py` (PR #42) at z = 5.97, 5.48 and 4.99 for the six runs
+(the rays, rays with case A + RR, M1, OTVET, screen, cone), sources =
+density maxima above 100 times the mean (1729–3466 of them; and above 3
+times, 123 000–130 000, as a check), Γ(r)/⟨Γ⟩_ion stacked in spherical
+shells. Output: `$RUNS/assess_2026-11-23/gamma_profile/{rho100,rho3}`.
+
+Ratio to the rays' profile, group "all", density maxima > 100 (the shells
+nearest 1, 2, 3 and 10 cells have mean radii 1.28, 2.23, 3.13, 8.61; src
+is the peak cell), and the slope d ln(Γ/⟨Γ⟩_ion − 1)/d ln r over
+r = 2.2–8.6 cells:
+
+| z | | src | 1 | 2 | 3 | 10 | slope |
+|---|---|---|---|---|---|---|---|
+| 5.97 | rays (Γ/⟨Γ⟩_ion) | 80.8 | 14.3 | 6.13 | 4.19 | 2.21 | −1.05 |
+| | M1 | 1.81 | 0.94 | 0.97 | 0.92 | 0.84 | −1.30 |
+| | OTVET | 2.19 | 1.34 | 1.28 | 1.15 | 1.00 | −1.26 |
+| | screen | 2.36 | 1.89 | 1.93 | 1.71 | 1.25 | −1.34 |
+| | cone | 1.87 | 1.51 | 1.57 | 1.42 | 1.11 | −1.30 |
+| 5.48 | rays | 49.7 | 9.33 | 4.28 | 3.21 | 1.93 | −0.93 |
+| | M1 | 1.76 | 0.91 | 0.89 | 0.85 | 0.79 | −1.26 |
+| | OTVET | 2.04 | 1.34 | 1.31 | 1.21 | 1.06 | −1.09 |
+| | screen | 2.24 | 1.82 | 1.86 | 1.66 | 1.26 | −1.17 |
+| | cone | 1.83 | 1.49 | 1.54 | 1.40 | 1.13 | −1.15 |
+| 4.99 | rays | 16.1 | 3.63 | 2.09 | 1.77 | 1.32 | −0.90 |
+| | M1 | 1.47 | 0.75 | 0.78 | 0.76 | 0.80 | −1.71 |
+| | OTVET | 1.86 | 1.76 | 1.79 | 1.61 | 1.32 | −0.97 |
+| | screen | 1.68 | 1.39 | 1.41 | 1.28 | 1.12 | −1.04 |
+| | cone | 1.64 | 1.32 | 1.32 | 1.19 | 1.05 | −1.13 |
+
+Case A + RR is within 3 % of the rays everywhere.
+
+- **Every moment method has 1.5–2.4 times the rays' Γ in the peak cell**
+  (the injection floor, or the photons of nearby sources pooled there).
+- **The thin-tensor closures' proximity zones are brighter than the rays'**:
+  OTVET 1.15–1.8, the screen 1.3–1.9, the cone 1.2–1.6 times the rays at
+  1–3 cells, still 1.0–1.3 at 9 cells; the excess falls as r^−1 to
+  r^−1.3, close to the rays' r^−0.9 to r^−1.05, not as 1/r².
+- **M1's proximity zones are fainter** (0.75–0.97 at 1–3 cells) and fall
+  more steeply (r^−1.3 to r^−1.7).
+- With this and §8.7, the closures' excess at k ≈ 5 h/Mpc is mostly the
+  extra Γ within a few cells of the dense peaks; the peak cells themselves
+  (one cell each) add white power that matters at k ≳ 10 h/Mpc.
+- The density maxima > 3 (123 000–130 000) include many peaks outside the
+  ionised gas; their excess over ⟨Γ⟩_ion is negative at r ≥ 2 cells at
+  z = 5.97, so the slopes there are not defined. Their ratios to the rays
+  at z = 5.48–4.99 are smaller (M1 0.93–0.96, the closures 1.01–1.28 at
+  1–10 cells) with the same order of the methods.
+
+### 8.9 A3: the photon sink by density
+
+`tools/analysis/absorber_budget.py` (`docs/absorbers_closures.md` §3),
+with exact bins δ < 10, 10–50, 50–100, 100–1000, > 1000 (a wrapper,
+`$RUNS/assess_2026-11-23/absorber_budget/scripts/`). With P11 on, every
+photoionisation removes its photon, so the tool's "removed" equals the
+photoionisations P = Γ n_HI V; but P from `gammaHI_avg` times the
+instantaneous n_HI over-counts in dense cells that cycle within a step
+(it exceeds the emission at 39 kpc/h), so **only the recombinations R are
+quoted**.
+
+**The late-end suite** (z = 5.97, 5.48, 5.24, 4.99):
+
+| | R(δ > 100)/rays | R total/rays | x_HI,M(δ > 100) |
+|---|---|---|---|
+| rays | 1 | 1 | 0.149, 0.135, 0.121, 0.098 |
+| M1 | 0.81, 0.83, 0.84, 0.86 | 0.96–0.97 | 0.250, 0.233, 0.214, 0.185 |
+| OTVET | 0.87, 0.91, 0.96, 0.98 | 0.98–0.99 | 0.210, 0.171, 0.122, 0.053 |
+| cone | 0.94, 0.97, 0.96, 0.96 | 0.97–0.98 | 0.140, 0.111, 0.095, 0.075 |
+
+- The gas above 100 times the mean (0.003–0.008 % of the volume) holds
+  22 % (z = 5.97) to 37 % (z = 4.99) of the rays' recombinations.
+- **M1 leaves the dense gas more neutral and recombines 14–19 % less
+  there**; OTVET and the cone 2–13 % and 3–6 % less. The box totals differ
+  by 1–4 %. The same sign as in the refined 128³ budget runs (M1 delivers
+  fewer photons to the densest cells than the rays).
+- The in-flight reservoir grows from 1.1–1.4 steps' emission at z = 5.97
+  to 5.2–5.6 at z = 4.99 for every method, as in §3.1 of that document.
+
+**39 against 78 kpc/h** (`rtconv_N512_*` against `rtconv_N256_*`,
+20 Mpc/h; §4 (b) of `docs/absorbers_closures.md`, run now). Matched in
+x_V (0.53–0.84 at 512³, z = 5.99–4.97; 0.57–0.79 at 256³, z = 6.40–5.74):
+
+| | 256³ | 512³ |
+|---|---|---|
+| rays: R(δ > 100)/ṅ | 0.07–0.11 | 0.32–0.38 |
+| rays: R(δ > 100)/R | 0.17–0.23 | 0.44–0.55 |
+| rays: x_HI,M(δ > 100) | 0.17–0.20 | 0.29–0.34 |
+| M1: R(δ > 100)/rays | 0.77–0.83 | 0.87–0.90 |
+| OTVET: R(δ > 100)/rays | 0.86–0.91 | 0.89–0.94 |
+| M1: x_HI,M(δ > 100) | 0.27–0.29 | 0.33–0.39 |
+
+- **Halving the cell size multiplies the dense-gas sink by 3.5–4.4 for
+  every method**: half of the rays' recombinations are in gas above 100 times the
+  mean at 39 kpc/h, a fifth at 78 kpc/h. This is why the 512³ runs reionize
+  later (§8.2).
+- **The moment methods' deficit in the dense sink shrinks with
+  resolution**, from 17–23 % (M1) and 9–14 % (OTVET) to 10–13 % and
+  6–11 %. It does not grow, as Wu et al. 2021's mechanism (M1 ionizing
+  resolved absorbers more easily) would make it.
+- Tables: `$RUNS/assess_2026-11-23/absorber_budget/{late512,rtconv256,rtconv512}/summary.txt`
+  and `rtconv_pair.txt`.
+
+### 8.10 A4: T_ΓL(k) against the runs' own source field
+
+`gamma_source_transfer.py` for the rays, M1 and OTVET at the paper's four
+epochs: T = (P_Γ/P_L)^½ with δ_L of a stand-in source field, against
+arctan(kλ)/(kλ) for each snapshot's λ_mfp (`igm_stats.py`, sight lines
+from ionised cells: 4.6, 9.2, 28–34 and 74–92 cMpc/h at the four epochs).
+
+**How the source field was built:** the local maxima (3³, periodic) of
+the run's own gas density above 10 times the mean (29 000–40 000 cells),
+each weighted by the gas mass of its 3³ neighbourhood (a proxy for the halo
+mass that the abundance-matched luminosity rises with; an unweighted
+version is in the table file). Not the code's sources (§8.6): its errors
+enter P_L and the cross spectrum, and r(Γ, L) measures how well Γ follows
+it.
+
+T(k)/T(k_min) (k_min = 0.157 h/Mpc) against the same ratio of
+arctan(kλ)/(kλ), and r(Γ, L):
+
+| z | k [h/Mpc] | rays | M1 | OTVET | exact | r: rays, M1, OTVET |
+|---|---|---|---|---|---|---|
+| 6.48 | 0.49 | 0.25 | 0.19 | 0.23 | 0.59 | 0.85, 0.76, 0.86 |
+| | 1.07 | 0.11 | 0.09 | 0.11 | 0.32 | 0.80, 0.55, 0.77 |
+| | 4.9 | 0.038 | 0.037 | 0.048 | 0.077 | 0.71, 0.69, 0.72 |
+| 5.70 | 0.49 | 0.18 | 0.15 | 0.18 | 0.45 | 0.88, 0.59, 0.90 |
+| | 1.07 | 0.081 | 0.074 | 0.092 | 0.22 | 0.75, 0.43, 0.80 |
+| | 4.9 | 0.029 | 0.031 | 0.041 | 0.051 | 0.70, 0.68, 0.74 |
+| 5.24 | 0.49 | 0.18 | 0.19 | 0.28 | 0.35 | 0.81, 0.22, 0.91 |
+| | 1.07 | 0.084 | 0.093 | 0.14 | 0.17 | 0.75, 0.33, 0.87 |
+| 4.99 | 0.49 | 0.36 | 0.33 | 0.41 | 0.33 | 0.80, 0.31, 0.96 |
+| | 1.07 | 0.17 | 0.089 | 0.20 | 0.15 | 0.81, 0.57, 0.93 |
+| | 4.9 | 0.059 | 0.078 | 0.070 | 0.034 | 0.75, 0.71, 0.84 |
+
+- **During reionization (z = 6.48, 5.70) T falls 2–3 times faster than
+  arctan(kλ)/(kλ) for every method** at k = 0.5–1 h/Mpc: the Γ field there
+  is the ionised/neutral pattern, not the linear response to the sources
+  in a medium of one λ. The three methods agree with each other to
+  10–25 % in T.
+- **After overlap the rays follow the exact form** (λ ≈ 1.8 L, kλ > 10:
+  T ∝ 1/k, the normalised T within 7–23 % of it at k = 0.5–2 h/Mpc),
+  **OTVET follows it with a higher amplitude** (T 1.9–2.0 times the
+  rays', r = 0.91–0.96) and **M1 falls below it** (T 0.3–0.4 of the rays'
+  at k = 1–2 h/Mpc) and
+  decorrelates from the sources (r = 0.2–0.6 at k ≤ 1 h/Mpc). The same
+  as the uniform test of §7 at λ ≈ 2.5 L.
+- At k ≳ 5 h/Mpc T flattens above the exact form for every method (the
+  stand-in's shot noise and the proximity zones).
+- Table: `$RUNS/assess_2026-11-23/gamma_source_transfer/gamma_source_transfer.txt`.
+
+### 8.11 B: small runs
+
+*Run on klone 2026-11-23/25 (`ckpt-g2`, as the group's `cpu-g2` cores
+were taken). The binary is `main` at 833c16f (with #37 and #40); the
+`nside_merge = 4` runs use the binary of PR #43. Same ICs, sources and
+outputs as the series of §8.1–8.2 (`tools/hyak/rt_convergence.sh`, phases
+`cone`, `screen`, `m1o2i0`, `otvi0`, `merge4`).*
+
+| run | what | N | state |
+|---|---|---|---|
+| `rtconv_N<N>_rays_cone` | the paper's cone, `otvet_cone_blend = 0` | 128, 256, 512 | done (512³ to z = 4.99, as far as the 512³ series) |
+| `rtconv_N<N>_rays_screen` | the screen | 128, 256, 512 | done (likewise) |
+| `rtconv_N<N>_rays_m1_o2_inj0` | M1, `moment_order = 2`, `moment_inject = 0` | 128, 256 | done |
+| `rtconv_N<N>_rays_otvet_inj0` | OTVET, `moment_inject = 0` | 128, 256 | done |
+| `rtconv_N256_rays_f64_m4` | the rays with `nside_merge = 4`, f = 64 | 256 | done |
+| `rtconv_N256_rays_f15_m4` | likewise, f = 15 | 256 | failed during step 48 (the last is 49): ray pool overflow (`Nray_max = 251658240`, 15 × 256³); not rerun |
+
+The comparison (`rt_convergence_cmp.py --runs $RUNS --res 128,256
+--ref-f120 --merge4`, and `--res 512` for the 512³ group, then
+`rt_convergence_fig.py`; job `$RUNS/assess_2026-11-23/rtconv_B/cmp2.sh`,
+output in `fig2/` and `fig512/` there) takes the f = 120 rays of the same N
+as the reference at both N and pairs snapshots in x_HII,V (after overlap
+in z), as in §8.2. Full table, every run and the histories:
+[`figures/rt_convergence_B.txt`](figures/rt_convergence_B.txt).
+
+**P_Γ(run)/P_Γ(rays f = 120) at k = 1, 2, 4, 8 h/Mpc, 256³** (r(k) is
+0.94–1.00 for every OTVET-type run at every k ≤ 8 and epoch; the
+reference x_V is 0.571, 0.787, 0.918, then z = 4.96):
+
+| run | x_V ≈ 0.57 | ≈ 0.79 | ≈ 0.92 | after overlap |
+|---|---|---|---|---|
+| OTVET (§8.2) | 1.06 1.28 1.50 1.95 | 1.17 1.33 1.61 2.09 | 1.66 1.98 2.14 2.64 | 9.90 9.42 8.51 7.40 |
+| OTVET inject 0 | 0.94 1.00 0.92 0.78 | 1.00 0.98 0.95 0.83 | 1.42 1.54 1.38 1.16 | 9.54 8.73 7.24 5.39 |
+| cone (blend 0) | 1.14 1.35 1.74 2.19 | 1.09 1.25 1.65 2.12 | 1.28 1.42 1.77 2.30 | 1.27 1.42 1.75 2.26 |
+| screen | 1.22 1.76 2.27 2.77 | 1.35 1.86 2.35 2.90 | 1.56 2.29 2.64 3.24 | 1.85 2.13 2.26 2.44 |
+| M1 (§8.2) | 0.90 0.96 0.99 1.10 | 0.71 0.80 0.94 1.03 | 0.79 0.94 1.06 1.16 | 0.17 0.36 0.60 0.75 |
+| M1 order 2 (§9) | 1.00 1.18 1.40 1.56 | 0.80 1.06 1.36 1.55 | 0.85 1.24 1.55 1.76 | 0.32 0.56 0.84 1.09 |
+| M1 inject 0 (§8.2) | 0.79 0.74 0.54 0.31 | 0.55 0.53 0.48 0.29 | – | 0.08 0.16 0.24 0.18 |
+| M1 order 2, inject 0 | 0.92 1.03 1.00 0.72 | 0.72 0.87 0.95 0.73 | 0.76 0.99 1.06 0.81 | 0.23 0.41 0.52 0.46 |
+
+(–: no snapshot of the run near that x_V.) r(k) at k = 1, 2, 4 h/Mpc of
+the M1 runs at 256³ before overlap: M1 0.81–0.86, 0.85–0.87, 0.95–0.96;
+order 2 0.79–0.84, 0.74–0.77, 0.82–0.85; inject 0 0.83, 0.81–0.82,
+0.91–0.93; order 2 with inject 0 0.76–0.82, 0.67–0.71, 0.72–0.77 (after
+overlap 0.76, 0.66, 0.76).
+
+**128³, the same k** (reference x_V 0.578, 0.751, 0.855, then z = 4.93):
+
+| run | x_V ≈ 0.58 | ≈ 0.75 | ≈ 0.86 | after overlap |
+|---|---|---|---|---|
+| OTVET | 1.20 1.50 2.08 2.56 | 1.43 1.78 2.32 2.71 | 1.79 2.20 2.82 2.93 | 35.4 34.1 26.3 11.9 |
+| OTVET inject 0 | 1.03 1.05 0.98 0.43 | 1.23 1.22 1.00 0.47 | 1.55 1.58 1.40 0.58 | 34.2 31.8 22.2 7.02 |
+| cone (blend 0) | 1.32 1.73 2.44 2.59 | 1.38 1.80 2.42 2.51 | 1.49 1.98 2.70 2.58 | 1.42 2.00 2.53 2.29 |
+| screen | 1.34 1.93 2.80 3.20 | 1.52 2.16 2.91 3.25 | 1.73 2.48 3.37 3.45 | 1.93 2.44 2.68 2.41 |
+| M1 | 0.91 0.93 1.12 1.47 | 0.83 0.84 1.09 1.41 | 0.83 0.92 1.22 1.57 | 0.12 0.33 0.71 1.11 |
+| M1 order 2 | 0.94 1.14 1.47 1.91 | 0.83 1.02 1.19 1.78 | 0.93 1.20 1.69 2.13 | 0.15 0.33 0.65 1.35 |
+| M1 inject 0 | 0.76 0.60 0.38 0.09 | 0.68 0.51 0.32 0.09 | 0.70 0.58 0.39 0.10 | 0.06 0.13 0.17 0.05 |
+| M1 order 2, inject 0 | 0.83 0.88 0.77 0.33 | 0.73 0.80 0.75 0.32 | 0.81 0.93 0.87 0.36 | 0.11 0.20 0.22 0.16 |
+
+r(k) at k = 1, 2, 4 h/Mpc of the M1 runs at 128³: M1 0.86–0.89, 0.89–0.93,
+0.97–0.98; order 2 0.75–0.79, 0.70–0.76, 0.86–0.87; order 2 with inject 0
+0.71–0.74, 0.58–0.65, 0.72–0.78 before overlap (after overlap 0.65, 0.51,
+0.59).
+
+**512³, the same k, against the 512³ rays (f = 15, the largest budget at
+512³; at 256³ f = 15 is within 2 % of f = 120 at k ≤ 2 h/Mpc up to
+x ≈ 0.8 and 5 % at x ≈ 0.92, §8.2).** The
+512³ series stops at z ≈ 4.97 before overlap (the rays at x_V = 0.837).
+The cone and screen are behind the rays and OTVET there (x_V = 0.799 and
+0.793 at z = 4.99, OTVET 0.838), so the pairing in x_V is loose: the run's
+x_V is given beside each row.
+
+| run | x_V ≈ 0.59 (rays, z = 5.68) | ≈ 0.75 (z = 5.19) | ≈ 0.84 (z = 4.97) |
+|---|---|---|---|
+| OTVET | 0.86 0.99 1.18 1.73 (0.568) | 1.02 1.12 1.26 1.69 (0.727) | 0.97 1.05 1.24 1.63 (0.838) |
+| cone (blend 0) | 0.77 0.92 1.06 1.58 (0.615) | 1.10 1.27 1.44 1.90 (0.702) | 1.19 1.31 1.54 2.08 (0.799) |
+| screen | 0.91 1.23 1.51 2.12 (0.609) | – | 1.72 2.16 2.51 3.32 (0.793) |
+| M1 | 0.78 0.78 0.87 0.99 (0.598) | 0.64 0.71 0.77 0.80 (0.774) | 0.61 0.69 0.74 0.77 (0.865) |
+
+r(k) at k ≤ 4 is 0.95–0.99 for OTVET, the cone and the screen.
+
+*B1, the cone without the blend and the screen.*
+- The cone has 1.1–1.4× the rays' power at k = 1–2 and 1.7–2.3× at
+  k = 4–8 at 256³, and about the same at every epoch, after overlap
+  included (r ≥ 0.96). Before overlap that is OTVET's level at k ≤ 2
+  (higher at x ≈ 0.57, lower at x ≈ 0.92); after overlap OTVET is 7–10×
+  and the cone stays at 1.3–2.3×.
+- The screen is above the cone everywhere: 1.2–2.3× at k = 1–2 and
+  2.3–3.2× at k = 4–8 (256³). Ranking at k ≤ 2, closest to the rays first:
+  before overlap cone ≈ OTVET < screen; after overlap cone < screen ≪
+  OTVET. The late-end 512³ suite (40 Mpc/h, §8.7, k = 1.1 h/Mpc) has the
+  same order after overlap and OTVET < cone < screen before it.
+- From 128³ to 256³ both come down, more at large k before overlap (cone
+  at k = 4: 2.4–2.7 → 1.7–1.8; screen 2.8–3.4 → 2.3–2.6) and at k = 1–2
+  after overlap (cone 1.42/2.00 → 1.27/1.42).
+- At 512³ (before overlap only) the cone's excess keeps falling at
+  k = 4–8 (1.1–1.5 and 1.6–2.1, from 1.7–1.8 and 2.1–2.3 at 256³) and is
+  1.1–1.3× at k = 1–2 from x ≈ 0.70, as at 256³; at x ≈ 0.6 it is 0.8–0.9×.
+  The screen falls at x ≈ 0.6 (0.9–2.1×), but at x ≈ 0.8 it is 1.7–3.3×,
+  no lower than at 256³ (1.4–2.9× at x ≈ 0.79, 1.6–3.2× at 0.92). At
+  k ≤ 2 the cone is at or below OTVET at x ≈ 0.6 and above it from
+  x ≈ 0.7, and the screen is highest: OTVET < cone < screen from x ≈ 0.7,
+  as in the late-end 512³ suite before overlap. The 512³ runs have no after-overlap
+  snapshot, so the after-overlap ratios are known only at 128³ and 256³.
+
+*B2, M1 with `moment_order = 2` and `moment_inject = 0`.* The two changes do not cancel each other's faults. Injection
+after transport removes M1's small-scale excess as it does at first
+order (k = 8: 0.32–0.36, k = 16: 0.04–0.05 of the rays), and order 2
+lifts k = 1–4 from M1 inject 0's 0.32–0.76 to 0.73–0.93. But the
+correlation with the rays is the lowest of any run (r = 0.58–0.65 at
+k = 2 before overlap, 0.51 after), lower than either change alone, and
+after overlap the large-scale deficit of every M1 run stays
+(0.11–0.22 at k = 1–4). 256³ says the same: before overlap k = 1–4 is
+0.72–1.06 (order 2 alone 0.80–1.55, inject 0 alone 0.48–0.79) and
+k = 8 is 0.72–0.81 (order 2 1.55–1.76, inject 0 0.29–0.31), the closest
+amplitudes of the M1 runs; but r = 0.67–0.71 at k = 2 is again the lowest
+(M1 0.85–0.87), and after overlap it has 0.23–0.52 of the rays' power at
+k = 1–4 (M1 0.17–0.60).
+
+*B3, OTVET with `moment_inject = 0`.* Before overlap it removes OTVET's
+excess at k ≥ 2: at 256³, 0.92–1.00 at k = 2–4 and 0.78–0.83 at k = 8 at
+x ≈ 0.57–0.79 (OTVET 1.28–1.61, 1.95–2.09), and the k = 1–2 power falls to
+the rays' level (0.94–1.00). So OTVET's small-scale excess before overlap
+is made by the injection into the source cells and their neighbours, not
+by the closure. That fits A1 (§8.7), where masking the single-cell
+spikes removed only part of the excess: the injection also raises the
+source cells' neighbours. Near overlap (x ≈ 0.92) it keeps 1.4–1.5× at
+k = 1–2. After overlap it changes little at k = 1–2 (8.7–9.5× against
+9.4–9.9×) and lowers k = 4–8 from 7.4–8.5× to 5.4–7.2×: OTVET's
+box-scale excess there is the closure's. r(k) is unchanged (≥ 0.94). At 128³ it falls far below the rays at k ≥ 8
+(0.43–0.58 at k = 8, 0.01–0.03 at k = 16), as M1 inject 0 does.
+
+*B4, the rays with `nside_merge = 4`.* Only f = 64 finished. Before
+overlap it agrees with the f = 120 rays to 1–3 % in P_Γ at k ≤ 2 h/Mpc
+(8 % at k = 0.5 at x ≈ 0.92; r = 1.00), a little worse than f = 64
+without it (0.4–1.5 %).
+After overlap it loses large-scale power: 0.61, 0.77, 0.91 of the
+reference's P_Γ at k = 0.3, 0.5, 1 h/Mpc (f = 64 without it: 1.06, 0.99,
+1.02), r = 0.97–0.99, median Γ of the ionised cells within 1 %. It keeps
+more rays, not fewer: 6.7e8 active at the peak against 4.5e8 for f = 64
+(1.5×). That is why f = 15 overflowed its pool (2.4e8 of 15 × 256³ =
+2.5e8 during step 48). To finish, it would need a larger pool,
+`nray_max_factor` ≈ 20 for some margin: 1.5 × the peak of the f = 15 run
+without it (1.7e8) is 15.2 × 256³. The
+f = 64 run took 3.3 h against 5.1 h for f = 64 without it, on `ckpt-g2`
+nodes of different types and with restarts, so that is not a timing
+comparison. As run here, `nside_merge = 4` buys no accuracy, costs memory
+and changes the after-overlap large-scale Γ by 10–40 %.
 
 ## 9. Second-order transport (`moment_order = 2`)
 
