@@ -108,23 +108,30 @@ them with later `zdata1` outputs added. Not launched.
 - **Jobs 43483925–26:** `rtconv_N256_rays_f{15,64}_m4`.
 - **Jobs 43484433–34:** `rtconv_N512_rays_{cone,screen}`, each after its
   256³ run succeeds (`afterok`).
-- **State 2026-11-24:** done at 128³ (all four) and 256³ (cone, screen,
-  `otvet_inj0`); running: 256³ `m1_o2_inj0`, `f15_m4` (`f64_m4` queued),
-  the 512³ cone and screen.
-- **Results so far** (`docs/rt_moments.md` §8.11, against the f = 120
-  rays of the same N):
+- **State 2026-11-25:** all done except `rtconv_N256_rays_f15_m4`, which
+  overflowed its ray pool during step 48 of 49 (it would need
+  `nray_max_factor` ≈ 20; not rerun). The 512³ cone and screen stop at
+  z ≈ 4.99 before overlap, like the rest of the 512³ series.
+- **Results** (`docs/rt_moments.md` §8.11, against the f = 120 rays of
+  the same N; at 512³ the f = 15 rays):
   - B1: the cone without the blend has 1.1–1.4× the rays' P_Γ at
     k = 1–2 h/Mpc and 1.7–2.3× at k = 4–8 at 256³, at every epoch; the
     screen 1.2–2.3× and 2.3–3.2×. After overlap OTVET is 7–10×. Both fall
-    from 128³ to 256³.
-  - B2 (128³): order 2 with inject 0 removes M1's small-scale excess and
-    keeps k = 1–4 at 0.73–0.93, but has the lowest r(k) of any run
-    (0.51–0.65 at k = 2) and keeps M1's after-overlap deficit.
+    from 128³ to 256³. At 512³ (before overlap) the cone falls further at
+    k = 4–8 (1.1–2.1×) and stays 1.1–1.3× at k = 1–2; the screen does not
+    fall near x ≈ 0.8 (1.7–3.3×).
+  - B2: order 2 with inject 0 removes M1's small-scale excess and gives
+    the closest amplitudes of the M1 runs before overlap (k = 1–4:
+    0.73–0.93 at 128³, 0.72–1.06 at 256³), but the lowest r(k) of any run
+    (k = 2: 0.51–0.65 at 128³, 0.66–0.71 at 256³) and M1's after-overlap
+    deficit (0.23–0.52 at k = 1–4, 256³).
   - B3: OTVET with inject 0 brings k = 1–8 to 0.78–1.00 of the rays at
     x_V ≈ 0.57–0.79 (256³): the small-scale excess before overlap is the
     injection, not the closure. After overlap it changes little (the
     closure's box-scale excess).
-  - B4: no result yet.
+  - B4 (f = 64 only): `nside_merge = 4` keeps 1.5× more rays, matches the
+    reference to 1–3 % before overlap (f = 64 without it 0.4–1.5 %) and
+    after overlap has 0.61–0.91 of its P_Γ at k = 0.3–1 h/Mpc. No gain.
 
 ## Done 2026-11-21: second-order moment transport, `moment_order = 2` (branch `moment-order2`)
 

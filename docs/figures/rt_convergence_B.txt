@@ -94,7 +94,11 @@ N = 256  reference rays_f120: z = 6.40, x_V = 0.571, <Gamma>_V = 3.94e-14, media
       r_Gamma       1.00   1.00   0.99   0.97   0.97   0.98   0.99
       P_xHII/ref    1.10   1.01   1.01   1.02   0.91   0.75   0.57
       r_xHII        1.00   1.00   0.99   0.96   0.87   0.72   0.53
-   M1_order2_inject0 no snapshot paired with this one
+   M1_order2_inject0 z = 6.40, x_V = 0.590, <Gamma>_V = 3.93e-14, median Gamma(ionised) = 5e-14, lambda = nan
+      P_Gamma/ref   0.99   0.57   0.92   1.03   1.00   0.72   0.30
+      r_Gamma       0.99   0.95   0.82   0.69   0.72   0.81   0.89
+      P_xHII/ref    1.23   1.06   0.78   0.91   1.22   1.17   1.07
+      r_xHII        0.98   0.85   0.54   0.48   0.35   0.28   0.23
    OTVET_inject0 z = 6.40, x_V = 0.571, <Gamma>_V = 3.44e-14, median Gamma(ionised) = 5.02e-14, lambda = nan
       P_Gamma/ref   0.92   0.90   0.94   1.00   0.92   0.78   0.36
       r_Gamma       1.00   1.00   0.99   0.98   0.98   0.98   0.98
@@ -199,7 +203,11 @@ N = 256  reference rays_f120: z = 5.74, x_V = 0.787, <Gamma>_V = 4.58e-14, media
       r_Gamma       1.00   1.00   0.98   0.96   0.97   0.99   0.99
       P_xHII/ref    1.04   1.05   1.03   0.98   0.84   0.71   0.51
       r_xHII        1.00   1.00   0.98   0.93   0.81   0.61   0.41
-   M1_order2_inject0 no snapshot paired with this one
+   M1_order2_inject0 z = 5.74, x_V = 0.813, <Gamma>_V = 4.82e-14, median Gamma(ionised) = 5.28e-14, lambda = nan
+      P_Gamma/ref   0.91   0.37   0.72   0.87   0.95   0.73   0.31
+      r_Gamma       0.97   0.88   0.80   0.71   0.77   0.87   0.95
+      P_xHII/ref    1.16   0.64   0.57   0.94   1.02   1.03   0.94
+      r_xHII        0.94   0.72   0.34   0.24   0.23   0.19   0.16
    OTVET_inject0 z = 5.74, x_V = 0.797, <Gamma>_V = 4.11e-14, median Gamma(ionised) = 4.31e-14, lambda = nan
       P_Gamma/ref   0.83   0.89   1.00   0.98   0.95   0.83   0.41
       r_Gamma       0.99   1.00   0.99   0.98   0.98   0.99   0.98
@@ -300,7 +308,11 @@ N = 256  reference rays_f120: z = 5.40, x_V = 0.918, <Gamma>_V = 7.69e-14, media
       r_Gamma       1.00   0.98   0.96   0.96   0.97   0.98   0.99
       P_xHII/ref    0.64   0.75   0.94   0.76   0.69   0.59   0.44
       r_xHII        1.00   0.99   0.94   0.82   0.67   0.39   0.24
-   M1_order2_inject0 no snapshot paired with this one
+   M1_order2_inject0 z = 5.40, x_V = 0.950, <Gamma>_V = 7.64e-14, median Gamma(ionised) = 7.74e-14, lambda = nan
+      P_Gamma/ref   0.53   0.42   0.76   0.99   1.06   0.81   0.35
+      r_Gamma       0.91   0.71   0.76   0.67   0.75   0.84   0.94
+      P_xHII/ref    0.64   0.40   0.76   0.76   0.62   0.70   0.65
+      r_xHII        0.84   0.41   0.25   0.11   0.15   0.10   0.09
    OTVET_inject0 z = 5.40, x_V = 0.940, <Gamma>_V = 6.94e-14, median Gamma(ionised) = 6.35e-14, lambda = nan
       P_Gamma/ref   0.66   1.82   1.42   1.54   1.38   1.16   0.52
       r_Gamma       1.00   0.96   0.97   0.97   0.98   0.99   0.98
@@ -390,7 +402,11 @@ N = 256  reference rays_f120: z = 4.96, x_V = 1.000, <Gamma>_V = 2.36e-13, media
       r_Gamma       0.96   0.92   0.80   0.73   0.84   0.89   0.94
       P_xHII/ref    3.78   4.03   3.96   3.31   3.11   2.83   2.60
       r_xHII        1.00   0.98   0.95   0.95   0.93   0.91   0.90
-   OTVET_order2 no snapshot paired with this one
+   OTVET_order2 z = 4.96, x_V = 1.000, <Gamma>_V = 2.45e-13, median Gamma(ionised) = 2.09e-13, lambda = nan
+      P_Gamma/ref   5.55  11.38   9.74   9.19   8.26   7.86   6.44
+      r_Gamma       1.00   0.98   0.94   0.96   0.97   0.97   0.94
+      P_xHII/ref    0.12   0.04   0.08   0.05   0.04   0.05   0.06
+      r_xHII        0.97   0.29   0.58   0.70   0.69   0.66   0.66
    cone       z = 4.96, x_V = 1.000, <Gamma>_V = 2.55e-13, median Gamma(ionised) = 2.43e-13, lambda = nan
       P_Gamma/ref   1.15   1.01   1.27   1.42   1.75   2.26   2.08
       r_Gamma       1.00   0.98   0.96   0.97   0.98   0.97   0.91
@@ -401,7 +417,11 @@ N = 256  reference rays_f120: z = 4.96, x_V = 1.000, <Gamma>_V = 2.36e-13, media
       r_Gamma       1.00   0.98   0.94   0.96   0.98   0.98   0.94
       P_xHII/ref    0.49   0.29   0.30   0.26   0.26   0.30   0.35
       r_xHII        0.99   0.97   0.93   0.94   0.92   0.90   0.88
-   M1_order2_inject0 no snapshot paired with this one
+   M1_order2_inject0 z = 4.96, x_V = 1.000, <Gamma>_V = 2.84e-13, median Gamma(ionised) = 2.8e-13, lambda = nan
+      P_Gamma/ref   0.01   0.08   0.23   0.41   0.52   0.46   0.25
+      r_Gamma       0.87   0.90   0.76   0.66   0.76   0.80   0.93
+      P_xHII/ref    5.19   5.27   5.63   4.72   4.38   4.00   3.76
+      r_xHII        0.99   0.98   0.94   0.92   0.88   0.85   0.81
    OTVET_inject0 z = 4.96, x_V = 1.000, <Gamma>_V = 2.58e-13, median Gamma(ionised) = 2.2e-13, lambda = nan
       P_Gamma/ref   5.21  11.38   9.54   8.73   7.24   5.39   1.93
       r_Gamma       1.00   0.98   0.94   0.96   0.98   0.98   0.98
@@ -577,6 +597,8 @@ N = 256 OTVET_order2
    5.98 0.7045 3.280e-14 3.730e-14    nan |     609 2.438e-01 8.800e-12
    5.74 0.7897 3.639e-14 3.737e-14    nan |     757 2.337e-01 7.245e-12
    5.40 0.9364 6.038e-14 5.486e-14    nan |    1047 1.853e-01 6.222e-12
+   5.18 0.9968 1.141e-13 9.743e-14    nan |    1303 9.633e-02 6.817e-12
+   4.96 1.0000 2.454e-13 2.091e-13    nan |    1499 1.944e-02 9.941e-12
 N = 256 cone
    6.93 0.4144 3.436e-14 5.676e-14    nan |     225 9.984e-02 2.418e-11
    6.40 0.5702 3.828e-14 5.070e-14    nan |     400 1.681e-01 1.444e-11
@@ -597,6 +619,13 @@ N = 256 screen
    4.96 1.0000 2.527e-13 2.370e-13    nan |    1486 6.887e-02 6.397e-12
 N = 256 M1_order2_inject0
    6.93 0.4333 3.545e-14 5.223e-14    nan |     229 3.237e-01 3.215e-12
+   6.40 0.5903 3.934e-14 5.001e-14    nan |     407 3.612e-01 2.367e-12
+   6.25 0.6379 3.974e-14 4.793e-14    nan |     489 3.697e-01 2.000e-12
+   5.98 0.7265 4.281e-14 4.982e-14    nan |     620 3.804e-01 1.387e-12
+   5.74 0.8126 4.823e-14 5.276e-14    nan |     761 3.672e-01 1.217e-12
+   5.40 0.9504 7.638e-14 7.742e-14    nan |    1059 3.496e-01 1.250e-12
+   5.18 0.9999 1.381e-13 1.337e-13    nan |    1312 3.256e-01 1.383e-12
+   4.96 0.9999 2.840e-13 2.800e-13    nan |    1510 2.885e-01 1.310e-12
 N = 256 OTVET_inject0
    6.93 0.4147 3.071e-14 5.814e-14    nan |     233 3.394e-01 2.983e-12
    6.40 0.5709 3.442e-14 5.018e-14    nan |     414 3.646e-01 2.151e-12
@@ -606,3 +635,344 @@ N = 256 OTVET_inject0
    5.40 0.9403 6.937e-14 6.348e-14    nan |    1054 2.841e-01 1.591e-12
    5.18 0.9964 1.286e-13 1.104e-13    nan |    1305 1.760e-01 2.647e-12
    4.96 1.0000 2.579e-13 2.203e-13    nan |    1501 6.033e-02 5.035e-12
+
+# ===== 512^3 group (rt_convergence_cmp.py --res 512; reference rtconv_N512_rays, f = 15) =====
+# Resolution series (tools/hyak/rt_convergence.sh; 20 Mpc/h, 512^3 particles, gas and RT on N^3).
+# P_Gamma of delta = Gamma_HI/<Gamma_HI>_V - 1 (gammaHI_avg), ratio to the ray run of the same N and
+# cross-correlation r(k) with it, at snapshots matched in x_HII,V (after overlap: in z).
+# lambda: the mean free path at 912 A, lambda_e of igm_stats.py (random starts) [pMpc].
+# k [h/Mpc] columns:    0.3    0.5    1.0    2.0    4.0    8.0   16.0
+
+## x_HII,V ~ 0.57
+N = 512  reference rays: z = 5.68, x_V = 0.591, <Gamma>_V = 2.09e-14, median Gamma(ionised) = 2.38e-14, lambda = 0.21
+   M1         z = 5.72, x_V = 0.598, <Gamma>_V = 2.17e-14, median Gamma(ionised) = 2.56e-14, lambda = 0.23
+      P_Gamma/ref   0.99   0.64   0.78   0.78   0.87   0.99   1.05
+      r_Gamma       0.98   0.98   0.90   0.86   0.93   0.80   0.57
+      P_xHII/ref    1.30   1.00   0.97   0.98   1.07   0.89   0.72
+      r_xHII        0.98   0.91   0.67   0.59   0.52   0.44   0.38
+      M1 overtakes the reference at k = 5.4 h/Mpc, k dx = 0.21
+   M1_inject0 z = 5.97, x_V = 0.582, <Gamma>_V = 2.45e-14, median Gamma(ionised) = 3.13e-14, lambda = nan
+      P_Gamma/ref   1.01   0.61   0.69   0.62   0.53   0.50   0.31
+      r_Gamma       0.98   0.97   0.88   0.83   0.92   0.90   0.78
+      P_xHII/ref    1.29   0.98   0.98   0.99   1.12   0.94   0.77
+      r_xHII        0.98   0.93   0.70   0.61   0.53   0.44   0.35
+   OTVET      z = 5.71, x_V = 0.568, <Gamma>_V = 1.74e-14, median Gamma(ionised) = 2.19e-14, lambda = 0.19
+      P_Gamma/ref   0.95   0.90   0.86   0.99   1.18   1.73   2.14
+      r_Gamma       1.00   1.00   0.99   0.98   0.95   0.77   0.56
+      P_xHII/ref    1.12   1.04   1.01   1.04   0.93   0.80   0.63
+      r_xHII        1.00   0.99   0.97   0.92   0.77   0.61   0.48
+   cone       z = 5.48, x_V = 0.615, <Gamma>_V = 2.03e-14, median Gamma(ionised) = 2.37e-14, lambda = nan
+      P_Gamma/ref   0.87   0.74   0.77   0.92   1.06   1.58   2.05
+      r_Gamma       1.00   1.00   0.98   0.97   0.96   0.81   0.54
+      P_xHII/ref    1.06   0.97   1.04   1.00   0.97   0.84   0.67
+      r_xHII        1.00   0.99   0.98   0.95   0.85   0.69   0.53
+   screen     z = 5.48, x_V = 0.609, <Gamma>_V = 1.77e-14, median Gamma(ionised) = 2.03e-14, lambda = nan
+      P_Gamma/ref   0.86   0.72   0.91   1.23   1.51   2.12   2.75
+      r_Gamma       1.00   1.00   0.98   0.96   0.96   0.90   0.71
+      P_xHII/ref    1.10   0.97   1.04   1.03   0.93   0.78   0.62
+      r_xHII        1.00   0.99   0.97   0.92   0.79   0.62   0.49
+N = 512 M1 alone: z = 5.97, x_V = 0.542, lambda = 0.13, Delta2_Gamma:     1.87     2.32     1.52     1.27     1.99      3.6     8.78
+
+## x_HII,V ~ 0.77
+N = 512  reference rays: z = 5.19, x_V = 0.746, <Gamma>_V = 3.17e-14, median Gamma(ionised) = 3.31e-14, lambda = 0.65
+   M1         z = 5.19, x_V = 0.774, <Gamma>_V = 3.44e-14, median Gamma(ionised) = 3.74e-14, lambda = 0.78
+      P_Gamma/ref   0.89   0.39   0.64   0.71   0.77   0.80   0.88
+      r_Gamma       0.96   0.93   0.83   0.83   0.94   0.98   0.99
+      P_xHII/ref    1.33   0.77   0.63   0.91   0.93   0.79   0.63
+      r_xHII        0.94   0.81   0.51   0.41   0.34   0.31   0.27
+      M1 overtakes the reference at k = 27.6 h/Mpc, k dx = 1.08
+   M1_inject0 z = 5.49, x_V = 0.724, <Gamma>_V = 3.34e-14, median Gamma(ionised) = 3.84e-14, lambda = nan
+      P_Gamma/ref   1.05   0.48   0.70   0.72   0.72   0.60   0.37
+      r_Gamma       0.96   0.93   0.85   0.80   0.90   0.92   0.80
+      P_xHII/ref    1.54   0.85   0.78   1.05   1.10   0.94   0.76
+      r_xHII        0.96   0.85   0.59   0.49   0.42   0.33   0.27
+   OTVET      z = 5.21, x_V = 0.727, <Gamma>_V = 2.51e-14, median Gamma(ionised) = 2.69e-14, lambda = 0.64
+      P_Gamma/ref   0.91   0.90   1.02   1.12   1.26   1.69   2.30
+      r_Gamma       1.00   1.00   0.99   0.98   0.98   0.92   0.76
+      P_xHII/ref    1.20   1.10   1.12   1.01   0.95   0.77   0.60
+      r_xHII        1.00   0.99   0.97   0.89   0.74   0.57   0.45
+   cone       z = 5.22, x_V = 0.702, <Gamma>_V = 2.55e-14, median Gamma(ionised) = 2.82e-14, lambda = nan
+      P_Gamma/ref   1.00   1.08   1.10   1.27   1.44   1.90   2.58
+      r_Gamma       1.00   1.00   0.99   0.98   0.97   0.93   0.81
+      P_xHII/ref    1.22   0.97   1.14   1.14   1.09   0.95   0.76
+      r_xHII        1.00   0.99   0.98   0.90   0.76   0.59   0.48
+   screen     no snapshot paired with this one
+N = 512 M1 alone: z = 5.19, x_V = 0.774, lambda = 0.78, Delta2_Gamma:     1.04    0.496     0.45    0.411    0.695     1.12     2.84
+
+## x_HII,V ~ 0.89
+N = 512  reference rays: z = 4.97, x_V = 0.837, <Gamma>_V = 4.02e-14, median Gamma(ionised) = 4.05e-14, lambda = 1.15
+   M1         z = 5.00, x_V = 0.865, <Gamma>_V = 4.42e-14, median Gamma(ionised) = 4.7e-14, lambda = 1.33
+      P_Gamma/ref   0.71   0.29   0.61   0.69   0.74   0.77   0.86
+      r_Gamma       0.93   0.89   0.80   0.81   0.93   0.95   0.90
+      P_xHII/ref    1.21   0.60   0.73   0.87   0.81   0.71   0.57
+      r_xHII        0.90   0.71   0.44   0.33   0.29   0.24   0.22
+      M1 overtakes the reference at k = 28.5 h/Mpc, k dx = 1.11
+   M1_inject0 z = 5.22, x_V = 0.840, <Gamma>_V = 4.5e-14, median Gamma(ionised) = 4.94e-14, lambda = nan
+      P_Gamma/ref   0.89   0.34   0.59   0.63   0.61   0.51   0.32
+      r_Gamma       0.94   0.90   0.80   0.79   0.90   0.91   0.80
+      P_xHII/ref    1.49   0.70   0.75   1.05   0.93   0.85   0.69
+      r_xHII        0.92   0.76   0.50   0.36   0.29   0.26   0.21
+   OTVET      z = 4.97, x_V = 0.838, <Gamma>_V = 3.28e-14, median Gamma(ionised) = 3.21e-14, lambda = 1.23
+      P_Gamma/ref   0.81   0.89   0.97   1.05   1.24   1.63   2.28
+      r_Gamma       0.99   0.99   0.98   0.98   0.98   0.98   0.95
+      P_xHII/ref    1.07   1.19   1.09   1.07   0.86   0.73   0.57
+      r_xHII        1.00   0.99   0.96   0.89   0.73   0.55   0.42
+   cone       z = 4.99, x_V = 0.799, <Gamma>_V = 3.19e-14, median Gamma(ionised) = 3.24e-14, lambda = nan
+      P_Gamma/ref   1.03   1.27   1.19   1.31   1.54   2.08   2.85
+      r_Gamma       1.00   1.00   0.99   0.98   0.98   0.98   0.96
+      P_xHII/ref    1.36   1.09   1.34   1.24   1.14   1.00   0.80
+      r_xHII        1.00   0.99   0.97   0.89   0.74   0.58   0.46
+   screen     z = 4.99, x_V = 0.792, <Gamma>_V = 2.51e-14, median Gamma(ionised) = 2.43e-14, lambda = nan
+      P_Gamma/ref   0.97   1.10   1.72   2.16   2.51   3.32   4.36
+      r_Gamma       1.00   1.00   0.98   0.97   0.97   0.98   0.96
+      P_xHII/ref    1.48   1.16   1.45   1.29   1.08   0.91   0.71
+      r_xHII        1.00   0.99   0.95   0.81   0.62   0.49   0.43
+N = 512 M1 alone: z = 5.00, x_V = 0.865, lambda = 1.33, Delta2_Gamma:    0.611     0.19    0.268    0.245    0.389    0.609     1.58
+
+## after overlap (last snapshot)
+N = 512: no rays snapshot at this epoch
+
+## histories: z, x_HII,V, <Gamma>_V, median Gamma(ionised) [1/s], lambda [pMpc]; cells above 100 x mean density: number, x_HI (mass-weighted), mean Gamma
+N = 512 rays
+   6.95 0.3326 2.311e-14 4.141e-14   0.00 |    5574 2.921e-01 6.342e-12
+   6.41 0.4418 2.252e-14 3.335e-14   0.04 |    8532 3.084e-01 4.013e-12
+   6.25 0.4741 2.147e-14 2.955e-14   0.06 |    9540 3.159e-01 3.514e-12
+   5.99 0.5255 2.022e-14 2.533e-14   0.11 |   11532 3.366e-01 2.495e-12
+   5.68 0.5911 2.093e-14 2.376e-14   0.21 |   14419 3.389e-01 2.304e-12
+   5.45 0.6518 2.499e-14 2.741e-14   0.35 |   16800 3.204e-01 2.187e-12
+   5.19 0.7463 3.173e-14 3.308e-14   0.65 |   19980 3.063e-01 1.997e-12
+   4.97 0.8370 4.021e-14 4.054e-14   1.15 |   22679 2.893e-01 1.827e-12
+N = 512 M1
+   6.96 0.3360 2.301e-14 4.042e-14   0.00 |    5601 3.688e-01 7.990e-12
+   6.41 0.4471 2.264e-14 3.281e-14   0.04 |    8535 3.692e-01 5.144e-12
+   6.22 0.4878 2.176e-14 2.977e-14   0.07 |    9773 3.786e-01 4.242e-12
+   5.97 0.5424 2.053e-14 2.593e-14   0.13 |   11784 3.892e-01 3.229e-12
+   5.72 0.5979 2.168e-14 2.556e-14   0.23 |   14049 3.907e-01 2.555e-12
+   5.50 0.6598 2.547e-14 2.910e-14   0.37 |   16346 3.728e-01 2.671e-12
+   5.19 0.7743 3.439e-14 3.740e-14   0.78 |   19943 3.553e-01 2.337e-12
+   5.00 0.8646 4.415e-14 4.700e-14   1.33 |   22356 3.334e-01 2.078e-12
+N = 512 M1_inject0
+   6.96 0.3505 2.424e-14 4.253e-14    nan |    5715 4.824e-01 1.382e-12
+   6.41 0.4722 2.530e-14 3.705e-14    nan |    8590 4.813e-01 1.035e-12
+   6.22 0.5187 2.509e-14 3.482e-14    nan |    9830 4.895e-01 8.366e-13
+   5.97 0.5825 2.452e-14 3.133e-14    nan |   11800 4.958e-01 7.701e-13
+   5.72 0.6479 2.662e-14 3.174e-14    nan |   14024 4.895e-01 6.276e-13
+   5.49 0.7240 3.335e-14 3.836e-14    nan |   16359 4.664e-01 7.490e-13
+   5.22 0.8398 4.504e-14 4.944e-14    nan |   19569 4.476e-01 7.354e-13
+   4.98 0.9540 6.652e-14 6.860e-14    nan |   22529 4.267e-01 7.166e-13
+N = 512 OTVET
+   6.96 0.3186 1.953e-14 4.161e-14   0.00 |    5587 3.320e-01 8.838e-12
+   6.41 0.4261 1.892e-14 3.164e-14   0.03 |    8537 3.434e-01 5.670e-12
+   6.22 0.4641 1.800e-14 2.738e-14   0.06 |    9785 3.540e-01 4.715e-12
+   5.96 0.5154 1.678e-14 2.306e-14   0.11 |   11811 3.680e-01 3.371e-12
+   5.71 0.5678 1.743e-14 2.192e-14   0.19 |   14052 3.676e-01 2.983e-12
+   5.48 0.6295 2.048e-14 2.424e-14   0.34 |   16428 3.470e-01 2.952e-12
+   5.21 0.7274 2.512e-14 2.691e-14   0.64 |   19638 3.278e-01 2.637e-12
+   4.97 0.8378 3.279e-14 3.208e-14   1.23 |   22642 2.997e-01 2.404e-12
+N = 512 cone
+   6.95 0.3193 2.125e-14 4.052e-14    nan |    5509 2.758e-01 9.710e-12
+   6.41 0.4244 2.003e-14 3.138e-14    nan |    8386 2.930e-01 6.157e-12
+   6.22 0.4611 1.884e-14 2.702e-14    nan |    9618 3.063e-01 5.146e-12
+   5.96 0.5097 1.715e-14 2.240e-14    nan |   11638 3.226e-01 3.792e-12
+   5.71 0.5584 1.735e-14 2.091e-14    nan |   13874 3.247e-01 3.266e-12
+   5.48 0.6148 2.025e-14 2.371e-14    nan |   16232 3.037e-01 3.234e-12
+   5.22 0.7017 2.552e-14 2.820e-14    nan |   19316 2.819e-01 2.950e-12
+   4.99 0.7994 3.189e-14 3.242e-14    nan |   22237 2.566e-01 2.651e-12
+N = 512 screen
+   6.96 0.3189 1.907e-14 3.863e-14    nan |    5498 2.769e-01 9.787e-12
+   6.41 0.4225 1.803e-14 2.834e-14    nan |    8375 2.910e-01 6.268e-12
+   6.22 0.4586 1.670e-14 2.377e-14    nan |    9622 3.019e-01 5.203e-12
+   5.96 0.5061 1.511e-14 1.913e-14    nan |   11636 3.164e-01 3.685e-12
+   5.71 0.5533 1.539e-14 1.807e-14    nan |   13869 3.194e-01 3.258e-12
+   5.48 0.6091 1.774e-14 2.026e-14    nan |   16234 2.985e-01 3.320e-12
+   5.22 0.6960 2.136e-14 2.282e-14    nan |   19319 2.765e-01 2.938e-12
+   4.99 0.7925 2.508e-14 2.428e-14    nan |   22122 2.542e-01 2.624e-12
+
+# ===== ray-budget series at 256^3 with nside_merge = 4 (--merge4) =====
+# Ray-budget series at 256^3 (nray_max_factor f; reference f120): ratio of P(k) to the reference and
+# r(k) with it, for delta_Gamma (gammaHI_avg) and x_HII, at the reference's snapshots.
+# k [h/Mpc] columns:    0.3    0.5    1.0    2.0    4.0    8.0   16.0
+
+## x_HII,V ~ 0.57: reference z = 6.40, x_V = 0.5715, median Gamma(ionised) = 5.294e-14, lambda = 0.22 pMpc
+  f8     z = 6.40, x_V = 0.5720, median Gamma(ionised) = 5.238e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.01   1.01   1.01   1.01   1.01
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   0.99   0.98   0.98
+      r_xHII        1.00   1.00   1.00   1.00   0.98   0.96   0.87
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.021; first k with more than 10 %: none up to 68
+  f15    z = 6.40, x_V = 0.5719, median Gamma(ionised) = 5.286e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   0.99   0.98
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.98   0.92
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.006; first k with more than 10 %: none up to 68
+  f32    z = 6.40, x_V = 0.5717, median Gamma(ionised) = 5.300e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   0.99   0.97
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.005; first k with more than 10 %: none up to 68
+  f64    z = 6.40, x_V = 0.5716, median Gamma(ionised) = 5.305e-14, lambda = 0.22
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.004; first k with more than 10 %: none up to 68
+  f64_m4 z = 6.40, x_V = 0.5714, median Gamma(ionised) = 5.318e-14, lambda = nan
+      P_Gamma/ref   1.00   1.00   1.00   0.99   0.99   0.99   0.99
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_xHII        1.00   1.00   1.00   1.00   1.00   0.99   0.98
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.009; first k with more than 10 %: none up to 68
+
+## x_HII,V ~ 0.77: reference z = 5.74, x_V = 0.7867, median Gamma(ionised) = 4.946e-14, lambda = 0.84 pMpc
+  f8     z = 5.74, x_V = 0.7874, median Gamma(ionised) = 4.915e-14, lambda = 0.82
+      P_Gamma/ref   1.00   0.99   1.00   1.01   1.01   1.01   1.01
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   0.98   1.00   0.99   0.98   0.98   1.01
+      r_xHII        1.00   1.00   1.00   0.99   0.97   0.92   0.80
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.025; first k with more than 10 %: none up to 68
+  f15    z = 5.74, x_V = 0.7874, median Gamma(ionised) = 4.948e-14, lambda = 0.83
+      P_Gamma/ref   1.00   0.99   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   0.99   1.00   0.99   0.99   0.99   0.99
+      r_xHII        1.00   1.00   1.00   0.99   0.98   0.96   0.88
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.018; first k with more than 10 %: none up to 68
+  f32    z = 5.74, x_V = 0.7870, median Gamma(ionised) = 4.931e-14, lambda = 0.83
+      P_Gamma/ref   1.00   0.99   1.00   1.01   1.01   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   0.99   1.00   0.99   1.00   0.99   0.99
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.98   0.95
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.011; first k with more than 10 %: none up to 68
+  f64    z = 5.74, x_V = 0.7869, median Gamma(ionised) = 4.934e-14, lambda = 0.84
+      P_Gamma/ref   1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.006; first k with more than 10 %: none up to 68
+  f64_m4 z = 5.74, x_V = 0.7864, median Gamma(ionised) = 4.940e-14, lambda = nan
+      P_Gamma/ref   1.01   1.02   1.00   0.99   0.99   0.99   0.99
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   0.99   1.00   1.00   1.01   1.00
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.97   0.93
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.030; first k with more than 10 %: none up to 68
+
+## x_HII,V ~ 0.89: reference z = 5.40, x_V = 0.9180, median Gamma(ionised) = 8.037e-14, lambda = 2.15 pMpc
+  f8     z = 5.40, x_V = 0.9184, median Gamma(ionised) = 7.965e-14, lambda = 2.11
+      P_Gamma/ref   1.00   0.97   1.02   1.01   1.00   1.01   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.98   0.99   1.01   0.97   0.98   0.97   1.01
+      r_xHII        1.00   1.00   1.00   0.99   0.97   0.92   0.78
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.054; first k with more than 10 %: none up to 68
+  f15    z = 5.40, x_V = 0.9184, median Gamma(ionised) = 7.987e-14, lambda = 2.13
+      P_Gamma/ref   1.00   0.97   1.01   1.01   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.99   0.99   1.01   0.98   0.99   0.98   1.00
+      r_xHII        1.00   1.00   1.00   0.99   0.98   0.95   0.86
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.046; first k with more than 10 %: none up to 68
+  f32    z = 5.40, x_V = 0.9182, median Gamma(ionised) = 8.010e-14, lambda = 2.14
+      P_Gamma/ref   1.00   0.98   1.01   1.01   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.99   1.00   1.01   0.99   0.99   0.99   0.99
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.98   0.94
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.030; first k with more than 10 %: none up to 68
+  f64    z = 5.40, x_V = 0.9181, median Gamma(ionised) = 8.031e-14, lambda = 2.15
+      P_Gamma/ref   1.00   0.99   1.00   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.00   1.00   1.00   0.99   1.00   1.00   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.015; first k with more than 10 %: none up to 68
+  f64_m4 z = 5.40, x_V = 0.9177, median Gamma(ionised) = 8.037e-14, lambda = nan
+      P_Gamma/ref   1.01   1.06   0.98   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    1.02   0.99   0.99   1.00   1.01   1.01   1.00
+      r_xHII        1.00   1.00   1.00   0.99   0.97   0.94   0.86
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.082; first k with more than 10 %: none up to 68
+
+## after overlap: reference z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.267e-13, lambda = 16.05 pMpc
+  f8     z = 4.96, x_V = 0.9999, median Gamma(ionised) = 1.955e-13, lambda = 12.68
+      P_Gamma/ref   1.65   1.23   1.36   1.34   1.33   1.35   1.34
+      r_Gamma       1.00   1.00   0.99   0.99   0.99   0.99   0.99
+      P_xHII/ref    0.62   3.81   7.59   7.52   6.40   7.36   3.13
+      r_xHII        0.73   0.78   0.46   0.44   0.48   0.46   0.64
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.646; first k with more than 10 %: 0.3
+  f15    z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.264e-13, lambda = 15.48
+      P_Gamma/ref   1.20   1.00   1.08   1.03   1.01   1.02   1.01
+      r_Gamma       1.00   1.00   1.00   0.99   0.99   0.99   0.99
+      P_xHII/ref    0.92   1.08   1.06   1.06   1.09   1.13   1.10
+      r_xHII        1.00   1.00   0.99   0.98   0.97   0.96   0.97
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.196; first k with more than 10 %: 0.3
+  f32    z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.262e-13, lambda = 15.77
+      P_Gamma/ref   1.13   1.00   1.05   1.02   1.01   1.01   1.01
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.95   1.03   1.01   1.02   1.02   1.03   1.03
+      r_xHII        1.00   1.00   1.00   1.00   0.99   0.99   0.99
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.131; first k with more than 10 %: 0.3
+  f64    z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.270e-13, lambda = 15.97
+      P_Gamma/ref   1.06   0.99   1.02   1.00   1.00   1.00   1.00
+      r_Gamma       1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      P_xHII/ref    0.96   1.02   0.99   0.99   0.99   0.99   0.99
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.059; first k with more than 10 %: none up to 68
+  f64_m4 z = 4.96, x_V = 1.0000, median Gamma(ionised) = 2.253e-13, lambda = nan
+      P_Gamma/ref   0.61   0.77   0.91   1.02   1.01   1.01   1.01
+      r_Gamma       0.99   0.99   0.97   0.99   0.99   1.00   1.00
+      P_xHII/ref    1.20   1.08   1.05   1.04   1.04   1.03   1.03
+      r_xHII        1.00   1.00   1.00   1.00   1.00   1.00   1.00
+      |P_Gamma/ref - 1| max at k <= 2 h/Mpc: 0.395; first k with more than 10 %: 0.3
+
+## histories: z, x_HII,V, <Gamma>_V, median Gamma(ionised) [1/s], lambda [pMpc]
+f120
+   6.93 0.4169 3.577e-14 5.891e-14   0.02
+   6.40 0.5715 3.944e-14 5.294e-14   0.22
+   6.25 0.6181 3.972e-14 5.005e-14   0.32
+   5.98 0.7048 4.116e-14 4.779e-14   0.53
+   5.74 0.7867 4.585e-14 4.946e-14   0.84
+   5.40 0.9180 7.689e-14 8.037e-14   2.15
+   5.18 0.9840 1.250e-13 1.229e-13   5.71
+   4.96 1.0000 2.355e-13 2.267e-13  16.05
+f64
+   6.93 0.4171 3.577e-14 5.890e-14   0.02
+   6.40 0.5716 3.953e-14 5.305e-14   0.22
+   6.25 0.6182 3.971e-14 4.998e-14   0.32
+   5.98 0.7051 4.120e-14 4.781e-14   0.53
+   5.74 0.7869 4.577e-14 4.934e-14   0.84
+   5.40 0.9181 7.695e-14 8.031e-14   2.15
+   5.18 0.9840 1.253e-13 1.231e-13   5.70
+   4.96 1.0000 2.358e-13 2.270e-13  15.97
+f64_m4
+   6.93 0.4170 3.580e-14 5.897e-14    nan
+   6.40 0.5714 3.960e-14 5.318e-14    nan
+   6.25 0.6179 3.981e-14 5.016e-14    nan
+   5.98 0.7043 4.119e-14 4.766e-14    nan
+   5.74 0.7864 4.600e-14 4.940e-14    nan
+   5.40 0.9177 7.683e-14 8.037e-14    nan
+   5.18 0.9849 1.246e-13 1.227e-13    nan
+   4.96 1.0000 2.346e-13 2.253e-13    nan
+f32
+   6.93 0.4171 3.577e-14 5.890e-14   0.02
+   6.40 0.5717 3.951e-14 5.300e-14   0.22
+   6.25 0.6186 3.981e-14 5.007e-14   0.32
+   5.98 0.7052 4.127e-14 4.787e-14   0.53
+   5.74 0.7870 4.576e-14 4.931e-14   0.83
+   5.40 0.9182 7.696e-14 8.010e-14   2.14
+   5.18 0.9839 1.255e-13 1.232e-13   5.67
+   4.96 1.0000 2.351e-13 2.262e-13  15.77
+f15
+   6.93 0.4172 3.578e-14 5.887e-14   0.02
+   6.40 0.5719 3.950e-14 5.286e-14   0.22
+   6.25 0.6188 3.980e-14 4.995e-14   0.32
+   5.98 0.7056 4.138e-14 4.795e-14   0.52
+   5.74 0.7874 4.596e-14 4.948e-14   0.83
+   5.40 0.9184 7.696e-14 7.987e-14   2.13
+   5.18 0.9840 1.256e-13 1.230e-13   5.61
+   4.96 1.0000 2.353e-13 2.264e-13  15.48
+f8
+   6.93 0.4175 3.589e-14 5.900e-14   0.02
+   6.40 0.5720 3.931e-14 5.238e-14   0.22
+   6.25 0.6190 3.990e-14 5.001e-14   0.32
+   5.98 0.7056 4.110e-14 4.747e-14   0.52
+   5.74 0.7874 4.575e-14 4.915e-14   0.82
+   5.40 0.9184 7.698e-14 7.965e-14   2.11
+   5.18 0.9837 1.239e-13 1.213e-13   5.42
+   4.96 0.9999 2.040e-13 1.955e-13  12.68

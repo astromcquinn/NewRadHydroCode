@@ -1273,7 +1273,7 @@ arctan(kλ)/(kλ), and r(Γ, L):
 
 ### 8.11 B: small runs
 
-*Run on klone 2026-11-23/24 (`ckpt-g2`, as the group's `cpu-g2` cores
+*Run on klone 2026-11-23/25 (`ckpt-g2`, as the group's `cpu-g2` cores
 were taken). The binary is `main` at 833c16f (with #37 and #40); the
 `nside_merge = 4` runs use the binary of PR #43. Same ICs, sources and
 outputs as the series of §8.1–8.2 (`tools/hyak/rt_convergence.sh`, phases
@@ -1281,15 +1281,17 @@ outputs as the series of §8.1–8.2 (`tools/hyak/rt_convergence.sh`, phases
 
 | run | what | N | state |
 |---|---|---|---|
-| `rtconv_N<N>_rays_cone` | the paper's cone, `otvet_cone_blend = 0` | 128, 256, 512 | 128, 256 done; 512 running |
-| `rtconv_N<N>_rays_screen` | the screen | 128, 256, 512 | 128, 256 done; 512 running |
-| `rtconv_N<N>_rays_m1_o2_inj0` | M1, `moment_order = 2`, `moment_inject = 0` | 128, 256 | 128 done; 256 running (~1 day) |
+| `rtconv_N<N>_rays_cone` | the paper's cone, `otvet_cone_blend = 0` | 128, 256, 512 | done (512³ to z = 4.99, as far as the 512³ series) |
+| `rtconv_N<N>_rays_screen` | the screen | 128, 256, 512 | done (likewise) |
+| `rtconv_N<N>_rays_m1_o2_inj0` | M1, `moment_order = 2`, `moment_inject = 0` | 128, 256 | done |
 | `rtconv_N<N>_rays_otvet_inj0` | OTVET, `moment_inject = 0` | 128, 256 | done |
-| `rtconv_N256_rays_f{15,64}_m4` | the rays with `nside_merge = 4` | 256 | running / queued |
+| `rtconv_N256_rays_f64_m4` | the rays with `nside_merge = 4`, f = 64 | 256 | done |
+| `rtconv_N256_rays_f15_m4` | likewise, f = 15 | 256 | failed during step 48 (the last is 49): ray pool overflow (`Nray_max = 251658240`, 15 × 256³); not rerun |
 
 The comparison (`rt_convergence_cmp.py --runs $RUNS --res 128,256
---ref-f120`, then `rt_convergence_fig.py`; output in
-`$RUNS/assess_2026-11-23/rtconv_B/`) takes the f = 120 rays of the same N
+--ref-f120 --merge4`, and `--res 512` for the 512³ group, then
+`rt_convergence_fig.py`; job `$RUNS/assess_2026-11-23/rtconv_B/cmp2.sh`,
+output in `fig2/` and `fig512/` there) takes the f = 120 rays of the same N
 as the reference at both N and pairs snapshots in x_HII,V (after overlap
 in z), as in §8.2. Full table, every run and the histories:
 [`figures/rt_convergence_B.txt`](figures/rt_convergence_B.txt).
@@ -1305,6 +1307,15 @@ reference x_V is 0.571, 0.787, 0.918, then z = 4.96):
 | cone (blend 0) | 1.14 1.35 1.74 2.19 | 1.09 1.25 1.65 2.12 | 1.28 1.42 1.77 2.30 | 1.27 1.42 1.75 2.26 |
 | screen | 1.22 1.76 2.27 2.77 | 1.35 1.86 2.35 2.90 | 1.56 2.29 2.64 3.24 | 1.85 2.13 2.26 2.44 |
 | M1 (§8.2) | 0.90 0.96 0.99 1.10 | 0.71 0.80 0.94 1.03 | 0.79 0.94 1.06 1.16 | 0.17 0.36 0.60 0.75 |
+| M1 order 2 (§9) | 1.00 1.18 1.40 1.56 | 0.80 1.06 1.36 1.55 | 0.85 1.24 1.55 1.76 | 0.32 0.56 0.84 1.09 |
+| M1 inject 0 (§8.2) | 0.79 0.74 0.54 0.31 | 0.55 0.53 0.48 0.29 | – | 0.08 0.16 0.24 0.18 |
+| M1 order 2, inject 0 | 0.92 1.03 1.00 0.72 | 0.72 0.87 0.95 0.73 | 0.76 0.99 1.06 0.81 | 0.23 0.41 0.52 0.46 |
+
+(–: no snapshot of the run near that x_V.) r(k) at k = 1, 2, 4 h/Mpc of
+the M1 runs at 256³ before overlap: M1 0.81–0.86, 0.85–0.87, 0.95–0.96;
+order 2 0.79–0.84, 0.74–0.77, 0.82–0.85; inject 0 0.83, 0.81–0.82,
+0.91–0.93; order 2 with inject 0 0.76–0.82, 0.67–0.71, 0.72–0.77 (after
+overlap 0.76, 0.66, 0.76).
 
 **128³, the same k** (reference x_V 0.578, 0.751, 0.855, then z = 4.93):
 
@@ -1324,6 +1335,23 @@ r(k) at k = 1, 2, 4 h/Mpc of the M1 runs at 128³: M1 0.86–0.89, 0.89–0.93,
 0.71–0.74, 0.58–0.65, 0.72–0.78 before overlap (after overlap 0.65, 0.51,
 0.59).
 
+**512³, the same k, against the 512³ rays (f = 15, the largest budget at
+512³; at 256³ f = 15 is within 2 % of f = 120 at k ≤ 2 h/Mpc up to
+x ≈ 0.8 and 5 % at x ≈ 0.92, §8.2).** The
+512³ series stops at z ≈ 4.97 before overlap (the rays at x_V = 0.837).
+The cone and screen are behind the rays and OTVET there (x_V = 0.799 and
+0.793 at z = 4.99, OTVET 0.838), so the pairing in x_V is loose: the run's
+x_V is given beside each row.
+
+| run | x_V ≈ 0.59 (rays, z = 5.68) | ≈ 0.75 (z = 5.19) | ≈ 0.84 (z = 4.97) |
+|---|---|---|---|
+| OTVET | 0.86 0.99 1.18 1.73 (0.568) | 1.02 1.12 1.26 1.69 (0.727) | 0.97 1.05 1.24 1.63 (0.838) |
+| cone (blend 0) | 0.77 0.92 1.06 1.58 (0.615) | 1.10 1.27 1.44 1.90 (0.702) | 1.19 1.31 1.54 2.08 (0.799) |
+| screen | 0.91 1.23 1.51 2.12 (0.609) | – | 1.72 2.16 2.51 3.32 (0.793) |
+| M1 | 0.78 0.78 0.87 0.99 (0.598) | 0.64 0.71 0.77 0.80 (0.774) | 0.61 0.69 0.74 0.77 (0.865) |
+
+r(k) at k ≤ 4 is 0.95–0.99 for OTVET, the cone and the screen.
+
 *B1, the cone without the blend and the screen.*
 - The cone has 1.1–1.4× the rays' power at k = 1–2 and 1.7–2.3× at
   k = 4–8 at 256³, and about the same at every epoch, after overlap
@@ -1337,18 +1365,30 @@ r(k) at k = 1, 2, 4 h/Mpc of the M1 runs at 128³: M1 0.86–0.89, 0.89–0.93,
   same order after overlap and OTVET < cone < screen before it.
 - From 128³ to 256³ both come down, more at large k before overlap (cone
   at k = 4: 2.4–2.7 → 1.7–1.8; screen 2.8–3.4 → 2.3–2.6) and at k = 1–2
-  after overlap (cone 1.42/2.00 → 1.27/1.42). The 512³ pair (running)
-  says whether the ratios keep falling with N.
+  after overlap (cone 1.42/2.00 → 1.27/1.42).
+- At 512³ (before overlap only) the cone's excess keeps falling at
+  k = 4–8 (1.1–1.5 and 1.6–2.1, from 1.7–1.8 and 2.1–2.3 at 256³) and is
+  1.1–1.3× at k = 1–2 from x ≈ 0.70, as at 256³; at x ≈ 0.6 it is 0.8–0.9×.
+  The screen falls at x ≈ 0.6 (0.9–2.1×), but at x ≈ 0.8 it is 1.7–3.3×,
+  no lower than at 256³ (1.4–2.9× at x ≈ 0.79, 1.6–3.2× at 0.92). At
+  k ≤ 2 the cone is at or below OTVET at x ≈ 0.6 and above it from
+  x ≈ 0.7, and the screen is highest: OTVET < cone < screen from x ≈ 0.7,
+  as in the late-end 512³ suite before overlap. The 512³ runs have no after-overlap
+  snapshot, so the after-overlap ratios are known only at 128³ and 256³.
 
-*B2, M1 with `moment_order = 2` and `moment_inject = 0` (128³ only so
-far).* The two changes do not cancel each other's faults. Injection
+*B2, M1 with `moment_order = 2` and `moment_inject = 0`.* The two changes do not cancel each other's faults. Injection
 after transport removes M1's small-scale excess as it does at first
 order (k = 8: 0.32–0.36, k = 16: 0.04–0.05 of the rays), and order 2
 lifts k = 1–4 from M1 inject 0's 0.32–0.76 to 0.73–0.93. But the
 correlation with the rays is the lowest of any run (r = 0.58–0.65 at
 k = 2 before overlap, 0.51 after), lower than either change alone, and
 after overlap the large-scale deficit of every M1 run stays
-(0.11–0.22 at k = 1–4). 256³ is running.
+(0.11–0.22 at k = 1–4). 256³ says the same: before overlap k = 1–4 is
+0.72–1.06 (order 2 alone 0.80–1.55, inject 0 alone 0.48–0.79) and
+k = 8 is 0.72–0.81 (order 2 1.55–1.76, inject 0 0.29–0.31), the closest
+amplitudes of the M1 runs; but r = 0.67–0.71 at k = 2 is again the lowest
+(M1 0.85–0.87), and after overlap it has 0.23–0.52 of the rays' power at
+k = 1–4 (M1 0.17–0.60).
 
 *B3, OTVET with `moment_inject = 0`.* Before overlap it removes OTVET's
 excess at k ≥ 2: at 256³, 0.92–1.00 at k = 2–4 and 0.78–0.83 at k = 8 at
@@ -1363,9 +1403,22 @@ k = 1–2. After overlap it changes little at k = 1–2 (8.7–9.5× against
 box-scale excess there is the closure's. r(k) is unchanged (≥ 0.94). At 128³ it falls far below the rays at k ≥ 8
 (0.43–0.58 at k = 8, 0.01–0.03 at k = 16), as M1 inject 0 does.
 
-*B4, the rays with `nside_merge = 4`:* running (f = 15) and queued
-(f = 64); no result yet. They enter the group "rays" of the comparison
-with `--merge4`.
+*B4, the rays with `nside_merge = 4`.* Only f = 64 finished. Before
+overlap it agrees with the f = 120 rays to 1–3 % in P_Γ at k ≤ 2 h/Mpc
+(8 % at k = 0.5 at x ≈ 0.92; r = 1.00), a little worse than f = 64
+without it (0.4–1.5 %).
+After overlap it loses large-scale power: 0.61, 0.77, 0.91 of the
+reference's P_Γ at k = 0.3, 0.5, 1 h/Mpc (f = 64 without it: 1.06, 0.99,
+1.02), r = 0.97–0.99, median Γ of the ionised cells within 1 %. It keeps
+more rays, not fewer: 6.7e8 active at the peak against 4.5e8 for f = 64
+(1.5×). That is why f = 15 overflowed its pool (2.4e8 of 15 × 256³ =
+2.5e8 during step 48). To finish, it would need a larger pool,
+`nray_max_factor` ≈ 20 for some margin: 1.5 × the peak of the f = 15 run
+without it (1.7e8) is 15.2 × 256³. The
+f = 64 run took 3.3 h against 5.1 h for f = 64 without it, on `ckpt-g2`
+nodes of different types and with restarts, so that is not a timing
+comparison. As run here, `nside_merge = 4` buys no accuracy, costs memory
+and changes the after-overlap large-scale Γ by 10–40 %.
 
 ## 9. Second-order transport (`moment_order = 2`)
 
