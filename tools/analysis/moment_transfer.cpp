@@ -11,7 +11,8 @@
 // compute_otvet_tensor. Only the physics is replaced: every RT substep
 // (moment_nsub subcycles, one cell of light travel) ends with N, F *=
 // exp(-1/lambda) instead of photo_cell's fgam, and the sources inject after
-// the transport (moment_inject = 1) or before it (0).
+// the transport (moment_inject = 1), before it (0), or after it spread over
+// their first cell of travel (2, mk::inject_first_cell).
 //
 //   moment_transfer N lambda nsrc m1|otvet|iso nsteps out_prefix [seed] [inject] [nsub] [order]
 //
@@ -93,7 +94,32 @@ int main(int argc, char** argv) {
   const float surv = static_cast<float>(std::exp(-1.0 / lambda));
   const std::int64_t sj = N, sk = static_cast<std::int64_t>(N) * N;
 
+  // inject = 2: the sources are the same every substep, so mk::inject_first_cell is applied once to an
+  // empty grid and the result (d*) is added each substep. The solver adds source by source; the two
+  // differ only in the rounding of the float sums (checked at 64^3: T the same to 1e-6).
+  std::vector<float> dn, dfx, dfy, dfz, de;
+  if (inject_after == 2) {
+    dn.assign(nc, 0.0f);
+    dfx = dfy = dfz = de = dn;
+    const mk::FirstCell W = mk::first_cell_weights();
+    for (std::int64_t c = 0; c < nc; ++c)
+      if (L[c] > 0)
+        mk::inject_first_cell(W, N, static_cast<int>(c % N), static_cast<int>((c / N) % N), static_cast<int>(c / sk),
+                              L[c], 1.0, dn.data(), dfx.data(), dfy.data(), dfz.data(), de.data());
+  }
   auto inject = [&]() {
+    if (inject_after == 2) {
+#pragma omp parallel for schedule(static)
+      for (std::int64_t c = 0; c < nc; ++c) {
+        n[c] += dn[c];
+        e[c] += de[c];
+        fx[c] += dfx[c];
+        fy[c] += dfy[c];
+        fz[c] += dfz[c];
+        mk::realizable_cell(n[c], fx[c], fy[c], fz[c], e[c]);
+      }
+      return;
+    }
 #pragma omp parallel for schedule(static)
     for (std::int64_t c = 0; c < nc; ++c) {
       n[c] += L[c];

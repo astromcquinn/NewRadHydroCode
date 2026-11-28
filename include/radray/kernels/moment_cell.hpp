@@ -406,5 +406,119 @@ inline double photons_cell(const float* n, std::int64_t stride) {
   return sc;
 }
 
+// ---------------------------------------------------------------------------
+// moment_inject = 2: the first cell of a source's light (docs/rt_moments.md
+// section 10). The photons a steady source emits in one substep fill, at the
+// end of it, the sphere of one cell of light travel around the source evenly
+// in radius. The rays have exactly this: a ray emitted at a cell centre is
+// cast one cell in the substep of its emission and shares its photons among
+// the cells it crosses by its path length in each. The moment solver has no
+// path: moment_inject = 1 counts the whole emission in the source cell for
+// the substep, 0 lets the transport diffuse it away before anything absorbs.
+// Here the emission enters as the cell averages of that sphere: in the source
+// cell and its 26 neighbours the share w of the path r in [0, 1] cells from
+// the centre that lies in the cell, averaged over the directions (0.6107 in
+// the source cell, the mean distance from its centre to its faces; 0.3196 in
+// the 6 face neighbours together, 0.0684 in the 12 edge and 0.0013 in the 8
+// corner neighbours), with the flux m, the same average of the share times
+// the direction: zero in the source cell, outward in the neighbours.
+// ---------------------------------------------------------------------------
+struct FirstCell {
+  double w[27];     // offset (di, dj, dk) in {-1, 0, 1}^3 at (di + 1) + 3 (dj + 1) + 9 (dk + 1)
+  double m[27][3];  // |m| <= w
+};
+
+// The weights by a midpoint rule over the directions through the faces of a
+// cube (6 nq^2 directions p = (1, u, v) and permutations, of solid angle
+// du dv / |p|^3). Only +, *, / and sqrt: the same bits on every platform.
+inline FirstCell first_cell_weights(int nq = 512) {
+  FirstCell W{};
+  double sum = 0;
+  const double h = 2.0 / nq;
+  for (int face = 0; face < 6; ++face) {
+    const int a = face / 2;
+    const double sgn = face % 2 ? -1.0 : 1.0;
+    for (int iu = 0; iu < nq; ++iu)
+      for (int iv = 0; iv < nq; ++iv) {
+        const double u = -1.0 + (iu + 0.5) * h, v = -1.0 + (iv + 0.5) * h;
+        double p[3];
+        p[a] = sgn;
+        p[(a + 1) % 3] = u;
+        p[(a + 2) % 3] = v;
+        const double r2 = (p[0] * p[0] + p[1] * p[1]) + p[2] * p[2];
+        const double r = std::sqrt(r2);
+        const double wq = (h * h) / (r2 * r);
+        const double d[3] = {p[0] / r, p[1] / r, p[2] / r};
+        // the faces of the source cell that the path crosses before r = 1,
+        // in the order of the crossings (0.5 / |d| < 1)
+        double t[3];
+        int ax[3], nt = 0;
+        for (int q = 0; q < 3; ++q)
+          if (std::fabs(d[q]) > 0.5) {
+            t[nt] = 0.5 / std::fabs(d[q]);
+            ax[nt] = q;
+            ++nt;
+          }
+        for (int l1 = 1; l1 < nt; ++l1)
+          for (int l = l1; l > 0 && t[l] < t[l - 1]; --l) {
+            std::swap(t[l], t[l - 1]);
+            std::swap(ax[l], ax[l - 1]);
+          }
+        int off[3] = {0, 0, 0};
+        double t0 = 0;
+        for (int l = 0; l <= nt; ++l) {
+          const double len = (l < nt ? t[l] : 1.0) - t0;
+          const int o = (off[0] + 1) + 3 * (off[1] + 1) + 9 * (off[2] + 1);
+          W.w[o] += wq * len;
+          for (int q = 0; q < 3; ++q) W.m[o][q] += wq * len * d[q];
+          if (l < nt) {
+            t0 = t[l];
+            off[ax[l]] = d[ax[l]] > 0 ? 1 : -1;
+          }
+        }
+        sum += wq;
+      }
+  }
+  for (int o = 0; o < 27; ++o) {
+    W.w[o] /= sum;
+    for (int q = 0; q < 3; ++q) W.m[o][q] = o == 13 ? 0.0 : W.m[o][q] / sum;
+  }
+  return W;
+}
+
+// The photons of group g that a source cell of luminosity Luv emits in a
+// substep (inject_cell's addend, the number ray_source emits)
+inline double source_photons_group(double Luv, double dtsec_rt, const radray::Units& u, int g) {
+  using namespace radray::cp;
+  const double Ldt = Luv * dtsec_rt;
+  double ngam = fResc * pop2_init[g] * Ldt;
+  ngam = ngam / u.vol_rt / u.nH_avg;
+  return ngam;
+}
+
+// The q photons of one group, of energy nu each, that the source in cell
+// (i, j, k) of the periodic N^3 grid emits in a substep, added by W; n ..
+// e: the group's fields. Returns the photons added (float-rounded).
+inline double inject_first_cell(const FirstCell& W, int N, int i, int j, int k, double q, double nu, float* n,
+                                float* fx, float* fy, float* fz, float* e) {
+  double t = 0;
+  for (int o = 0; o < 27; ++o) {
+    const int ii = (i + (o % 3 - 1) + N) % N, jj = (j + ((o / 3) % 3 - 1) + N) % N, kk = (k + (o / 9 - 1) + N) % N;
+    const std::int64_t c = ii + static_cast<std::int64_t>(N) * (jj + static_cast<std::int64_t>(N) * kk);
+    const double a = W.w[o] * q;
+    const float n0 = n[c];
+    n[c] = static_cast<float>(static_cast<double>(n0) + a);
+    e[c] = static_cast<float>(static_cast<double>(e[c]) + a * nu);
+    if (o != 13) {
+      fx[c] = static_cast<float>(static_cast<double>(fx[c]) + W.m[o][0] * q);
+      fy[c] = static_cast<float>(static_cast<double>(fy[c]) + W.m[o][1] * q);
+      fz[c] = static_cast<float>(static_cast<double>(fz[c]) + W.m[o][2] * q);
+      realizable_cell(n[c], fx[c], fy[c], fz[c], e[c]);
+    }
+    t += static_cast<double>(n[c]) - static_cast<double>(n0);
+  }
+  return t;
+}
+
 }  // namespace mk
 }  // namespace radray

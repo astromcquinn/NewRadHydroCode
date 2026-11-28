@@ -2031,3 +2031,132 @@ report `docs/taueff_21cmfast.md`). Decisions in the prompt, followed:
 * The tests that covered 1 explicitly now cover 0
   (`restart_smoke_m1_inject0`, the AMReX cases `m1inj0`, `m1recombinj0`);
   every other moment test runs with the new default.
+
+## Assessment follow-up (2026-11-23): the merges, analysis set A and run set B
+
+After the assessment of 2026-11-23 (`docs/STATUS.md`, "assessment of the
+open PRs, the branches, the runs on klone and the next runs"):
+
+* **User decisions (2026-11-23):**
+  - Merge the four open PRs in the order #37, #39, #41, #40 (#40
+    retargeted from `claude/dreamy-ride-nchi0z` to `main` first). Done the
+    same day; #41 had just been merged by its own klone session.
+  - Do the analysis set A and the small-run set B of the assessment.
+  - **No box-size test:** the paper is a relative comparison of methods.
+    That drops A5 (the 20 against 40 Mpc/h comparison from existing runs)
+    and C2 (an 80 Mpc/h run).
+  - Not decided: the deletions (the candidates' real sizes come first),
+    the continuation of the 512³ convergence runs past overlap (C1), and
+    the cone's default blend (`otvet_cone_blend` 4 in the code, 0 in the
+    paper).
+* **A and B need klone.** A cloud session cannot reach it, and its
+  message to the klone session was not permitted, so the work is the
+  thread prompt below, for the user to paste there.
+
+Thread prompt of 2026-11-23:
+
+> Read CLAUDE.md and the section "2026-11-23: assessment of the open PRs, the branches,
+> the runs on klone and the next runs" of docs/STATUS.md (on `main` once the branch
+> `claude/great-hypatia-stoo2m` is merged; until then read it on that branch). Do the
+> analysis set A and the small-run set B below. `RUNS=/gscratch/astro/$USER/radhydro/runs`.
+>
+> **State of `main`.** PRs #37 (failed snapshot and movie writes are reported), #39
+> (cone blend test), #41 (convergence runs) and #40 (`moment_order = 2`) are merged.
+> Build the binaries for every new run from `main`: they must contain #37, because the
+> disk is nearly full and a failed write would otherwise go unreported.
+>
+> **Disk first; delete nothing.**
+> - Report `df -h /gscratch/astro`, the group quota, and `du -sh` of each deletion
+>   candidate of that STATUS section (items 1–7 of "Runs that can go"). That list was
+>   made from the documents only, so I need the real sizes to decide.
+> - Delete nothing until I say so.
+> - If the free space does not cover a run with margin, do not submit it; say what it
+>   would need.
+>
+> **A question to answer from the logs.** Why did
+> `rtconv_N512_{rays,rays_m1,rays_otvet}` stop? The documents say they ended normally
+> on their last `zdata1` output, z = 5 (`land_outputs = 1`), and that at 512³
+> reionization is later (x_V = 0.84 / 0.87 / 0.84 at z = 5), so they have no epoch
+> after overlap. Confirm from `run.log`, `DONE` and the Slurm records that none of the
+> three ended on an error, a time limit or the scrubbed-disk failure of 2026-11-20.
+> Say whether each still has its last checkpoint, since a continuation below z = 5
+> would start from it. Do not launch the continuation.
+>
+> **A. Analysis of existing outputs (no new simulation).** The late-end suite is
+> `$RUNS/reion512late{,_caseA,_m1,_otvet_ga01,_otvet_screen,_otvet_conenb}`; read it
+> through `$RUNS/paper_view` where the paper's figures do.
+>
+> 1. **The Γ excess at k ≈ 5 h/Mpc of the thin-tensor closures.** At the paper's four
+>    epochs (the rays' steps 69, 84, 93, 99) give P_Γ(method)/P_Γ(rays) and r(k) for
+>    M1, OTVET, the screen and the cone three ways: as is; with the source cells
+>    replaced by the mean of their neighbours (`$RUNS/cone_blend_256/gamma_masked.py`);
+>    with Γ capped at 3⟨Γ⟩. The question: is the 1.5–3.6× excess at k ≈ 5 the source
+>    cells (the injection floor of docs/rt_moments.md §7), the proximity zones, or
+>    neither, and does the ranking of the methods at k ≤ 2 h/Mpc survive?
+> 2. **Stacked Γ(r)/⟨Γ⟩_ion around the sources** with `tools/analysis/gamma_profile.py`
+>    (branch `claude/beautiful-archimedes-kcgsvx`, no PR yet: bring it in through a
+>    PR), at z ≈ 5.97, 5.48 and 4.99 for the six runs. Take the sources from
+>    gas-density peaks unless `Luv` can be had. Report each method's profile at
+>    r = 1–3 and 10 cells as a ratio to the rays', and the logarithmic slope of its
+>    excess over the background.
+> 3. **The photon sink by density** (`tools/analysis/absorber_budget.py`,
+>    docs/absorbers_closures.md §3) on the late-end suite (rays, M1, OTVET, cone), and
+>    on `rtconv_N512_{rays,rays_m1,rays_otvet}` against `rtconv_N256_*`. That pair is
+>    the 39 against 78 kpc/h test that §4 (b) of that document left unrun.
+> 4. **T_ΓL(k) = [P_Γ(k)/P_L(k)]^½** of the late-end runs against their own source
+>    field at the same epochs: the rays', M1's and OTVET's curves, with
+>    arctan(kλ)/(kλ) for each snapshot's λ_mfp. Say how the source field was built.
+>
+> Not in this thread: the refined pair (`reion512late_amr_r2`, `reion512late_amr_m1`)
+> is being analysed in the session "Reionization rerun for closure paper". No box-size
+> comparison: the paper is a relative comparison of methods (my decision, 2026-11-23).
+>
+> **B. Small runs** in the configuration of `tools/hyak/rt_convergence.sh` (20 Mpc/h,
+> the late-end sources).
+>
+> 1. **The cone with `otvet_cone_blend = 0`** (the paper's cone) **and the screen** at
+>    N = 128 and 256, compared with the ray reference of the same N (f = 120) by
+>    `rt_convergence_cmp.py` at the matched epochs. Then both at N = 512 against
+>    `rtconv_N512_rays` if the disk allows. The cone's parameters are fixed in cells
+>    (receivers every 4 cells, near field 8 cells) and it has no resolution test.
+> 2. **M1 with `moment_order = 2` and `moment_inject = 0`** at N = 128, and at 256 if
+>    the cost is acceptable. The uniform test says the excess over the rays goes away
+>    with both together; §8.3 found that it does not with the second order alone. This
+>    run separates the injection floor from the scheme.
+> 3. **OTVET with `moment_inject = 0`** at N = 256 (and 128).
+> 4. **The rays with `nside_merge = 4`** at N = 256. `nside_merge` is a kernel
+>    parameter (`include/radray/kernels/ray_kernels.hpp`, `kNconeMax` allows 4) without
+>    a `params.txt` key. Add a key whose default 2 keeps every stored reference
+>    byte-identical, with a ctest, on a branch with a PR. Then run f = 15 and f = 64
+>    against the f = 120 reference.
+>
+> **Reporting.**
+> - Results go into docs/rt_moments.md §8 (new subsections) and docs/STATUS.md, on a
+>   fresh branch off `main` with a PR. Leave the merge to me.
+> - Do not edit the paper repository (`RT_closure`) for this unless I ask.
+> - Say plainly what was not done and why.
+
+## The sources' first cell in the moment RT (2026-11-28)
+
+* **User decision:** "I think we should treat the first cell analytically."
+  The moment RT gets a third injection mode, `moment_inject = 2`: a
+  substep's source photons enter spread over their first cell of travel
+  (0.61 in the source cell, the rest in the neighbours with an outward
+  flux), as the rays deposit theirs (`docs/rt_moments.md` §10).
+* **The default stays `moment_inject = 1`** until a reionization run with
+  the new mode has been compared with the rays; changing it is the user's
+  call.
+* Dropped after tests: moving the photons left by the absorption to the
+  end of their first path, and holding them for a second analytic cell.
+
+## A 512³ M1 run with the first-cell injection (2026-11-28)
+
+* **User decision:** after the uniform tests with `moment_inject = 2`
+  (`docs/rt_moments.md` §10; 32³–256³, the grid-scale response 1.1–1.2 of
+  exact against 1.75–1.85), run the late-end suite's M1 run again with
+  the new injection, to see whether it changes anything: `reion512late_m1`
+  with `moment_inject = 2`, compared with it and with the rays' run.
+* It needs klone; the thread prompt was given to the user in the session
+  (build from the branch of PR #46; a check that the new binary with
+  `moment_inject = 1` reproduces the start of `reion512late_m1`; `Luv`
+  added to the snapshot fields; the 256³ convergence sibling beside it).

@@ -12,6 +12,7 @@
 #include "radray/otvet_closure.hpp"
 #include "radray/parallel.hpp"
 #include "radray/rt.hpp"
+#include "radray/kernels/moment_cell.hpp"
 #include "radray/rt_moments.hpp"
 
 using namespace radray;
@@ -703,6 +704,101 @@ void test_order2_threads(RTMethod m) {
   par::set_threads(1);
 }
 
+// moment_inject = 2 (docs/rt_moments.md section 10): the weights of a
+// source's first cell of travel
+void test_first_cell_weights() {
+  const radray::mk::FirstCell W = radray::mk::first_cell_weights();
+  double sw = 0, cls[4] = {0, 0, 0, 0}, sm[3] = {0, 0, 0};
+  for (int o = 0; o < 27; ++o) {
+    const int d[3] = {o % 3 - 1, (o / 3) % 3 - 1, o / 9 - 1};
+    const int c = (d[0] != 0) + (d[1] != 0) + (d[2] != 0);
+    sw += W.w[o];
+    cls[c] += W.w[o];
+    for (int q = 0; q < 3; ++q) sm[q] += W.m[o][q];
+    CHECK(W.w[o] > 0);
+    // the cells of a class are equivalent; the flux is outward, along the
+    // offset's axes only, and no larger than the share
+    const double ref = W.w[c == 0 ? 13 : c == 1 ? 14 : c == 2 ? 17 : 26];
+    CHECK(std::fabs(W.w[o] / ref - 1) < 1e-10);
+    double m2 = 0;
+    for (int q = 0; q < 3; ++q) {
+      m2 += W.m[o][q] * W.m[o][q];
+      if (d[q] == 0)
+        CHECK(std::fabs(W.m[o][q]) < 1e-12);
+      else
+        CHECK(W.m[o][q] * d[q] > 0);
+    }
+    CHECK(std::sqrt(m2) <= W.w[o]);
+  }
+  CHECK(std::fabs(sw - 1) < 1e-12);
+  for (int q = 0; q < 3; ++q) CHECK(std::fabs(sm[q]) < 1e-12);
+  // the source cell's share is the mean distance from the centre of a unit
+  // cube to its faces, the integral of d^3r / (4 pi r^2) over the cube
+  CHECK(std::fabs(cls[0] - 0.610687) < 2e-6);
+  CHECK(std::fabs(cls[1] - 0.319646) < 2e-6);
+  CHECK(std::fabs(cls[2] - 0.068367) < 2e-6);
+  CHECK(std::fabs(cls[3] - 0.001300) < 2e-6);
+  // converged in the quadrature
+  const radray::mk::FirstCell W2 = radray::mk::first_cell_weights(256);
+  for (int o = 0; o < 27; ++o) CHECK(std::fabs(W2.w[o] - W.w[o]) < 1e-5);
+}
+
+// moment_inject = 2 in the solver: one source, one substep. The photons
+// injected are those of moment_inject = 1, 0.6107 of them in the source cell
+// and the rest in its neighbours with an outward flux; realizable; the same
+// for any thread count
+void test_first_cell_inject(RTMethod m) {
+  const int N = 12;
+  std::vector<float> ref;
+  double inj1 = 0;
+  for (int mode : {1, 2, 2}) {
+    const bool threaded = mode == 2 && !ref.empty();
+    par::set_threads(threaded ? 3 : 1);
+    auto sp = make_sim(N, m);
+    Simulation& s = *sp;
+    MomentState& M = *s.moments;
+    s.cfg.moment_inject = mode;
+    const std::int64_t c0 = s.rt.cell(6, 6, 6);
+    s.rt.sfr[c0] = 1;
+    s.rt.Luv[c0] = 1;
+    moment_prep(s);
+    moment_step_1(s);
+    CHECK(realizable(M));
+    const double tot = total(M.n);
+    CHECK(tot > 0);
+    CHECK_CLOSE(tot, M.injected * s.cfg.nrtcr, 2e-6);
+    if (mode == 1) {
+      inj1 = tot;
+      CHECK(M.n[c0] > 0 && M.n[s.rt.cell(7, 6, 6)] == 0);
+      continue;
+    }
+    CHECK_CLOSE(tot, inj1, 2e-6);
+    const std::int64_t nc = M.ncell;
+    for (int g = 0; g < kNfreq; ++g) {
+      double tg = 0;
+      for (std::int64_t c = 0; c < nc; ++c) tg += M.n[g * nc + c];
+      CHECK_CLOSE(M.n[g * nc + c0], 0.610687 * tg, 1e-5);
+      CHECK(M.fx[g * nc + c0] == 0 && M.fy[g * nc + c0] == 0 && M.fz[g * nc + c0] == 0);
+      // a face neighbour: outward flux along its axis only; nothing beyond the neighbours
+      const std::int64_t cf = s.rt.cell(7, 6, 6), cb = s.rt.cell(5, 6, 6);
+      CHECK(M.fx[g * nc + cf] > 0 && M.fx[g * nc + cb] < 0 && M.fy[g * nc + cf] == 0);
+      CHECK(M.n[g * nc + cf] == M.n[g * nc + cb]);
+      CHECK(M.n[g * nc + s.rt.cell(8, 6, 6)] == 0);
+      CHECK_CLOSE(M.e[g * nc + cf], M.n[g * nc + cf] * cp::freq_init[g], 1e-5);
+    }
+    std::vector<float> all = M.n;
+    all.insert(all.end(), M.fx.begin(), M.fx.end());
+    all.insert(all.end(), M.fy.begin(), M.fy.end());
+    all.insert(all.end(), M.fz.begin(), M.fz.end());
+    all.insert(all.end(), M.e.begin(), M.e.end());
+    if (ref.empty())
+      ref = all;
+    else
+      CHECK(all == ref);
+  }
+  par::set_threads(1);
+}
+
 int main() {
   test_vacuum(RTMethod::M1);
   test_vacuum(RTMethod::OTVET);
@@ -723,5 +819,8 @@ int main() {
   test_order2_advect();
   test_order2_threads(RTMethod::M1);
   test_order2_threads(RTMethod::OTVET);
+  test_first_cell_weights();
+  test_first_cell_inject(RTMethod::M1);
+  test_first_cell_inject(RTMethod::OTVET);
   TEST_MAIN_END();
 }
