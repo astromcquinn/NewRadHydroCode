@@ -7,7 +7,7 @@ lambda = N / frac cells; nsub subcycles per substep (default 4). The table is
 on the k shells of moment_transfer.py. With --code TABLE (a table written by
 moment_transfer.py for the same N and lambda) it adds the ratio of the code's
 T to this solution for every column of TABLE whose name contains m1 or otvet
-and inj1 or inj0 (first match; names containing _o2 are skipped).
+and inj1, inj0 or inj2 (first match; names containing _o2 are skipped).
 
 One RT substep of the code (tools/analysis/moment_transfer.cpp, the transport
 kernels of the solver), in cell units:
@@ -30,6 +30,10 @@ With t = u / (Nbar_seen dL), Nbar_seen = dSbar / f, the steady states are
 
   inject after:   t = (1-f) M t + (1-f) G bh + f e_N       (Nbar = (1-f) Nbar_seen in the transport)
   inject before:  t = (1-f) M t + G bh + f M e_N           (Nbar = Nbar_seen in the transport)
+
+  first cell:     t = (1-f) M t + (1-f) G bh + f (W, s.m)  (moment_inject = 2: the injection of
+                  "inject after" spread by the weights of mk::first_cell_weights, W(k) = sum_o w_o
+                  cos k.x_o in N and s.m(k) = -i sum_o (s.m_o) sin k.x_o in phi)
 
 with bh = (0, -iC w), and T = |t_N|. For M1 (w = 0) this is
 T_1 = f [(1 - (1-f) M)^-1]_NN and T_0 = f [(1 - (1-f) M)^-1 M]_NN.
@@ -89,6 +93,60 @@ def tensor_response():
     return w
 
 
+def first_cell():
+    """(w[3,3,3], m[3,3,3,3]) indexed [dz+1, dy+1, dx+1]: mk::first_cell_weights (kernels/moment_cell.hpp),
+    the same midpoint rule over 6 nq^2 directions."""
+    nq = 512
+    h = 2.0 / nq
+    g = -1.0 + (np.arange(nq) + 0.5) * h
+    u, v = np.meshgrid(g, g, indexing="ij")
+    w = np.zeros((3, 3, 3))
+    m = np.zeros((3, 3, 3, 3))
+    tot = 0.0
+    for face in range(6):
+        ax, sgn = face // 2, (-1.0 if face % 2 else 1.0)
+        p = [None] * 3
+        p[ax], p[(ax + 1) % 3], p[(ax + 2) % 3] = np.full_like(u, sgn), u, v
+        r = np.sqrt(p[0]**2 + p[1]**2 + p[2]**2)
+        wq = h * h / r**3
+        d = np.stack([q / r for q in p])                       # (3, nq, nq)
+        t = np.where(np.abs(d) > 0.5, 0.5 / np.maximum(np.abs(d), 1e-300), np.inf)
+        order = np.argsort(t, axis=0)
+        ts = np.take_along_axis(t, order, axis=0)
+        off = np.zeros(d.shape, dtype=int)
+        t0 = np.zeros_like(u)
+        for l in range(4):
+            t1 = np.minimum(ts[l], 1.0) if l < 3 else np.ones_like(u)
+            ln = np.maximum(t1 - t0, 0.0) * wq
+            idx = (off[2] + 1, off[1] + 1, off[0] + 1)
+            np.add.at(w, idx, ln)
+            for q in range(3):
+                np.add.at(m[..., q], idx, ln * d[q])
+            if l < 3:
+                hit = np.isfinite(ts[l])
+                for q in range(3):
+                    sel = hit & (order[l] == q)
+                    off[q][sel] = np.sign(d[q][sel]).astype(int)
+                t0 = np.where(hit, ts[l], 1.0)  # no further face: the path ended at r = 1
+        tot += wq.sum()
+    return w / tot, m / tot
+
+
+def first_cell_spectra():
+    """W(k) (real) and s.m(k) (as a complex array) of the first-cell injection"""
+    w, m = first_cell()
+    W = np.zeros_like(a)
+    sm = np.zeros_like(a, dtype=complex)
+    for dz in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                ph = kx * dx + ky * dy + kz * dz
+                W += w[dz + 1, dy + 1, dx + 1] * np.cos(ph)
+                mo = m[dz + 1, dy + 1, dx + 1]
+                sm += -1j * (sx * mo[0] + sy * mo[1] + sz * mo[2]) * np.sin(ph)
+    return W, sm
+
+
 def mat_mul(A, B):
     return (A[0] * B[0] + A[1] * B[2], A[0] * B[1] + A[1] * B[3], A[2] * B[0] + A[3] * B[2], A[2] * B[1] + A[3] * B[3])
 
@@ -105,9 +163,10 @@ def solve(closure):
     A = (1 - (1 - f) * M[0], -(1 - f) * M[1], -(1 - f) * M[2], 1 - (1 - f) * M[3])
     det = A[0] * A[3] - A[1] * A[2]
     out = {}
-    for inj in (1, 0):
-        rN = f * one if inj else f * M[0]
-        rp = zero if inj else f * M[2]
+    W1, sm1 = first_cell_spectra()
+    for inj in (1, 0, 2):
+        rN = f * one if inj == 1 else f * W1 if inj == 2 else f * M[0]
+        rp = zero if inj == 1 else f * sm1 if inj == 2 else f * M[2]
         if bh is not None:
             amp = (1 - f) if inj else 1.0
             rN = rN + amp * G[1] * bh
@@ -132,7 +191,7 @@ kb = binned(kk)
 cols = {}
 for cl in ("m1", "otvet"):
     T = solve(cl)
-    for inj in (1, 0):
+    for inj in (1, 0, 2):
         cols["%s_inj%d" % (cl, inj)] = np.sqrt(binned(T[inj] ** 2))
 
 
