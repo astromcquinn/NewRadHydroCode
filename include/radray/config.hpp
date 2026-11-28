@@ -307,7 +307,13 @@ struct Config {
   //                are; 0 = before it (the first implementation: a source
   //                cell's photons are mostly moved to its neighbours before
   //                photo_cell absorbs anything, and dense source cells stay
-  //                neutral; docs/rt_moments.md section 5a).
+  //                neutral; docs/rt_moments.md section 5a); 2 = after it,
+  //                with the sources' first cell of travel treated as the
+  //                rays treat it: the photons enter shared among the source
+  //                cell (0.61) and its 26 neighbours by path length, with
+  //                the outward flux in the neighbours (docs/rt_moments.md
+  //                section 10; serial solver only, the recombination
+  //                photons as with 1).
   //   moment_order: 1 = the first-order GLF transport (default, the first
   //                implementation); 2 = second order: slope-limited linear
   //                reconstruction (monotonized central) of N, F, E, the GLF

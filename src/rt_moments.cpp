@@ -71,7 +71,7 @@ bool set_rt_method_param(Config& c, const std::string& key, const std::string& v
   }
   if (key == "moment_inject") {
     c.moment_inject = std::stoi(val);
-    if (c.moment_inject != 0 && c.moment_inject != 1) throw std::runtime_error("moment_inject must be 0 or 1");
+    if (c.moment_inject < 0 || c.moment_inject > 2) throw std::runtime_error("moment_inject must be 0, 1 or 2");
     return true;
   }
   if (key == "otvet_tensor") {
@@ -126,7 +126,7 @@ std::string rt_method_summary(const Config& c) {
     if (c.rt_method == RTMethod::OTVET)
       s += std::string(", otvet_tensor = ") +
            (c.otvet_tensor == 0 ? "auto" : c.otvet_tensor == 1 ? "direct" : "fft");
-    if (!c.moment_inject) s += ", moment_inject = 0";
+    if (c.moment_inject != 1) s += ", moment_inject = " + std::to_string(c.moment_inject);
     if (c.moment_order != 1) s += ", moment_order = " + std::to_string(c.moment_order);
     const std::string cl = otvet_closure_summary(c);  // otvet_closure.hpp
     if (!cl.empty()) s += ", " + cl;
@@ -727,7 +727,9 @@ void moment_step_1(Simulation& s) {
 
   // Sources and recombination photons (moment_inject = 0: before the
   // transport, the original order; 1: after it, so that photo_cell absorbs
-  // them in the cell that emitted them before they move on)
+  // them in the cell that emitted them before they move on; 2: after it,
+  // the sources' photons spread over their first cell of travel, the source
+  // cell and its neighbours, with the outward flux: mk::inject_first_cell)
   // otvet_background = ga01: the photons injected per group this substep
   // (sources and recombination photons, summed over cells), for the box
   // mean s_g of the transfer to the background
@@ -743,8 +745,21 @@ void moment_step_1(Simulation& s) {
     for (std::int64_t c = 0; c < nc; ++c) {
       if (!(static_cast<double>(G.sfr[c]) > u.sfr_min)) continue;
       double add[kNfreq];
-      mk::inject_cell(static_cast<double>(G.Luv[c]), s.clk.dtsec_rt, u, &M.n[c], &M.e[c], nc, inj,
-                      ga01 ? add : nullptr);
+      if (s.cfg.moment_inject == 2) {
+        // serial, in cell order: neighbouring sources share cells
+        static const mk::FirstCell W = mk::first_cell_weights();
+        const int ci = static_cast<int>(c % Nrt), cj = static_cast<int>((c / Nrt) % Nrt),
+                  ck = static_cast<int>(c / (static_cast<std::int64_t>(Nrt) * Nrt));
+        for (int g = 0; g < kNfreq; ++g) {
+          const double q = mk::source_photons_group(static_cast<double>(G.Luv[c]), s.clk.dtsec_rt, u, g);
+          add[g] = mk::inject_first_cell(W, Nrt, ci, cj, ck, q, freq_init[g], &M.n[g * nc], &M.fx[g * nc],
+                                         &M.fy[g * nc], &M.fz[g * nc], &M.e[g * nc]);
+          inj += add[g];
+        }
+      } else {
+        mk::inject_cell(static_cast<double>(G.Luv[c]), s.clk.dtsec_rt, u, &M.n[c], &M.e[c], nc, inj,
+                        ga01 ? add : nullptr);
+      }
       if (ga01)
         for (int g = 0; g < kNfreq; ++g) sg[g] += add[g];
     }
@@ -854,7 +869,7 @@ void moment_step_1(Simulation& s) {
       const GroupField f = group_field(M, g, true);
       for (int it = 0; it < nsub; ++it) transport(f, mk::Closure::Iso, nullptr, 0.0);
     }
-  if (s.cfg.moment_inject == 1) inject();
+  if (s.cfg.moment_inject >= 1) inject();
   lap(s.timers.trace1);
   if (s.tdiag && s.tdiag->acc) moment_tensor_diag(M, *s.tdiag, otvet, ndir, qg.data());  // diagnostic
 

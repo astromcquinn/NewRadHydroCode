@@ -3760,6 +3760,35 @@ Decided 2026-10-11/12 (`docs/PLAN.md`): `hydro_scheme = unsplit` and
 with our explicit OTVET kept as it is; the stored RT references that
 differ on klone are skipped there (label `platform_ref`).
 
+## Done 2026-11-28: the sources' first cell of travel in the moment RT, `moment_inject = 2` (branch `claude/great-hypatia-stoo2m`)
+
+The user's decision after the question why the injection order matters for
+the moments and not for the rays: treat the first cell analytically.
+`docs/rt_moments.md` §10. (This section is here, not at the top, to stay
+clear of PR #44's edits of the top of this file.)
+
+- **New mode, default unchanged:** `moment_inject = 2` injects a
+  substep's source photons spread over their first cell of travel, as the
+  rays deposit theirs: 0.6107 in the source cell, the rest in its 26
+  neighbours with an outward flux (`mk::first_cell_weights`,
+  `mk::inject_first_cell`). Serial solver only; `rt_backend = amrex`
+  refuses it.
+- **Byte-identical to `main`** with the key at 0 or 1.
+- **Measured against the rays** (`rt_driver`, 32³): Γ in the source cells
+  1.00–1.16 of the rays' (1.5–1.8 with `moment_inject = 1`, 0.01–0.2 with
+  0); the white floor of §7 at the grid scale 1.1–1.2 times the exact
+  solution instead of 1.8; the global ionization that of `moment_inject =
+  1` to 1 %.
+- **Not fixed by it:** the cells just beyond (M1 0.7 of the rays' Γ in the
+  edge neighbours, OTVET 1.2–1.4 times out to r ≈ 2.5), and a front 3–8 %
+  ahead of the rays' while under 10 cells.
+- **Tried and dropped:** moving what the absorption leaves to the sphere
+  r = 1, and holding it one substep to spread it over the second cell
+  (table in §10).
+- **Next (klone):** the 256³ convergence pair (rays f = 120 against M1 and
+  OTVET with `moment_inject = 2`) for P_Γ, then the suite if it helps; the
+  mode on the AMReX levels.
+
 ## 2026-11-23: assessment of the open PRs, the branches, the runs on klone and the next runs (branch `claude/great-hypatia-stoo2m`)
 
 Asked by the user. No source changed outside the merged PRs. klone was

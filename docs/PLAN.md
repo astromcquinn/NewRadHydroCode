@@ -2135,3 +2135,16 @@ Thread prompt of 2026-11-23:
 >   fresh branch off `main` with a PR. Leave the merge to me.
 > - Do not edit the paper repository (`RT_closure`) for this unless I ask.
 > - Say plainly what was not done and why.
+
+## The sources' first cell in the moment RT (2026-11-28)
+
+* **User decision:** "I think we should treat the first cell analytically."
+  The moment RT gets a third injection mode, `moment_inject = 2`: a
+  substep's source photons enter spread over their first cell of travel
+  (0.61 in the source cell, the rest in the neighbours with an outward
+  flux), as the rays deposit theirs (`docs/rt_moments.md` §10).
+* **The default stays `moment_inject = 1`** until a reionization run with
+  the new mode has been compared with the rays; changing it is the user's
+  call.
+* Dropped after tests: moving the photons left by the absorption to the
+  end of their first path, and holding them for a second analytic cell.

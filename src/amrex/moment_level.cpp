@@ -1453,6 +1453,8 @@ struct MomentLevel : CellLevel {
     const double t0 = now();
     if (s.cfg.moment_order != 1)
       throw std::runtime_error("moment_order = 2 is not implemented for rt_backend = amrex");
+    if (s.cfg.moment_inject == 2)
+      throw std::runtime_error("moment_inject = 2 is not implemented for rt_backend = amrex");
     const int nsub = s.cfg.moment_nsub;
     const int nsub_l = nsub << lev;
     const double Cn = 1.0 / nsub;

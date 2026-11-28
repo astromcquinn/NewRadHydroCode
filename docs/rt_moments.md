@@ -1104,3 +1104,138 @@ closure evaluation per cell would cut most of this; not done.
 **Not done:** no production run yet with `moment_order = 2`; no AMReX
 levels; the limiter is fixed (monotonized central); HLL fluxes (the other
 common way to cut M1's diffusion) are not implemented.
+
+## 10. The sources' first cell of travel (`moment_inject = 2`)
+
+*2026-11-28, on the user's decision ("treat the first cell analytically").
+Serial solver only; the default stays `moment_inject = 1`.*
+
+**Why.** A substep is one cell of light travel. The chemistry sees a cell's
+photon density once per substep, so the solver has to say where the photons
+emitted during the substep are at that moment:
+
+- `moment_inject = 0` (before the transport): they are diffused away by the
+  four subcycles first, and the source cell sees almost none of them (§5a).
+- `moment_inject = 1` (after it): all of them count in the source cell for
+  the substep. This is the white floor of §7, and it makes the source cells
+  too bright.
+- **The rays** have neither problem. A ray starts at the cell centre, is
+  cast one cell in the substep of its emission and shares its photons among
+  the cells it crosses by its path length in each
+  (`rrk::cast_1`). Averaged over directions the source cell gets
+  **0.6107** of them: the mean distance from the centre of a cube to its
+  faces, which is also the cell average of 1/(4πr²).
+
+**The scheme.** The photons a steady source emits in a substep fill, at the
+end of it, the sphere of radius one cell evenly in radius. `moment_inject =
+2` injects them after the transport as the cell averages of that sphere
+(`mk::first_cell_weights`, `mk::inject_first_cell` in
+`kernels/moment_cell.hpp`):
+
+| cells | share of the photons (all cells of the class) | reduced flux |
+|---|---|---|
+| the source cell | 0.6107 | 0 |
+| 6 face neighbours | 0.3196 | outward |
+| 12 edge neighbours | 0.0684 | outward |
+| 8 corner neighbours | 0.0013 | outward |
+
+- The share is the part of the path r ∈ [0, 1] that lies in the cell,
+  averaged over directions; the flux is the same average of the share times
+  the direction. The weights come from a midpoint rule over 6 × 512²
+  directions (only +, ×, ÷ and √, so the same bits everywhere).
+- Nothing else changes: the same photons are injected (the budget is
+  closed as before), there is no state besides the moments, and a restart
+  is bit-identical.
+- The recombination photons of `recomb_rad = 1` are injected as with
+  `moment_inject = 1`.
+- `rt_backend = amrex` refuses the mode (not implemented there).
+
+**Results** (`rt_driver`, 32³, ĉ = 0.1c; the rays with `ray_rotate = 3`).
+
+*One source in a uniform medium:* Γ_HI over the rays', mean of steps 8–15,
+by distance from the source cell.
+
+| | M1, 0 | M1, 1 | **M1, 2** | OTVET, 0 | OTVET, 1 | **OTVET, 2** |
+|---|---|---|---|---|---|---|
+| source cell | 0.08 | 1.72 | **1.05** | 0.20 | 1.84 | **1.16** |
+| face neighbours (r = 1) | 0.47 | 0.47 | **0.97** | 0.96 | 0.95 | **1.41** |
+| edge neighbours (1.41) | 0.73 | 0.73 | **0.69** | 1.33 | 1.32 | **1.22** |
+| corner neighbours (1.73) | 0.81 | 0.81 | **0.68** | 1.37 | 1.36 | **1.18** |
+| r = 2 | 1.20 | 1.20 | **0.98** | 1.42 | 1.41 | **1.19** |
+| r = 2.2–2.5 | 1.03 | 1.03 | **0.93** | 1.21 | 1.21 | **1.12** |
+| r = 3 | 1.03 | 1.02 | **1.01** | 1.06 | 1.05 | **1.05** |
+| r = 4–4.5 | 1.02 | 1.01 | **1.00** | 0.92 | 0.91 | **0.91** |
+
+The front's radius over the rays' minus 1, at steps 1, 2, 5, 15 (ĉt = 2, 4,
+10, 30 cells):
+
+| | step 1 | 2 | 5 | 15 |
+|---|---|---|---|---|
+| M1, 0 | +0.58 | +0.14 | +0.056 | +0.015 |
+| M1, 1 | +0.34 | +0.023 | +0.013 | +0.002 |
+| **M1, 2** | +0.35 | +0.078 | +0.032 | +0.008 |
+| OTVET, 0 | +0.58 | +0.13 | +0.042 | +0.007 |
+| OTVET, 1 | +0.33 | +0.019 | −0.001 | −0.007 |
+| **OTVET, 2** | +0.34 | +0.071 | +0.020 | −0.001 |
+
+*16 sources in the lognormal density* (`lognormal_16src`, the source cells
+at 31–140 times the mean density), at steps 20 / 40 / 60:
+
+| | M1, 0 | M1, 1 | **M1, 2** | OTVET, 0 | OTVET, 1 | **OTVET, 2** |
+|---|---|---|---|---|---|---|
+| Γ in the source cells over the rays' | 0.01 / 0.03 / 0.04 | 1.49 / 1.50 / 1.49 | **1.00 / 1.00 / 1.00** | 0.03 / 0.18 / 0.23 | 1.54 / 1.61 / 1.62 | **1.04 / 1.10 / 1.11** |
+| ⟨x_HII⟩ over the rays' − 1, step 60 | +0.165 | +0.059 | **+0.069** | +0.112 | +0.030 | **+0.042** |
+| cells with \|x_HII − rays\| > 0.1, step 60 | 0.233 | 0.194 | **0.197** | 0.202 | 0.179 | **0.178** |
+
+*The uniform mean free path test of §7* (`moment_transfer`, inject = 2;
+64³, every cell a source): T over the exact arctan(kλ)/(kλ).
+
+| λ | kΔx | M1, 0 | M1, 1 | **M1, 2** | OTVET, 1 | **OTVET, 2** |
+|---|---|---|---|---|---|---|
+| L/4 | 1.3 | 0.19 | 1.02 | **0.80** | 1.16 | **0.94** |
+| L/4 | 2.2 | 0.05 | 1.39 | **0.99** | 1.44 | **1.03** |
+| L/4 | 2.8 | 0.03 | 1.76 | **1.11** | 1.77 | **1.12** |
+| L | 1.7 | 0.10 | 1.17 | **0.88** | 1.56 | **1.27** |
+| L | 2.2 | 0.05 | 1.41 | **0.99** | 1.60 | **1.18** |
+| L | 2.8 | 0.03 | 1.78 | **1.12** | 1.83 | **1.17** |
+
+- **The source cell is right:** Γ within 5 % of the rays' for M1 (16 % for
+  OTVET with one source, 4–11 % in the box), against 1.5–1.8 times with
+  `moment_inject = 1` and a few per cent of it with 0.
+- **The white floor falls by the same 0.61:** at the grid scale T is
+  1.1–1.2 times the exact solution instead of 1.8, and M1 crosses above
+  it at kΔx ≈ 2.3 instead of 1.3. Part of the floor is physical: the exact field
+  averaged over a cell has the self term 0.61 (1 − e^(−Δx/λ)).
+- **The global ionization is that of `moment_inject = 1`** to 1 % (the box:
+  +6.9 against +5.9 % for M1, +4.2 against +3.0 % for OTVET).
+- **What it does not fix.** The first cells beyond the source are the
+  transport's: M1's edge and corner neighbours have 0.7 of the rays' Γ, and
+  OTVET is 1.2–1.4 times the rays' out to r ≈ 2.5, as with the other modes.
+  The front runs 3–8 % ahead of the rays' while it is under 10 cells
+  (`moment_inject = 1` holds a substep's photons back in the source cell,
+  which happens to cancel the first-order scheme's lead; 2 does not).
+
+**Two other hand-offs to the transport were tried and dropped** (same
+single-source test; M1 / OTVET):
+
+| | source cell | face | edge | r = 2 | r = 3 | front, step 2 |
+|---|---|---|---|---|---|---|
+| kept (the photons stay where they are injected) | 1.05 / 1.16 | 0.97 / 1.41 | 0.69 / 1.22 | 0.98 / 1.19 | 1.01 / 1.05 | +0.08 / +0.07 |
+| what the absorption leaves is moved to the sphere r = 1 with its flux, as a ray's packet ends its first substep | 1.01 / 1.08 | 0.74 / 1.06 | 0.38 / 0.78 | 0.52 / 0.73 | 0.93 / 1.00 | +0.16 / +0.16 |
+| it is held out of the next transport and then spread over r ∈ [1, 2] | 1.00 / 1.06 | 1.06 / 1.32 | 1.14 / 1.47 | 0.92 / 1.13 | 0.82 / 0.89 | +0.05 / +0.05 |
+
+The second treats the emission as a packet at the end of its path, but the
+chemistry sees one moment per substep, so the cells between the packets
+are missed. The third needs state across substeps (and in the checkpoint)
+and dims r = 2–3. The kept form is the one consistent with a snapshot: the
+steady stream's own cell averages.
+
+**Checks.** With the key at 0 or 1 the outputs are byte-identical to
+`main` (rays, M1, OTVET, `moment_inject = 0`, `otvet_background = ga01`,
+`moment_order = 2`; `lognormal_16src`, 6 steps). New: `test_moments`
+(the weights; one substep of one source), `thread_rt_{m1,otvet}_inject2_lognormal_16src`,
+`restart_smoke_{m1,otvet}_inject2`.
+
+**Not done:** a reionization run (klone); the AMReX levels; the screen and
+cone closures beyond what the shared injection gives them; the
+recombination photons; a second-order transport with it.

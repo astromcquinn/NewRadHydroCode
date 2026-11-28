@@ -829,6 +829,17 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(thread_rt_${m}_lognormal_16src PROPERTIES TIMEOUT 1800
                          LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
   endforeach()
+  # moment_inject = 2: the sources' first cell of travel (docs/rt_moments.md
+  # section 10); neighbouring sources share cells, so the injection is serial
+  foreach(m m1 otvet)
+    add_test(NAME thread_rt_${m}_inject2_lognormal_16src
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/thread_check.py
+                     ${CMAKE_CURRENT_BINARY_DIR}/thread_runs/rt_${m}_inject2 $<TARGET_FILE:rt_driver>
+                     ${CMAKE_CURRENT_SOURCE_DIR}/problems/lognormal_16src --set nsteps=3
+                     --set rt_method=${m} --set legacy_physics=0 --set moment_inject=2)
+    set_tests_properties(thread_rt_${m}_inject2_lognormal_16src PROPERTIES TIMEOUT 1800
+                         LABELS "threads;moments" ENVIRONMENT OMP_NUM_THREADS=1 RUN_SERIAL TRUE)
+  endforeach()
   # the alternative OTVET tensors (otvet_closure.hpp, docs/otvet_closure.md)
   foreach(cl split screen_split cone ga01)
     if(cl STREQUAL "split")
@@ -1130,6 +1141,16 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/m1_inject0 13 --set rt_method=m1
                      --set recomb_case=A --set recomb_rad=1 --set moment_inject=0)
     set_tests_properties(restart_smoke_m1_inject0 PROPERTIES TIMEOUT 600 LABELS "restart;recomb;moments")
+    # moment_inject = 2: the sources' first cell of travel (docs/rt_moments.md
+    # section 10); no state besides the moments
+    foreach(m m1 otvet)
+      add_test(NAME restart_smoke_${m}_inject2
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/restart_check.py
+                       $<TARGET_FILE:radhydro> ${CMAKE_CURRENT_SOURCE_DIR}/problems_full/smoke
+                       ${CMAKE_CURRENT_BINARY_DIR}/restart_runs/${m}_inject2 13 --set rt_method=${m}
+                       --set moment_inject=2)
+      set_tests_properties(restart_smoke_${m}_inject2 PROPERTIES TIMEOUT 600 LABELS "restart;moments")
+    endforeach()
     # moment_order = 2: the second-order transport in the full loop, both
     # closures (docs/rt_moments.md section 9)
     foreach(m m1 otvet)
