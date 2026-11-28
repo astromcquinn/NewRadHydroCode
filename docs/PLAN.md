@@ -2148,3 +2148,15 @@ Thread prompt of 2026-11-23:
   call.
 * Dropped after tests: moving the photons left by the absorption to the
   end of their first path, and holding them for a second analytic cell.
+
+## A 512³ M1 run with the first-cell injection (2026-11-28)
+
+* **User decision:** after the uniform tests with `moment_inject = 2`
+  (`docs/rt_moments.md` §10; 32³–256³, the grid-scale response 1.1–1.2 of
+  exact against 1.75–1.85), run the late-end suite's M1 run again with
+  the new injection, to see whether it changes anything: `reion512late_m1`
+  with `moment_inject = 2`, compared with it and with the rays' run.
+* It needs klone; the thread prompt was given to the user in the session
+  (build from the branch of PR #46; a check that the new binary with
+  `moment_inject = 1` reproduces the start of `reion512late_m1`; `Luv`
+  added to the snapshot fields; the 256³ convergence sibling beside it).
