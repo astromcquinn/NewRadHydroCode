@@ -82,8 +82,9 @@ The user asked whether our Γ-fluctuation trends contradict arXiv:2504.10571
   - The exact linear solution of the discrete first-order scheme
     (`tools/analysis/moment_transfer_exact.py`, §7.1): the code matches it
     to 3 % in every bin at 32³–256³.
-  - Still running: OTVET with `moment_order = 2` at 256³ (one row of the
-    §8.2 tables).
+  - OTVET with `moment_order = 2` at 256³ ended 2026-11-24 and is in the
+    §8.2 tables: second order does not reduce OTVET's excess over the rays
+    either (§8.3).
 - Paper (`astromcquinn/RT_closure`, `main`): the Gnedin 2025 comparison,
   M1's numerical high-k power and the convergence caveat are in.
 - Open: a T_ΓL(k) figure of the 512³ runs against their own source field
